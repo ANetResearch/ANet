@@ -447,6 +447,9 @@ Local execution
 Correctness limits
 ------------------
 
+Further limitations of tasks, evidence, peers and interfaces are listed in
+:doc:`known-limitations`.
+
 * *Repeated message identifiers.* While a task is running, the same identifier with the same content
   returns the original task and sends nothing, and the same identifier with different content is
   refused with ``MESSAGE_ID_REUSED``. When a task has ended, the same identifier is a new request, with
@@ -477,7 +480,7 @@ Correctness limits
   added. The tool descriptions ask the model not to tell other agents.
 * *Public capability quota.* Several AIDs can use up the global quota of a public capability; the
   per-caller concurrency limit and prices only limit this. The other callers then get ``busy``.
-* *Policy ``approve``.* A caller that is not on the list is refused directly for a ``discard`` capability
+* *Policy approve.* A caller that is not on the list is refused directly for a ``discard`` capability
   that is open only to the allow list, and can therefore tell that the capability exists. Under ``closed``
   and ``open`` this is not visible.
 * *Web caches.* Files of the hub web page that carry a hash in their name are cached for a year. A fix is
@@ -496,5 +499,3 @@ Report a suspected vulnerability by email to ``hi@anet0.com`` with the subject
 to reproduce and the impact. The project aims to acknowledge a report within 72 hours and
 asks for reasonable time to publish a fix before disclosure. The scope is the ``anet``
 program and daemon, ANetCore, ANetHub and the official hub service.
-
-.. v030-doc-verify: EXE-3, EXE-7, EXE-8 (sandbox limits and platforms), FS-5, FS-11 (retention and early deletion), KEL-10 (identity commands), PAY-13, PAY-14 (settlement and reviews), UX-9, UX-10 (previews), UX-11, UX-12 (files)

@@ -1,7 +1,7 @@
 /* Minor colour alignment with the ANet palette (grey, black, white; red as accent). */
 .wy-nav-side { background: #1A1C1F; }
 .wy-side-nav-search { background-color: #1A1C1F; }
-.wy-side-nav-search > a img.logo { width: 100%; max-width: 200px; margin: 0 auto 8px; }
+.wy-side-nav-search > a img.logo { width: 100%; max-width: 220px; margin: 0 auto 8px; }
 .wy-menu-vertical a { color: #A1A5AA; }
 .wy-menu-vertical a:hover { background-color: #292C30; color: #F2F4F6; }
 .wy-menu-vertical li.current > a,

@@ -165,8 +165,8 @@ msgid ""
 " another one, for example the daemon that was started last."
 msgstr ""
 "一台机器可以持有多个身份(``anet id ls``)。通过 ``--id``\\ 、\\ ``ANET_ID``\\ 、\\ "
-"``ANET_HOME``\\ 、\\ ``ANET_DATA_DIR`` 或非默认的 ``anet id use`` "
-"显式选择身份时,``anet mcp`` "
+"``ANET_HOME``\\ 、\\ ``ANET_DATA_DIR`` 或非默认的 ``anet id use`` 显式选择身份时,\\ "
+"``anet mcp`` "
 "严格解析:只连接该身份的守护进程,不连接其他任何守护进程。因此,为某个身份配置的客户端,不会最终操控另一个身份,例如最后启动的那个守护进程。"
 
 #: ../../howto/mcp.rst:105
@@ -641,8 +641,8 @@ msgid ""
 "that ``anet agents wire`` writes set the tool timeout of Codex and Hermes"
 " to 900 seconds for the same reason."
 msgstr ""
-"服务器将单次控制面调用限制为 15 分钟。出于同样的原因,``anet agents wire`` 写入的条目把 Codex 和 Hermes "
-"的工具超时设为 900 秒。"
+"服务器将单次控制面调用限制为 15 分钟。出于同样的原因,\\ ``anet agents wire`` 写入的条目把 Codex 和 "
+"Hermes 的工具超时设为 900 秒。"
 
 #: ../../howto/mcp.rst:353
 msgid ""
@@ -752,7 +752,7 @@ msgid ""
 "with ``anet.reason`` set to ``needs_operator_approval``. When the user "
 "wants the price paid, ``submit_payment`` is called:"
 msgstr ""
-"超过自动限额的报价,会停留在 ``input-required`` 状态,``anet.reason`` 设为 "
+"超过自动限额的报价,会停留在 ``input-required`` 状态,\\ ``anet.reason`` 设为 "
 "``needs_operator_approval``\\ 。用户希望支付该价格时,调用 ``submit_payment``:"
 
 #: ../../howto/mcp.rst:410
@@ -901,8 +901,8 @@ msgid ""
 " ends with a message that states the build, and ``anet agents`` has "
 "nothing to register. See :ref:`topics-modules`."
 msgstr ""
-"使用 ``-tags no_mcp`` 构建的二进制文件不包含 MCP 服务器。\\ ``anet mcp`` "
-"会以指明该构建的消息结束,``anet agents`` 也没有可注册的内容。参见 :ref:`topics-modules`\\ 。"
+"使用 ``-tags no_mcp`` 构建的二进制文件不包含 MCP 服务器。\\ ``anet mcp`` 会以指明该构建的消息结束,\\ "
+"``anet agents`` 也没有可注册的内容。参见 :ref:`topics-modules`\\ 。"
 
 #: ../../howto/mcp.rst:486
 msgid "See also"

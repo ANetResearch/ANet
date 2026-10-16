@@ -292,5 +292,3 @@ Operating notes
 * Clocks of federated hubs should agree to within a few minutes.
 * Remove a peer by deleting its entry and restarting the hub. Pending
   obligations remain in ``anet-hub due``.
-
-.. v030-doc-verify: SS-6

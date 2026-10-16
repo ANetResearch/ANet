@@ -305,8 +305,8 @@ msgid ""
 "ended in a conflict or an error, so that an installer cannot report "
 "success after a partial result."
 msgstr ""
-"``--all`` 与显式指定的工具名称互斥。\\ ``--refresh`` 和 ``--a2a`` 适用于 "
-"Hermes;``--refresh`` 只被 ``wire`` "
+"``--all`` 与显式指定的工具名称互斥。\\ ``--refresh`` 和 ``--a2a`` 适用于 Hermes;\\ "
+"``--refresh`` 只被 ``wire`` "
 "接受。至少有一个工具以冲突或错误告终时,命令以非零状态退出,使安装程序不会在部分结果的情况下报告成功。"
 
 #: ../../howto/coding-agents.rst:158
@@ -402,7 +402,7 @@ msgid ""
 "another identity, select it with ``--id``:"
 msgstr ""
 "条目以绝对路径指明 ``anet`` 二进制文件,并把 ``ANET_DATA_DIR`` 设置为命令运行时所选身份的数据目录。MCP "
-"客户端不会加载运维人员的 shell 配置文件,而且一旦身份被固定,``anet mcp`` "
+"客户端不会加载运维人员的 shell 配置文件,而且一旦身份被固定,\\ ``anet mcp`` "
 "就严格解析:它只连接该身份的守护进程,不连接其他任何守护进程。要接入另一个身份,请用 ``--id`` 选择:"
 
 #: ../../howto/coding-agents.rst:232
@@ -482,8 +482,8 @@ msgid ""
 msgstr ""
 "早期版本曾向 ``~/.claude/CLAUDE.md`` 追加角色块,在 ``~/.cursor/rules`` 下写入规则文件,并通过 "
 "``anet install --agent openclaw`` 向 ``~/.openclaw/AGENTS.md`` 追加块。\\ "
-"``wire`` 会移除 Claude Code 的块和 Cursor 的文件;``wire --all`` 与 ``unwire --all``"
-" 在 OpenClaw 的块存在时会将其移除。OpenClaw 不是受支持的工具。"
+"``wire`` 会移除 Claude Code 的块和 Cursor 的文件;\\ ``wire --all`` 与 ``unwire "
+"--all`` 在 OpenClaw 的块存在时会将其移除。OpenClaw 不是受支持的工具。"
 
 #: ../../howto/coding-agents.rst:269
 msgid "Entries written by the command"
@@ -538,7 +538,7 @@ msgid ""
 " (see :ref:`howto-local-a2a`), so that the call is signed, sealed and "
 "relayed by the node. Hermes does not reach the remote agent directly."
 msgstr ""
-"Hermes 可通过自带的 A2A 客户端调用远程 Agent。使用 ``--a2a`` 时,``wire`` 会为每个 AID 在 "
+"Hermes 可通过自带的 A2A 客户端调用远程 Agent。使用 ``--a2a`` 时,\\ ``wire`` 会为每个 AID 在 "
 "``config.yaml`` 中添加一个 ``a2a_agents`` 条目。每个条目指向节点的本地 A2A 接口(参见 :ref"
 ":`howto-local-a2a`),使调用由节点签名、封闭并中继。Hermes 不会直接联系远程 Agent。"
 
@@ -567,8 +567,8 @@ msgid ""
 "is therefore kept at mode ``0600``; ``wire`` narrows a wider mode, and "
 "``anet agents`` reports a file that is wider."
 msgstr ""
-"条目中包含本地 A2A 接口的 bearer 令牌。因此文件的权限保持为 ``0600``;``wire`` 会收窄较宽的权限,``anet "
-"agents`` 会报告权限较宽的文件。"
+"条目中包含本地 A2A 接口的 bearer 令牌。因此文件的权限保持为 ``0600``;\\ ``wire`` 会收窄较宽的权限,\\ "
+"``anet agents`` 会报告权限较宽的文件。"
 
 #: ../../howto/coding-agents.rst:384
 msgid ""
@@ -578,14 +578,14 @@ msgid ""
 "exist, ``wire --a2a`` fails and asks for ``anet up`` first."
 msgstr ""
 "地址与令牌读取自 a2a 模块状态目录中的 ``a2a_addr.txt`` 与 ``a2a_token.txt``\\ "
-"。这些文件在守护进程首次提供该接口时创建。若它们不存在,``wire --a2a`` 会失败,并提示先运行 ``anet up``\\ 。"
+"。这些文件在守护进程首次提供该接口时创建。若它们不存在,\\ ``wire --a2a`` 会失败,并提示先运行 ``anet up``\\ 。"
 
 #: ../../howto/coding-agents.rst:388
 msgid ""
 "``wire`` refuses to write the entry while another process holds the "
 "recorded port, or while the interface is down because of a port conflict."
 " The token would otherwise be handed to the process that holds the port."
-msgstr "当另一个进程占用已记录的端口,或接口因端口冲突而未启动时,``wire`` 拒绝写入该条目。否则令牌会被交给占用该端口的进程。"
+msgstr "当另一个进程占用已记录的端口,或接口因端口冲突而未启动时,\\ ``wire`` 拒绝写入该条目。否则令牌会被交给占用该端口的进程。"
 
 #: ../../howto/coding-agents.rst:391
 msgid ""

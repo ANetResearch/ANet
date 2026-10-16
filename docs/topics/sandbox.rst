@@ -39,26 +39,41 @@ Supported platforms
 
 Linux
    The sandbox uses ``bubblewrap`` with a seccomp filter. It needs the
-   ``bubblewrap`` package. On Ubuntu 24.04 and later, the default AppArmor
-   policy prevents ``bubblewrap`` from creating user namespaces, and the node
-   reports ``userns_blocked`` with the command that installs a narrow profile.
+   ``bubblewrap`` package. The supported hosts are Debian 12 (bubblewrap 0.8)
+   and Ubuntu 24.04 with the AppArmor profile described below. On Ubuntu 24.04
+   and later, the default AppArmor policy prevents ``bubblewrap`` from creating
+   user namespaces, and the node reports ``userns_blocked`` with the command that
+   installs a narrow profile.
 
 macOS
-   The sandbox uses Seatbelt through ``/usr/bin/sandbox-exec``.
+   The sandbox uses Seatbelt through ``/usr/bin/sandbox-exec``. Before a turn
+   starts, the node runs a self-check inside the profile. A build in which
+   Seatbelt is not enabled, and a host on which the self-check fails, report the
+   sandbox as unavailable (``platform_unsupported.pending`` or the reason of the
+   failed item) and turn away the turns that need it with ``sandbox_unavailable``.
+   The node never runs such a turn without the sandbox.
 
 Other platforms
    There is no sandbox. On Windows, run ANet in WSL2.
 
-.. v030-doc-verify: MOD-3
-   Whether the Seatbelt sandbox is enabled in the 0.3.0 release build is decided
-   by a compile-time constant that the module package introduces, and by the
-   result of the first macOS test run. When it is disabled, a macOS node reports
-   the sandbox as pending and fails closed for turns that need it. State the
-   release behaviour here.
+The AppArmor profile
+--------------------
 
-.. v030-doc-verify: EXE-7
-   The anet doctor --apparmor-profile option, which prints the AppArmor profile
-   that allows bubblewrap, is not yet in the main checkout.
+``anet doctor --apparmor-profile`` prints the profile on standard output and writes
+no file. The sentence ``userns_blocked`` names the command that installs it:
+
+.. code-block:: console
+
+   $ anet doctor --apparmor-profile | sudo tee /etc/apparmor.d/anet-bwrap >/dev/null \
+       && sudo apparmor_parser -r /etc/apparmor.d/anet-bwrap
+
+The profile has two parts. The profile ``anet-bwrap`` is attached to
+``/usr/bin/bwrap`` and gives ``bubblewrap`` the permission to create user
+namespaces. Everything that ``bubblewrap`` starts, the sandboxed agent included,
+runs under the stacked profile ``anet-bwrap//&anet-bwrap-unpriv``, which holds no
+capability. The structure is that of the profile ``bwrap-userns-restrict`` which
+Ubuntu ships from release 24.10, and the profile changes no ``sysctl`` setting.
+The profile can be removed with ``apparmor_parser -R`` and by deleting the file.
 
 What the sandbox restricts
 ==========================
@@ -78,7 +93,12 @@ Own file system
    ends. Its working directory is separate from the working directory of runs
    that are not sandboxed, and the data directory of the node, the control
    token, the local socket directories and the sockets of other modules are
-   never visible.
+   never visible. Runs that are not sandboxed work under
+   ``<cache>/anet/work/<aid>/<interaction>/`` (or in ``auto_reply.work_dir``), and
+   sandboxed runs under ``<cache>/anet/work-sandbox/<aid>/<interaction>/``. The two
+   roots never overlap, so that nothing that the run of an untrusted peer left
+   behind is in the directory where an agent without a sandbox starts. The work
+   directories are removed within the retention period in every build.
 
 No privileges
    All Linux capabilities are dropped. A seccomp filter denies system calls that
@@ -296,6 +316,10 @@ The operator sees the cause in ``anet status`` and ``anet doctor``:
        contains the command that installs a profile.
    * - ``userns_unavailable``
      - The kernel or the container does not allow user namespaces.
+   * - ``sandbox_start_failed``
+     - ``bubblewrap`` could not set up the sandbox. The sentence carries the
+       message of ``bubblewrap`` when there is one. Run ``anet doctor --json``
+       and report the result, or set ``untrusted`` to ``off``.
    * - ``netns_failed``
      - The network isolation check failed.
    * - ``seccomp_failed``

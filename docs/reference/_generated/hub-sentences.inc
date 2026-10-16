@@ -133,7 +133,7 @@
    * - ``hub_flag_removed.fixed``
      - C
      - 2
-     - {flag} is now a fixed value; remove it and start ``anet-hub again``.
+     - {flag} is now a fixed value; remove it and start ``anet-hub`` again.
      - {flag} 已改为固定值；请删去这个参数后重新启动 ``anet-hub``\ 。
    * - ``hub_flag_removed.none``
      - C
@@ -183,12 +183,12 @@
    * - ``restore.backup_too_new``
      - C
      - 1
-     - {path} was written by a newer ``anet-hub``, which this version cannot restore, so nothing was changed; upgrade ``anet-hub and`` try again.
+     - {path} was written by a newer ``anet-hub``, which this version cannot restore, so nothing was changed; upgrade ``anet-hub`` and try again.
      - {path} 由更新版本的 ``anet-hub`` 写入，本版本恢复不了，什么都没有改；请升级 ``anet-hub`` 后重试。
    * - ``data.missing``
      - C
      - 1
-     - There is no hub data in {path}, so nothing was changed; point ``--data`` at the directory ``anet-hub runs`` with and try again.
+     - There is no hub data in {path}, so nothing was changed; point ``--data`` at the directory ``anet-hub`` runs with and try again.
      - {path} 里没有 hub 数据，什么都没有改；请用 ``--data`` 指向 ``anet-hub`` 运行时用的目录后重试。
    * - ``hub_identity_v02``
      - C
@@ -198,12 +198,12 @@
    * - ``hub_data_too_new``
      - C
      - 1
-     - This hub data directory was written by a newer ``anet-hub``, which this version cannot open; upgrade ``anet-hub and`` try again (do not delete the directory).
+     - This hub data directory was written by a newer ``anet-hub``, which this version cannot open; upgrade ``anet-hub`` and try again (do not delete the directory).
      - 这个 hub 数据目录由更新版本的 ``anet-hub`` 写入，本版本打不开；请升级 ``anet-hub`` 后重试（不要删除这个目录）。
    * - ``data.in_use``
      - C
      - 1
-     - {path} is in use by another ``anet-hub process``; wait for it to finish or stop it, then try again.
+     - {path} is in use by another ``anet-hub`` process; wait for it to finish or stop it, then try again.
      - {path} 正被另一个 ``anet-hub`` 进程使用；请等它结束或先停止它后重试。
    * - ``hub_recovery_setup_required``
      - C
@@ -238,7 +238,7 @@
    * - ``hub_identity.secrets_by_operator``
      - I
      - 0
-     - These are not in the hub data directory, so ``anet-hub cannot`` replace them; replace them yourself: {list}.
+     - These are not in the hub data directory, so ``anet-hub`` cannot replace them; replace them yourself: {list}.
      - 这些不在 hub 数据目录里，\ ``anet-hub`` 换不了，请自己更换：{list}。
    * - ``hub_identity.recovery_written``
      - I

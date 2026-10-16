@@ -75,14 +75,14 @@
 # `--shell` fetches the build that has that module. Even that build runs
 # nothing until an operator writes a `modules.shell` config block naming the
 # commands, and lists the AIDs allowed to call them; an empty list refuses
-# everyone. Full contract: docs/SHELL-zh.md in the repository.
+# everyone. Full contract: https://docs.agentnetwork.org.cn/docs/en/latest/topics/shell.html
 #
 # What the default binary can do instead, and how to turn it off (the same
 # text, in both languages, is internal/a2ashape InstallHeader; a test keeps
 # the two equal):
 #
-#   缺省二进制不执行远程命令（shell 模块不在其中）。运营者配置自动回复之后，它会为对端运行本机 agent，未信任对端只在沙箱里运行。不想要这项功能：--without autoreply 让它永不启动；要二进制里没有这段代码：按 docs/DISTRIBUTIONS-zh.md 用 build.sh --without autoreply 自建。
-#   The default binary does not run remote commands (the shell module is not in it). Once the operator configures auto-reply, it runs a local agent for peers, and untrusted peers only inside a sandbox. If you do not want this feature: --without autoreply keeps it from ever starting; to leave the code out of the binary, build it yourself with build.sh --without autoreply as described in docs/DISTRIBUTIONS-zh.md.
+#   缺省二进制不执行远程命令（shell 模块不在其中）。运营者配置自动回复之后，它会为对端运行本机 agent，未信任对端只在沙箱里运行。不想要这项功能：--without autoreply 让它永不启动；要二进制里没有这段代码：按 https://docs.agentnetwork.org.cn/docs/zh-cn/latest/topics/modules.html 用 build.sh --without autoreply 自建。
+#   The default binary does not run remote commands (the shell module is not in it). Once the operator configures auto-reply, it runs a local agent for peers, and untrusted peers only inside a sandbox. If you do not want this feature: --without autoreply keeps it from ever starting; to leave the code out of the binary, build it yourself with build.sh --without autoreply as described at https://docs.agentnetwork.org.cn/docs/en/latest/topics/modules.html.
 #
 # --without installs a setting, not a different binary: the names are written
 # into the `without` list of config.json by `anet init --without`, run by the

@@ -396,7 +396,7 @@ msgstr "``duplicate_nonce``"
 msgid ""
 "The exact authorization was already settled (returned by "
 "``/x402/verify``; ``/x402/settle`` returns the original receipt)."
-msgstr "完全相同的授权已被结算(由 ``/x402/verify`` 返回;``/x402/settle`` 返回原收据)。"
+msgstr "完全相同的授权已被结算(由 ``/x402/verify`` 返回;\\ ``/x402/settle`` 返回原收据)。"
 
 #: ../../ops/facilitator.rst:225
 msgid "``duplicate_binding``"
@@ -591,7 +591,7 @@ msgstr "证明某账户余额包含在某纪元总额之内的证明。"
 msgid ""
 "On a node, ``anet audit-hub`` checks the chain and the node's own proof; "
 "see :ref:`reference-cli`."
-msgstr "在节点上,``anet audit-hub`` 检查该链以及节点自身的证明;参见 :ref:`reference-cli`\\ 。"
+msgstr "在节点上,\\ ``anet audit-hub`` 检查该链以及节点自身的证明;参见 :ref:`reference-cli`\\ 。"
 
 #: ../../ops/facilitator.rst:319
 msgid "The operator reads the same figures with ``anet-hub supply``:"
@@ -605,7 +605,7 @@ msgid ""
 "``owed`` lines what a peer owes this hub."
 msgstr ""
 "``latest_epoch`` 列出最新已发布纪元的序号、起止日期、未清偿金额和 Merkle 根,若无则为 ``none``\\ 。\\ "
-"``due`` 行表示本 hub 欠对等方的数额,``owed`` 行表示对等方欠本 hub 的数额。"
+"``due`` 行表示本 hub 欠对等方的数额,\\ ``owed`` 行表示对等方欠本 hub 的数额。"
 
 #: ../../ops/facilitator.rst:341
 msgid "Redemption"

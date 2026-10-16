@@ -119,9 +119,6 @@ for 1 hour, counted from the time at which the hub of the recipient accepted the
 An emergency rotation (``emergency`` set in the ``rot`` event) and a deactivation
 leave no grace: a recipient that knows of the event rejects the old key at once.
 
-.. v030-doc-verify: KEL-3, KEL-4 (notice age and grace rules), KEL-10 (CLI)
-
-
 Encryption keys
 ---------------
 
@@ -313,9 +310,6 @@ The extensions and bindings that ANet registers in A2A cards are:
 
 The relay binding of 0.2 (``anet-relay/v1``), the direct binding (``anet-p2p/v1``) and the
 public price extension (``anet-pricing/v1``) are removed.
-
-.. v030-doc-verify: PAY-10 (anet-price/v1 extended card), UX-10 (anet-preview/v1)
-
 
 Task messages and metadata
 --------------------------

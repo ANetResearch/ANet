@@ -24,9 +24,6 @@ What does not carry over
 * The task history and the evidence chain of the 0.2 data directory stay in that directory;
   the 0.3 programs do not read them.
 
-.. v030-doc-verify: balances and ledgers of a 0.2 hub are not migrated (release plan: fresh deployment)
-
-
 Upgrade a node
 --------------
 

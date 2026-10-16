@@ -3,12 +3,6 @@
 Troubleshooting
 ===============
 
-.. v030-doc-verify: UX-5
-.. v030-doc-verify: UX-15
-.. v030-doc-verify: MOD-1
-.. v030-doc-verify: KEL-10
-.. v030-doc-verify: UX-9
-
 This page groups failures by what is observed and by the reason code that
 the node reports. Every refusal, failure and waiting state of a task carries
 a reason code, in the metadata ``anet.reason`` of the task and in the output
@@ -112,6 +106,50 @@ Node and installation
    * - ``retention_invalid``
      - A retention value does not have the form ``<days>d`` or ``forever``.
      - ``anet retention set 30d``. Valid values are 1 to 3650 days.
+   * - ``daemon_running``
+     - The command changes files of the data directory, and the daemon holds
+       it. ``anet init --without`` and ``anet init --with`` work only while the
+       daemon is stopped.
+     - ``anet down``, repeat the command, then ``anet up``.
+   * - ``daemon_not_answering``
+     - A daemon holds the data directory but does not answer within a few
+       seconds. The command changed nothing.
+     - Try again later. If the daemon stays silent, ``anet logs``.
+   * - ``local_write_failed``
+     - The node could not write a change to the data directory.
+     - Check the free space and the permissions of the data directory, and repeat
+       the command.
+   * - ``no_local_task``
+     - The node holds no task of that identifier. The task ended and its content
+       was deleted after the retention period, or the data of the node is older
+       than the task.
+     - ``anet audit --interaction <id>`` shows the evidence that remains.
+   * - ``module_absent``, ``module_absent.configured``
+     - The function belongs to a module that is not part of this build, or that
+       ``without`` turns off. At the start, a configuration block of such a
+       module stops the daemon with ``module_absent.configured``.
+     - The sentence names the cause and the remedy: install the default build, or
+       ``anet down``, ``anet init --with <module>`` and ``anet up``, or remove the
+       configuration block. ``anet version`` lists the modules in the binary.
+   * - ``module_absent.payment``
+     - A quote arrived, and this node has no payment module. Nothing was signed.
+       The task waits in ``input-required``.
+     - Install a build with payment and run ``anet pay <task>``, or cancel the
+       task with ``anet task cancel <task>``.
+   * - ``without_configured``
+     - ``anet init --without`` was refused because ``config.json`` already holds
+       the configuration of that module.
+     - Remove the configuration block, then repeat the command.
+   * - ``build_tag_pending``
+     - ``build.sh --without`` names a module that has no build tag in this
+       version (the console). Nothing was built.
+     - Turn the module off in the configuration with ``anet init --without``.
+   * - ``update_variant_unknown``, ``update_variant_unknown.mismatch``
+     - ``anet update`` found a binary that was built locally, or a binary whose
+       set of modules differs from the released build of its variant. Nothing was
+       downloaded.
+     - Build again in the same way, or install a released build with
+       ``install.sh``.
 
 The clock matters in a second respect: when the clock cannot be compared
 with the hub, deletion of expired keys and content is slowed to avoid

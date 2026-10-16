@@ -220,8 +220,15 @@ identity, ``~/.anet/ids/<name>`` for others, or the directory named by
    * - ``hub_join.json``, ``key_state_notice.cbor``
      - Hub join state and the latest signed key-state notice.
    * - ``modules/``
-     - Private state of modules (for example the local A2A interface
-       address).
+     - Private state of modules: the address and the token of the local A2A
+       interface, ``modules/autoreply/sessions.json`` (the map from an
+       interaction to the session of the local agent) and
+       ``modules/x402/liab_proof.jsonl`` (the balance proofs of the hub that the
+       node has verified, one line for each epoch, mode ``0600``).
+   * - ``daemon.lock``
+     - An empty file on which a running daemon holds an exclusive lock. It is
+       not part of a backup. The operating system releases the lock when the
+       process ends, however it ends.
    * - ``recovery_local.key``, ``recovery_local.anetrec``
      - Present only while the identity has no recovery passphrase. Together
        they can rotate the identity (see below).
@@ -230,6 +237,14 @@ identity, ``~/.anet/ids/<name>`` for others, or the directory named by
        and restarting; they do not need to be saved.
    * - ``daemon.log``
      - The node's log.
+
+A command that changes files under a running daemon (``anet retention set``, the
+steps of ``anet identity`` that work on files, ``anet init --without``) first
+looks at the lock. When the lock is held and the control interface does not
+answer within a few seconds, a daemon is there and busy, and the command stops
+with ``daemon_not_answering`` and changes nothing. When the daemon answers, the
+command uses it; ``anet init --without`` and ``--with`` stop with
+``daemon_running`` instead.
 
 A backup of this directory contains private keys and the task content kept
 during the retention period (30 days after a task ends by default, 7 days for
@@ -314,8 +329,6 @@ A recovery file that has no passphrase cannot be used this way. It belongs to
 an identity that joined a hub without a terminal and works only together with
 its own data directory, from which ``anet identity protect`` sets a passphrase
 (see :ref:`topics-identity`).
-
-.. v030-doc-verify: KEL-10
 
 Never run two copies of one identity
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

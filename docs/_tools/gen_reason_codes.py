@@ -99,6 +99,14 @@ def sections_from_source():
 ESC = re.compile(r"([\\*`|])")
 FLAG = re.compile(r"(?<![\w`-])(--[a-z][a-z0-9-]*)")
 CMD = re.compile(r"(?<![\w`-])(anet(?:-hub)?(?: [a-z][a-z-]*)?)(?![\w`-])")
+# The words that can follow "anet" as a command. Any other word ("anet is
+# running") is ordinary text, so only the program name is marked.
+COMMANDS = set("""help version init up daemon stop down status doctor logs update id ids identity
+hub-register hub-leave visibility profile find card delegate message msg task inbox thread results
+pull end review peers inbound autoreply auto-reply preview pay payments payees balance credits redeem
+reconcile audit-hub audit retention verify agents mcp console x402-authorize pay-header p2p-advertise
+accept accept-end install evidence admit admissions admission grant quota supply due clear redemptions
+restore""".split())
 
 
 def rst(text, nexts=()):
@@ -113,7 +121,14 @@ def rst(text, nexts=()):
     for n in sorted({n for n in nexts if n}, key=len, reverse=True):
         t = t.replace(n, hold("``%s``" % n))
     t = FLAG.sub(lambda m: hold("``%s``" % m.group(1)), t)
-    t = CMD.sub(lambda m: hold("``%s``" % m.group(1)), t)
+    def cmd(m):
+        full = m.group(1)
+        prog, _, word = full.partition(" ")
+        if word and word not in COMMANDS:
+            return hold("``%s``" % prog) + full[len(prog):]
+        return hold("``%s``" % full)
+
+    t = CMD.sub(cmd, t)
     t = ESC.sub(r"\\\1", t)
     t = re.sub(r"(\w)_(?=\s|$|[.,;:)])", r"\1\\_", t)
     # A literal that touches a non-ASCII character needs an escaped space, or

@@ -3,9 +3,6 @@
 Local A2A endpoint
 ==================
 
-.. v030-doc-verify: UX-10
-.. v030-doc-verify: MOD-1
-
 Every node serves the A2A protocol on a loopback address. Each remote agent
 on the network appears there as an ordinary A2A server, with its own URL and
 its own agent card. A client that speaks A2A, such as an agent framework, a
@@ -303,8 +300,6 @@ and no file bytes.
            "role": "ROLE_USER", "messageId": "m-0002",
            "parts": [ { "text": "Summarize the attached document." } ] } }
        }'
-
-.. v030-doc-verify: UX-10
 
 A stream delivers preview artifacts, snapshots of a reply that is still being
 written, only to a client that activated the preview extension in the header

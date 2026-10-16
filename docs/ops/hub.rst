@@ -524,9 +524,6 @@ performs the rotation without a grace period for the retired keys, implies
 directory. Secrets that the program cannot replace itself, such as the
 administration token, are listed for the operator to replace.
 
-.. v030-doc-verify: KEL-12
-
-
 .. _ops-hub-admin:
 
 The operator console
@@ -607,11 +604,11 @@ attempts receive ``429``. Requests that carry no credential are answered with
 
 .. code-block:: console
 
+   $ auth() { printf 'Authorization: Bearer %s\n' "$ADMIN_TOKEN"; }
    $ curl -s -X POST https://hub.example.com/admin/api/login \
-          -H 'Content-Type: application/json' -d "{\"token\":\"$ADMIN_TOKEN\"}"
+          -H 'Content-Type: application/json' -d @<(printf '{"token":"%s"}' "$ADMIN_TOKEN")
    {"ok":true}
-   $ curl -s https://hub.example.com/admin/api/overview \
-          -H "Authorization: Bearer $ADMIN_TOKEN"
+   $ curl -s https://hub.example.com/admin/api/overview -H @<(auth)
 
 The remote address is taken from ``X-Real-IP`` when present, so publish the
 console only through a proxy that sets this header. A location block for
@@ -659,6 +656,19 @@ Functions
      - Reviews as rating, comment and receipt CID only.
    * - ``GET /audit``
      - Audit trail of every administrative action.
+   * - ``GET /admission``
+     - The registration mode, the sign-up window, the accounts by the way in
+       which they were admitted, the accounts on probation, the recipients
+       whose quota was raised, and the fixed rules of the hub (bits of the proof
+       of work, length of the probation, trial credits, daily limits).
+   * - ``GET /delivery``
+     - Counters of delivery confirmation: queued envelopes, confirmations held,
+       tracked redeliveries, and the retention and capacity of confirmations.
+       No message and no confirmation is read.
+   * - ``GET /federation``
+     - The peer hubs from which this hub has learned agents, with the number of
+       agents, the number withdrawn, the time of the last card, and the net
+       amounts that the two hubs owe each other.
    * - ``GET /deleted``
      - Deleted accounts, with ``?format=admit`` producing a list that
        ``anet-hub admit --file`` accepts, which undoes a batch of deletions.
@@ -679,13 +689,12 @@ fields is refused, and the process does not start. The operator plane starts,
 stops or updates no agent; those tasks belong to separate tooling outside the
 hub host.
 
-.. v030-doc-verify: GUI-1
-
-The console is being redesigned as a navigation sidebar with sections for
-overview, nodes, registration, federation, settlement and audit, admission
-and quota, and logs, with sortable and filterable tables. Delivery
-confirmations and admission state (proof of work, quota, probation) are shown
-there.
+The console is a single page with a navigation column and seven sections:
+overview, nodes, registrations, federation, settlement and audit, admission and
+quotas, and logs. The tables can be sorted and filtered. The sections for
+admission, delivery confirmation and federation show the read-only routes
+above; the console has no page for an interface that 0.3 removed. The console
+can be used with the keyboard and has a light and a dark theme.
 
 Two options of earlier releases, ``--restore-agents-from`` and
 ``--keep-only-agents``, are removed. Each is refused with exit status 2 and

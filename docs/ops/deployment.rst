@@ -416,10 +416,6 @@ a terminal, registration still completes, and the node reports that the
 identity has no recovery passphrase until ``anet identity protect`` is run in
 a terminal.
 
-.. v030-doc-verify: MOD-7b
-.. v030-doc-verify: KEL-10
-
-
 A node in a container
 ---------------------
 

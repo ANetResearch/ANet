@@ -19,7 +19,7 @@
 #                             `go tool nm` says so.
 #   anet-shell-<os>-<arch>    built with `-tags shell`. Can run the commands
 #                             its operator names in the config, for callers
-#                             its operator lists. See docs/SHELL-zh.md.
+#                             its operator lists. See docs/topics/shell.rst.
 #
 # Shipping only the second would put command execution on every machine that
 # ran the one-line install. Shipping only the first would leave the people

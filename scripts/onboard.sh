@@ -10,7 +10,7 @@
 # having done it already.
 #
 # It also runs the path on the trimmed builds, because "this variant can
-# do X" is a claim in docs/DISTRIBUTIONS-zh.md and claims about builds
+# do X" is a claim in docs/topics/modules.rst and claims about builds
 # should be checked against the builds.
 #
 #   bash scripts/onboard.sh              against a local hub
@@ -161,7 +161,7 @@ done
   && ok "调用成功,证据随结果返回" || no "调用未成功: ${res:0:140}"
 
 hd "6  min 遇到标价的能力"
-# The claim in DISTRIBUTIONS-zh.md is that a build without x402 refuses
+# The claim in docs/topics/modules.rst is that a build without x402 refuses
 # priced work and says why, rather than doing it for free.
 ix=$(ctl min 29710 /delegate "{\"provider\":\"$STD_AID\",\"capability\":\"text.digest.paid\",\"args\":{\"text\":\"x\"}}" \
      | jq_ "print(d.get('interaction_id',''))")

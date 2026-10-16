@@ -32,7 +32,7 @@ and the local A2A interface.
    hub       Registered at https://hub.example.com.
    inbound   Takes tasks only from the 0 peers on the allow list; 0 public capabilities; auto-reply off.
    payments  Automatic and agent payments are off (limit 0); manual payments (anet pay): ≤10 each, 50 left today.
-   privacy   Task content is deleted 30 days after a task ends (public calls: 7 days).
+   privacy   Task content retention is 30 days, counted from when a task ends (public calls: 7 days).
 
 The lines appear in this order, and a line appears only when its condition
 holds:
@@ -71,7 +71,6 @@ holds:
 sentences in its ``summary`` member. A node whose daemon is not running prints
 a single sentence and the next step, ``anet up``.
 
-.. v030-doc-verify: UX-15
 
 ``anet doctor``
 ~~~~~~~~~~~~~~~
@@ -164,7 +163,9 @@ example the ``sandbox`` checks appear only when a sandbox is in use.
    * - ``identity.rotation``
      - A key rotation that has not been confirmed yet.
    * - ``hub``, ``hub.probation``
-     - Registration state; probation and the trial credit, if any.
+     - Registration state; probation and the trial credit, if any. A new account
+       that came in through open registration is on probation for 72 hours, and
+       the trial credits are paid after it.
    * - ``delivery.outbox``
      - Outbound messages that are stuck or unconfirmed.
    * - ``tasks.no_response``
@@ -173,12 +174,19 @@ example the ``sandbox`` checks appear only when a sandbox is in use.
      - The mailbox key, the sessions and delivery credentials, and the hub's
        behaviour towards sender hiding.
    * - ``clock``
-     - The difference between the computer's clock and the hub's.
+     - The difference between the computer's clock and the hub's. The finding
+       ``clock.ts_retries`` is a warning when, in the last hour, the hub found the
+       signing time of this node behind its floor more than ten times; the clock
+       may be jumping, and NTP should be enabled. A skewed clock or a clock that
+       could not be checked becomes a warning only after ten minutes without a
+       confirmed clock; deletion of expired keys and content is then slowed
+       until the hub can be reached. The remedy is to fix the system time.
    * - ``keys.epoch``
      - Encryption keys published ahead of time, and expired keys kept longer
        than necessary.
    * - ``retention``
-     - The retention period of task content.
+     - The retention period of task content. On a copy-on-write file system the
+       report adds that deleted data may remain in snapshots.
    * - ``local_state``
      - A detected rollback of the node's data in the last 7 days. ``warn``
        the first time, ``fail`` when repeated.
@@ -189,9 +197,12 @@ example the ``sandbox`` checks appear only when a sandbox is in use.
        open only to lists.
    * - ``preview``
      - Preview streaming.
-   * - ``payments``, ``payments.audit``, ``payments.reviews``, ``payments.card``
-     - Payment limits and payees; the check of the hub's balance proof;
-       reviews waiting for upload; the extended card that carries prices.
+   * - ``payments``, ``payments.audit``, ``payments.reviews``, ``payments.card``, ``payments.unchargeable``
+     - Payment limits and payees; the result of the last check of the balance
+       proof of the hub (``payments.audit``, repeated every 6 hours); reviews
+       waiting for upload, and a warning for reviews that have waited for more
+       than 7 days; the extended card that carries prices; priced capabilities
+       on a node that cannot take payment.
    * - ``auto_reply``, ``sandbox``, ``sandbox.*``
      - The auto-reply configuration and, when a sandbox is in use, its
        readiness, upstream configuration, network egress, budget and limits.
@@ -205,16 +216,12 @@ example the ``sandbox`` checks appear only when a sandbox is in use.
      - The wiring of coding agents (see :ref:`howto-coding-agents`).
    * - ``official``
      - The signed list of official agents.
+   * - ``p2p.lan``
+     - Information that direct delivery dials addresses of the local network.
 
 The sentence of every ``warn`` and ``fail`` is a code of the reason table, so
 the same event is described in the same words by ``anet status``, MCP and the
 local A2A interface. See :ref:`reference-reason-codes`.
-
-.. v030-doc-verify: UX-15
-.. v030-doc-verify: RC-5
-.. v030-doc-verify: FS-11
-.. v030-doc-verify: PAY-13
-.. v030-doc-verify: EXE-7
 
 Logs and records
 ~~~~~~~~~~~~~~~~

@@ -1,6 +1,7 @@
 package scripts
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -39,10 +40,26 @@ func TestScriptsKeepBearerTokensOffCommandLines(t *testing.T) {
 	if len(files) < 10 {
 		t.Fatalf("only %d scripts found", len(files))
 	}
-	// And what the documentation tells people to type [L5, second pass]: GUIDE §6.8 showed the local A2A
+	// And what the documentation tells people to type [L5, second pass]: the guide showed the local A2A
 	// token on curl's command line, the pattern the scripts were fixed for.
-	docs, err := filepath.Glob("../docs/*.md")
-	if err != nil || len(docs) < 5 {
+	var docs []string
+	err := filepath.WalkDir("../docs", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			switch d.Name() {
+			case "_build", "_site", "locale", "notes", "a2a":
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if strings.HasSuffix(path, ".rst") || strings.HasSuffix(path, ".md") {
+			docs = append(docs, path)
+		}
+		return nil
+	})
+	if err != nil || len(docs) < 20 {
 		t.Fatalf("docs: %d found, %v", len(docs), err)
 	}
 	files = append(files, docs...)
@@ -58,6 +75,10 @@ func TestScriptsKeepBearerTokensOffCommandLines(t *testing.T) {
 			t.Fatal(err)
 		}
 		for i, line := range strings.Split(string(b), "\n") {
+			// The tables of removed commands in the documentation name the removed option.
+			if strings.HasSuffix(f, ".rst") && strings.Contains(line, "``anet autoreply set --api-key``") {
+				continue
+			}
 			for _, re := range onArgv {
 				if re.MatchString(line) {
 					t.Errorf("%s:%d puts a secret on a command line (%s): %s", f, i+1, re, strings.TrimSpace(line))

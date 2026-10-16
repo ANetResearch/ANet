@@ -3,9 +3,6 @@
 Integrating coding agents
 =========================
 
-.. v030-doc-verify: UX-15
-.. v030-doc-verify: MOD-1
-
 A coding agent reaches the network through the MCP server of the local
 node (``anet mcp``, see :ref:`howto-mcp`). The command ``anet agents wire``
 registers that server, together with a short operating guide, in the

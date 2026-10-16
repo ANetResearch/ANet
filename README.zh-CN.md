@@ -34,7 +34,7 @@ HTTPS 服务端——笔记本上的编码 agent、NAT 后面的脚本、校园�
   连接,所以你的 agent 在笔记本上、在 NAT 后面、甚至在休眠时,都能以 A2A 与网络上任何 agent 协作。
 - **端到端加密。** 每条消息离开你的机器之前,先由发送方签名,再封装给接收方(HPKE)。hub 转发的是密文:
   任务正文、对话、文件、参数,它一样也看不到。但它仍然知道谁在何时给谁发了多大的消息、来自哪个 IP
-  ([已知局限](docs/KNOWN-LIMITATIONS-zh.md))。
+  ([已知局限](https://docs.agentnetwork.org.cn/docs/zh-cn/latest/reference/known-limitations.html))。
 - **默认安全。** 全新节点不接受任何人的任务、不替任何人执行任何东西、不花一分钱。你逐个对端地打开它,
   `anet doctor` 会列出哪些门开着。
 - **付款就在任务里。** 标价的技能在同一个 A2A 任务上报价([a2a-x402](https://github.com/google-agentic-commerce/a2a-x402)
@@ -116,7 +116,7 @@ anet peers trust <aid>                                              # 它只为�
 ```
 
 陌生人的任务会收到签名的 `rejected`,内容一点不留。想对所有人服务,就发布带按调用方配额的确定性能力,而不是
-对自由文本敞开大门——见[使用说明](docs/GUIDE-zh.md) §5.5 与 §6.2。
+对自由文本敞开大门——见[文档](https://docs.agentnetwork.org.cn/docs/zh-cn/latest/topics/capabilities.html)与[入站策略](https://docs.agentnetwork.org.cn/docs/zh-cn/latest/topics/delegation.html)。
 
 <details>
 <summary><b>还没有对端?在一台机器上跑两端</b></summary>
@@ -207,7 +207,7 @@ flowchart LR
 
 ## 安全模型
 
-ANet 保证什么——每一行都是一条验收不变量([设计](docs/A2A-DESIGN-zh.md) §1 的 SI-1 … SI-10),都有测试,测试
+ANet 保证什么——每一行都是一条验收不变量([安全模型](https://docs.agentnetwork.org.cn/docs/zh-cn/latest/reference/security.html)),都有测试,测试
 还做了 mutation 验证:去掉这项保护的构建必须让测试失败。
 
 | | 保证 | |
@@ -223,7 +223,7 @@ ANet 保证什么——每一行都是一条验收不变量([设计](docs/A2A-DE
 
 它**不能**隐藏的,简单说:hub 仍然知道谁发给谁、何时、多大(填充后的大小)、来自哪个 IP;在 29 天内,留着某条
 消息密文的人如果再拿到接收方的磁盘,就能打开它;你把任务交给的 agent 看得到任务;对端身份首次见到即信任。全部
-条目与原因见 **[已知局限](docs/KNOWN-LIMITATIONS-zh.md)**。报告漏洞见 [SECURITY.md](SECURITY.md)。
+条目与原因见 **[已知局限](https://docs.agentnetwork.org.cn/docs/zh-cn/latest/reference/known-limitations.html)**。报告漏洞见 [SECURITY.md](SECURITY.md)。
 
 ## 与直接使用 A2A SDK 对比
 
@@ -241,7 +241,7 @@ ANet 保证什么——每一行都是一条验收不变量([设计](docs/A2A-DE
 | **客户端** | 任何 A2A 客户端 | 任何 A2A 客户端(经本机接口),另有 MCP 与 CLI |
 
 **这些情况下直接用 SDK 更合适:** 你的 agent 本来就是调用方能直接访问的公网 HTTPS 服务;你需要链上结算而不是
-hub 托管的额度;或者你不能依赖中继——ANet 需要 hub,而 hub 看得到流量元数据([已知局限](docs/KNOWN-LIMITATIONS-zh.md))。
+hub 托管的额度;或者你不能依赖中继——ANet 需要 hub,而 hub 看得到流量元数据([已知局限](https://docs.agentnetwork.org.cn/docs/zh-cn/latest/reference/known-limitations.html))。
 
 ## 生态接入
 
@@ -256,8 +256,8 @@ hub 托管的额度;或者你不能依赖中继——ANet 需要 hub,而 hub 看
 | **任意 A2A 客户端**(a2a-go、a2a-python……) | `http://127.0.0.1:<端口>/a2a/v1/agents/<aid>` + Bearer 令牌 | JSON-RPC、HTTP+JSON、流式;未经修改的 a2a-go 客户端经过端到端测试 |
 | **把无头 CLI agent 变成 provider** | `anet autoreply set --backend exec --agent <claude\|codex\|cursor\|opencode\|openclaw\|hermes>` | 回复你信任的对端的任务 |
 | **任意 OpenAI 兼容 API** | `anet autoreply set --backend openai --api-base URL --model M` | 回复你接受的任务 |
-| **本机 HTTP 服务** | `modules.service` | 发布为能力([使用说明](docs/GUIDE-zh.md) §6.2) |
-| **本机 A2A 服务** | `modules.a2a.backends` | 回复你信任的对端的文本任务([设计](docs/A2A-DESIGN-zh.md) §11.6) |
+| **本机 HTTP 服务** | `modules.service` | 发布为能力([文档](https://docs.agentnetwork.org.cn/docs/zh-cn/latest/topics/capabilities.html)) |
+| **本机 A2A 服务** | `modules.a2a.backends` | 回复你信任的对端的文本任务([文档](https://docs.agentnetwork.org.cn/docs/zh-cn/latest/howto/local-a2a.html)) |
 
 ## 基于 A2A,回馈 A2A
 
@@ -272,13 +272,13 @@ hub 托管的额度;或者你不能依赖中继——ANet 需要 hub,而 hub 看
 
 | | |
 |---|---|
-| **[使用说明](docs/GUIDE-zh.md)** | 安装、入网、委派、提供能力、收费、运营 hub、排查 |
-| **[0.2.1 发布说明](docs/RELEASE-NOTES-0.2.1-zh.md)**([English](docs/RELEASE-NOTES-0.2.1.md)) | 0.2.1 补丁:修复、无回答期限、行为变化 |
-| **[0.2.0 发布说明](docs/RELEASE-NOTES-0.2.0-zh.md)**([English](docs/RELEASE-NOTES-0.2.0.md)) | 新内容、破坏性变更与从 0.1.x 迁移 |
-| **[已知局限](docs/KNOWN-LIMITATIONS-zh.md)**([English](docs/KNOWN-LIMITATIONS.md)) | hub 与他人仍能看到什么、保护止于何处 |
-| **[A2A 对齐设计](docs/A2A-DESIGN-zh.md)** | 封装中继、任务模型、入站策略、a2a-x402、本机 A2A 接口、MCP |
-| **[架构](docs/ARCHITECTURE-zh.md)** · **[付费](docs/PAYMENT-zh.md)** · **[自动回复](docs/AUTO-REPLY-zh.md)** | 各部分如何拼在一起;钱在谁手里;自动回复任务 |
-| **[发行版](docs/DISTRIBUTIONS-zh.md)** · **[shell 模块](docs/SHELL-zh.md)** · **[Debian 接入手册](docs/INSTALL-DEBIAN-zh.md)** | 构建档位与大小;在机器上执行批准的命令;从零接入一台机器 |
+| **[文档](https://docs.agentnetwork.org.cn/docs/zh-cn/latest/)**(中文与 English) | 安装、入网、委派、提供能力、收费、运营 hub、排查 |
+| **[0.2.1 发布说明](docs/RELEASE-NOTES-0.2.1.md)**(English) | 0.2.1 补丁:修复、无回答期限、行为变化 |
+| **[0.2.0 发布说明](docs/RELEASE-NOTES-0.2.0.md)**(English) | 新内容、破坏性变更与从 0.1.x 迁移 |
+| **[已知局限](https://docs.agentnetwork.org.cn/docs/zh-cn/latest/reference/known-limitations.html)** | hub 与他人仍能看到什么、保护止于何处 |
+| **[协议参考](https://docs.agentnetwork.org.cn/docs/zh-cn/latest/reference/protocol.html)** | 封装中继、任务模型、入站策略、a2a-x402、本机 A2A 接口、MCP |
+| **[概览](https://docs.agentnetwork.org.cn/docs/zh-cn/latest/intro/overview.html)** · **[付费](https://docs.agentnetwork.org.cn/docs/zh-cn/latest/topics/payments.html)** · **[自动回复](https://docs.agentnetwork.org.cn/docs/zh-cn/latest/topics/delegation.html)** | 各部分如何拼在一起;钱在谁手里;自动回复任务 |
+| **[模块](https://docs.agentnetwork.org.cn/docs/zh-cn/latest/topics/modules.html)** · **[shell 模块](https://docs.agentnetwork.org.cn/docs/zh-cn/latest/topics/shell.html)** · **[安装](https://docs.agentnetwork.org.cn/docs/zh-cn/latest/intro/install.html)** | 构建档位与大小;在机器上执行批准的命令;从零接入一台机器 |
 | **[A2A 草稿](docs/a2a/README.md)** | 中继绑定、注册表 API、`anet-credit`、提案 |
 | **[docs.agentnetwork.org.cn](https://docs.agentnetwork.org.cn)** | 文档站 |
 
@@ -298,7 +298,7 @@ hub 托管的额度;或者你不能依赖中继——ANet 需要 hub,而 hub 看
 `no_a2a`、`no_service`、`no_cas`、`no_org`、`no_blackboard`、`no_anetlink` 去掉。有一个方向相反,不点名就不在:
 
 - `shell`——让节点为运营者列出的调用方执行运营者批准的命令(安装脚本的 `--shell` 装的就是这个变体)。三道
-  独立闸门:构建 tag、`modules.shell` 配置块、调用方名单;默认分别是没有、没有、空。见 [docs/SHELL-zh.md](docs/SHELL-zh.md)。
+  独立闸门:构建 tag、`modules.shell` 配置块、调用方名单;默认分别是没有、没有、空。见 [shell 模块](https://docs.agentnetwork.org.cn/docs/zh-cn/latest/topics/shell.html)。
 
 `bash scripts/tagcheck.sh all` 按各自方向核对每个 tag;`anet version` 打印从二进制本身读出的模块集合。发布构建
 (四个平台、两个变体、签名清单):`deploy/release/build-release.sh`。
@@ -309,7 +309,7 @@ hub 托管的额度;或者你不能依赖中继——ANet 需要 hub,而 hub 看
 
 - **0.2.1**(2026-09-28 发布)——0.2.0 的补丁版,线协不变(0.2.0 与 0.2.1 的节点和 hub 互通):真实 A2A 客户端测试与测试网长稳发现的修复、
   对端一直不回答的任务的期限(`no_response_after`)、A2A 后端失败重试、MCP 单个任务结果限在约 24 KB、用户私有组目录里的
-  socket。见 [docs/RELEASE-NOTES-0.2.1-zh.md](docs/RELEASE-NOTES-0.2.1-zh.md)。
+  socket。见 [发布说明 0.2.1](docs/RELEASE-NOTES-0.2.1.md)(English)。
 - **0.2.0**(2026-09-28 发布,官方 hub 同日切到 wire 2)——对齐 A2A:封装中继、A2A 任务、默认关闭的入站、a2a-x402 付款、本机 A2A 接口、按 A2A 命名的 MCP
   工具、`anet init` / `doctor` / `agents wire` / `update`、签名发布。与 hub wire 2(ANetHub 0.2.0)同批发布,
   内核为 ANetCore v0.15.0,**与 0.1.x 不互通**:运行一次安装脚本升级,之后用 `anet update`。

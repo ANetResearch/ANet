@@ -104,15 +104,57 @@ Fields of a public capability
    hub can read. The default is ``false``.
 
 ``files``, ``discard``
-   Declare that the capability accepts files, and that the provider discards
-   the arguments and files of a call once it has answered. The accepted file
-   count, size and media types are limits stated in ``files``.
+   Declare that the capability accepts files, and that the provider does not keep
+   the files of a call and clears the arguments and the result when the task ends.
+   The accepted file count (1 to 8), the size of one file (up to 64 MiB) and the
+   media types are limits stated in ``files``. A capability that declares ``files``
+   must be provided by the ``service`` module.
 
-.. v030-doc-verify: UX-12
-   The files and discard keys of inbound.public_capabilities, and the exact
-   shape of the files object (count 1-8, max_bytes up to 64 MiB, types), are
-   specified in the correctness section of the design. Confirm the key names and
-   limits against the merged configuration check before release.
+.. _topics-capabilities-service-protocol:
+
+The request to a service
+------------------------
+
+The ``service`` module sends a call to the program of the capability as an HTTP
+``POST``. The body of a call without files is the object of the arguments. The body
+of a call with files is one object:
+
+.. code-block:: json
+
+   {
+     "args": {"detail": "short"},
+     "files": [
+       {"name": "photo.png", "mime": "image/png", "data_b64": "iVBORw0KGgo..."}
+     ]
+   }
+
+``data_b64`` is base64 with the standard alphabet and padding. The type in ``mime``
+is the type that the node detected from the content. The arguments hold no key
+that starts with ``$``. The program answers with a JSON object of at most 1 MiB.
+
+A program refuses a call with a status code, and the node turns the status into
+the answer for the caller.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 70
+
+   * - Status of the program
+     - Answer to the caller
+   * - ``503`` or ``429``
+     - The call is not run (``UNAVAILABLE``) with the reason ``busy``. The wait
+       that the caller is told is the value of the header ``Retry-After``
+       (seconds or an HTTP date), rounded to a coarse value; without the header it
+       is 5 seconds.
+   * - another ``4xx`` with the body ``{"error": "<code>"}``
+     - The call is refused with ``<code>``, which is passed on word for word. The
+       code has 1 to 30 characters: lower-case letters, digits and ``_``, and the
+       first one is a letter.
+   * - another ``4xx``
+     - The call is refused with ``backend_failed``.
+
+A complete example with an adapter, a configuration and a ``systemd`` unit is in
+``deploy/examples/service-files/`` of the repository.
 
 Fields of a service capability
 ------------------------------
@@ -286,13 +328,6 @@ interface:
      - ``InvalidAgentResponseError``
 
 The sentences for these codes are listed in :ref:`reference-reason-codes`.
-
-.. v030-doc-verify: UX-6
-   The three-surface behaviour of the extended card (CLI, MCP, local A2A)
-   follows the card-display rules in the design. The retrieval function and the
-   MCP get_agent_card fields (charge, prices, pricesFetchedAt, priceNote,
-   key_state) are in the main checkout; confirm the final field names after the
-   merge of the supporting packages.
 
 Reading a card
 ==============

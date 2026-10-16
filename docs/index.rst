@@ -38,6 +38,7 @@ Getting help
    topics/preview
    topics/payments
    topics/modules
+   topics/shell
 
 .. toctree::
    :caption: Operations
@@ -71,6 +72,7 @@ Getting help
    reference/mcp-tools
    reference/protocol
    reference/security
+   reference/known-limitations
    reference/glossary
 
 .. toctree::

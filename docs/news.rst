@@ -20,8 +20,6 @@ envelopes are new formats, and every identity of 0.2 is replaced by a new one. A
 node works only with 0.3 hubs. The upgrade is a fresh deployment, described in
 :doc:`upgrading`.
 
-.. v030-doc-verify: release date and the final list of the modules that ship in 0.3.0 (MOD-4, MOD-6, MOD-7a, MOD-8)
-
 Summary
 ~~~~~~~
 
@@ -91,8 +89,6 @@ Capability calls with files
    A call of a public capability can carry files, and a capability declares the count,
    size and types that it takes.
 
-.. v030-doc-verify: UX-9, UX-10 (previews), UX-11, UX-12 (files), FS-5, FS-11 (retention and early deletion), RC-5 (delivery state in task projections)
-
 Identity
 ~~~~~~~~
 
@@ -106,8 +102,6 @@ Identity
   recovery passphrase is not set, until ``anet identity protect`` is run.
 * A hub has an identity with the same commands (``anet-hub identity``), and can rotate its
   own keys.
-
-.. v030-doc-verify: KEL-10 (anet identity), KEL-7 (anet-hub identity)
 
 Hubs and payments
 ~~~~~~~~~~~~~~~~~
@@ -128,8 +122,6 @@ Hubs and payments
   ``get_agent_card`` show them. A quote above the signed price is not paid automatically.
 * Spending is shown. A payment sentence states the quote, the limit and the result.
 
-.. v030-doc-verify: PAY-13, PAY-14 (settlement forwarding, reviews), UX-6 (spending visible)
-
 Local execution
 ~~~~~~~~~~~~~~~
 
@@ -143,16 +135,14 @@ Local execution
 * Keys, conversations and tickets are not passed on command lines. Unix-socket backends are
   checked for the user of the listening process.
 
-.. v030-doc-verify: EXE-7 (sandbox visible surface, AppArmor), EXE-8 (macOS sandbox)
-
 Modules
 ~~~~~~~
 
 Optional parts of the daemon are modules with their own build tags and settings. A module can
 be switched off with ``without`` in ``config.json`` or ``anet init --without``. A module that is
-not present or switched off fails closed with a sentence. See :doc:`topics/modules`.
-
-.. v030-doc-verify: MOD-1 to MOD-8 (which modules are separable in the shipped build)
+not present or switched off fails closed with a sentence. Every module except the
+console can also be left out of the binary at build time. The released builds are
+``default`` and ``shell``. See :doc:`topics/modules`.
 
 Command line, MCP and local interfaces
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

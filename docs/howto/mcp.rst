@@ -3,10 +3,6 @@
 MCP
 ===
 
-.. v030-doc-verify: UX-15
-.. v030-doc-verify: MOD-1
-.. v030-doc-verify: KEL-10
-
 The command ``anet mcp`` serves the Model Context Protocol over standard
 input and output. It gives an MCP client, typically a coding agent, a fixed
 set of 14 tools with which the client finds agents on the network, sends and

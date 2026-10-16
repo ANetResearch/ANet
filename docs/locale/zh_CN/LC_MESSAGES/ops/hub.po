@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ANet 0.3\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-16 03:55+0000\n"
+"POT-Creation-Date: 2026-10-16 14:35+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: zh_CN\n"
@@ -70,7 +70,8 @@ msgstr ""
 "公开 hub:注册表、中继、联邦、结算、评价以及内嵌的网页界面。运维子命令(``admit``\\ 、\\ ``grant``\\ 、\\ "
 "``restore`` 等)属于同一个程序。"
 
-#: ../../ops/hub.rst:35 ../../ops/hub.rst:125
+#: ../../ops/hub.rst:35
+#: ../../ops/hub.rst:125
 msgid "``:8088``"
 msgstr "``:8088``"
 
@@ -84,7 +85,8 @@ msgid ""
 "run as a separate process. See :ref:`ops-hub-admin`."
 msgstr "运维面:位于 ``/admin`` 下的管理控制台与 API,作为独立进程运行。参见 :ref:`ops-hub-admin`\\ 。"
 
-#: ../../ops/hub.rst:40 ../../ops/hub.rst:555
+#: ../../ops/hub.rst:40
+#: ../../ops/hub.rst:552
 msgid "``127.0.0.1:8078``"
 msgstr "``127.0.0.1:8078``"
 
@@ -94,8 +96,8 @@ msgid ""
 "``anet`` 0.3.0 or later to use a hub of this release; ``anet-hub "
 "-version`` prints the hub wire version and the node version it requires."
 msgstr ""
-"两个程序均为静态二进制文件(纯 Go,不依赖 C 库)。节点需要 ``anet`` 0.3.0 或更高版本才能使用本版本的 hub;``anet-"
-"hub -version`` 会输出 hub 的线路协议版本以及所要求的节点版本。"
+"两个程序均为静态二进制文件(纯 Go,不依赖 C 库)。节点需要 ``anet`` 0.3.0 或更高版本才能使用本版本的 hub;\\ "
+"``anet-hub -version`` 会输出 hub 的线路协议版本以及所要求的节点版本。"
 
 #: ../../ops/hub.rst:53
 msgid "Building"
@@ -165,19 +167,23 @@ msgstr "命令行选项"
 msgid "Options may be written with one or two leading dashes."
 msgstr "选项可以带一个或两个前导短横线。"
 
-#: ../../ops/hub.rst:121 ../../ops/hub.rst:551
+#: ../../ops/hub.rst:121
+#: ../../ops/hub.rst:548
 msgid "Option"
 msgstr "选项"
 
-#: ../../ops/hub.rst:122 ../../ops/hub.rst:552
+#: ../../ops/hub.rst:122
+#: ../../ops/hub.rst:549
 msgid "Default"
 msgstr "默认值"
 
-#: ../../ops/hub.rst:123 ../../ops/hub.rst:553
+#: ../../ops/hub.rst:123
+#: ../../ops/hub.rst:550
 msgid "Meaning"
 msgstr "含义"
 
-#: ../../ops/hub.rst:124 ../../ops/hub.rst:554
+#: ../../ops/hub.rst:124
+#: ../../ops/hub.rst:551
 msgid "``--addr``"
 msgstr "``--addr``"
 
@@ -187,7 +193,8 @@ msgid ""
 "the hub."
 msgstr "HTTP 监听地址。由反向代理置于 hub 之前时,请使用回环地址。"
 
-#: ../../ops/hub.rst:128 ../../ops/hub.rst:560
+#: ../../ops/hub.rst:128
+#: ../../ops/hub.rst:557
 msgid "``--data``"
 msgstr "``--data``"
 
@@ -218,15 +225,19 @@ msgstr ""
 "hub 的公开基础 URL。它在 ``/a2a/v1/agents`` 中以 ``homeHub`` 报告,并与 hub 所收录 A2A "
 "卡片中的中继 URL 比较。为空时使用每个请求的来源。"
 
-#: ../../ops/hub.rst:137 ../../ops/hub.rst:574
+#: ../../ops/hub.rst:137
+#: ../../ops/hub.rst:571
 msgid "``--version``"
 msgstr "``--version``"
 
-#: ../../ops/hub.rst:138 ../../ops/hub.rst:571 ../../ops/hub.rst:575
+#: ../../ops/hub.rst:138
+#: ../../ops/hub.rst:568
+#: ../../ops/hub.rst:572
 msgid "``false``"
 msgstr "``false``"
 
-#: ../../ops/hub.rst:139 ../../ops/hub.rst:576
+#: ../../ops/hub.rst:139
+#: ../../ops/hub.rst:573
 msgid "Print the version line and exit."
 msgstr "输出版本行并退出。"
 
@@ -827,15 +838,16 @@ msgid ""
 " the hub data directory. Secrets that the program cannot replace itself, "
 "such as the administration token, are listed for the operator to replace."
 msgstr ""
-"轮换会替换 hub 的签名密钥。\\ ``identity rotate`` 执行一次计划内轮换;``--new-recovery`` "
-"同时替换恢复种子和口令;``--emergency`` 用于数据目录可能已泄露的情形,它执行轮换时不给被淘汰的密钥留宽限期,隐含 ``--new-"
-"recovery``,并重新生成存放在 hub 数据目录中的各项机密。程序自身无法替换的机密(例如管理令牌)会被列出,由运维人员自行替换。"
+"轮换会替换 hub 的签名密钥。\\ ``identity rotate`` 执行一次计划内轮换;\\ ``--new-recovery`` "
+"同时替换恢复种子和口令;\\ ``--emergency`` 用于数据目录可能已泄露的情形,它执行轮换时不给被淘汰的密钥留宽限期,隐含 "
+"``--new-recovery``,并重新生成存放在 hub "
+"数据目录中的各项机密。程序自身无法替换的机密(例如管理令牌)会被列出,由运维人员自行替换。"
 
-#: ../../ops/hub.rst:533
+#: ../../ops/hub.rst:530
 msgid "The operator console"
 msgstr "运维控制台"
 
-#: ../../ops/hub.rst:535
+#: ../../ops/hub.rst:532
 msgid ""
 "``anet-hub-admin`` provides the administration console and API for a hub."
 " It runs as a separate process beside the public hub and reads the same "
@@ -845,74 +857,75 @@ msgstr ""
 "``anet-hub-admin`` 为 hub 提供管理控制台和 API。它作为独立进程与公开 hub "
 "并行运行,读取同一个数据库。它从不读取中继载荷(hub 自身也无法打开这些载荷),也不与任何其他主机建立通道。"
 
-#: ../../ops/hub.rst:556
+#: ../../ops/hub.rst:553
 msgid "Listen address. Keep it on loopback; a reverse proxy publishes it."
 msgstr "监听地址。请保持为回环地址,由反向代理对外发布。"
 
-#: ../../ops/hub.rst:557
+#: ../../ops/hub.rst:554
 msgid "``--hub-data``"
 msgstr "``--hub-data``"
 
-#: ../../ops/hub.rst:558 ../../ops/hub.rst:561
+#: ../../ops/hub.rst:555
+#: ../../ops/hub.rst:558
 msgid "required in practice"
 msgstr "实际必填"
 
-#: ../../ops/hub.rst:559
+#: ../../ops/hub.rst:556
 msgid "The public hub's data directory (``hub.db``)."
 msgstr "公开 hub 的数据目录(``hub.db``)。"
 
-#: ../../ops/hub.rst:562
+#: ../../ops/hub.rst:559
 msgid ""
 "The operator plane's own data directory (``admin.db``, "
 "``officials.json``)."
 msgstr "运维面自身的数据目录(``admin.db``\\ 、\\ ``officials.json``)。"
 
-#: ../../ops/hub.rst:564
+#: ../../ops/hub.rst:561
 msgid "``--base``"
 msgstr "``--base``"
 
-#: ../../ops/hub.rst:565
+#: ../../ops/hub.rst:562
 msgid "``/admin``"
 msgstr "``/admin``"
 
-#: ../../ops/hub.rst:566
+#: ../../ops/hub.rst:563
 msgid "URL base path."
 msgstr "URL 基础路径。"
 
-#: ../../ops/hub.rst:567
+#: ../../ops/hub.rst:564
 msgid "``--snapshot-every``"
 msgstr "``--snapshot-every``"
 
-#: ../../ops/hub.rst:568
+#: ../../ops/hub.rst:565
 msgid "``5m``"
 msgstr "``5m``"
 
-#: ../../ops/hub.rst:569
+#: ../../ops/hub.rst:566
 msgid "Interval of statistics snapshots; ``0`` turns them off."
-msgstr "统计快照的间隔;``0`` 表示关闭。"
+msgstr "统计快照的间隔;\\ ``0`` 表示关闭。"
 
-#: ../../ops/hub.rst:570
+#: ../../ops/hub.rst:567
 msgid "``--check-token``"
 msgstr "``--check-token``"
 
-#: ../../ops/hub.rst:572
+#: ../../ops/hub.rst:569
 msgid ""
 "Apply the start-up rules to ``$ADMIN_TOKEN``, exit with status 0 or 1 and"
 " print no value. Deployment scripts use it before a restart."
 msgstr "对 ``$ADMIN_TOKEN`` 应用启动规则,以状态 0 或 1 退出,不输出任何值。部署脚本在重启前使用它。"
 
-#: ../../ops/hub.rst:578
+#: ../../ops/hub.rst:575
 msgid ""
 "The built-in defaults of ``--hub-data`` and ``--data`` are paths of one "
 "reference deployment and are unlikely to exist on another host. Pass both"
 " options explicitly."
 msgstr "``--hub-data`` 与 ``--data`` 的内置默认值是某个参考部署的路径,在其他主机上很可能不存在。请显式传入这两个选项。"
 
-#: ../../ops/hub.rst:583
+#: ../../ops/hub.rst:580
 msgid "The operator token"
 msgstr "运维令牌"
 
-#: ../../ops/hub.rst:585
+#: ../../ops/hub.rst:582
 msgid ""
 "The token is read from the ``ADMIN_TOKEN`` environment variable and has "
 "no default. An unset or empty token, or a placeholder such as "
@@ -926,11 +939,11 @@ msgstr ""
 "之类的占位值时,启动中止。出现在项目已发布源码中的令牌虽会被接受,但进程会在启动时以及此后每小时记录一条警告。请生成至少 32 "
 "个十六进制字符的随机令牌,并保存在仅服务账户可读的文件中(参见 :ref:`ops-deployment`)。"
 
-#: ../../ops/hub.rst:599
+#: ../../ops/hub.rst:596
 msgid "Login and API access"
 msgstr "登录与 API 访问"
 
-#: ../../ops/hub.rst:601
+#: ../../ops/hub.rst:598
 msgid ""
 "The console page at ``/admin`` is public; the login happens inside it. "
 "The API under ``/admin/api`` is available only with the token as a bearer"
@@ -943,7 +956,7 @@ msgstr ""
 "凭证时可用。无论来自登录路由还是 bearer 认证,凭证校验失败每个客户端地址每分钟最多 20 次;超出后收到 ``429``\\ "
 "。不带凭证的请求返回 ``401``\\ 。"
 
-#: ../../ops/hub.rst:616
+#: ../../ops/hub.rst:613
 msgid ""
 "The remote address is taken from ``X-Real-IP`` when present, so publish "
 "the console only through a proxy that sets this header. A location block "
@@ -953,99 +966,135 @@ msgstr ""
 "远程地址在存在时取自 ``X-Real-IP``,因此控制台只应通过设置了该头的代理发布。控制台的 location 块如下,应放置在 TLS "
 "server 块中 ``location /`` 之前:"
 
-#: ../../ops/hub.rst:633
+#: ../../ops/hub.rst:630
 msgid "Functions"
 msgstr "功能"
 
-#: ../../ops/hub.rst:639
+#: ../../ops/hub.rst:636
 msgid "API route (under ``/admin/api``)"
 msgstr "API 路由(位于 ``/admin/api`` 之下)"
 
-#: ../../ops/hub.rst:640
+#: ../../ops/hub.rst:637
 msgid "Function"
 msgstr "功能"
 
-#: ../../ops/hub.rst:641
+#: ../../ops/hub.rst:638
 msgid "``GET /overview``"
 msgstr "``GET /overview``"
 
-#: ../../ops/hub.rst:642
+#: ../../ops/hub.rst:639
 msgid ""
 "Totals, database size, statistics snapshots, the number of official "
 "agents and the last audit entries."
 msgstr "总数、数据库大小、统计快照、官方 Agent 数量以及最近的审计条目。"
 
-#: ../../ops/hub.rst:644
+#: ../../ops/hub.rst:641
 #, python-brace-format
 msgid "``GET /agents[?q=&tier=]``, ``GET /agents/{aid}``"
 msgstr "``GET /agents[?q=&tier=]``\\ 、\\ ``GET /agents/{aid}``"
 
-#: ../../ops/hub.rst:645
+#: ../../ops/hub.rst:642
 msgid ""
 "Registered agents, including agents that are not listed publicly, with "
 "review counts and mailbox backlog (a row count; payloads are not read)."
 msgstr "已注册的 Agent(包括未公开列出的 Agent),附评价数量和邮箱积压量(行数;不读取载荷)。"
 
-#: ../../ops/hub.rst:648
+#: ../../ops/hub.rst:645
 #, python-brace-format
 msgid "``POST /agents/{aid}/moderate``"
 msgstr "``POST /agents/{aid}/moderate``"
 
-#: ../../ops/hub.rst:649
+#: ../../ops/hub.rst:646
 msgid "Mark an agent for attention or clear the mark."
 msgstr "将某个 Agent 标记为需关注,或清除该标记。"
 
-#: ../../ops/hub.rst:650
+#: ../../ops/hub.rst:647
 #, python-brace-format
 msgid "``DELETE /agents/{aid}``"
 msgstr "``DELETE /agents/{aid}``"
 
-#: ../../ops/hub.rst:651
+#: ../../ops/hub.rst:648
 msgid ""
 "Revoke the admission of the agent and deregister it. The balance stays on"
 " the ledger. On an open hub the agent can register again."
 msgstr "撤销该 Agent 的准入并注销它。余额保留在账本上。在 open 模式的 hub 上,该 Agent 可以再次注册。"
 
-#: ../../ops/hub.rst:653
+#: ../../ops/hub.rst:650
 #, python-brace-format
 msgid "``GET /official``, ``POST /official``, ``DELETE /official/{id}``"
 msgstr "``GET /official``\\ 、\\ ``POST /official``\\ 、\\ ``DELETE /official/{id}``"
 
-#: ../../ops/hub.rst:654
+#: ../../ops/hub.rst:651
 msgid ""
 "Register of official agents (``id``, ``aid``, ``hub``, ``caps`` and "
 "descriptive labels)."
 msgstr "官方 Agent 登记簿(``id``\\ 、\\ ``aid``\\ 、\\ ``hub``\\ 、\\ ``caps`` 以及描述性标签)。"
 
-#: ../../ops/hub.rst:656
+#: ../../ops/hub.rst:653
 msgid "``GET /capabilities``, ``GET /discover``"
 msgstr "``GET /capabilities``\\ 、\\ ``GET /discover``"
 
-#: ../../ops/hub.rst:657
+#: ../../ops/hub.rst:654
 msgid "Capabilities of registered agents."
 msgstr "已注册 Agent 的能力。"
 
-#: ../../ops/hub.rst:658
+#: ../../ops/hub.rst:655
 msgid "``GET /reviews``"
 msgstr "``GET /reviews``"
 
-#: ../../ops/hub.rst:659
+#: ../../ops/hub.rst:656
 msgid "Reviews as rating, comment and receipt CID only."
 msgstr "评价,仅含评分、评论和收据 CID。"
 
-#: ../../ops/hub.rst:660
+#: ../../ops/hub.rst:657
 msgid "``GET /audit``"
 msgstr "``GET /audit``"
 
-#: ../../ops/hub.rst:661
+#: ../../ops/hub.rst:658
 msgid "Audit trail of every administrative action."
 msgstr "所有管理操作的审计记录。"
 
-#: ../../ops/hub.rst:662
+#: ../../ops/hub.rst:659
+msgid "``GET /admission``"
+msgstr "``GET /admission``"
+
+#: ../../ops/hub.rst:660
+msgid ""
+"The registration mode, the sign-up window, the accounts by the way in "
+"which they were admitted, the accounts on probation, the recipients whose"
+" quota was raised, and the fixed rules of the hub (bits of the proof of "
+"work, length of the probation, trial credits, daily limits)."
+msgstr ""
+"注册模式、注册窗口、按准入方式分类的账户、处于见习期的账户、配额被调高的接收方，以及 hub "
+"的固定规则（工作量证明的位数、见习期长度、体验额度、每日限额）。"
+
+#: ../../ops/hub.rst:664
+msgid "``GET /delivery``"
+msgstr "``GET /delivery``"
+
+#: ../../ops/hub.rst:665
+msgid ""
+"Counters of delivery confirmation: queued envelopes, confirmations held, "
+"tracked redeliveries, and the retention and capacity of confirmations. No"
+" message and no confirmation is read."
+msgstr "送达确认的计数：排队的信封、持有的确认、被跟踪的重投，以及确认的保存期与容量。不读取任何消息，也不读取任何确认。"
+
+#: ../../ops/hub.rst:668
+msgid "``GET /federation``"
+msgstr "``GET /federation``"
+
+#: ../../ops/hub.rst:669
+msgid ""
+"The peer hubs from which this hub has learned agents, with the number of "
+"agents, the number withdrawn, the time of the last card, and the net "
+"amounts that the two hubs owe each other."
+msgstr "本 hub 从中学到 agent 的对等 hub，包括 agent 数量、已撤回数量、最近一张卡片的时间，以及两个 hub 相互欠款的净额。"
+
+#: ../../ops/hub.rst:672
 msgid "``GET /deleted``"
 msgstr "``GET /deleted``"
 
-#: ../../ops/hub.rst:663
+#: ../../ops/hub.rst:673
 msgid ""
 "Deleted accounts, with ``?format=admit`` producing a list that ``anet-hub"
 " admit --file`` accepts, which undoes a batch of deletions."
@@ -1053,7 +1102,7 @@ msgstr ""
 "已删除的账户;加上 ``?format=admit`` 会生成可供 ``anet-hub admit --file`` "
 "接受的列表,用于撤销一批删除。"
 
-#: ../../ops/hub.rst:666
+#: ../../ops/hub.rst:676
 msgid ""
 "There is no route that restores a deleted registration from an archive, "
 "because that would write an old key history back into the registry. To "
@@ -1069,7 +1118,7 @@ msgstr ""
 "下的其他路径在认证之后返回 ``404`` 和 JSON 正文。控制台本身以单页形式提供。\\ ``GET /admin/healthz`` "
 "无需认证即可报告运维面的版本、提交和构建时间,使部署可以确认正在运行的是哪个构建。"
 
-#: ../../ops/hub.rst:675
+#: ../../ops/hub.rst:685
 msgid ""
 "The official-agent register is read at start from ``officials.json`` in "
 "the operator plane's data directory; a missing file means no official "
@@ -1082,16 +1131,20 @@ msgstr ""
 "``runtime``\\ 、\\ ``monitor``\\ 、\\ ``ops`` 或 ``datasets`` "
 "字段的条目会被拒绝,进程无法启动。运维面不启动、停止或更新任何 Agent;这些工作由 hub 主机之外的独立工具负责。"
 
-#: ../../ops/hub.rst:684
+#: ../../ops/hub.rst:692
 msgid ""
-"The console is being redesigned as a navigation sidebar with sections for"
-" overview, nodes, registration, federation, settlement and audit, "
-"admission and quota, and logs, with sortable and filterable tables. "
-"Delivery confirmations and admission state (proof of work, quota, "
-"probation) are shown there."
-msgstr "控制台正在改版为导航侧栏形式,分为概览、节点、注册、联邦、结算与审计、准入与配额、日志几个部分,数据表可排序和筛选。送达确认和准入状态(工作量证明、配额、试用期)将显示在其中。"
+"The console is a single page with a navigation column and seven sections:"
+" overview, nodes, registrations, federation, settlement and audit, "
+"admission and quotas, and logs. The tables can be sorted and filtered. "
+"The sections for admission, delivery confirmation and federation show the"
+" read-only routes above; the console has no page for an interface that "
+"0.3 removed. The console can be used with the keyboard and has a light "
+"and a dark theme."
+msgstr ""
+"控制台是单页界面，带有导航栏和七个部分：概览、节点、注册、联邦、结算与审计、准入与配额、日志。表格可以排序和过滤。准入、送达确认和联邦部分显示上述只读路由；控制台没有针对"
+" 0.3 已移除接口的页面。控制台可用键盘操作，并有浅色和深色两种主题。"
 
-#: ../../ops/hub.rst:690
+#: ../../ops/hub.rst:699
 msgid ""
 "Two options of earlier releases, ``--restore-agents-from`` and ``--keep-"
 "only-agents``, are removed. Each is refused with exit status 2 and names "
@@ -1102,29 +1155,29 @@ msgstr ""
 "已移除。使用它们会被拒绝,退出状态为 2,并提示替代方式(``anet-hub restore``,以及控制台的删除功能或 ``anet-hub "
 "admissions revoke``)。"
 
-#: ../../ops/hub.rst:697
+#: ../../ops/hub.rst:706
 msgid "Upgrading a hub"
 msgstr "升级 hub"
 
-#: ../../ops/hub.rst:699
+#: ../../ops/hub.rst:708
 msgid "Take a backup (:ref:`ops-backup`)."
 msgstr "先做备份(:ref:`ops-backup`)。"
 
-#: ../../ops/hub.rst:700
+#: ../../ops/hub.rst:709
 msgid "Stop the service."
 msgstr "停止服务。"
 
-#: ../../ops/hub.rst:701
+#: ../../ops/hub.rst:710
 msgid ""
 "Replace the binaries. Replace ``anet-hub-admin`` in the same step; the "
 "operator plane refuses a hub data directory written by a newer release."
 msgstr "替换二进制文件。请同时替换 ``anet-hub-admin``;运维面会拒绝由更新版本写入的 hub 数据目录。"
 
-#: ../../ops/hub.rst:703
+#: ../../ops/hub.rst:712
 msgid "Start the service and check ``/healthz`` for the new version."
 msgstr "启动服务,并检查 ``/healthz`` 返回的是新版本。"
 
-#: ../../ops/hub.rst:705
+#: ../../ops/hub.rst:714
 msgid ""
 "Release 0.3.0 uses hub wire 3. A node that declares an older wire version"
 " is refused with status ``426`` and the reason ``wire_too_old``, which "
@@ -1134,4 +1187,15 @@ msgstr ""
 "0.3.0 使用 hub 线路协议第 3 版。声明较旧线路协议版本的节点会被拒绝,状态为 ``426``,原因码为 "
 "``wire_too_old``,其中给出所需的线路协议版本和节点版本;这类节点无法使用 0.3.0 的 hub,0.3.0 的节点也不使用较旧的"
 " hub。"
+
+#~ msgid ""
+#~ "The console is being redesigned as "
+#~ "a navigation sidebar with sections for"
+#~ " overview, nodes, registration, federation, "
+#~ "settlement and audit, admission and "
+#~ "quota, and logs, with sortable and "
+#~ "filterable tables. Delivery confirmations and"
+#~ " admission state (proof of work, "
+#~ "quota, probation) are shown there."
+#~ msgstr "控制台正在改版为导航侧栏形式,分为概览、节点、注册、联邦、结算与审计、准入与配额、日志几个部分,数据表可排序和筛选。送达确认和准入状态(工作量证明、配额、试用期)将显示在其中。"
 

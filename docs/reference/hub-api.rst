@@ -154,10 +154,15 @@ mailbox to its owner and answers questions about delivery.
   delivery confirmation (``dack``) that the hub stores for the sender.
 * ``POST /relay/status`` lets a sender ask anonymously whether an envelope was
   collected. An item answers ``queued``, ``done`` (with the ``dack``) or ``unknown``.
-  The hub keeps a delivery confirmation for 7 days.
-* ``POST /mailbox/revoke`` lets a mailbox owner revoke capabilities it issued.
-
-.. v030-doc-verify: RC-5 (relay status), SS-3 (revocation limits)
+  A request holds 1 to 64 items. The hub keeps a delivery confirmation for 7
+  days, and for a shorter time after it was fetched. A client address may ask at
+  a refill of 10 requests per second with a burst of 50 (429 ``rate_limited``).
+* ``POST /mailbox/revoke`` lets a mailbox owner revoke capabilities it issued. A
+  request carries 1 to 1000 capability identifiers and is limited by a bucket of
+  its own. A revocation is kept for 31 days, and one owner may have at most
+  100,000 unexpired revocations here (``revocation_list_full``); its node then
+  starts a new mailbox key epoch, which invalidates every credential of the old
+  key at once.
 
 A mailbox holds at most 5000 envelopes and 1 GiB per recipient by default (status
 507 above), an envelope may be at most 96 MiB by default (status 413 above), and an
@@ -259,14 +264,14 @@ gives the latest epoch, ``GET /x402/issuance`` the signed chain of epochs and
 ``GET /x402/issuance/head`` its head. ``GET /agents/{aid}/liability-proof`` gives an
 account the proof that its balance is counted in the total of an epoch (a Merkle
 path), and ``GET /x402/witnesses`` and ``POST /x402/witness`` carry the statements
-of witnesses that pinned the head of the chain.
+of witnesses that pinned the head of the chain. A node does not submit statements.
+It checks the chain and the proof of its own balance every 6 hours, and on demand
+with ``anet audit-hub``; see :doc:`../topics/payments`.
 
 The route ``GET /x402/resource/{aid}/{capability}`` of 0.2 (the payment gateway) and
 the voucher redemption are removed. The route answers 410 with ``gateway_removed``.
 A client that speaks plain HTTP x402 reaches the capabilities of an agent through
 the local A2A interface of an ``anet`` node.
-
-.. v030-doc-verify: PAY-13 (hub request and audit of the x402 module)
 
 Other routes
 ~~~~~~~~~~~~
@@ -287,7 +292,10 @@ Other routes
    * - ``POST /agents/{aid}/deregister``
      - Signed deregistration of an agent.
    * - ``GET /stats``
-     - Counters of the hub: agents, federated agents, completed tasks, reviews.
+     - Counters of the hub: agents, federated agents, completed tasks, reviews,
+       the average rating, the optional modules of the hub (``modules``),
+       ``online_nodes`` (registered agents that collected their mail within the
+       last hour) and ``version`` (the release of the hub).
    * - ``GET /llms.txt``
      - A text manual for agents that reads the commands of the local ``anet`` and
        names this hub.

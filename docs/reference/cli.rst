@@ -65,17 +65,17 @@ Output
 
 Two kinds of command exist.
 
-* Commands for people print readable text by default and print JSON with
-  ``--json``: ``up``, ``status``, ``doctor``, ``find``, ``card``,
-  ``identity`` subcommands, ``hub-register``, ``retention``, ``preview``,
-  ``pay``, ``payments``, ``balance``, ``audit-hub``, ``autoreply set``,
-  ``autoreply show``, ``autoreply test``, ``peers list``, ``review``,
-  ``help`` and ``version``.
+* Commands for people print readable text by default, and most of them print
+  JSON with ``--json``: ``init``, ``status``, ``doctor``, ``audit``,
+  ``retention``, ``find``, ``card``, ``identity`` subcommands, ``peers list``,
+  ``preview`` and ``autoreply show``. ``up``, ``help``, ``version``, ``logs``
+  and ``update`` print readable text only.
 * The remaining commands, among them every task command (``delegate``,
   ``message``, ``task get``, ``task list``, ``task cancel``, ``end``, ``inbox``,
-  ``thread`` and ``results``), write the JSON answer of the control plane to
-  standard output and the readable lines to standard error. A pipe therefore
-  carries clean JSON.
+  ``thread`` and ``results``) and the payment and hub commands (``hub-register``,
+  ``pay``, ``payments``, ``balance``, ``redeem``, ``reconcile``, ``audit-hub``
+  and ``review``), write the JSON answer of the control plane to standard output
+  and the readable lines to standard error. A pipe therefore carries clean JSON.
 
 After the JSON of a task command, at most five labelled lines follow on standard
 error, in this order, and only those that have a value: ``reason``,
@@ -86,7 +86,7 @@ step, a last line begins with an arrow and holds the command to run:
 
    $ anet task get t_9f3c
    {"id": "t_9f3c", ...}
-   delivery: Sent, waiting for the other node to confirm. ...
+   delivery: Sent; waiting for the other side's node to confirm it. ...
 
 When the control plane refuses a request, the command prints only the ``error``
 sentence and, if present, the ``next`` line, both on standard error, and exits
@@ -125,7 +125,8 @@ Exit status
        confirmation that was not answered with ``yes``.
    * - 2
      - Usage error, use of a removed command or flag (``cli_removed``,
-       ``api_key_on_argv``), or an ``<aid>`` argument that is not a complete AID.
+       ``api_key_on_argv``), an ``<aid>`` argument that is not a complete AID, or a
+       command whose module is not part of the build (``module_absent``).
    * - 3
      - Only for ``task watch`` and ``delegate --watch``: the task stopped in
        ``input-required`` and needs a payment or an answer.
@@ -133,8 +134,6 @@ Exit status
 ``task watch`` and ``delegate --watch`` exit with status 0 when the task is
 ``completed`` and with status 1 when it is ``failed``, ``rejected`` or
 ``canceled``.
-
-.. v030-doc-verify: UX-14 (output convention and exit codes), KEL-10 (rotation_pending exit status), UX-10 (task watch)
 
 Confirmation on the terminal
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -187,8 +186,6 @@ one name from it. Both are refused with ``daemon_running`` while the daemon is
 running. A module whose configuration keys exist already is refused with
 ``without_configured`` and exit status 2. See :doc:`../topics/modules`.
 
-.. v030-doc-verify: MOD-7a (anet init --without / --with)
-
 ``anet up``, ``anet daemon``, ``anet stop``
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -238,8 +235,6 @@ appear in a fixed order and only when their condition holds:
 ``--json`` prints the ``/status`` document of the control plane, which holds the
 same lines in the ``summary`` array.
 
-.. v030-doc-verify: UX-15 (status summary; sections 'recovery', 'preview')
-
 ``anet doctor``
 ~~~~~~~~~~~~~~~
 
@@ -249,8 +244,6 @@ inbound doors are open. Each check has an identifier, a level (``ok``, ``info``,
 step. The command does not need the daemon and does not change anything.
 ``--json`` prints the report as JSON. ``--apparmor-profile`` prints the bundled
 AppArmor profile for the sandbox on standard output.
-
-.. v030-doc-verify: EXE-7 (doctor --apparmor-profile)
 
 ``anet logs``, ``anet update``, ``anet version``
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -304,8 +297,6 @@ through the daemon.
    * - ``anet identity deactivate``
      - Deactivates the identity. The command asks for the last eight characters
        of the AID as confirmation.
-
-.. v030-doc-verify: KEL-10 (anet identity status / protect / rotate / recover / deactivate)
 
 ``anet hub-register``
 ~~~~~~~~~~~~~~~~~~~~~
@@ -425,8 +416,6 @@ call can carry files when the capability declares ``files``.
      - Reviews an ended task. During the probation period of the account the
        review is held back and the command says so.
 
-.. v030-doc-verify: UX-10 (task watch, delegate --watch), UX-14 (task list)
-
 ``anet preview``
 ~~~~~~~~~~~~~~~~
 
@@ -434,9 +423,6 @@ call can carry files when the capability declares ``files``.
 ``anet preview off|on|with_reasoning`` changes it. ``with_reasoning`` sends the
 reasoning of the agent to requesters that ask for it and is confirmed on the
 terminal. See :doc:`../topics/preview`.
-
-.. v030-doc-verify: UX-9 (anet preview)
-
 
 Receiving tasks
 ---------------
@@ -500,9 +486,6 @@ OpenAI-compatible API. Settings are merged into the existing configuration.
 ``anet autoreply show`` prints a summary, ``anet autoreply off`` turns the
 auto-reply off, and ``anet autoreply test ["question"]`` runs the configured
 answer once on the local machine, in every mode that is configured.
-
-.. v030-doc-verify: EXE-7 (autoreply sandbox output lines), EXE-3 (--egress-allow)
-
 
 Payments
 --------
@@ -761,8 +744,6 @@ run instead.
 Every subcommand accepts ``--data DIR``. A directory that does not hold a hub
 database is refused with ``data.missing``, and nothing is created.
 
-.. v030-doc-verify: PAY-16 (anet-hub subcommand arguments), KEL-7 (anet-hub identity)
-
 The sentences of ``anet-hub`` are listed in :ref:`reference-reason-codes`.
 
 anet-hub-admin
@@ -793,6 +774,10 @@ address and is meant to run behind a reverse proxy.
    * - ``--snapshot-every``
      - ``5m``
      - Interval between statistics snapshots; ``0`` turns them off.
+   * - ``--harvest-every``
+     - ``30m``
+     - Interval of the harvest run. The run has no sources and does nothing;
+       ``0`` turns it off.
    * - ``--check-token``
      -
      - Checks ``$ADMIN_TOKEN`` against the start-up rules and exits with status 0

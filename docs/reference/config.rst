@@ -92,8 +92,6 @@ Top-level keys
    are ``off``, ``on`` and ``with_reasoning``. Set with ``anet preview``;
    ``with_reasoning`` needs terminal confirmation. See :doc:`../topics/preview`.
 
-   .. v030-doc-verify: UX-9
-
 ``content_retention``
    Default: ``"30d"``. How long the node keeps the content of a task after the
    task ends. Valid values are 1 to 3650 days written as ``<N>d``, or ``forever``.
@@ -109,9 +107,6 @@ Top-level keys
    never removed) and ``anet init --with`` (one name is removed). The control
    plane, MCP and the local A2A interface have no way to write it. See
    :doc:`../topics/modules`.
-
-   .. v030-doc-verify: MOD-1, MOD-7a
-
 
 ``inbound``
 -----------
@@ -169,15 +164,14 @@ constants.
           trusted; the node detects the type from the content.
       * - ``discard``
         - ``false``
-        - The node does not keep the request body of a call. This restricts only
-          the storage of ``anet``, not the behavior of the backend program.
+        - The node does not keep the files of a call, and it clears the arguments
+          and the result when the task ends. This restricts only the storage of
+          ``anet``, not the behavior of the backend program.
       * - ``allow_only``
         - ``false``
         - The capability is offered only to peers on the allow list or the trust
           list. It does not appear on any card or registry entry that a hub can
           read.
-
-   .. v030-doc-verify: UX-11, UX-12 (files, discard, allow_only)
 
 The declaration of a capability is described in :doc:`../topics/capabilities`.
 
@@ -241,11 +235,13 @@ The block is absent by default, which means that the auto-reply is off.
        the sandbox.
    * - ``sandbox.egress_allow``
      - ``[]``
-     - Exact host names that sandboxed runs may reach through CONNECT. Every
-       listed host is an outbound channel. See :doc:`../topics/sandbox`.
+     - Exact host names that sandboxed runs may reach on port 443 through
+       CONNECT. Every listed host is an outbound channel, so adding one is
+       confirmed on the terminal. See :doc:`../topics/sandbox`.
    * - ``sandbox.runs_per_day``
      - 20
-     - Runs per local calendar day for peers that are not trusted. An invalid
+     - Runs per local calendar day for peers that are not trusted. A value of 0
+       means that no run is made for them; the task stays in the inbox. An invalid
        value is reported as ``budget_invalid``.
    * - ``sandbox.runs_per_peer_per_day``
      - 5
@@ -254,8 +250,17 @@ The block is absent by default, which means that the auto-reply is off.
 The interval at which the daemon looks for tasks (5 seconds) and the cap of 30
 automatic messages per interaction are constants.
 
-.. v030-doc-verify: EXE-7 (sandbox keys), EXE-4 (runs_per_day, runs_per_peer_per_day)
-
+Every write of the block is recorded as the evidence event ``anet.policy.changed``.
+The event names the key as a whole when its summary differs, and there is one
+record for each audited field: ``auto_reply.trusted``,
+``auto_reply.sandbox.egress_allow``, ``auto_reply.sandbox.runs_per_day``,
+``auto_reply.sandbox.runs_per_peer_per_day`` and ``auto_reply.api_key_set``. Turning
+the block on or off is recorded in the same way against the defaults. A block that
+is rejected is answered with the sentence of the module (``config_invalid``,
+``budget_invalid``, ``work_dir_invalid``, ``api_base_insecure`` or
+``egress_allow_*``) and status 400, and a conflict with the inbound policy with 409.
+A daemon that finds an ``auto_reply`` block while the auto-reply module is not
+available refuses to start (``module_absent.configured``).
 
 ``payments``
 ------------
@@ -337,8 +342,6 @@ leave a module out.
       Defaults for all capabilities (the default timeout is 2 minutes). The token
       file must have an absolute path, may use ``$VAR`` and ``${VAR}``, and must
       not be readable by other users.
-
-   .. v030-doc-verify: UX-12 (input_modes with files)
 
 ``modules.p2p``
    Direct connections between nodes.
@@ -527,9 +530,6 @@ for the C1 interface.
 
 ``c1.remote``
    Default: empty, which refuses remote calls for all capabilities.
-
-.. v030-doc-verify: EXE-12 (ANetLink 0.2.0 settings; the program is in a separate repository)
-
 
 .. _reference-config-removed:
 

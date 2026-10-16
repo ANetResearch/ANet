@@ -58,7 +58,7 @@ The modules
      - Auto-reply: the loop, the ``openai`` and ``exec`` backends, the agent
        registry, the sandbox, the network controls and the run budget. See
        :doc:`delegation` and :doc:`sandbox`.
-     - none yet
+     - ``no_autoreply``
      - top-level ``auto_reply``
    * - ``blackboard``
      - A shared blackboard for cooperating agents.
@@ -70,8 +70,9 @@ The modules
      - ``no_cas``
      - ``modules.cas``
    * - ``console``
-     - The local web console, opened with ``anet console``.
-     - none yet
+     - The local web console, opened with ``anet console``. It is the only local
+       entry that does not use the bearer token.
+     - none (planned for a 0.3 patch release)
      - none
    * - ``mcp``
      - The MCP server for coding agents, ``anet mcp``, and the commands that wire
@@ -88,7 +89,7 @@ The modules
      - ``modules.p2p``
    * - ``preview``
      - Preview streaming. See :doc:`preview`.
-     - none yet
+     - ``no_preview``
      - top-level ``stream_preview``
    * - ``service``
      - Capabilities that are served by programs on the local machine. See
@@ -96,12 +97,13 @@ The modules
      - ``no_service``
      - ``modules.service``
    * - ``shell``
-     - Commands that the operator has approved, run on the local machine.
+     - Commands that the operator has approved, run on the local machine. See
+       :doc:`shell`.
      - ``shell`` (additive)
      - ``modules.shell``
    * - ``x402``
-     - Payment: signing, settlement, receipts, quotes, accounting. See
-       :doc:`payments`.
+     - Payment: signing, settlement, receipts, quotes, accounting, the audit of
+       the issuance chain of the hub and the balance proofs. See :doc:`payments`.
      - ``no_x402``
      - ``modules.x402``
 
@@ -115,37 +117,36 @@ is rejected.
 A build tag that starts with ``no_`` removes a module from the binary. The tag
 ``shell`` is additive: the module is included only when the tag is given.
 
-.. v030-doc-verify: MOD-4
-   The tag no_autoreply and the move of auto-reply into its own package are part
-   of the module work. The names of the tags that exist are given by
-   ``scripts/tagcheck.sh list``. The table lists "none yet" for autoreply,
-   preview and console. Change a row to its tag only when the list contains the
-   tag.
+The console has no build tag in 0.3.0. A build with ``scripts/build.sh --without
+console`` is refused with ``build_tag_pending``, and the console is turned off with
+``without`` in the configuration. A tag for it follows in a 0.3 patch release.
+The names of the tags that exist are printed by ``scripts/tagcheck.sh list`` in the
+source tree.
 
-.. v030-doc-verify: MOD-6
-   The tag no_preview and the move of the preview code into its own package.
-   See the note above.
-
-.. v030-doc-verify: MOD-8
-   The console becomes a module that can be turned off with ``without``. Its
-   build tag follows in a later 0.3 release.
 
 What a default node includes
 ============================
 
-The default build of ANet includes every module except ``shell``. A second build,
-selected at installation with ``--shell``, adds ``shell``. There are no further
-prebuilt variants.
+The released builds are the *default* build and the *shell* build. The default
+build includes every module except ``shell``. The shell build, selected at
+installation with ``--shell``, adds ``shell``. There are no further prebuilt
+variants: a node that needs a different set of modules turns modules off with
+``without`` (see below), or is built from the source with the tags of the
+section :ref:`topics-modules-build`. The section :ref:`topics-modules-recipes`
+gives the combinations that the repository tests.
 
 .. code-block:: console
 
    $ anet version
    anet 0.3.0 (commit 0000000, built 2026-10-01T00:00:00Z)
-   variant: default
    modules: a2a,anetlink,autoreply,blackboard,cas,console,mcp,org,p2p,preview,service,x402
+   variant: default
 
 The ``modules`` line lists the modules that the binary contains, in alphabetical
-order. The ``variant`` line is empty for a binary built locally.
+order, and ``(none)`` for a binary that has only the kernel. The ``variant`` line
+names the released build (``default`` or ``shell``); a binary built locally shows
+``none``. ``/status`` carries the same information in the member ``build``, with
+the lists ``modules`` and ``without``.
 
 After ``anet init`` and ``anet up``, a default node does the following without
 further configuration:
@@ -159,12 +160,6 @@ further configuration:
 * It requests previews for a task only when a local client asks for them.
 
 Every other module does nothing until it is configured.
-
-.. v030-doc-verify: MOD-7a
-   The ``variant:`` line of ``anet version`` and the modules line with
-   ``autoreply``, ``console`` and ``preview`` are specified in the design. In the
-   main checkout, ``anet version`` prints the modules line without those three
-   names. Confirm the output of the release build.
 
 Turning a module off
 ====================
@@ -194,6 +189,13 @@ a module whose configuration block exists in ``config.json``; remove the block
 first. ``anet init --with p2p`` removes one name from the list. Both commands
 refuse to run while the daemon is running, and they change nothing in that case.
 
+Every module of the table can be named, with two limits. The names ``autoreply``
+and ``preview`` turn off the modules whose settings are the top-level keys
+``auto_reply`` and ``stream_preview``; the forms ``modules.autoreply`` and
+``modules.preview`` are refused. A name that is not the name of a module is
+refused with ``config_invalid``, and the shell module is turned off by not
+installing it.
+
 There is no way to change ``without`` through the control interface, MCP or the
 local A2A interface. A peer on the network, and a program that holds only the
 control token, cannot turn a module back on.
@@ -209,16 +211,7 @@ If any name is not valid for the selected build, nothing is installed. The
 script has no ``--with`` option. To turn a module back on, use ``anet init
 --with``.
 
-.. v030-doc-verify: MOD-7a
-   ``anet init --without`` and ``--with``, and ``install.sh --without``, are
-   specified in the design. ``anet init`` in the main checkout accepts neither
-   option, and ``install.sh`` accepts ``--system``, ``--user``, ``--prefix``,
-   ``--base``, ``--shell``, ``--agents``, ``--hub`` and ``--name``.
-
-.. v030-doc-verify: MOD-1
-   The ``without`` key, the validation of its names, the ``module_absent`` code
-   and the refusal of a name whose absent-path is not ready are specified in the
-   framework package. The setting and the code are not yet in the main checkout.
+.. _topics-modules-build:
 
 Building without a module
 =========================
@@ -234,9 +227,18 @@ repository checks this by counting symbols in both directions.
    $ go build -tags no_p2p,no_blackboard -o anet ./cmd/anet
    $ ./anet version
 
+``build.sh`` does the same from the names of the modules, and also builds with
+the additive module:
+
+.. code-block:: console
+
+   $ ./build.sh --without autoreply,x402
+   $ ./build.sh --with shell
+
 Combine tags with commas. ``scripts/tagcheck.sh list`` prints the tags of the
-source tree, and ``scripts/tagcheck.sh all`` checks them. A build that contains
-a configuration block for a module it lacks does not start.
+source tree, and ``scripts/tagcheck.sh all`` checks them in both directions by
+counting symbols. A build that contains a configuration block for a module it
+lacks does not start.
 
 The module ``shell`` is the one additive module. The default build does not
 contain it, because it is the only module that turns a network request into a
@@ -246,10 +248,9 @@ command on the host, and the operator must choose it on purpose:
 
    $ go build -tags shell -o anet ./cmd/anet
 
-The binary size changes little. In an earlier measurement of the default build,
-removing the MCP server saved most of the space that the modules use, and the
-other modules together saved a few percent. The reason to omit a module is the
-reduction of what the node can be asked to do, not the size.
+Leaving modules out makes the binary smaller (see :ref:`topics-modules-recipes`),
+but the reason to do it is the reduction of what the node can be asked to do, not
+the size.
 
 The effect of absence
 =====================
@@ -297,9 +298,211 @@ Examples of the sentences:
    $ anet autoreply show
    This node has turned off the auto-reply module (autoreply; without in config.json), so nothing was done; run anet down, anet init --with autoreply, anet up.
 
-.. v030-doc-verify: MOD-1
-   The exact sentences of ``module_absent`` follow the table of the design. Replace
-   the examples with the output of the release build.
+What each module does when it is absent
+---------------------------------------
+
+.. list-table::
+   :header-rows: 1
+   :widths: 16 84
+
+   * - Module
+     - Effect of absence
+   * - ``a2a``
+     - No loopback listener for the local A2A interface and no proxy cards.
+       The commands and the MCP tools are not affected.
+   * - ``anetlink``
+     - Device capabilities of ANetLink are not offered or called.
+   * - ``autoreply``
+     - There is no auto-reply loop and no local program is started for a task.
+       Tasks stay in the inbox. ``POST /autoreply`` and ``POST /autoreply-test``
+       and the command ``anet autoreply`` answer ``module_absent`` (exit status
+       2). ``/status`` has no member ``auto_reply``. The doctor item
+       ``auto_reply`` is informational and there are no ``sandbox`` items.
+       ``anet peers trust`` asks with the sentence ``trust_confirm.no_agent``,
+       which states that trust decides only whether local backends take the
+       tasks. The console hides the hint for the auto-reply. An ``auto_reply``
+       block in ``config.json`` stops the start (``module_absent.configured``).
+   * - ``blackboard``, ``cas``, ``org``
+     - The capabilities of the module are not offered.
+   * - ``console``
+     - ``anet console`` and the routes of the console answer ``module_absent``.
+   * - ``mcp``
+     - ``anet mcp`` and ``anet agents`` answer ``module_absent`` (exit status 2),
+       whether the module is not compiled or turned off.
+   * - ``p2p``
+     - No direct address is published and no direct connection is accepted.
+   * - ``preview``
+     - The node does not declare the extension ``anet-preview/v1`` and does not
+       ask for previews. Preview frames that arrive are dropped and counted as
+       ``preview-unsupported``. ``anet preview`` and ``POST /tasks/preview``
+       answer ``module_absent``, and ``/status`` has no member ``preview``.
+       ``anet delegate --watch`` prints one line on standard error and then waits
+       for the final answer. A ``stream_preview`` other than ``off`` stops the
+       start (``module_absent.configured``).
+   * - ``service``
+     - Capabilities that are served by programs on the local machine are not
+       offered. A capability that declares files is reported by the doctor item
+       ``capabilities.files``.
+   * - ``shell``
+     - No remote command can be run.
+   * - ``x402``
+     - ``anet pay``, ``anet redeem``, ``anet reconcile``, ``anet audit-hub`` and
+       the routes behind them answer ``module_absent``. ``anet balance`` reports
+       the balance as ``module_absent``. A quote that is received waits in
+       ``input-required`` with the sentence ``module_absent.payment``. The
+       proxy card declares ``a2a-x402`` only while the node can pay. The doctor
+       item ``payments.unchargeable`` reports a priced capability that the node
+       could not charge for.
+
+Examples of the sentences:
+
+.. code-block:: console
+
+   $ anet mcp
+   This anet does not include the MCP module (mcp), so nothing was done; install the default build (install.sh).
+
+   $ anet autoreply show
+   This node has turned off the auto-reply module (autoreply; without in config.json), so nothing was done; run anet down, anet init --with autoreply, anet up.
+
+The sentences that concern modules are ``module_absent``, ``module_absent.configured``,
+``module_absent.payment``, ``without_configured``, ``daemon_running``,
+``build_tag_pending``, ``update_variant_unknown`` and
+``update_variant_unknown.mismatch``. They are listed in :doc:`/reference/reason-codes`.
+
+.. _topics-modules-recipes:
+
+Combinations of modules
+=======================
+
+The repository tests combinations of build tags, and ``scripts/tagcheck.sh
+recipes`` prints the ones below. Each combination is a *recipe*: a set of tags
+for a purpose. The released builds are ``default`` and ``shell``; the recipes
+are for those who build a node themselves, or who turn the same modules off
+with ``without``.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 12 48 40
+
+   * - Recipe
+     - Purpose
+     - Modules in the binary
+   * - ``min``
+     - Take part: register with a hub, find agents, delegate tasks, verify
+       receipts, review. It offers no capability, cannot be paid and has no
+       local A2A listener.
+     - kernel only
+   * - ``standard``
+     - ``min`` with the local A2A interface and local services published as
+       capabilities. A priced capability is answered with ``UNAVAILABLE`` and
+       the node does not work for free.
+     - ``a2a``, ``service``
+   * - ``paid``
+     - ``standard`` with payment: prices, quotes, settlement, the audit of the
+       issuance chain and reconciliation.
+     - ``a2a``, ``service``, ``x402``
+   * - ``agent``
+     - For coding agents: ``standard`` with the MCP server.
+     - ``a2a``, ``mcp``, ``service``
+   * - ``p2p``
+     - ``standard`` with direct delivery between nodes. A hub is still needed
+       for discovery and key histories.
+     - ``a2a``, ``p2p``, ``service``
+   * - ``full``
+     - Every module except ``shell``.
+     - all
+
+The recipes ``min``, ``standard``, ``paid``, ``agent`` and ``p2p`` leave out
+``autoreply`` and ``preview``; both are in ``full`` only.
+
+The ``console`` module has no tag. Every recipe therefore contains the console;
+it is the only entry that does not use the bearer token, and it can be turned
+off with ``without``.
+
+The modules in a build determine what the node can be asked to do. Leaving out every optional module saves 19 per cent of the binary. The module ``mcp`` is the
+largest part of that saving, because it links the MCP library; ``autoreply`` and
+``a2a`` follow. The sizes below are those of a Linux amd64 build of the
+release candidate with ``-trimpath -ldflags "-s -w"``.
+
+Single tag, relative to the default build:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 35 35
+
+   * - Tag
+     - Size saved (KiB)
+     - Share of the total saving
+   * - ``no_mcp``
+     - 1,996
+     - 48 %
+   * - ``no_autoreply``
+     - 692
+     - 17 %
+   * - ``no_a2a``
+     - 684
+     - 17 %
+   * - ``no_x402``
+     - 220
+     - 5 %
+   * - ``no_p2p``
+     - 72
+     - 2 %
+   * - ``no_preview``
+     - 56
+     - 1 %
+   * - ``no_service``
+     - 60
+     - 1 %
+   * - ``no_cas``
+     - 56
+     - 1 %
+   * - ``no_blackboard``
+     - 40
+     - 1 %
+   * - ``no_org``
+     - 40
+     - 1 %
+   * - ``no_anetlink``
+     - 48
+     - 1 %
+
+Recipes and the additive tag:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 35 35
+
+   * - Build
+     - Size (KiB)
+     - Packages linked
+   * - ``full`` (default build)
+     - 21,224
+     - 358
+   * - ``agent``
+     - 20,024
+     - 348
+   * - ``p2p``
+     - 18,096
+     - 319
+   * - ``paid``
+     - 18,236
+     - 320
+   * - ``standard``
+     - 18,024
+     - 318
+   * - ``min``
+     - 17,108
+     - 289
+   * - ``shell`` added to the default build
+     - 21,260
+     - 359
+
+The recipes ``paid``, ``p2p`` and ``full`` contain modules that open listeners or
+spend credit only after the operator configures them. The module ``shell`` is
+the only module that turns a network request into a command on the host. It is
+additive, it is not part of any recipe, and it is not combined with ``full`` in
+the released builds.
 
 Updating
 ========

@@ -257,7 +257,12 @@ Four commands relate to the balance and the ledger of the hub.
    $ anet audit-hub
 
 ``anet balance``
-   The balance on the hub's ledger and its entries.
+   The balance on the ledger of the hub and its entries. On an account that came
+   in through open registration or a sign-up window, a second line on standard
+   error states the probation, the trial credits that are still to come, or the
+   time at which they arrived. The answer of the MCP tool ``get_balance`` carries
+   the members ``probation_until`` and ``trial`` for the same state. A node whose
+   build has no payment module answers ``module_absent``.
 
 ``anet redeem``
    Gives credits back to the hub, with a reference that the operator and the
@@ -268,23 +273,42 @@ Four commands relate to the balance and the ledger of the hub.
 
 ``anet reconcile``
    Compares the payments that this node signed or received with the entries that
-   the hub holds for the account.
+   the hub holds for the account. The hub shows the ledger for 14 days. The
+   comparison therefore covers that window, and the report states the balance at
+   the start of the window. For the time before the window, the chain of balance
+   proofs described below is the evidence.
+
+.. _topics-payments-audit-hub:
+
+Checking the hub
+----------------
 
 ``anet audit-hub``
-   Reads the hub's chain of supply epochs and checks the balance proof for the
-   account. The hub publishes, at intervals, the root of a tree of balances, the
-   number of outstanding credits and the epoch. A node checks that its own
-   balance is in the tree. The daemon performs this check every six hours while it
-   runs.
+   Reads the chain of supply epochs of the hub and checks the proof that the
+   balance of the account is counted in it. The hub publishes, once per epoch, the
+   root of a tree of balances, the number of outstanding credits and the epoch.
+   The command prints the JSON answer on standard output. On standard error it
+   prints up to three kinds of line: the line for the issuance chain (the number
+   of epochs, whether signatures and links are valid, and whether the head is the
+   one that this node recorded last), the line for the balance proofs (the number
+   of epochs that were checked, the latest day and the balance), and either each
+   finding with the command that follows from it, or the line "No problems
+   found". The exit status is 1 when a check failed. A hint that is not a failure,
+   such as epochs that could not be checked in time, does not change the status.
+
+The daemon performs the check automatically every six hours while it runs, and the
+doctor items ``payments.audit`` and ``hub.probation`` report its result and the
+probation of a new account. The hub keeps the ledger for 14 days. The proofs that
+the node has verified are kept on the node, in the file
+``modules/x402/liab_proof.jsonl`` of the data directory (mode ``0600``, one line
+for each epoch); they are not part of ``interactions.db``. The earlier setting
+``witness_hub`` and ``witness_every_seconds`` is removed, and a daemon that finds
+either key refuses to start (``config_key_removed``). A node no longer submits
+statements to the hub.
 
 Entries of the ledger are kept in detail for 14 days and then reduced to the
 balance. The records that the node keeps in its own evidence chain are kept for
 as long as the node keeps its data.
-
-.. v030-doc-verify: PAY-13
-   The automatic balance-proof check every six hours, and the readable summary of
-   ``anet audit-hub``, belong to the hub-request package of the payment module.
-   Confirm the interval and the output after the merge.
 
 Reviews
 =======
@@ -312,13 +336,15 @@ The public reputation of an agent states the number of reviews, the average and
 the number of reviewers for each hub separately. The values are not merged into
 one score, because a hub can register accounts that review each other.
 
-.. v030-doc-verify: PAY-14
-   Reviews version 2 (pairwise pseudonyms, upload delay, the 30-day window, the
-   280-character comment limit, the reputation response and the removal of
-   review edges from the graph) are specified in the design and are implemented
-   by the evidence package. In the main checkout, the review upload route exists
-   and the daemon-side package is not merged. Confirm the exact limits and the
-   anet review output after the merge.
+``anet review`` prints the line ``review.queued`` and returns at once; the doctor
+item ``payments.reviews`` counts the reviews that wait for upload and reports
+reviews that have waited for more than 7 days. Each upload is recorded as the
+evidence event ``anet.review.uploaded`` with the members ``ix``, ``subject``,
+``rating`` and ``day``. ``anet verify`` shows, for a receipt, the provider, the
+request and result content identifiers, the day of completion and the content
+identifier of the receipt; a receipt names neither the requester nor the
+interaction. ``anet verify --attestation`` takes a base64url value without
+padding.
 
 What the parties learn
 ======================

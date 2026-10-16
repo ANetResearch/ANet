@@ -1,0 +1,370 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) Agent Network
+# This file is distributed under the same license as the ANet package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: ANet 0.3\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-10-16 14:35+0000\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language: zh_CN\n"
+"Language-Team: zh_CN <LL@li.org>\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.18.0\n"
+
+#: ../../topics/shell.rst:4
+msgid "The shell module"
+msgstr "shell 模块"
+
+#: ../../topics/shell.rst:6
+msgid ""
+"The ``shell`` module lets a node run commands that its operator has "
+"approved, on request of callers that the operator has listed. A typical "
+"use is a development board or a remote machine on which a service has to "
+"be restarted, a log read or a firmware flashed from the other end of the "
+"network, with the output returned to the caller and the permission "
+"revocable at any time."
+msgstr ""
+"``shell`` "
+"模块让节点按运营人员列出的调用方的请求，运行运营人员已批准的命令。典型用途是开发板或远程机器：需要从网络另一端重启服务、读取日志或烧写固件，并取回输出，且权限可随时收回。"
+
+#: ../../topics/shell.rst:12
+msgid ""
+"The module is the only one that turns a request from the network into a "
+"command on the host. It is therefore *additive*: it is not part of the "
+"default build, and it is included only in the build with the tag "
+"``shell`` (``install.sh --shell``, or ``./build.sh --with shell``). See "
+":doc:`modules`."
+msgstr ""
+"该模块是唯一把网络请求变成宿主机命令的模块，因此它是\\ *加法*\\ 模块：不属于默认构建，只包含在带有标签 ``shell`` "
+"的构建中（``install.sh --shell`` 或 ``./build.sh --with shell``）。参见 "
+":doc:`modules`。"
+
+#: ../../topics/shell.rst:23
+msgid "Three separate decisions"
+msgstr "三项相互独立的决定"
+
+#: ../../topics/shell.rst:25
+msgid ""
+"Whether a node runs remote commands depends on three decisions, each of "
+"which is made on purpose."
+msgstr "节点是否运行远程命令，取决于三项决定，每一项都须有意作出。"
+
+#: ../../topics/shell.rst:28
+msgid ""
+"*The build.* A binary without the tag ``shell`` contains no code for it. "
+"A build with the tag registers no capability and runs no command until "
+"the second decision is made."
+msgstr "*构建。*\\ 不带标签 ``shell`` 的二进制不含这部分代码。带该标签的构建在作出第二项决定之前，不注册任何能力，也不运行任何命令。"
+
+#: ../../topics/shell.rst:30
+msgid ""
+"*The configuration.* The module acts only when ``config.json`` has a "
+"block ``modules.shell`` that defines at least one command or sets "
+"``allow_arbitrary``. A binary that contains the module and has no block "
+"is inactive."
+msgstr ""
+"*配置。*\\ 只有 ``config.json`` 中有 ``modules.shell`` 块，且该块至少定义一条命令或设置了 "
+"``allow_arbitrary``，模块才会工作。含有该模块但没有该块的二进制处于未启用状态。"
+
+#: ../../topics/shell.rst:33
+msgid ""
+"*The list of callers.* A block with commands and an empty list of callers"
+" refuses every call. An empty list means nobody, not everybody."
+msgstr "*调用方名单。*\\ 有命令而调用方名单为空的块会拒绝每一次调用。名单为空表示没有任何人，而不是所有人。"
+
+#: ../../topics/shell.rst:36
+msgid ""
+"A caller must also pass the inbound policy of the node. The default "
+"policy is ``closed``, so the caller has to be on ``peers.allow`` (``anet "
+"peers allow <aid>``) before a call reaches the module. The two lists have"
+" different tasks: ``peers.allow`` decides who may hand tasks to the "
+"machine, and the list of the module decides which of them may run "
+"commands. Do not list a ``shell.*`` capability in "
+"``inbound.public_capabilities``. That would admit strangers and leave the"
+" list of the module as the only barrier."
+msgstr ""
+"调用方还必须通过节点的入站策略。默认策略为 ``closed``，因此调用方须先列入 ``peers.allow``\\ （``anet "
+"peers allow <aid>``），调用才会到达模块。两份名单各司其职：``peers.allow`` "
+"决定谁可以把任务交给这台机器，模块的名单决定其中谁可以运行命令。不要把 ``shell.*`` 能力列入 "
+"``inbound.public_capabilities``，否则会放陌生人进门，只剩模块的名单这一道屏障。"
+
+#: ../../topics/shell.rst:43
+msgid ""
+"A call without the identity of a caller is refused unless ``allow_local``"
+" is ``true``. The empty value of the identity must not mean \"local and "
+"trusted\", because a call site that omits the identity would then bypass "
+"the whole list without a trace."
+msgstr ""
+"不带调用方身份的调用会被拒绝，除非 ``allow_local`` 为 "
+"``true``。身份为空不能被当作“本机且可信”，否则某个遗漏身份的调用点会不留痕迹地绕过整份名单。"
+
+#: ../../topics/shell.rst:49
+msgid "Configuration"
+msgstr "配置"
+
+#: ../../topics/shell.rst:72
+msgid "Key"
+msgstr "键"
+
+#: ../../topics/shell.rst:73
+msgid "Meaning"
+msgstr "含义"
+
+#: ../../topics/shell.rst:74
+msgid "``commands.<name>.run``"
+msgstr "``commands.<name>.run``"
+
+#: ../../topics/shell.rst:75
+msgid ""
+"The command line. It is run through the interpreter, so that pipes, "
+"redirections and ``&&`` can be used. The name must not contain a space, "
+"``@`` or ``/``, because it becomes part of a capability identifier."
+msgstr "命令行。它经解释器运行，因此可以使用管道、重定向和 ``&&``。名称不得包含空格、``@`` 或 ``/``，因为它会成为能力标识的一部分。"
+
+#: ../../topics/shell.rst:78
+msgid "``commands.<name>.description``"
+msgstr "``commands.<name>.description``"
+
+#: ../../topics/shell.rst:79
+msgid "A description for the capability list."
+msgstr "能力列表中的说明。"
+
+#: ../../topics/shell.rst:80
+msgid "``commands.<name>.args``"
+msgstr "``commands.<name>.args``"
+
+#: ../../topics/shell.rst:81
+msgid "``true`` lets the caller append arguments. The default is ``false``."
+msgstr "``true`` 允许调用方追加参数。默认为 ``false``。"
+
+#: ../../topics/shell.rst:82
+msgid "``commands.<name>.dir``"
+msgstr "``commands.<name>.dir``"
+
+#: ../../topics/shell.rst:83
+msgid "The working directory."
+msgstr "工作目录。"
+
+#: ../../topics/shell.rst:84
+msgid "``commands.<name>.timeout_s``"
+msgstr "``commands.<name>.timeout_s``"
+
+#: ../../topics/shell.rst:85
+msgid "The time limit of this command. It overrides the global value."
+msgstr "该命令的时间限制，覆盖全局值。"
+
+#: ../../topics/shell.rst:86
+msgid "``allow``"
+msgstr "``allow``"
+
+#: ../../topics/shell.rst:87
+msgid "The AIDs that may call, as an inline list. It is read at the start."
+msgstr "允许调用的 AID，以内联列表给出，在启动时读取。"
+
+#: ../../topics/shell.rst:88
+msgid "``allow_file``"
+msgstr "``allow_file``"
+
+#: ../../topics/shell.rst:89
+msgid ""
+"A file with the AIDs that may call, one for each line; ``#`` starts a "
+"comment. It is read again before every call. ``allow`` and ``allow_file``"
+" are mutually exclusive; both together fail when the configuration is "
+"loaded."
+msgstr ""
+"包含允许调用的 AID 的文件，每行一个；``#`` 起始注释。每次调用前都会重新读取。``allow`` 与 ``allow_file`` "
+"互斥，同时给出会在加载配置时失败。"
+
+#: ../../topics/shell.rst:92
+msgid "``allow_local``"
+msgstr "``allow_local``"
+
+#: ../../topics/shell.rst:93
+msgid "Admits calls without the identity of a caller. The default is ``false``."
+msgstr "放行不带调用方身份的调用。默认为 ``false``。"
+
+#: ../../topics/shell.rst:94
+msgid "``allow_arbitrary``"
+msgstr "``allow_arbitrary``"
+
+#: ../../topics/shell.rst:95
+msgid ""
+"Offers ``shell.exec``, which runs any command that the caller sends. The "
+"default is ``false``."
+msgstr "提供 ``shell.exec``，即运行调用方发来的任意命令。默认为 ``false``。"
+
+#: ../../topics/shell.rst:97
+msgid "``timeout_s``"
+msgstr "``timeout_s``"
+
+#: ../../topics/shell.rst:98
+msgid ""
+"The global time limit in seconds. The default is 30 and the largest value"
+" is 86,400 (24 hours)."
+msgstr "全局时间限制，单位为秒。默认为 30，最大值为 86,400（24 小时）。"
+
+#: ../../topics/shell.rst:100
+msgid "``max_output_bytes``"
+msgstr "``max_output_bytes``"
+
+#: ../../topics/shell.rst:101
+msgid ""
+"The largest size of the output that is returned. The default is 65,536 "
+"and the largest value is 4 MiB."
+msgstr "返回输出的最大大小。默认为 65,536，最大值为 4 MiB。"
+
+#: ../../topics/shell.rst:103
+msgid "``shell``"
+msgstr "``shell``"
+
+#: ../../topics/shell.rst:104
+msgid "The interpreter. The default is ``/bin/sh``."
+msgstr "解释器。默认为 ``/bin/sh``。"
+
+#: ../../topics/shell.rst:106
+msgid ""
+"The node writes a warning to standard error at the start when no caller "
+"is allowed, and when ``allow_arbitrary`` is on."
+msgstr "启动时，若没有任何调用方被允许，或 ``allow_arbitrary`` 已开启，节点会向标准错误写出警告。"
+
+#: ../../topics/shell.rst:111
+msgid "Capabilities"
+msgstr "能力"
+
+#: ../../topics/shell.rst:117
+msgid "Capability"
+msgstr "能力"
+
+#: ../../topics/shell.rst:118
+#: ../../topics/shell.rst:146
+msgid "Behavior"
+msgstr "行为"
+
+#: ../../topics/shell.rst:119
+msgid "``shell.list``"
+msgstr "``shell.list``"
+
+#: ../../topics/shell.rst:120
+msgid ""
+"Reports the commands that the node defines and the number of callers on "
+"the list. A remote caller receives only the number, not the AIDs, so that"
+" an accepted caller does not learn which other machines the node trusts. "
+"A local call receives the full list."
+msgstr ""
+"报告节点定义了哪些命令，以及名单上的调用方数量。远程调用方只得到数量而不是 "
+"AID，使被接受的调用方无从得知节点还信任哪些其他机器。本机调用得到完整名单。"
+
+#: ../../topics/shell.rst:123
+msgid "``shell.run@<name>``"
+msgstr "``shell.run@<name>``"
+
+#: ../../topics/shell.rst:124
+msgid "Runs one defined command."
+msgstr "运行一条已定义的命令。"
+
+#: ../../topics/shell.rst:125
+msgid "``shell.exec``"
+msgstr "``shell.exec``"
+
+#: ../../topics/shell.rst:126
+msgid ""
+"Runs the command that the caller sends. It exists only while "
+"``allow_arbitrary`` is ``true``; otherwise it is neither on the "
+"capability card nor available by name."
+msgstr "运行调用方发来的命令。仅当 ``allow_arbitrary`` 为 ``true`` 时存在；否则既不在能力卡上，也不能按名调用。"
+
+#: ../../topics/shell.rst:129
+msgid ""
+"The names of the commands become capability identifiers such as "
+"``shell.run@restart-app``, and a node announces the capabilities that it "
+"answers. Anyone who can browse the directory of a hub can therefore see "
+"which commands the machine offers. The list of callers still guards them."
+" A command whose existence should not be known has a name that carries no"
+" information."
+msgstr ""
+"命令的名称会成为能力标识，如 ``shell.run@restart-app``，而节点会通告它实际应答的能力。因此，任何能浏览 hub "
+"目录的人都能看到这台机器提供哪些命令，名单仍然保护着这些命令。不希望其存在被人知道的命令，名称应不携带任何信息。"
+
+#: ../../topics/shell.rst:136
+msgid "Revoking access"
+msgstr "收回权限"
+
+#: ../../topics/shell.rst:138
+msgid ""
+"The file named by ``allow_file`` is read again before every call and is "
+"not cached. Deleting a line, or the whole file, takes effect with the "
+"next call and needs no restart. A missing file is an empty list, which "
+"refuses everybody. It is neither an error nor permission for all. The "
+"inline list ``allow`` changes only when the configuration is loaded "
+"again, so a production node should use ``allow_file``."
+msgstr ""
+"``allow_file`` "
+"所指的文件在每次调用前都会重新读取，不做缓存。删除一行或整个文件，在下一次调用时即生效，无需重启。文件不存在等同于名单为空，即拒绝所有人；它既不是错误，也不是对所有人放行。内联列表"
+" ``allow`` 只在重新加载配置时改变，因此生产节点应使用 ``allow_file``。"
+
+#: ../../topics/shell.rst:148
+msgid ""
+"*No privilege escalation.* A command runs as the user of the daemon. A "
+"command that needs root requires a daemon that runs as root, which is a "
+"decision of the installation and is visible in the unit file. The module "
+"calls neither ``sudo`` nor ``setuid``."
+msgstr ""
+"*不提权。*\\ 命令以守护进程所属用户的身份运行。需要 root 的命令要求守护进程以 root 运行，这是安装时的决定，体现在 unit "
+"文件中。模块既不调用 ``sudo``，也不调用 ``setuid``。"
+
+#: ../../topics/shell.rst:151
+msgid ""
+"*Arguments do not become commands.* With ``args: true``, each argument of"
+" the caller is quoted and appended. The command line belongs to the "
+"operator, the arguments to the network, and the two are never mixed."
+msgstr ""
+"*参数不会变成命令。*\\ 在 ``args: true`` "
+"时，调用方的每个参数都会加引号后追加。命令行属于运营人员，参数属于网络，两者不会混在一起。"
+
+#: ../../topics/shell.rst:154
+msgid ""
+"*The time limit ends the process group.* Ending only the shell would "
+"leave the processes that it started on the machine."
+msgstr "*时间限制会结束整个进程组。*\\ 只结束 shell，会让它启动的进程留在机器上。"
+
+#: ../../topics/shell.rst:156
+msgid ""
+"*The output is bounded.* A longer output is cut, and the output states "
+"the cut."
+msgstr "*输出有上限。*\\ 过长的输出会被截断，并在输出中注明截断。"
+
+#: ../../topics/shell.rst:157
+msgid ""
+"*The effect status is accurate.* Exit status 0 is ``OK``. Any other "
+"status is ``FAILED`` with the exit status and the standard error. A "
+"command that is killed after the time limit is ``FAILED``, and the "
+"message states that it was killed."
+msgstr ""
+"*效果状态准确。*\\ 退出状态 0 为 ``OK``。其他状态为 ``FAILED``，并附带退出状态和标准错误。超过时间限制而被终止的命令为 "
+"``FAILED``，消息中注明其被终止。"
+
+#: ../../topics/shell.rst:160
+msgid ""
+"*Every run is on the evidence chain.* The event ``anet.shell.command`` "
+"records the caller, the command, the exit status and the duration. A "
+"refused call is recorded as ``anet.shell.refused``, with the AID of the "
+"caller. The output is not part of the chain."
+msgstr ""
+"*每次运行都进入证据链。*\\ 事件 ``anet.shell.command`` 记录调用方、命令、退出状态和耗时。被拒绝的调用记为 "
+"``anet.shell.refused``，并带有调用方的 AID。输出本身不在链上。"
+
+#: ../../topics/shell.rst:164
+msgid ""
+"The line that a ``run`` contains is not restricted. The operator who "
+"writes it is trusted, and the trust boundary lies between what the "
+"operator wrote and what the network sent."
+msgstr "``run`` 中的命令行不受限制。写下它的运营人员是被信任的，信任边界在运营人员所写的内容与网络发来的内容之间。"
+

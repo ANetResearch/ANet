@@ -273,8 +273,6 @@ the state on its own line, with the label ``delivery``:
    ...
    delivery: Sent; waiting for the other side's node to confirm it. If it is still not delivered by 10-01 14:20, the task fails. (waited 2m)
 
-.. v030-doc-verify: RC-5
-
 The state ``unconfirmed`` does not mean that the recipient did not receive
 the message. It means that the sender stopped waiting. Only the case ``not_sent``
 excludes that the message reached the other side.
@@ -319,8 +317,6 @@ itself, the state stays ``pending`` and the reason appears as
    * - ``rotation_pending``
      - A key rotation is being published, so this is queued; it goes out on
        its own once that is done.
-
-.. v030-doc-verify: RC-5
 
 The last two reasons come from the identity state described in
 :ref:`topics-identity-states`.
@@ -427,12 +423,12 @@ reports ``retention_invalid``.
 .. code-block:: console
 
    $ anet retention
-   Task content is deleted 30 days after a task ends (public calls: 7 days).
+   Task content retention is 30 days, counted from when a task ends (public calls: 7 days).
    usage: anet retention set <N>d|forever
 
    $ anet retention set 7d
    Setting 7 days deletes 12 tasks that ended more than 7 days ago, with their content, and this cannot be undone; type yes to confirm: yes
-   Task content will now be kept for 7 days after a task ends.
+   Task content retention is now 7 days, counted from when a task ends.
 
    $ anet retention set 90d < /dev/null
    Changing the retention has to be confirmed in your own terminal; run it there: anet retention set 90d.
@@ -455,8 +451,6 @@ locally is reported as ``no_local_task``; the sentence points to the
 retention period and to ``anet audit --interaction <id>``, which shows what
 the evidence chain kept. The evidence chain keeps the peer, the time, the
 content identifier and the amount permanently, but not the content.
-
-.. v030-doc-verify: FS-11
 
 Clock check and local state
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~

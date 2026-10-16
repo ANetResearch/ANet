@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ANet 0.3\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-16 03:55+0000\n"
+"POT-Creation-Date: 2026-10-16 14:40+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: zh_CN\n"
@@ -87,47 +87,90 @@ msgstr "Linux"
 #: ../../topics/sandbox.rst:41
 msgid ""
 "The sandbox uses ``bubblewrap`` with a seccomp filter. It needs the "
-"``bubblewrap`` package. On Ubuntu 24.04 and later, the default AppArmor "
-"policy prevents ``bubblewrap`` from creating user namespaces, and the "
-"node reports ``userns_blocked`` with the command that installs a narrow "
-"profile."
+"``bubblewrap`` package. The supported hosts are Debian 12 (bubblewrap "
+"0.8) and Ubuntu 24.04 with the AppArmor profile described below. On "
+"Ubuntu 24.04 and later, the default AppArmor policy prevents "
+"``bubblewrap`` from creating user namespaces, and the node reports "
+"``userns_blocked`` with the command that installs a narrow profile."
 msgstr ""
-"沙箱使用带 seccomp 过滤器的 ``bubblewrap``，需要 ``bubblewrap`` 软件包。在 Ubuntu 24.04 "
-"及更高版本上，默认的 AppArmor 策略会阻止 ``bubblewrap`` 创建用户命名空间，此时节点报告 "
-"``userns_blocked``，并给出安装窄范围配置文件的命令。"
+"沙箱使用带 seccomp 过滤器的 ``bubblewrap``，需要 ``bubblewrap`` 软件包。支持的主机为 Debian "
+"12（bubblewrap 0.8）和装有下述 AppArmor profile 的 Ubuntu 24.04。在 Ubuntu 24.04 "
+"及更高版本上，默认的 AppArmor 策略会阻止 ``bubblewrap`` 创建用户命名空间，节点会报告 "
+"``userns_blocked``，并给出安装窄范围 profile 的命令。"
 
-#: ../../topics/sandbox.rst:46
+#: ../../topics/sandbox.rst:48
 msgid "macOS"
 msgstr "macOS"
 
-#: ../../topics/sandbox.rst:47
-msgid "The sandbox uses Seatbelt through ``/usr/bin/sandbox-exec``."
-msgstr "沙箱通过 ``/usr/bin/sandbox-exec`` 使用 Seatbelt。"
-
 #: ../../topics/sandbox.rst:49
+msgid ""
+"The sandbox uses Seatbelt through ``/usr/bin/sandbox-exec``. Before a "
+"turn starts, the node runs a self-check inside the profile. A build in "
+"which Seatbelt is not enabled, and a host on which the self-check fails, "
+"report the sandbox as unavailable (``platform_unsupported.pending`` or "
+"the reason of the failed item) and turn away the turns that need it with "
+"``sandbox_unavailable``. The node never runs such a turn without the "
+"sandbox."
+msgstr ""
+"沙箱通过 ``/usr/bin/sandbox-exec`` 使用 Seatbelt。每个回合开始前，节点会在 profile "
+"内运行一次自检。未启用 Seatbelt "
+"的构建，以及自检失败的主机，会把沙箱报告为不可用（``platform_unsupported.pending`` 或失败项的原因），并以 "
+"``sandbox_unavailable`` 拒绝需要沙箱的回合。节点从不在没有沙箱的情况下运行这样的回合。"
+
+#: ../../topics/sandbox.rst:56
 msgid "Other platforms"
 msgstr "其他平台"
 
-#: ../../topics/sandbox.rst:50
+#: ../../topics/sandbox.rst:57
 msgid "There is no sandbox. On Windows, run ANet in WSL2."
 msgstr "没有沙箱。在 Windows 上，请在 WSL2 中运行 ANet。"
 
-#: ../../topics/sandbox.rst:64
+#: ../../topics/sandbox.rst:60
+msgid "The AppArmor profile"
+msgstr "AppArmor profile"
+
+#: ../../topics/sandbox.rst:62
+msgid ""
+"``anet doctor --apparmor-profile`` prints the profile on standard output "
+"and writes no file. The sentence ``userns_blocked`` names the command "
+"that installs it:"
+msgstr ""
+"``anet doctor --apparmor-profile`` 把 profile 打印到标准输出，不写任何文件。句子 "
+"``userns_blocked`` 给出安装它的命令："
+
+#: ../../topics/sandbox.rst:70
+msgid ""
+"The profile has two parts. The profile ``anet-bwrap`` is attached to "
+"``/usr/bin/bwrap`` and gives ``bubblewrap`` the permission to create user"
+" namespaces. Everything that ``bubblewrap`` starts, the sandboxed agent "
+"included, runs under the stacked profile ``anet-bwrap//&anet-bwrap-"
+"unpriv``, which holds no capability. The structure is that of the profile"
+" ``bwrap-userns-restrict`` which Ubuntu ships from release 24.10, and the"
+" profile changes no ``sysctl`` setting. The profile can be removed with "
+"``apparmor_parser -R`` and by deleting the file."
+msgstr ""
+"该 profile 分为两部分。profile ``anet-bwrap`` 附加在 ``/usr/bin/bwrap`` 上，授予 "
+"``bubblewrap`` 创建用户命名空间的权限。``bubblewrap`` 启动的一切，包括沙箱中的 agent，都在叠加的 "
+"profile ``anet-bwrap//&anet-bwrap-unpriv`` 下运行，后者不持有任何 capability。其结构与 "
+"Ubuntu 自 24.10 起提供的 profile ``bwrap-userns-restrict`` 相同，且不更改任何 "
+"``sysctl`` 设置。可以用 ``apparmor_parser -R`` 并删除该文件来移除这个 profile。"
+
+#: ../../topics/sandbox.rst:79
 msgid "What the sandbox restricts"
 msgstr "沙箱的限制范围"
 
-#: ../../topics/sandbox.rst:66
+#: ../../topics/sandbox.rst:81
 msgid ""
 "On Linux the node starts each run in new namespaces for users, processes,"
 " IPC, host names, control groups and the network. The run has these "
 "properties."
 msgstr "在 Linux 上，节点在新的用户、进程、IPC、主机名、控制组和网络命名空间中启动每次运行。运行具有以下性质。"
 
-#: ../../topics/sandbox.rst:69
+#: ../../topics/sandbox.rst:84
 msgid "No network"
 msgstr "无网络"
 
-#: ../../topics/sandbox.rst:70
+#: ../../topics/sandbox.rst:85
 msgid ""
 "The run has no network interface other than its own loopback. It cannot "
 "connect to the machine, to the local network or to the Internet. The only"
@@ -137,25 +180,37 @@ msgstr ""
 "运行除自身的回环接口外没有其他网络接口，无法连接本机、本地网络或互联网。唯一的出口是节点为该次运行提供的本地端点（参见 `模型访问`_ 与 "
 "`允许的主机`_）。"
 
-#: ../../topics/sandbox.rst:75
+#: ../../topics/sandbox.rst:90
 msgid "Own file system"
 msgstr "独立的文件系统"
 
-#: ../../topics/sandbox.rst:76
+#: ../../topics/sandbox.rst:91
 msgid ""
 "The run sees the system directories read-only. Its home directory and its"
 " temporary directories are created for the run and deleted when the run "
 "ends. Its working directory is separate from the working directory of "
 "runs that are not sandboxed, and the data directory of the node, the "
 "control token, the local socket directories and the sockets of other "
-"modules are never visible."
-msgstr "运行以只读方式看到系统目录。其主目录和临时目录为该次运行创建，运行结束时删除。其工作目录与未使用沙箱的运行的工作目录相互独立，节点的数据目录、控制令牌、本地套接字目录以及其他模块的套接字始终不可见。"
+"modules are never visible. Runs that are not sandboxed work under "
+"``<cache>/anet/work/<aid>/<interaction>/`` (or in "
+"``auto_reply.work_dir``), and sandboxed runs under ``<cache>/anet/work-"
+"sandbox/<aid>/<interaction>/``. The two roots never overlap, so that "
+"nothing that the run of an untrusted peer left behind is in the directory"
+" where an agent without a sandbox starts. The work directories are "
+"removed within the retention period in every build."
+msgstr ""
+"运行可以只读地看到系统目录。其主目录和临时目录为该次运行创建，运行结束时删除。其工作目录与未沙箱化的运行的工作目录分开，节点的数据目录、控制令牌、本地套接字目录和其他模块的套接字始终不可见。未沙箱化的运行在"
+" ``<cache>/anet/work/<aid>/<interaction>/``\\ （或 "
+"``auto_reply.work_dir``）下工作，沙箱化的运行在 ``<cache>/anet/work-"
+"sandbox/<aid>/<interaction>/`` "
+"下工作。两个根目录从不重叠，这样不受信任的对端的运行所留下的任何东西，都不会出现在无沙箱的 agent "
+"启动的目录里。工作目录在每个构建中都会在保存期内被删除。"
 
-#: ../../topics/sandbox.rst:83
+#: ../../topics/sandbox.rst:103
 msgid "No privileges"
 msgstr "无特权"
 
-#: ../../topics/sandbox.rst:84
+#: ../../topics/sandbox.rst:104
 msgid ""
 "All Linux capabilities are dropped. A seccomp filter denies system calls "
 "that create user namespaces, mount file systems, trace other processes, "
@@ -166,11 +221,11 @@ msgstr ""
 "所有 Linux capability 均被丢弃。seccomp 过滤器拒绝创建用户命名空间、挂载文件系统、跟踪其他进程、加载内核模块、使用 "
 "``io_uring``\\ 、\\ ``bpf`` 或内核密钥存储的系统调用，并拒绝其他系统调用接口。节点结束时，运行随之结束。"
 
-#: ../../topics/sandbox.rst:89
+#: ../../topics/sandbox.rst:109
 msgid "Clean environment"
 msgstr "干净的环境"
 
-#: ../../topics/sandbox.rst:90
+#: ../../topics/sandbox.rst:110
 msgid ""
 "The environment is built from an empty set. It contains the locale, the "
 "terminal type, a reduced ``PATH`` and the variables that point the agent "
@@ -178,11 +233,11 @@ msgid ""
 "setting of the daemon."
 msgstr "环境从空集构建，包含区域设置、终端类型、精简的 ``PATH``，以及指向节点端点的变量。其中没有运营人员的任何密钥，也没有守护进程的代理设置。"
 
-#: ../../topics/sandbox.rst:95
+#: ../../topics/sandbox.rst:115
 msgid "Resource limits"
 msgstr "资源限制"
 
-#: ../../topics/sandbox.rst:96
+#: ../../topics/sandbox.rst:116
 msgid ""
 "When user-level systemd is available, a run is limited to 2 GiB of memory"
 " and 256 tasks, and ``anet status`` reports the limits as ``full``. "
@@ -195,7 +250,7 @@ msgstr ""
 "``full``\\ 。不可用时，其余限制仍然适用，节点报告警告 ``no_cgroup_limits``\\ 。一次运行的挂钟时间以 "
 "``api_timeout_seconds`` 为上限（默认 180 秒）。目录增长超过 2 GiB 的运行会被停止。"
 
-#: ../../topics/sandbox.rst:103
+#: ../../topics/sandbox.rst:123
 msgid ""
 "The node checks the sandbox before it relies on it. It starts a probe in "
 "the same sandbox that asserts five properties: the loopback interface "
@@ -206,15 +261,15 @@ msgid ""
 " The result is cached for five minutes."
 msgstr "节点在依赖沙箱之前先检查它。它在同一沙箱中启动一个探测程序，断言五项性质：回环接口可用；连接主机上的某个端口失败；连接主机的抽象套接字失败；内核密钥存储的系统调用被拒绝；创建新的用户命名空间被拒绝。任何一项断言不成立，节点即报告沙箱不可用。结果缓存五分钟。"
 
-#: ../../topics/sandbox.rst:110
+#: ../../topics/sandbox.rst:130
 msgid "The commands to check a node are:"
 msgstr "检查节点的命令如下："
 
-#: ../../topics/sandbox.rst:118
+#: ../../topics/sandbox.rst:138
 msgid "Model access"
 msgstr "模型访问"
 
-#: ../../topics/sandbox.rst:120
+#: ../../topics/sandbox.rst:140
 msgid ""
 "An agent in the sandbox cannot reach a model service directly, and the "
 "node does not give it a key. The node gives the agent an address on its "
@@ -225,11 +280,11 @@ msgstr ""
 "沙箱中的 Agent 无法直接访问模型服务，节点也不向其提供密钥。节点给 Agent "
 "一个位于自身回环接口上的地址。对该地址的请求由节点处理，节点自行调用模型服务并加上运营人员的密钥。Agent 收到的只是占位值。"
 
-#: ../../topics/sandbox.rst:126
+#: ../../topics/sandbox.rst:146
 msgid "The node applies the following rules to every request on this route."
 msgstr "节点对这条路径上的每个请求应用以下规则。"
 
-#: ../../topics/sandbox.rst:128
+#: ../../topics/sandbox.rst:148
 msgid ""
 "The model is fixed. The ``model`` field of every request is rewritten to "
 "the model that the operator configured, or to the cheapest model of the "
@@ -239,41 +294,41 @@ msgstr ""
 "模型固定。每个请求的 ``model`` 字段被改写为运营人员配置的模型；未配置时，改写为上游最便宜的模型。\\ ``sonnet`` "
 "之类的模型别名会映射为其标识。"
 
-#: ../../topics/sandbox.rst:132
+#: ../../topics/sandbox.rst:152
 msgid ""
 "The output length is bounded. ``max_tokens`` and the equivalent fields "
 "are at most 8192, and are set to 8192 when absent."
 msgstr "输出长度有界。\\ ``max_tokens`` 及等效字段最大为 8192，缺失时设为 8192。"
 
-#: ../../topics/sandbox.rst:134
+#: ../../topics/sandbox.rst:154
 msgid ""
 "Tools of the model service that run on the service side, such as web "
 "search, web fetch and code execution, are refused. They would let a "
 "request leave the sandbox through the service."
 msgstr "在服务端运行的模型服务工具，例如网络搜索、网页抓取和代码执行，会被拒绝。否则请求可以经由该服务离开沙箱。"
 
-#: ../../topics/sandbox.rst:137
+#: ../../topics/sandbox.rst:157
 msgid ""
 "Connectors to remote tool servers (``mcp_servers``) and container fields "
 "are refused. Media must be included in the request; a reference to a URL "
 "is refused."
 msgstr "连接远程工具服务器的连接器（``mcp_servers``）和容器字段会被拒绝。媒体必须包含在请求之内，对 URL 的引用会被拒绝。"
 
-#: ../../topics/sandbox.rst:140
+#: ../../topics/sandbox.rst:160
 msgid "Requests to the OpenAI interface are sent with ``store: false``."
 msgstr "发往 OpenAI 接口的请求带有 ``store: false``\\ 。"
 
-#: ../../topics/sandbox.rst:141
+#: ../../topics/sandbox.rst:161
 msgid ""
 "Credentials and routing headers that the agent adds are removed before "
 "the key is added. Beta feature headers are reduced to a fixed list."
 msgstr "Agent 添加的凭据和路由标头在加入密钥之前被移除。Beta 功能标头被缩减为固定的列表。"
 
-#: ../../topics/sandbox.rst:143
+#: ../../topics/sandbox.rst:163
 msgid "A request body must be an uncompressed JSON object."
 msgstr "请求体必须是未压缩的 JSON 对象。"
 
-#: ../../topics/sandbox.rst:145
+#: ../../topics/sandbox.rst:165
 msgid ""
 "A request that violates a rule receives an error whose text begins with "
 "``anet:`` and explains the rule, so that the agent can answer the task "
@@ -283,133 +338,133 @@ msgstr ""
 "违反规则的请求会收到以 ``anet:`` 开头的错误，其文本说明所违反的规则，使 Agent 能够不进行被禁止的操作而回答任务。这些说明语句列于"
 " :ref:`reference-reason-codes`\\ 。"
 
-#: ../../topics/sandbox.rst:150
+#: ../../topics/sandbox.rst:170
 msgid "The upstream depends on the agent:"
 msgstr "上游取决于 Agent："
 
-#: ../../topics/sandbox.rst:156
+#: ../../topics/sandbox.rst:176
 msgid "Agent"
 msgstr "Agent"
 
-#: ../../topics/sandbox.rst:157
+#: ../../topics/sandbox.rst:177
 msgid "Upstream"
 msgstr "上游"
 
-#: ../../topics/sandbox.rst:158
+#: ../../topics/sandbox.rst:178
 msgid "``claude``"
 msgstr "``claude``"
 
-#: ../../topics/sandbox.rst:159
+#: ../../topics/sandbox.rst:179
 msgid "``api.anthropic.com``. A different ``api_base`` is refused."
 msgstr "``api.anthropic.com``\\ 。不同的 ``api_base`` 会被拒绝。"
 
-#: ../../topics/sandbox.rst:160
+#: ../../topics/sandbox.rst:180
 msgid "``codex``"
 msgstr "``codex``"
 
-#: ../../topics/sandbox.rst:161
+#: ../../topics/sandbox.rst:181
 msgid "``api.openai.com``."
 msgstr "``api.openai.com``\\ 。"
 
-#: ../../topics/sandbox.rst:162
+#: ../../topics/sandbox.rst:182
 msgid "``opencode``, ``hermes``, ``openclaw``"
 msgstr "``opencode``\\ 、\\ ``hermes``\\ 、\\ ``openclaw``"
 
-#: ../../topics/sandbox.rst:163
+#: ../../topics/sandbox.rst:183
 msgid "The service named by ``api_base``, which must be set."
 msgstr "``api_base`` 所指明的服务，必须设置。"
 
-#: ../../topics/sandbox.rst:164
+#: ../../topics/sandbox.rst:184
 msgid "``cursor``"
 msgstr "``cursor``"
 
-#: ../../topics/sandbox.rst:165
+#: ../../topics/sandbox.rst:185
 msgid ""
 "Not supported in the sandbox, because the agent cannot send its model "
 "requests through the node. The node reports ``agent_unsupported``."
 msgstr "沙箱中不支持，因为该 Agent 无法将其模型请求经由节点发送。节点报告 ``agent_unsupported``\\ 。"
 
-#: ../../topics/sandbox.rst:168
+#: ../../topics/sandbox.rst:188
 msgid "The node uses the system certificate store to verify the model service."
 msgstr "节点使用系统证书库验证模型服务。"
 
-#: ../../topics/sandbox.rst:171
+#: ../../topics/sandbox.rst:191
 msgid "Limits of one run"
 msgstr "单次运行的限制"
 
-#: ../../topics/sandbox.rst:173
+#: ../../topics/sandbox.rst:193
 msgid "Each run has fixed limits on what it can do through its endpoint."
 msgstr "每次运行通过其端点所能做的事情有固定的限制。"
 
-#: ../../topics/sandbox.rst:179
+#: ../../topics/sandbox.rst:199
 msgid "Limit"
 msgstr "限制"
 
-#: ../../topics/sandbox.rst:180
+#: ../../topics/sandbox.rst:200
 msgid "Value"
 msgstr "取值"
 
-#: ../../topics/sandbox.rst:181
+#: ../../topics/sandbox.rst:201
 msgid "Model requests"
 msgstr "模型请求"
 
-#: ../../topics/sandbox.rst:182
+#: ../../topics/sandbox.rst:202
 msgid "60"
 msgstr "60"
 
-#: ../../topics/sandbox.rst:183
+#: ../../topics/sandbox.rst:203
 msgid "One request body"
 msgstr "单个请求体"
 
-#: ../../topics/sandbox.rst:184
+#: ../../topics/sandbox.rst:204
 msgid "8 MiB"
 msgstr "8 MiB"
 
-#: ../../topics/sandbox.rst:185
+#: ../../topics/sandbox.rst:205
 msgid "Total request data"
 msgstr "请求数据总量"
 
-#: ../../topics/sandbox.rst:186
+#: ../../topics/sandbox.rst:206
 msgid "16 MiB"
 msgstr "16 MiB"
 
-#: ../../topics/sandbox.rst:187
+#: ../../topics/sandbox.rst:207
 msgid "Open tunnels, and tunnels in total"
 msgstr "打开的隧道数与隧道总数"
 
-#: ../../topics/sandbox.rst:188
+#: ../../topics/sandbox.rst:208
 msgid "16 and 256"
 msgstr "16 与 256"
 
-#: ../../topics/sandbox.rst:189
+#: ../../topics/sandbox.rst:209
 msgid "Data sent through tunnels"
 msgstr "经隧道发送的数据"
 
-#: ../../topics/sandbox.rst:190
+#: ../../topics/sandbox.rst:210
 msgid "32 MiB"
 msgstr "32 MiB"
 
-#: ../../topics/sandbox.rst:191
+#: ../../topics/sandbox.rst:211
 msgid "Data received through tunnels"
 msgstr "经隧道接收的数据"
 
-#: ../../topics/sandbox.rst:192
+#: ../../topics/sandbox.rst:212
 msgid "512 MiB"
 msgstr "512 MiB"
 
-#: ../../topics/sandbox.rst:193
+#: ../../topics/sandbox.rst:213
 msgid "Connections to the endpoint at once"
 msgstr "对端点的同时连接数"
 
-#: ../../topics/sandbox.rst:194
+#: ../../topics/sandbox.rst:214
 msgid "32"
 msgstr "32"
 
-#: ../../topics/sandbox.rst:197
+#: ../../topics/sandbox.rst:217
 msgid "Allowed hosts"
 msgstr "允许的主机"
 
-#: ../../topics/sandbox.rst:199
+#: ../../topics/sandbox.rst:219
 msgid ""
 "Some tasks need a package index or a document server. The operator can "
 "allow specific hosts with ``anet autoreply set --egress-allow``. The list"
@@ -418,17 +473,17 @@ msgstr ""
 "有些任务需要软件包索引或文档服务器。运营人员可以用 ``anet autoreply set --egress-allow`` "
 "允许特定主机。该列表默认为空。"
 
-#: ../../topics/sandbox.rst:208
+#: ../../topics/sandbox.rst:228
 msgid ""
 "Adding a host asks for confirmation on a terminal. Removing hosts, "
 "including removing all of them with an empty value, does not."
 msgstr "添加主机需要在终端上确认。移除主机，包括用空值移除全部主机，则无需确认。"
 
-#: ../../topics/sandbox.rst:211
+#: ../../topics/sandbox.rst:231
 msgid "The node enforces the list as follows."
 msgstr "节点按以下方式强制执行该列表。"
 
-#: ../../topics/sandbox.rst:213
+#: ../../topics/sandbox.rst:233
 msgid ""
 "Each entry is one complete host name in lower case, such as ``pypi.org``."
 " A wildcard, an IP address, a port, ``localhost`` and a name that ends in"
@@ -439,27 +494,27 @@ msgstr ""
 "``.local``\\ 、\\ ``.internal``\\ 、\\ ``.lan`` 或 ``.home.arpa`` "
 "结尾的名称均被拒绝。列表最多包含 64 个条目。"
 
-#: ../../topics/sandbox.rst:217
+#: ../../topics/sandbox.rst:237
 msgid ""
 "An entry must not be a host of a model service, including the host of "
 "``api_base``. The agent already reaches the model through the node."
 msgstr "条目不得是模型服务的主机，包括 ``api_base`` 的主机。Agent 已经能通过节点访问模型。"
 
-#: ../../topics/sandbox.rst:219
+#: ../../topics/sandbox.rst:239
 msgid ""
 "Only connections to port 443 are possible, and only through the "
 "``CONNECT`` method. The node compares the requested name with the entries"
 " exactly. It does not accept suffixes."
 msgstr "只能连接 443 端口，且只能通过 ``CONNECT`` 方法。节点将所请求的名称与条目逐一精确比较，不接受后缀。"
 
-#: ../../topics/sandbox.rst:222
+#: ../../topics/sandbox.rst:242
 msgid ""
 "The node resolves the name itself. If any address of the name is private,"
 " reserved or on the machine, the request is refused. The node connects "
 "only to an address that it has verified."
 msgstr "节点自行解析名称。如果名称的任何一个地址属于私有地址、保留地址或本机地址，请求即被拒绝。节点只连接经过其验证的地址。"
 
-#: ../../topics/sandbox.rst:225
+#: ../../topics/sandbox.rst:245
 msgid ""
 "After the tunnel opens, the node reads the first TLS message of the "
 "agent. The name in it must equal the requested name, and the message must"
@@ -469,13 +524,13 @@ msgstr ""
 "隧道打开后，节点读取 Agent 的第一条 TLS 消息。其中的名称必须与所请求的名称相同，且该消息不得请求加密的 client "
 "hello。否则节点关闭隧道。"
 
-#: ../../topics/sandbox.rst:228
+#: ../../topics/sandbox.rst:248
 msgid ""
 "The node never connects through a proxy, even when the daemon's "
 "environment names one."
 msgstr "节点从不通过代理连接，即使守护进程的环境指明了代理。"
 
-#: ../../topics/sandbox.rst:231
+#: ../../topics/sandbox.rst:251
 msgid ""
 "Every allowed host is a way for the data of a task to leave the machine. "
 "The node checks the host name and the first TLS message. It does not "
@@ -488,11 +543,11 @@ msgstr ""
 "消息中指明一个被允许的主机、而在加密连接内部指向另一个主机的请求，即所谓域前置（domain "
 "fronting），不会被检测到。只应允许运营人员同样允许人向其发送数据的主机。"
 
-#: ../../topics/sandbox.rst:239
+#: ../../topics/sandbox.rst:259
 msgid "Run budget"
 msgstr "运行预算"
 
-#: ../../topics/sandbox.rst:241
+#: ../../topics/sandbox.rst:261
 msgid ""
 "Every turn for an untrusted peer costs the operator money for the model "
 "and machine time. The node counts these turns for each local calendar "
@@ -504,43 +559,43 @@ msgstr ""
 "Agent 时，以及 ``openai`` 后端作答时，均计入一轮。针对受信任对端的轮次不计入，``anet autoreply test`` "
 "也不计入。"
 
-#: ../../topics/sandbox.rst:251
+#: ../../topics/sandbox.rst:271
 msgid "Key"
 msgstr "配置键"
 
-#: ../../topics/sandbox.rst:252
+#: ../../topics/sandbox.rst:272
 msgid "Default"
 msgstr "默认值"
 
-#: ../../topics/sandbox.rst:253
+#: ../../topics/sandbox.rst:273
 msgid "Meaning"
 msgstr "含义"
 
-#: ../../topics/sandbox.rst:254
+#: ../../topics/sandbox.rst:274
 msgid "``auto_reply.sandbox.runs_per_day``"
 msgstr "``auto_reply.sandbox.runs_per_day``"
 
-#: ../../topics/sandbox.rst:255
+#: ../../topics/sandbox.rst:275
 msgid "20"
 msgstr "20"
 
-#: ../../topics/sandbox.rst:256
+#: ../../topics/sandbox.rst:276
 msgid "Runs for all untrusted peers in one day."
 msgstr "一天内针对所有未受信任对端的运行次数。"
 
-#: ../../topics/sandbox.rst:257
+#: ../../topics/sandbox.rst:277
 msgid "``auto_reply.sandbox.runs_per_peer_per_day``"
 msgstr "``auto_reply.sandbox.runs_per_peer_per_day``"
 
-#: ../../topics/sandbox.rst:258
+#: ../../topics/sandbox.rst:278
 msgid "5"
 msgstr "5"
 
-#: ../../topics/sandbox.rst:259
+#: ../../topics/sandbox.rst:279
 msgid "Runs for one peer in one day."
 msgstr "一天内针对单个对端的运行次数。"
 
-#: ../../topics/sandbox.rst:261
+#: ../../topics/sandbox.rst:281
 msgid ""
 "A value of 0 means that the node runs nothing for untrusted peers. The "
 "task stays in the inbox, and the requester receives no refusal. When the "
@@ -552,124 +607,137 @@ msgstr ""
 "取值为 0 表示节点不为未受信任的对端运行任何内容。任务保留在收件箱中，请求方不会收到拒绝。当日预算用完时，节点不启动 Agent，请求方收到 "
 "``budget`` 以及当日结束的时间。计数在守护进程启动时依据证据链重建，因此重启不会将其重置。"
 
-#: ../../topics/sandbox.rst:267
+#: ../../topics/sandbox.rst:287
 msgid ""
 "At most two runs for untrusted peers are active at once, and at most one "
 "for each peer. A turn that finds no free place is taken at the next scan,"
 " which is every five seconds, and is not counted as a refusal."
 msgstr "针对未受信任对端同时活动的运行最多两个，每个对端最多一个。找不到空位的一轮对话在下一次扫描（每五秒一次）时处理，不计作拒绝。"
 
-#: ../../topics/sandbox.rst:272
+#: ../../topics/sandbox.rst:292
 msgid "Failure and diagnostics"
 msgstr "故障与诊断"
 
-#: ../../topics/sandbox.rst:274
+#: ../../topics/sandbox.rst:294
 msgid ""
 "The sandbox fails closed. The requester of a task that could not run "
 "receives one of the following codes in the refusal."
 msgstr "沙箱以封闭方式失败。未能运行的任务，其请求方会在拒绝中收到下列代码之一。"
 
-#: ../../topics/sandbox.rst:277
+#: ../../topics/sandbox.rst:297
 msgid "``sandbox_unavailable``"
 msgstr "``sandbox_unavailable``"
 
-#: ../../topics/sandbox.rst:278
+#: ../../topics/sandbox.rst:298
 msgid ""
 "The provider's sandbox cannot run the task now. The requester can send it"
 " again later."
 msgstr "提供方的沙箱目前无法运行该任务。请求方可以稍后重新发送。"
 
-#: ../../topics/sandbox.rst:281
+#: ../../topics/sandbox.rst:301
 msgid "``budget``"
 msgstr "``budget``"
 
-#: ../../topics/sandbox.rst:282
+#: ../../topics/sandbox.rst:302
 msgid "The provider has used up the day's runs for untrusted peers."
 msgstr "提供方已用完当日针对未受信任对端的运行次数。"
 
-#: ../../topics/sandbox.rst:284
+#: ../../topics/sandbox.rst:304
 msgid "The operator sees the cause in ``anet status`` and ``anet doctor``:"
 msgstr "运营人员可在 ``anet status`` 和 ``anet doctor`` 中看到原因："
 
-#: ../../topics/sandbox.rst:290
+#: ../../topics/sandbox.rst:310
 msgid "Code"
 msgstr "代码"
 
-#: ../../topics/sandbox.rst:291
+#: ../../topics/sandbox.rst:311
 msgid "Cause"
 msgstr "原因"
 
-#: ../../topics/sandbox.rst:292
+#: ../../topics/sandbox.rst:312
 msgid "``no_bwrap``"
 msgstr "``no_bwrap``"
 
-#: ../../topics/sandbox.rst:293
+#: ../../topics/sandbox.rst:313
 msgid "``bubblewrap`` is not installed."
 msgstr "未安装 ``bubblewrap``\\ 。"
 
-#: ../../topics/sandbox.rst:294
+#: ../../topics/sandbox.rst:314
 msgid "``userns_blocked``"
 msgstr "``userns_blocked``"
 
-#: ../../topics/sandbox.rst:295
+#: ../../topics/sandbox.rst:315
 msgid ""
 "The AppArmor policy of Ubuntu prevents user namespaces. The sentence "
 "contains the command that installs a profile."
 msgstr "Ubuntu 的 AppArmor 策略阻止了用户命名空间。说明语句包含安装配置文件的命令。"
 
-#: ../../topics/sandbox.rst:297
+#: ../../topics/sandbox.rst:317
 msgid "``userns_unavailable``"
 msgstr "``userns_unavailable``"
 
-#: ../../topics/sandbox.rst:298
+#: ../../topics/sandbox.rst:318
 msgid "The kernel or the container does not allow user namespaces."
 msgstr "内核或容器不允许用户命名空间。"
 
-#: ../../topics/sandbox.rst:299
+#: ../../topics/sandbox.rst:319
+msgid "``sandbox_start_failed``"
+msgstr "``sandbox_start_failed``"
+
+#: ../../topics/sandbox.rst:320
+msgid ""
+"``bubblewrap`` could not set up the sandbox. The sentence carries the "
+"message of ``bubblewrap`` when there is one. Run ``anet doctor --json`` "
+"and report the result, or set ``untrusted`` to ``off``."
+msgstr ""
+"``bubblewrap`` 没能建立沙箱。有 ``bubblewrap`` 的消息时，句子会带上它。请运行 ``anet doctor "
+"--json`` 并报告结果，或把 ``untrusted`` 设为 ``off``。"
+
+#: ../../topics/sandbox.rst:323
 msgid "``netns_failed``"
 msgstr "``netns_failed``"
 
-#: ../../topics/sandbox.rst:300
+#: ../../topics/sandbox.rst:324
 msgid "The network isolation check failed."
 msgstr "网络隔离检查失败。"
 
-#: ../../topics/sandbox.rst:301
+#: ../../topics/sandbox.rst:325
 msgid "``seccomp_failed``"
 msgstr "``seccomp_failed``"
 
-#: ../../topics/sandbox.rst:302
+#: ../../topics/sandbox.rst:326
 msgid "The system-call filter check failed."
 msgstr "系统调用过滤器检查失败。"
 
-#: ../../topics/sandbox.rst:303
+#: ../../topics/sandbox.rst:327
 msgid "``agent_unsupported``"
 msgstr "``agent_unsupported``"
 
-#: ../../topics/sandbox.rst:304
+#: ../../topics/sandbox.rst:328
 msgid "The agent cannot run in the sandbox."
 msgstr "该 Agent 无法在沙箱中运行。"
 
-#: ../../topics/sandbox.rst:305
+#: ../../topics/sandbox.rst:329
 msgid "``no_api_key``, ``no_api_base``, ``no_model``"
 msgstr "``no_api_key``\\ 、\\ ``no_api_base``\\ 、\\ ``no_model``"
 
-#: ../../topics/sandbox.rst:306
+#: ../../topics/sandbox.rst:330
 msgid "The configuration lacks a key, a service address or a model."
 msgstr "配置缺少密钥、服务地址或模型。"
 
-#: ../../topics/sandbox.rst:307
+#: ../../topics/sandbox.rst:331
 msgid "``no_cgroup_limits``"
 msgstr "``no_cgroup_limits``"
 
-#: ../../topics/sandbox.rst:308
+#: ../../topics/sandbox.rst:332
 msgid "Warning: memory and task limits are not available."
 msgstr "警告：内存和任务数限制不可用。"
 
-#: ../../topics/sandbox.rst:311
+#: ../../topics/sandbox.rst:335
 msgid "Notes"
 msgstr "说明"
 
-#: ../../topics/sandbox.rst:313
+#: ../../topics/sandbox.rst:337
 msgid ""
 "An agent that the operator marks as trusted runs as the operator's user, "
 "with the rights of that user. The default ``direct`` mode is a statement "
@@ -679,44 +747,47 @@ msgstr ""
 "运营人员标记为受信任的 Agent，以运营人员的用户身份运行，拥有该用户的权限。默认的 ``direct`` 模式本身就是一种信任声明。\\ "
 "``trusted = sandbox`` 则将沙箱同样应用于受信任的对端。"
 
-#: ../../topics/sandbox.rst:316
+#: ../../topics/sandbox.rst:340
 msgid ""
 "The key of the model service stays on the node. A task cannot read it, "
 "but a task can make the node use it: the budget and the limits of a run "
 "bound that use."
 msgstr "模型服务的密钥保留在节点上。任务无法读取它，但任务可以促使节点使用它：运行的预算和限制约束了这种使用。"
 
-#: ../../topics/sandbox.rst:319
+#: ../../topics/sandbox.rst:343
 msgid ""
 "The sandbox does not inspect what an agent writes to its reply. The reply"
 " reaches the requester as written."
 msgstr "沙箱不检查 Agent 写入回复的内容。回复按所写内容到达请求方。"
 
-#: ../../topics/sandbox.rst:321
+#: ../../topics/sandbox.rst:345
 msgid ""
 "A turn that is interrupted by a crash is not counted, so the daily count "
 "can be lower than the number of runs."
 msgstr "因崩溃而中断的一轮对话不计入，因此每日计数可能低于实际运行次数。"
 
-#: ../../topics/sandbox.rst:323
+#: ../../topics/sandbox.rst:347
 msgid ""
 "The control token and the local socket paths are never visible to a "
 "sandboxed run. Do not copy them into the working directory of a run."
 msgstr "控制令牌和本地套接字路径对沙箱中的运行始终不可见。请勿将它们复制到运行的工作目录中。"
 
-#: ../../topics/sandbox.rst:327
+#: ../../topics/sandbox.rst:351
 msgid "See also"
 msgstr "另请参阅"
 
-#: ../../topics/sandbox.rst:329
+#: ../../topics/sandbox.rst:353
 msgid ":doc:`delegation` for inbound policy, trust and auto-reply."
 msgstr ":doc:`delegation`：入站策略、信任与自动回复。"
 
-#: ../../topics/sandbox.rst:330
+#: ../../topics/sandbox.rst:354
 msgid ":doc:`modules` for removing auto-reply from a build."
 msgstr ":doc:`modules`：从构建中移除自动回复。"
 
-#: ../../topics/sandbox.rst:331
+#: ../../topics/sandbox.rst:355
 msgid ":ref:`reference-security` for the security model."
 msgstr ":ref:`reference-security`：安全模型。"
+
+#~ msgid "The sandbox uses Seatbelt through ``/usr/bin/sandbox-exec``."
+#~ msgstr "沙箱通过 ``/usr/bin/sandbox-exec`` 使用 Seatbelt。"
 

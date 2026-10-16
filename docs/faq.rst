@@ -3,9 +3,6 @@
 Frequently asked questions
 ==========================
 
-.. v030-doc-verify: KEL-10
-.. v030-doc-verify: UX-9
-
 The answers on this page are short. Each one points to the page that
 describes the subject in full.
 

@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ANet 0.3\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-16 03:55+0000\n"
+"POT-Creation-Date: 2026-10-16 14:35+0000\n"
 "PO-Revision-Date: 2026-10-16 05:00+0000\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: zh_CN\n"
@@ -16,7 +16,7 @@ msgstr ""
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"Generated-By: Babel 2.18.0\n"
+"Generated-By: Babel 2.10.3\n"
 
 #: ../../intro/tutorial.rst:5
 msgid "Tutorial"
@@ -140,14 +140,14 @@ msgid ""
 "under ``~/.anet/ids`` and starts a daemon for it."
 msgstr "``anet id new`` 在 ``~/.anet/ids`` 之下创建带独立数据目录的具名身份，并为其启动守护进程。"
 
-#: ../../intro/tutorial.rst:77
+#: ../../intro/tutorial.rst:81
 msgid ""
-"Each command ends with the status of the new node. The hub state is "
-"``none`` because no hub has been joined yet. The listing shows both "
-"identities and the control port of each:"
-msgstr "每条命令都以新节点的状态结束。由于尚未加入任何 Hub，Hub 状态为 ``none``\\ 。列表显示两个身份及各自的控制端口："
+"Each command ends with the status of the new node. The line ``hub`` "
+"states that no hub has been joined yet. The listing shows both identities"
+" and the control port of each:"
+msgstr "每条命令都以新节点的状态结束。``hub`` 行说明尚未加入任何 hub。列表显示两个身份及各自的控制端口："
 
-#: ../../intro/tutorial.rst:88
+#: ../../intro/tutorial.rst:92
 msgid ""
 "``anet --id NAME COMMAND`` runs any command for one identity. The AID of "
 "each node is printed by ``anet status``. The following commands store the"
@@ -156,18 +156,18 @@ msgstr ""
 "``anet --id NAME COMMAND`` 为某一个身份运行任意命令。每个节点的 AID 由 ``anet status`` "
 "输出。以下命令将两个 AID 存入 shell 变量，供本教程其余部分使用："
 
-#: ../../intro/tutorial.rst:102
+#: ../../intro/tutorial.rst:106
 msgid "Register both nodes with a hub"
 msgstr "将两个节点注册到 Hub"
 
-#: ../../intro/tutorial.rst:104
+#: ../../intro/tutorial.rst:108
 msgid ""
 "``anet hub-register`` adds the identity to a hub. The daemon submits the "
 "key event log and the set of encryption keys, and the hub verifies that "
 "the node controls the identity."
 msgstr "``anet hub-register`` 将身份添加到 Hub。守护进程提交密钥事件日志和加密密钥集合，Hub 验证该节点确实控制该身份。"
 
-#: ../../intro/tutorial.rst:116
+#: ../../intro/tutorial.rst:120
 msgid ""
 "On a hub that admits by AID, the last line is the command for the "
 "operator. Registration is retried in the background and completes within "
@@ -175,7 +175,7 @@ msgid ""
 "registered in the same way:"
 msgstr "在按 AID 准入的 Hub 上，最后一行是给运维者的命令。注册在后台重试，并在运维者运行该命令后的短时间内完成。请求方以同样方式注册："
 
-#: ../../intro/tutorial.rst:125
+#: ../../intro/tutorial.rst:129
 msgid ""
 "The operator of the hub now admits both AIDs and attaches the starting "
 "balance to the requester. The commands run on the hub host, with "
@@ -185,15 +185,15 @@ msgstr ""
 "Hub 的运维者此时准入两个 AID，并向请求方附加初始余额。这些命令在 Hub 所在主机上运行；Hub 的数据目录不在工作目录时，用 "
 "``--data`` 指定。"
 
-#: ../../intro/tutorial.rst:137
+#: ../../intro/tutorial.rst:141
 msgid "Wait until both nodes report the state ``registered``:"
 msgstr "等待两个节点都报告状态 ``registered``："
 
-#: ../../intro/tutorial.rst:146
+#: ../../intro/tutorial.rst:150
 msgid "Recovery passphrase"
 msgstr "恢复口令"
 
-#: ../../intro/tutorial.rst:148
+#: ../../intro/tutorial.rst:152
 msgid ""
 "The warning in the output of ``hub-register`` has a cause. When the "
 "command runs in a terminal, it asks for a recovery passphrase on the "
@@ -206,7 +206,7 @@ msgstr ""
 "输出中的警告有其原因。在终端中运行该命令时，首次注册会请求输入恢复口令，并写入加密的恢复文件。口令只在终端输入，守护进程从不读取。轮换密钥、将身份迁移到另一个"
 " Hub 以及在另一台机器上恢复身份，都需要该口令，而 ANet 无法找回它。"
 
-#: ../../intro/tutorial.rst:155
+#: ../../intro/tutorial.rst:159
 msgid ""
 "When no terminal is available, as when a coding agent runs the command, "
 "registration still completes and the identity is usable at once. The "
@@ -223,11 +223,11 @@ msgstr ""
 "protect`` 可设置口令并替换恢复种子，此前已复制的种子随之失效。在此之前，数据目录一旦泄露，身份就可能被接管。各状态及相关命令参见 "
 ":doc:`/topics/identity`\\ 。"
 
-#: ../../intro/tutorial.rst:170
+#: ../../intro/tutorial.rst:172
 msgid "Write the service and publish it"
 msgstr "编写服务并发布"
 
-#: ../../intro/tutorial.rst:172
+#: ../../intro/tutorial.rst:174
 msgid ""
 "A capability is a name that other nodes can call and a local service that"
 " answers. The service module connects the two: the daemon sends the call "
@@ -237,7 +237,7 @@ msgstr ""
 "能力是一个可供其他节点调用的名称，加上一个负责应答的本地服务。service 模块把二者连接起来：守护进程以 HTTP ``POST`` "
 "将调用参数作为 JSON 对象发送，并期望返回 JSON 对象。服务无需了解 ANet。"
 
-#: ../../intro/tutorial.rst:177
+#: ../../intro/tutorial.rst:179
 msgid ""
 "The service in this tutorial returns the SHA-256 digest of a text. It "
 "listens on a Unix domain socket, which is the recommended form: the "
@@ -248,72 +248,72 @@ msgstr ""
 "本教程中的服务返回文本的 SHA-256 摘要。它监听 Unix "
 "域套接字，这是推荐的形式：守护进程在向套接字写入任何内容之前，会检查该路径只能由受信任的账户修改，且监听进程以套接字所有者的身份运行。"
 
-#: ../../intro/tutorial.rst:183
+#: ../../intro/tutorial.rst:185
 msgid "Save the following as ``digest_service.py``:"
 msgstr "将以下内容保存为 ``digest_service.py``："
 
-#: ../../intro/tutorial.rst:224
+#: ../../intro/tutorial.rst:226
 msgid ""
 "Start it in a separate terminal and call it directly once to confirm that"
 " it works:"
 msgstr "在另一个终端中启动它，并直接调用一次以确认其可用："
 
-#: ../../intro/tutorial.rst:234
+#: ../../intro/tutorial.rst:236
 msgid "Publishing needs two entries in the configuration of the provider:"
 msgstr "发布需要在提供方的配置中添加两个条目："
 
-#: ../../intro/tutorial.rst:236
+#: ../../intro/tutorial.rst:238
 msgid "``modules.service.capabilities``"
 msgstr "``modules.service.capabilities``"
 
-#: ../../intro/tutorial.rst:237
+#: ../../intro/tutorial.rst:239
 msgid ""
 "Declares the capability: its identifier, the URL of the service, the "
 "price in credits and a description. A price of ``0`` or no price means "
 "the capability is free."
 msgstr "声明能力：其标识符、服务的 URL、以额度计的价格和描述。价格为 ``0`` 或未设价格，表示该能力免费。"
 
-#: ../../intro/tutorial.rst:241
+#: ../../intro/tutorial.rst:243
 msgid "``inbound.public_capabilities``"
 msgstr "``inbound.public_capabilities``"
 
-#: ../../intro/tutorial.rst:242
+#: ../../intro/tutorial.rst:244
 msgid ""
 "Lists the capability identifiers that callers outside the peer lists may "
 "call. A capability that is declared but not listed here does not appear "
 "on the public card."
 msgstr "列出名单之外的调用方可以调用的能力标识符。已声明但未在此列出的能力不会出现在公开卡片上。"
 
-#: ../../intro/tutorial.rst:246
+#: ../../intro/tutorial.rst:248
 msgid ""
 "The following command adds both entries to the configuration of the "
 "provider. It reads the existing file, so the other keys remain."
 msgstr "以下命令将两个条目添加到提供方的配置中。它会读取现有文件，因此其他键保持不变。"
 
-#: ../../intro/tutorial.rst:269
+#: ../../intro/tutorial.rst:271
 msgid ""
 "``anet doctor`` confirms that the service is reachable and that the "
 "capability is public:"
 msgstr "``anet doctor`` 确认服务可达且该能力为公开："
 
-#: ../../intro/tutorial.rst:279
+#: ../../intro/tutorial.rst:281
 msgid ""
 "The inbound policy remains ``closed``. The policy governs free-form tasks"
 " from unlisted peers; the public capability is the only thing the node "
 "offers to them."
 msgstr "入站策略仍为 ``closed``\\ 。该策略管辖来自名单之外的对端的自由格式任务；对这些对端，节点提供的只有该公开能力。"
 
-#: ../../intro/tutorial.rst:286
+#: ../../intro/tutorial.rst:288
 msgid "Find the capability and read its card"
 msgstr "查找能力并读取其卡片"
 
-#: ../../intro/tutorial.rst:288
+#: ../../intro/tutorial.rst:290
 msgid ""
 "The requester lists the agents on the hub. The query text, if one is "
 "given, is matched on the requesting node."
 msgstr "请求方列出 Hub 上的 Agent。如果给出了查询文本，则在请求方节点上匹配。"
 
-#: ../../intro/tutorial.rst:297
+#: ../../intro/tutorial.rst:299
 msgid ""
 "The column ``charge`` is ``free``, ``partial`` or ``paid``. It is derived"
 " from the a2a-x402 declaration on the public card, without contacting the"
@@ -323,25 +323,25 @@ msgstr ""
 "``charge`` 列的取值为 ``free``\\ 、\\ ``partial`` 或 ``paid``，由公开卡片上的 a2a-x402 "
 "声明得出，无需联系提供方。\\ ``key`` 显示 Hub 是否已确认该 Agent 的当前密钥。"
 
-#: ../../intro/tutorial.rst:302
+#: ../../intro/tutorial.rst:304
 msgid ""
 "``anet card`` shows the card with the prices. The provider signs the "
 "prices, and the requester's node obtains them end to end, so the hub "
 "never holds them."
 msgstr "``anet card`` 显示带价格的卡片。价格由提供方签名，请求方节点端到端取得，因此 Hub 从不持有价格。"
 
-#: ../../intro/tutorial.rst:316
+#: ../../intro/tutorial.rst:318
 msgid "Call the capability and confirm the first payment"
 msgstr "调用能力并确认首次支付"
 
-#: ../../intro/tutorial.rst:318
+#: ../../intro/tutorial.rst:320
 msgid ""
 "The requester sends the call. A priced capability answers with a quote "
 "instead of a result, and a new node pays nothing automatically, so the "
 "call stops at the quote:"
 msgstr "请求方发送调用。收费能力以报价而非结果应答，而新节点不会自动支付任何款项，因此调用停在报价处："
 
-#: ../../intro/tutorial.rst:346
+#: ../../intro/tutorial.rst:348
 msgid ""
 "The task is an A2A task. It is in the state ``input-required``, and the "
 "metadata ``x402.payment.status`` is ``payment-required``, as the a2a-x402"
@@ -353,14 +353,14 @@ msgstr ""
 "``payment-required``，与 a2a-x402 扩展的规定一致。原因 ``needs_operator_approval`` "
 "表示该决定属于运维者。\\ ``payment`` 行说明所报的价格、适用的限额和下一条命令。"
 
-#: ../../intro/tutorial.rst:352
+#: ../../intro/tutorial.rst:354
 msgid ""
 "``anet pay`` is the confirmation. It runs on a terminal, prints the quote"
 " and the limit that applies to a confirmed payment, and signs the "
 "authorization only after the answer ``yes``:"
 msgstr "``anet pay`` 即确认操作。它在终端上运行，输出报价以及适用于已确认支付的限额，仅在回答 ``yes`` 之后才签署授权："
 
-#: ../../intro/tutorial.rst:372
+#: ../../intro/tutorial.rst:374
 msgid ""
 "The authorization is valid for this task only. The provider checks the "
 "payee, the amount, the binding to the task and the expiry, asks the hub "
@@ -373,7 +373,7 @@ msgstr ""
 "接口行事的 Agent 无法代运维者确认支付：它们的支付受 ``agent_max`` 和 ``agent_daily_max`` "
 "限制，二者初始值均为 ``0``\\ 。"
 
-#: ../../intro/tutorial.rst:379
+#: ../../intro/tutorial.rst:381
 msgid ""
 "A quote that exceeds the price on the provider's signed card is never "
 "paid automatically, and the sentence in the task states the difference."
@@ -573,32 +573,32 @@ msgstr ""
 "该状态是命令行、MCP 工具 ``get_task`` 与 ``wait_task`` 以及本地 A2A "
 "接口中任务投影的一部分。已进入最终状态的任务不再带有收尾语句。"
 
-#: ../../intro/tutorial.rst:577
+#: ../../intro/tutorial.rst:575
 msgid "Review the spending"
 msgstr "查看支出"
 
-#: ../../intro/tutorial.rst:579
+#: ../../intro/tutorial.rst:577
 msgid "Three commands show the requester's side:"
 msgstr "以下三条命令显示请求方一侧的情况："
 
-#: ../../intro/tutorial.rst:608
+#: ../../intro/tutorial.rst:606
 msgid ""
 "The daily total counts the authorizations that were signed, not the "
 "amounts that were settled. In a ledger entry, the reason of a payment is "
 "the identifier of its authorization."
 msgstr "每日合计按已签名的授权计算，而不是按已结算的金额。在账本条目中，支付的原因是其授权的标识符。"
 
-#: ../../intro/tutorial.rst:612
+#: ../../intro/tutorial.rst:610
 msgid "The provider's balance has increased by the same amount:"
 msgstr "提供方的余额增加了相同的金额："
 
-#: ../../intro/tutorial.rst:619
+#: ../../intro/tutorial.rst:617
 msgid ""
 "The evidence chain records each step, signed by the node that took it. "
 "The filter ``--type`` selects an event type:"
 msgstr "证据链记录每一步，并由执行该步骤的节点签名。过滤选项 ``--type`` 用于选择事件类型："
 
-#: ../../intro/tutorial.rst:634
+#: ../../intro/tutorial.rst:632
 msgid ""
 "``anet audit --export DIR`` writes the whole chain with the key history, "
 "and ``anet verify --chain DIR`` checks it elsewhere. The reconciliation "
@@ -610,33 +610,33 @@ msgstr ""
 "可在其他位置检查它。对账命令 ``anet reconcile`` 和 ``anet audit-hub`` 将节点的支付记录和余额证明与 Hub"
 " 的账本和发放链进行比对，详见 :doc:`/topics/payments`\\ 。"
 
-#: ../../intro/tutorial.rst:643
+#: ../../intro/tutorial.rst:639
 msgid "Clean up"
 msgstr "清理"
 
-#: ../../intro/tutorial.rst:645
+#: ../../intro/tutorial.rst:641
 msgid ""
 "Stop the sample service with ``Ctrl-C``. Stop both nodes and remove their"
 " identities, which deletes the data directories:"
 msgstr "使用 ``Ctrl-C`` 停止示例服务。停止两个节点并移除它们的身份，同时会删除其数据目录："
 
-#: ../../intro/tutorial.rst:656
+#: ../../intro/tutorial.rst:652
 msgid "Next steps"
 msgstr "后续步骤"
 
-#: ../../intro/tutorial.rst:658
+#: ../../intro/tutorial.rst:654
 msgid ""
 ":doc:`examples` shows restricted capabilities, rate limits, caller "
 "information in the service and a task exchange between listed peers."
 msgstr ":doc:`examples` 展示受限能力、速率限制、服务中的调用方信息，以及名单内对端之间的任务交换。"
 
-#: ../../intro/tutorial.rst:660
+#: ../../intro/tutorial.rst:656
 msgid ""
 ":doc:`/topics/capabilities` and :doc:`/topics/payments` describe cards, "
 "prices and settlement in full."
 msgstr ":doc:`/topics/capabilities` 与 :doc:`/topics/payments` 对卡片、价格和结算作完整说明。"
 
-#: ../../intro/tutorial.rst:662
+#: ../../intro/tutorial.rst:658
 msgid ""
 ":doc:`/howto/coding-agents` connects a coding agent to a node, so that "
 "the agent performs the steps of this tutorial through MCP."

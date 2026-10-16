@@ -195,7 +195,25 @@ command line, because command lines are visible to other users of the machine.
 
 ``anet autoreply test`` runs the configured backend once on the local machine.
 It needs no hub and no identity, and the run does not count against the budget
-described in :doc:`sandbox`.
+described in :doc:`sandbox`. It runs every path that is configured, including the
+sandbox path, and prints one line for each path.
+
+``anet autoreply show`` prints one row for each of these subjects. The rows
+``trusted``, ``untrusted`` and ``budget`` appear for the ``exec`` backend only,
+and the row ``budget`` only while the sandbox is in use.
+
+.. code-block:: text
+
+   auto-reply  exec / claude
+   trusted     Trusted peers run local agents directly as your user, which is the same as giving them your user's rights.
+   untrusted   Tasks from untrusted peers run in the sandbox: they reach models only through this node and have no network.
+   API key     Set.
+   budget      3/20 runs for untrusted peers today (at most 5 per peer).
+
+``anet autoreply set --trusted direct|sandbox`` chooses how trusted peers are
+served. Changing from ``sandbox`` back to ``direct`` is confirmed on the terminal.
+A budget of 0 is the same as ``untrusted`` set to ``off``: the task stays in the
+inbox and the requester receives no refusal.
 
 The settings are stored in the ``auto_reply`` block of ``config.json``. Calls to
 ``anet autoreply set`` merge the options that they name with the current
@@ -252,20 +270,6 @@ settings.
    * - ``sandbox.runs_per_day``, ``sandbox.runs_per_peer_per_day``
      - 20, 5
      - The run budget for untrusted peers. See :doc:`sandbox`.
-
-.. v030-doc-verify: EXE-7
-   The options --untrusted, --trusted and --egress-allow of anet autoreply set,
-   the removal of auto_reply keys (require_image, usage_hint, error_reply,
-   poll_interval_seconds, max_auto_replies) and the final validation messages
-   are specified in the design. In the main checkout, --trusted is not yet an
-   option of autoreply set and the removed keys are still present in the
-   configuration structure. Confirm the merged state.
-
-.. v030-doc-verify: UX-9
-   The fixed limit of 30 automatic replies for each task, the fixed scan interval
-   and the sentence ``backend_failed`` replace the keys ``max_auto_replies``,
-   ``poll_interval_seconds`` and ``error_reply``. Confirm that the keys are
-   removed from the configuration check.
 
 Who is answered, and how
 ------------------------

@@ -45,8 +45,6 @@ supported tool.
   ``anet.truncated``, which names ``anet task get <id> --full`` as the way to read
   it whole on a terminal. ``list_tasks`` cuts each task to about 8 KB.
 
-.. v030-doc-verify: UX-15 (tool list, /payments/status, descriptions)
-
 
 Tool summary
 ------------
@@ -137,11 +135,17 @@ Tools that return a task return an A2A task: ``status.state``, ``history``,
 The task metadata of the 0.3 projection also holds ``anet.delivery`` (``pending``
 or ``unconfirmed`` while a message waits), ``anet.delivery_detail``,
 ``anet.delivery_wait``, ``anet.payment_note``, ``anet.spend_check``,
-``anet.content_expires_at``, ``anet.deduplicated`` and, for a node whose recovery
-passphrase is not set, ``anet.identity_note``. The sentences are those of
-:doc:`reason-codes`.
-
-.. v030-doc-verify: RC-5 (anet.delivery*), UX-6 (anet.spend_check, anet.payment_note), FS-11 (anet.content_expires_at)
+``anet.content_expires_at`` (the time at which the node deletes the content of an
+ended task), ``anet.deduplicated`` and, for a node whose recovery passphrase is not
+set, ``anet.identity_note``. Beside ``anet.delivery``, three keys state when the
+message was queued (``anet.delivery_since``), when the task gives up on it
+(``anet.delivery_ends_at``, only while it is pending) and whether it waits for the
+message before it (``anet.delivery_ordered``, only when true). A completed task
+carries ``anet.receipt``, an object with the signed receipt (``receipt``, base64),
+``verified``, and the decoded members ``provider_aid``, ``request_cid``,
+``result_cid``, ``completed_day`` and ``receipt_cid``, and ``provider_kel`` when it
+is known. The receipt names neither the requester nor the interaction. The
+sentences are those of :doc:`reason-codes`.
 
 
 Tools for finding agents
@@ -225,8 +229,6 @@ was viewed. The call waits up to 10 seconds. The price is information only: paym
 follows the a2a-x402 quote in the task, and a quote above the signed price is never
 paid automatically. A text task has no signed price and is never paid automatically.
 
-.. v030-doc-verify: PAY-10 (prices, pricesFetchedAt, priceNote)
-
 
 Tools for tasks
 ---------------
@@ -288,8 +290,6 @@ registered at its hub (for example while the operator has not yet admitted it), 
 call fails at once with one sentence that states the reason and the next step, and
 nothing is sent. That sentence is to be passed to the user unchanged. The node must
 not register again.
-
-.. v030-doc-verify: UX-12 (skill with files), UX-15 (message_id removed)
 
 ``get_task``, ``list_tasks``, ``wait_task``
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -404,9 +404,10 @@ No parameters. Returns what the node can spend as its hub accounts for it, with 
 recent entries. The hub holds the balance, and every entry has a counterpart in
 somebody's signed evidence chain, so a balance that disagrees with the evidence can
 be shown to be wrong. In 0.3 the result also holds ``limits`` (with a ``summary``
-sentence), ``balance_error``, ``probation_until`` and ``trial``.
-
-.. v030-doc-verify: UX-6 (limits, balance_error, probation_until, trial), PAY-12
+sentence), ``balance_error`` when the balance could not be read, and, for an
+account that came in through open registration or a sign-up window,
+``probation_until`` and ``trial``. When the node has no payment module, the
+balance is reported as ``module_absent``.
 
 ``audit``
 ~~~~~~~~~
@@ -435,7 +436,33 @@ No parameters. Returns the ``/status`` document: the AID, the version, the data
 directory, the hub, the name and capabilities, the inbound policy, the auto-reply
 configuration, the counts of messages received or refused since the start (by
 reason), and in 0.3 the objects ``hub``, ``identity``, ``privacy``, ``delivery``,
-``auto_reply.sandbox`` and ``summary``.
+``auto_reply.sandbox`` and ``summary``. ``summary`` is the status summary, an array
+with one line for each topic; the text of the profile is ``profile.summary``.
+
+``delivery``
+   Present when the node has an outbound queue. It holds the counters
+   ``not_sent``, ``awaiting_confirmation``, ``queued_at_hub``, ``stuck`` and
+   ``unconfirmed_24h``, ``oldest_awaiting_ms``, a ``level``, a ``message`` and a
+   ``next`` command. ``stuck_oldest_ms`` and ``stuck_error`` appear only while
+   ``stuck`` is greater than 0. ``counters`` holds the counts of received delivery
+   confirmations, with the prefix ``dack-``.
+
+``privacy``
+   The retention period of task content and the state of the clock. The member
+   ``clock_closed_s`` is the number of seconds for which the clock could not be
+   confirmed.
+
+``auto_reply``
+   Present only while the auto-reply module is available and configured. It holds
+   ``backend``, ``untrusted``, ``trusted``, ``api_key_set`` (never the key),
+   ``agent`` and ``work_dir`` or ``model``, ``api_base`` (for the ``exec`` backend
+   the address of the model service of the sandboxed agent), and the member
+   ``sandbox`` with ``state``, ``reason``, ``message``, ``next``, ``kind``,
+   ``limits``, ``egress_allow``, ``budget`` and ``detail``.
+
+``build``
+   ``modules`` and ``without``: the modules in the binary and the modules that
+   ``config.json`` turns off.
 
 * When ``hub.state`` is ``pending_admission``, ``hub.message`` is relayed to the user
   unchanged. It holds the ``anet-hub admit`` line for the hub operator. The node
@@ -444,8 +471,6 @@ reason), and in 0.3 the objects ``hub``, ``identity``, ``privacy``, ``delivery``
   ``identity.recovery.message`` is relayed to the user unchanged. Only the user
   can set the recovery passphrase, by running ``anet identity protect`` on a
   terminal; the agent does not enter one.
-
-.. v030-doc-verify: UX-15 (hub, identity, privacy, delivery, summary), KEL-8 (identity.recovery)
 
 ``inbound_pending``
 ~~~~~~~~~~~~~~~~~~~

@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ANet 0.3\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-16 03:55+0000\n"
+"POT-Creation-Date: 2026-10-16 14:35+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: zh_CN\n"
@@ -16,7 +16,7 @@ msgstr ""
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"Generated-By: Babel 2.18.0\n"
+"Generated-By: Babel 2.10.3\n"
 
 #: ../../topics/payments.rst:5
 msgid "Payments (x402)"
@@ -224,7 +224,8 @@ msgstr "守护进程，在收到报价时"
 msgid "``auto_max``"
 msgstr "``auto_max``"
 
-#: ../../topics/payments.rst:111 ../../topics/payments.rst:120
+#: ../../topics/payments.rst:111
+#: ../../topics/payments.rst:120
 msgid "``daily_max``"
 msgstr "``daily_max``"
 
@@ -459,14 +460,24 @@ msgid "``anet balance``"
 msgstr "``anet balance``"
 
 #: ../../topics/payments.rst:260
-msgid "The balance on the hub's ledger and its entries."
-msgstr "Hub 账本上的余额及其条目。"
+msgid ""
+"The balance on the ledger of the hub and its entries. On an account that "
+"came in through open registration or a sign-up window, a second line on "
+"standard error states the probation, the trial credits that are still to "
+"come, or the time at which they arrived. The answer of the MCP tool "
+"``get_balance`` carries the members ``probation_until`` and ``trial`` for"
+" the same state. A node whose build has no payment module answers "
+"``module_absent``."
+msgstr ""
+"hub 账本上的余额及其条目。对通过开放注册或注册窗口加入的账户，标准错误上的第二行会说明见习期、尚未发放的体验额度，或其到账时间。MCP 工具 "
+"``get_balance`` 的答复为同一状态带有成员 ``probation_until`` 与 "
+"``trial``。构建中没有付款模块的节点以 ``module_absent`` 应答。"
 
-#: ../../topics/payments.rst:262
+#: ../../topics/payments.rst:267
 msgid "``anet redeem``"
 msgstr "``anet redeem``"
 
-#: ../../topics/payments.rst:263
+#: ../../topics/payments.rst:268
 msgid ""
 "Gives credits back to the hub, with a reference that the operator and the"
 " requester agree on. The command asks for confirmation on a terminal. The"
@@ -478,47 +489,84 @@ msgstr ""
 "Hub，附带运营人员与请求方约定的凭证。该命令在终端上请求确认。凭证对代码而言是不透明的字符串，不会转移外部资金，ANet 之外的结算是 Hub "
 "运营人员与用户之间的事务。"
 
-#: ../../topics/payments.rst:269
+#: ../../topics/payments.rst:274
 msgid "``anet reconcile``"
 msgstr "``anet reconcile``"
 
-#: ../../topics/payments.rst:270
+#: ../../topics/payments.rst:275
 msgid ""
 "Compares the payments that this node signed or received with the entries "
-"that the hub holds for the account."
-msgstr "将本节点签署或收到的付款，与 Hub 为该账户保存的条目进行比对。"
+"that the hub holds for the account. The hub shows the ledger for 14 days."
+" The comparison therefore covers that window, and the report states the "
+"balance at the start of the window. For the time before the window, the "
+"chain of balance proofs described below is the evidence."
+msgstr ""
+"把本节点签署或收到的付款与 hub 为该账户保存的条目比对。hub 的账本只展示 14 "
+"天，因此比对覆盖该窗口，报告会给出窗口起点的余额。窗口之前的时间，以下述余额证明链为证据。"
 
-#: ../../topics/payments.rst:273
+#: ../../topics/payments.rst:284
+msgid "Checking the hub"
+msgstr "核对 hub"
+
+#: ../../topics/payments.rst:286
 msgid "``anet audit-hub``"
 msgstr "``anet audit-hub``"
 
-#: ../../topics/payments.rst:274
+#: ../../topics/payments.rst:287
 msgid ""
-"Reads the hub's chain of supply epochs and checks the balance proof for "
-"the account. The hub publishes, at intervals, the root of a tree of "
-"balances, the number of outstanding credits and the epoch. A node checks "
-"that its own balance is in the tree. The daemon performs this check every"
-" six hours while it runs."
+"Reads the chain of supply epochs of the hub and checks the proof that the"
+" balance of the account is counted in it. The hub publishes, once per "
+"epoch, the root of a tree of balances, the number of outstanding credits "
+"and the epoch. The command prints the JSON answer on standard output. On "
+"standard error it prints up to three kinds of line: the line for the "
+"issuance chain (the number of epochs, whether signatures and links are "
+"valid, and whether the head is the one that this node recorded last), the"
+" line for the balance proofs (the number of epochs that were checked, the"
+" latest day and the balance), and either each finding with the command "
+"that follows from it, or the line \"No problems found\". The exit status "
+"is 1 when a check failed. A hint that is not a failure, such as epochs "
+"that could not be checked in time, does not change the status."
 msgstr ""
-"读取 Hub 的供应纪元链，并核验该账户的余额证明。Hub 定期发布余额树的根、未兑付 credits "
-"的数量和纪元。节点检查自己的余额是否在该树中。守护进程运行期间每六小时执行一次这一检查。"
+"读取 hub 的供应纪元链，并检查账户余额已计入其中的证明。hub 每个纪元发布一次余额树的根、未偿 credits "
+"数量和纪元。命令在标准输出打印 JSON "
+"答复；在标准错误最多打印三类行：发放链一行（纪元数、签名与链接是否有效、链头是否与本节点上次记录的一致），余额证明一行（已检查的纪元数、最近一天与余额），以及每项发现及由其引出的命令，或者“没有发现问题”一行。检查失败时退出状态为"
+" 1。不属于失败的提示（例如未能及时检查的纪元）不改变退出状态。"
 
-#: ../../topics/payments.rst:280
+#: ../../topics/payments.rst:299
+msgid ""
+"The daemon performs the check automatically every six hours while it "
+"runs, and the doctor items ``payments.audit`` and ``hub.probation`` "
+"report its result and the probation of a new account. The hub keeps the "
+"ledger for 14 days. The proofs that the node has verified are kept on the"
+" node, in the file ``modules/x402/liab_proof.jsonl`` of the data "
+"directory (mode ``0600``, one line for each epoch); they are not part of "
+"``interactions.db``. The earlier setting ``witness_hub`` and "
+"``witness_every_seconds`` is removed, and a daemon that finds either key "
+"refuses to start (``config_key_removed``). A node no longer submits "
+"statements to the hub."
+msgstr ""
+"守护进程运行期间每六小时自动检查一次，诊断项 ``payments.audit`` 与 ``hub.probation`` "
+"报告检查结果和新账户的见习期。hub 的账本保留 14 天。节点已验证的证明保存在节点上数据目录的 "
+"``modules/x402/liab_proof.jsonl`` 文件中（权限 ``0600``，每个纪元一行），不在 "
+"``interactions.db`` 中。早先的设置 ``witness_hub`` 与 ``witness_every_seconds`` "
+"已移除，发现其中任何一个键，守护进程都会拒绝启动（``config_key_removed``）。节点不再向 hub 提交陈述。"
+
+#: ../../topics/payments.rst:309
 msgid ""
 "Entries of the ledger are kept in detail for 14 days and then reduced to "
 "the balance. The records that the node keeps in its own evidence chain "
 "are kept for as long as the node keeps its data."
 msgstr "账本条目详细保存 14 天，之后归并为余额。节点在自己的证据链中保存的记录，在节点保留其数据期间一直保留。"
 
-#: ../../topics/payments.rst:290
+#: ../../topics/payments.rst:314
 msgid "Reviews"
 msgstr "评价"
 
-#: ../../topics/payments.rst:292
+#: ../../topics/payments.rst:316
 msgid "After a task has ended, the requester can rate the provider."
 msgstr "任务结束后，请求方可以对提供方评分。"
 
-#: ../../topics/payments.rst:298
+#: ../../topics/payments.rst:322
 msgid ""
 "A review is bound to the receipt of the task, so a review cannot be made "
 "without a completed task. The rating is from 1 to 5 and the comment has "
@@ -530,7 +578,7 @@ msgstr ""
 "评价与任务的回执绑定，因此没有已完成的任务就无法作出评价。评分为 1 到 5 分，评语最多 280 个字符。请求方可以在任务结束后 30 "
 "天内评价。评价使用一次性密钥签名。账户处于见习期时，``anet review`` 报告评价已排队，节点在见习期结束后上传。"
 
-#: ../../topics/payments.rst:305
+#: ../../topics/payments.rst:329
 msgid ""
 "The node uploads a review after a random delay of 0 to 6 hours, so that "
 "the time of upload does not identify the task. The hub stores the time of"
@@ -548,18 +596,36 @@ msgstr ""
 "的公开图谱也不再将评价显示为边。提供方持有回执，可以得知评价由谁所写。Agent 的公开信誉按 Hub "
 "分别列出评价数量、平均分和评价者人数，这些值不合并为一个分数，因为 Hub 可以注册互相评价的账户。"
 
-#: ../../topics/payments.rst:324
+#: ../../topics/payments.rst:339
+msgid ""
+"``anet review`` prints the line ``review.queued`` and returns at once; "
+"the doctor item ``payments.reviews`` counts the reviews that wait for "
+"upload and reports reviews that have waited for more than 7 days. Each "
+"upload is recorded as the evidence event ``anet.review.uploaded`` with "
+"the members ``ix``, ``subject``, ``rating`` and ``day``. ``anet verify`` "
+"shows, for a receipt, the provider, the request and result content "
+"identifiers, the day of completion and the content identifier of the "
+"receipt; a receipt names neither the requester nor the interaction. "
+"``anet verify --attestation`` takes a base64url value without padding."
+msgstr ""
+"``anet review`` 打印行 ``review.queued`` 并立即返回；诊断项 ``payments.reviews`` "
+"统计等待上传的评价，并报告等待超过 7 天的评价。每次上传记为证据事件 ``anet.review.uploaded``，成员为 "
+"``ix``、``subject``、``rating`` 与 ``day``。``anet verify`` "
+"对一张回执显示提供方、请求和结果的内容标识、完成日期以及回执的内容标识；回执既不指明请求方，也不指明交互。``anet verify "
+"--attestation`` 接受不带填充的 base64url 值。"
+
+#: ../../topics/payments.rst:350
 msgid "What the parties learn"
 msgstr "各方得知什么"
 
-#: ../../topics/payments.rst:326
+#: ../../topics/payments.rst:352
 msgid ""
 "A payment reveals information to the parties who take part in it. The "
 "following statements describe the protection that ANet gives and the "
 "information that remains visible."
 msgstr "付款会向参与其中的各方披露信息。以下各条说明 ANet 提供的保护以及仍然可见的信息。"
 
-#: ../../topics/payments.rst:330
+#: ../../topics/payments.rst:356
 msgid ""
 "At the time of settlement, the hub of the ledger, and a second hub if the"
 " payment crosses hubs, can see the payer, the payee, the amount and the "
@@ -570,7 +636,7 @@ msgstr ""
 "结算时，账本所在的 Hub，以及付款跨 Hub 时的另一个 Hub，可以看到付款方、收款方、金额和时间。结算记录在授权过期后 7 "
 "天删除。账本和兑付的详细信息保存 14 天。在此期间获得 Hub 磁盘的人可以读取这些信息。"
 
-#: ../../topics/payments.rst:335
+#: ../../topics/payments.rst:361
 msgid ""
 "A price is not published, but it is not secret. It appears in no public "
 "card or registry. It reaches the party that asks, in the signed extended "
@@ -584,7 +650,7 @@ msgstr ""
 "的运营人员，都可以注册探测身份并请求卡片或报价。为 Hub 上的 Agent "
 "建立了价目表的运营人员，可以根据收款方和金额推断一笔付款购买了哪项能力。价格相同的能力无法区分。"
 
-#: ../../topics/payments.rst:341
+#: ../../topics/payments.rst:367
 msgid ""
 "The public data of a hub for the supply of credits is, for each epoch, a "
 "root, the total issued and the number of outstanding credits. It does not"
@@ -596,39 +662,39 @@ msgstr ""
 "Hub 就 credits 供应量公开的数据，是每个纪元的根、发行总量和未兑付 credits 的数量，不列出单个 credits。在交易极少的 "
 "Hub 上，注册用户可以制造金额已知的事件，并根据两个总额之差推断另一事件的金额。在这种情况下，受到保护的只有身份，金额则没有。"
 
-#: ../../topics/payments.rst:347
+#: ../../topics/payments.rst:373
 msgid ""
 "A balance proof shows the sums of the sibling subtrees on its path. The "
 "sum can be the exact balance of one anonymous account."
 msgstr "余额证明显示其路径上各兄弟子树的和。该和可能恰好是某个匿名账户的余额。"
 
-#: ../../topics/payments.rst:349
+#: ../../topics/payments.rst:375
 msgid ""
 "The provider of a reviewed task has the receipt and knows who wrote each "
 "review. The hub knows at upload time who reviewed whom and on which day."
 msgstr "被评价任务的提供方持有回执，知道每条评价由谁所写。Hub 在上传时得知谁评价了谁以及评价发生在哪一天。"
 
-#: ../../topics/payments.rst:351
+#: ../../topics/payments.rst:377
 msgid ""
 "Viewing the card of a paid agent contacts that agent (see "
 ":doc:`capabilities`)."
 msgstr "查看收费 Agent 的卡片会联系该 Agent（参见 :doc:`capabilities`）。"
 
-#: ../../topics/payments.rst:354
+#: ../../topics/payments.rst:380
 msgid "The full list is in :ref:`reference-security`."
 msgstr "完整列表见 :ref:`reference-security`\\ 。"
 
-#: ../../topics/payments.rst:357
+#: ../../topics/payments.rst:383
 msgid "Differences from a2a-x402"
 msgstr "与 a2a-x402 的差异"
 
-#: ../../topics/payments.rst:359
+#: ../../topics/payments.rst:385
 msgid ""
 "ANet follows a2a-x402 and differs from it in the following points. A "
 "client that depends on one of them must take account of it."
 msgstr "ANet 遵循 a2a-x402，在以下几点上与之不同。依赖其中任何一点的客户端必须予以考虑。"
 
-#: ../../topics/payments.rst:362
+#: ../../topics/payments.rst:388
 msgid ""
 "``payment-verified`` means that the amount has been settled and charged. "
 "In a2a-x402 it means that the payment has been verified and not yet "
@@ -637,26 +703,26 @@ msgstr ""
 "``payment-verified`` 表示金额已结算并已扣款。在 a2a-x402 中，它表示付款已验证但尚未扣款。ANet "
 "先结算，后执行工作。"
 
-#: ../../topics/payments.rst:365
+#: ../../topics/payments.rst:391
 msgid ""
 "A local A2A client does not sign. The daemon signs, and the client sends "
 "no ``x402.payment.payload``."
 msgstr "本地 A2A 客户端不签署。由守护进程签署，客户端不发送 ``x402.payment.payload``\\ 。"
 
-#: ../../topics/payments.rst:367
+#: ../../topics/payments.rst:393
 msgid ""
 "A price is not part of an A2A card. ANet publishes prices in its own "
 "extension on the extended card (see :doc:`capabilities`)."
 msgstr "价格不属于 A2A 卡片。ANet 在扩展卡片上以自己的扩展发布价格（参见 :doc:`capabilities`）。"
 
-#: ../../topics/payments.rst:369
+#: ../../topics/payments.rst:395
 msgid ""
 "When all public skills of a provider are free and only a skill that is "
 "open to its lists is priced, the a2a-x402 declaration appears on the "
 "extended card for those lists and not on the public card."
 msgstr "当提供方所有公开技能均免费、只有对其名单开放的技能标价时，a2a-x402 声明出现在面向这些名单的扩展卡片上，而不出现在公开卡片上。"
 
-#: ../../topics/payments.rst:372
+#: ../../topics/payments.rst:398
 msgid ""
 "The hub has no gateway for plain HTTP x402 clients. A client without ANet"
 " installed cannot call a priced capability. The replacement is a local "
@@ -665,81 +731,81 @@ msgstr ""
 "Hub 没有面向普通 HTTP x402 客户端的网关。没有安装 ANet 的客户端无法调用标价的能力，替代办法是通过本地 A2A 接口访问的本地"
 " ANet 节点。"
 
-#: ../../topics/payments.rst:377
+#: ../../topics/payments.rst:403
 msgid "Failures"
 msgstr "失败"
 
-#: ../../topics/payments.rst:379
+#: ../../topics/payments.rst:405
 msgid ""
 "A payment that does not complete ends with ``payment-failed`` and an "
 "error code in ``x402.payment.error``."
 msgstr "未能完成的付款以 ``payment-failed`` 结束，错误码位于 ``x402.payment.error``\\ 。"
 
-#: ../../topics/payments.rst:386
+#: ../../topics/payments.rst:412
 msgid "Code"
 msgstr "代码"
 
-#: ../../topics/payments.rst:387
+#: ../../topics/payments.rst:413
 msgid "Cause"
 msgstr "原因"
 
-#: ../../topics/payments.rst:388
+#: ../../topics/payments.rst:414
 msgid "``INSUFFICIENT_FUNDS``"
 msgstr "``INSUFFICIENT_FUNDS``"
 
-#: ../../topics/payments.rst:389
+#: ../../topics/payments.rst:415
 msgid "The balance is lower than the amount. The capability is not at fault."
 msgstr "余额低于金额。过错不在该能力。"
 
-#: ../../topics/payments.rst:390
+#: ../../topics/payments.rst:416
 msgid "``INVALID_SIGNATURE``"
 msgstr "``INVALID_SIGNATURE``"
 
-#: ../../topics/payments.rst:391
+#: ../../topics/payments.rst:417
 msgid "The signature of the authorization is not valid."
 msgstr "授权的签名无效。"
 
-#: ../../topics/payments.rst:392
+#: ../../topics/payments.rst:418
 msgid "``EXPIRED_PAYMENT``"
 msgstr "``EXPIRED_PAYMENT``"
 
-#: ../../topics/payments.rst:393
+#: ../../topics/payments.rst:419
 msgid "The authorization or the quote has expired."
 msgstr "授权或报价已过期。"
 
-#: ../../topics/payments.rst:394
+#: ../../topics/payments.rst:420
 msgid "``DUPLICATE_NONCE``"
 msgstr "``DUPLICATE_NONCE``"
 
-#: ../../topics/payments.rst:395
+#: ../../topics/payments.rst:421
 msgid "The binding of the task has already been paid."
 msgstr "该任务的绑定已被支付。"
 
-#: ../../topics/payments.rst:396
+#: ../../topics/payments.rst:422
 msgid "``NETWORK_MISMATCH``"
 msgstr "``NETWORK_MISMATCH``"
 
-#: ../../topics/payments.rst:397
+#: ../../topics/payments.rst:423
 msgid "The ledger of the authorization is not one of the quote's options."
 msgstr "授权所用的账本不属于报价所列选项。"
 
-#: ../../topics/payments.rst:398
+#: ../../topics/payments.rst:424
 msgid "``INVALID_AMOUNT``"
 msgstr "``INVALID_AMOUNT``"
 
-#: ../../topics/payments.rst:399
+#: ../../topics/payments.rst:425
 msgid "The amount is lower than the quote, or is not a valid amount."
 msgstr "金额低于报价，或不是有效金额。"
 
-#: ../../topics/payments.rst:400
+#: ../../topics/payments.rst:426
 msgid "``SETTLEMENT_FAILED``"
 msgstr "``SETTLEMENT_FAILED``"
 
-#: ../../topics/payments.rst:401
+#: ../../topics/payments.rst:427
 msgid "The hub refused the settlement."
 msgstr "Hub 拒绝了结算。"
 
-#: ../../topics/payments.rst:403
+#: ../../topics/payments.rst:429
 msgid ""
 "ANet reasons that relate to payment in the metadata of a task are "
 "``needs_operator_approval``, ``quote_above_card_price``, "
@@ -752,17 +818,17 @@ msgstr ""
 "``option_not_offered`` 和 ``client_payload_unsupported``\\ 。说明语句见 :ref"
 ":`reference-reason-codes`，应采取的步骤见 :ref:`howto-troubleshooting`\\ 。"
 
-#: ../../topics/payments.rst:410
+#: ../../topics/payments.rst:436
 msgid "Notes"
 msgstr "说明"
 
-#: ../../topics/payments.rst:412
+#: ../../topics/payments.rst:438
 msgid ""
 "The default configuration pays nothing without a person. Each widening of"
 " a limit or of the payee list needs a confirmation on a terminal."
 msgstr "默认配置在没有人工介入时不支付任何款项。每次放宽限额或收款方名单都需要在终端上确认。"
 
-#: ../../topics/payments.rst:414
+#: ../../topics/payments.rst:440
 msgid ""
 "The console of the node cannot authorise a payment. The terminal "
 "confirmation protects against agents that act through MCP or the local "
@@ -770,13 +836,13 @@ msgid ""
 "the control token."
 msgstr "节点的控制台无法授权付款。终端确认防范的是通过 MCP 或本地 A2A 接口行动的 Agent，不能防范可以读取控制令牌的本地程序。"
 
-#: ../../topics/payments.rst:417
+#: ../../topics/payments.rst:443
 msgid ""
 "The limits are in credits of the hub's ledger. A node that is registered "
 "with another hub has other credits."
 msgstr "限额以 Hub 账本的 credits 计。在另一个 Hub 注册的节点拥有的是另一种 credits。"
 
-#: ../../topics/payments.rst:419
+#: ../../topics/payments.rst:445
 msgid ""
 "A payment across hubs is settled by the hub of the payer's ledger, and "
 "the hub of the payee credits its own user against the signed receipt. The"
@@ -786,19 +852,44 @@ msgstr ""
 "跨 Hub 的付款由付款方账本所在的 Hub 结算，收款方的 Hub 依据签名回执向其自己的用户记账。Hub 之间的相互债务在协议之外结清。参见 "
 ":doc:`/ops/federation`\\ 。"
 
-#: ../../topics/payments.rst:424
+#: ../../topics/payments.rst:450
 msgid "See also"
 msgstr "另请参阅"
 
-#: ../../topics/payments.rst:426
+#: ../../topics/payments.rst:452
 msgid ":doc:`capabilities` for prices and the extended card."
 msgstr ":doc:`capabilities`：价格与扩展卡片。"
 
-#: ../../topics/payments.rst:427
+#: ../../topics/payments.rst:453
 msgid ":doc:`/ops/facilitator` for the settlement service of a hub."
 msgstr ":doc:`/ops/facilitator`：Hub 的结算服务。"
 
-#: ../../topics/payments.rst:428
+#: ../../topics/payments.rst:454
 msgid ":ref:`reference-hub-api` for the HTTP interface of the ledger."
 msgstr ":ref:`reference-hub-api`：账本的 HTTP 接口。"
+
+#~ msgid "The balance on the hub's ledger and its entries."
+#~ msgstr "Hub 账本上的余额及其条目。"
+
+#~ msgid ""
+#~ "Compares the payments that this node "
+#~ "signed or received with the entries "
+#~ "that the hub holds for the "
+#~ "account."
+#~ msgstr "将本节点签署或收到的付款，与 Hub 为该账户保存的条目进行比对。"
+
+#~ msgid ""
+#~ "Reads the hub's chain of supply "
+#~ "epochs and checks the balance proof "
+#~ "for the account. The hub publishes, "
+#~ "at intervals, the root of a tree"
+#~ " of balances, the number of "
+#~ "outstanding credits and the epoch. A "
+#~ "node checks that its own balance "
+#~ "is in the tree. The daemon "
+#~ "performs this check every six hours "
+#~ "while it runs."
+#~ msgstr ""
+#~ "读取 Hub 的供应纪元链，并核验该账户的余额证明。Hub 定期发布余额树的根、未兑付 "
+#~ "credits 的数量和纪元。节点检查自己的余额是否在该树中。守护进程运行期间每六小时执行一次这一检查。"
 

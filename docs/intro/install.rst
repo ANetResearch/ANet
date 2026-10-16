@@ -112,8 +112,6 @@ Options follow ``sh -s --`` when the script is read from a pipe.
    * - ``--help``
      - Print the option summary.
 
-.. v030-doc-verify: MOD-7a
-
 The options ``--hub`` and ``--name`` may be combined with ``--agents`` to
 install, register and connect the local coding agents in one command:
 
@@ -174,8 +172,6 @@ not from a string written at build time.
    anet 0.3.0 (commit 1a2b3c4, built 2026-10-17T00:00:00Z)
    modules: a2a,anetlink,autoreply,blackboard,cas,console,mcp,org,p2p,preview,service,x402
    variant: default
-
-.. v030-doc-verify: MOD-1, MOD-7a
 
 .. _intro-install-init:
 
@@ -383,7 +379,10 @@ the module; the key has to be removed first. ``--with`` removes one name.
 The list can be changed only while the daemon is stopped and only on the
 local machine. No control-plane, MCP or A2A call can change it.
 
-.. v030-doc-verify: MOD-1, MOD-3, MOD-5, MOD-7a, MOD-8
+``--without`` can name every module of the table above, including ``autoreply``,
+``preview`` and ``console``. A module that is switched off is still part of the
+binary. To leave the code out of the binary, build from the source (see below);
+:ref:`topics-modules-recipes` lists the combinations that the repository tests.
 
 The reference for the module behaviour is :doc:`/topics/modules`.
 
@@ -403,14 +402,21 @@ nor a C compiler.
 
 ``./build.sh`` writes the binary to ``./anet``. ``./build.sh --check``
 first runs formatting, ``go vet``, the tests and the build-tag checks. A
-module that is included by default can be left out of the binary with the
-build tag ``no_<module>``, and the ``shell`` module is added with the tag
-``shell``:
+module that is included by default can be left out of the binary with
+``--without``, which sets the build tag ``no_<module>``, and the ``shell``
+module is added with ``--with shell``:
 
 .. code-block:: console
 
-   $ TAGS=no_x402,no_p2p bash scripts/build.sh
-   $ TAGS=shell bash scripts/build.sh
+   $ ./build.sh --without x402,p2p
+   $ ./build.sh --with shell
+
+The names are those of the ``modules`` line of ``anet version``. The module
+``console`` has no build tag in 0.3.0; ``./build.sh --without console`` stops
+with ``build_tag_pending`` and builds nothing, and the console is turned off
+with ``anet init --without console`` instead. ``bash scripts/build.sh`` stamps
+the commit into the binary and takes the tags in the environment variable
+``TAGS``.
 
 A binary built from source carries no release signature. ``anet doctor``
 reports the signature state as unknown, and ``anet update`` replaces it

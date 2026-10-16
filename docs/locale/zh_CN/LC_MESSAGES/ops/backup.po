@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ANet 0.3\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-16 03:55+0000\n"
+"POT-Creation-Date: 2026-10-16 14:35+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: zh_CN\n"
@@ -57,7 +57,9 @@ msgstr "内容与说明"
 msgid "``hub.db``"
 msgstr "``hub.db``"
 
-#: ../../ops/backup.rst:30 ../../ops/backup.rst:36 ../../ops/backup.rst:41
+#: ../../ops/backup.rst:30
+#: ../../ops/backup.rst:36
+#: ../../ops/backup.rst:41
 #: ../../ops/backup.rst:67
 msgid "yes"
 msgstr "是"
@@ -101,7 +103,8 @@ msgstr ""
 msgid "``federation.json``"
 msgstr "``federation.json``"
 
-#: ../../ops/backup.rst:47 ../../ops/backup.rst:63
+#: ../../ops/backup.rst:47
+#: ../../ops/backup.rst:63
 msgid "if used"
 msgstr "如使用"
 
@@ -113,7 +116,9 @@ msgstr "对等方表(:ref:`ops-federation`)。"
 msgid "``kel_hwm``"
 msgstr "``kel_hwm``"
 
-#: ../../ops/backup.rst:50 ../../ops/backup.rst:55 ../../ops/backup.rst:60
+#: ../../ops/backup.rst:50
+#: ../../ops/backup.rst:55
+#: ../../ops/backup.rst:60
 msgid "no"
 msgstr "否"
 
@@ -494,38 +499,73 @@ msgid "``modules/``"
 msgstr "``modules/``"
 
 #: ../../ops/backup.rst:223
-msgid "Private state of modules (for example the local A2A interface address)."
-msgstr "模块的私有状态(例如本地 A2A 接口地址)。"
+msgid ""
+"Private state of modules: the address and the token of the local A2A "
+"interface, ``modules/autoreply/sessions.json`` (the map from an "
+"interaction to the session of the local agent) and "
+"``modules/x402/liab_proof.jsonl`` (the balance proofs of the hub that the"
+" node has verified, one line for each epoch, mode ``0600``)."
+msgstr ""
+"模块的私有状态：本机 A2A 接口的地址和令牌、``modules/autoreply/sessions.json``\\ （交互到本地 "
+"agent 会话的映射），以及 ``modules/x402/liab_proof.jsonl``\\ （节点已验证的 hub "
+"余额证明，每个纪元一行，权限 ``0600``）。"
 
-#: ../../ops/backup.rst:225
+#: ../../ops/backup.rst:228
+msgid "``daemon.lock``"
+msgstr "``daemon.lock``"
+
+#: ../../ops/backup.rst:229
+msgid ""
+"An empty file on which a running daemon holds an exclusive lock. It is "
+"not part of a backup. The operating system releases the lock when the "
+"process ends, however it ends."
+msgstr "一个空文件，运行中的守护进程在其上持有独占锁。它不属于备份。进程无论以何种方式结束，操作系统都会释放该锁。"
+
+#: ../../ops/backup.rst:232
 msgid "``recovery_local.key``, ``recovery_local.anetrec``"
 msgstr "``recovery_local.key``\\ 、\\ ``recovery_local.anetrec``"
 
-#: ../../ops/backup.rst:226
+#: ../../ops/backup.rst:233
 msgid ""
 "Present only while the identity has no recovery passphrase. Together they"
 " can rotate the identity (see below)."
 msgstr "仅在身份尚无恢复口令时存在。二者合用可轮换该身份(见下文)。"
 
-#: ../../ops/backup.rst:228
+#: ../../ops/backup.rst:235
 msgid "``control_token.txt``, ``modules/a2a/a2a_token.txt``"
 msgstr "``control_token.txt``\\ 、\\ ``modules/a2a/a2a_token.txt``"
 
-#: ../../ops/backup.rst:229
+#: ../../ops/backup.rst:236
 msgid ""
 "Tokens of the local interfaces. They are replaced by deleting them and "
 "restarting; they do not need to be saved."
 msgstr "本地接口的令牌。删除后重启即可更换,无需保存。"
 
-#: ../../ops/backup.rst:231
+#: ../../ops/backup.rst:238
 msgid "``daemon.log``"
 msgstr "``daemon.log``"
 
-#: ../../ops/backup.rst:232
+#: ../../ops/backup.rst:239
 msgid "The node's log."
 msgstr "节点日志。"
 
-#: ../../ops/backup.rst:234
+#: ../../ops/backup.rst:241
+msgid ""
+"A command that changes files under a running daemon (``anet retention "
+"set``, the steps of ``anet identity`` that work on files, ``anet init "
+"--without``) first looks at the lock. When the lock is held and the "
+"control interface does not answer within a few seconds, a daemon is there"
+" and busy, and the command stops with ``daemon_not_answering`` and "
+"changes nothing. When the daemon answers, the command uses it; ``anet "
+"init --without`` and ``--with`` stop with ``daemon_running`` instead."
+msgstr ""
+"在守护进程运行时修改数据目录中文件的命令（``anet retention set``、``anet identity`` "
+"中处理文件的步骤、``anet init "
+"--without``）会先查看该锁。锁被持有而控制接口在数秒内没有应答时，说明守护进程存在且忙碌，命令会以 "
+"``daemon_not_answering`` 停止，不做任何改动。守护进程有应答时，命令通过它进行；``anet init "
+"--without`` 与 ``--with`` 则以 ``daemon_running`` 停止。"
+
+#: ../../ops/backup.rst:249
 msgid ""
 "A backup of this directory contains private keys and the task content "
 "kept during the retention period (30 days after a task ends by default, 7"
@@ -535,7 +575,7 @@ msgstr ""
 "该目录的备份包含私钥和保留期内的任务内容(任务结束后默认保留 30 天,公开调用保留 7 天)。应像对待密码库一样妥善保管:权限 "
 "``0700``,存放于加密存储上。"
 
-#: ../../ops/backup.rst:239
+#: ../../ops/backup.rst:254
 msgid ""
 "The recovery file is not in the data directory. It is ``~/.anet-"
 "recovery/<last 12 characters of the AID>.anetrec``, written with mode "
@@ -548,17 +588,17 @@ msgstr ""
 " 写入,使用 ``anet identity rm --purge`` 移除身份时也不会将其删除。没有口令时它毫无用处,而 ANet "
 "不会在任何位置保存口令。请将文件与口令分开保管。"
 
-#: ../../ops/backup.rst:247
+#: ../../ops/backup.rst:262
 msgid "A backup procedure"
 msgstr "备份步骤"
 
-#: ../../ops/backup.rst:249
+#: ../../ops/backup.rst:264
 msgid ""
 "Stop the node so that the files are consistent, copy the directory, and "
 "start the node again:"
 msgstr "先停止节点以保证文件一致,再复制目录,最后重新启动节点:"
 
-#: ../../ops/backup.rst:258
+#: ../../ops/backup.rst:273
 msgid ""
 "Keep the archive on a different device from the node, and keep a copy of "
 "the recovery file with a different custodian from the archive. For a node"
@@ -568,22 +608,22 @@ msgstr ""
 "归档应保存在与节点不同的设备上,恢复文件的副本应交由与归档不同的保管人保管。由 systemd 运行的节点,请将 ``anet stop`` 与 "
 "``anet up`` 换成对该服务的 ``systemctl stop`` 与 ``systemctl start``\\ 。"
 
-#: ../../ops/backup.rst:265
+#: ../../ops/backup.rst:280
 msgid "Restoring a node"
 msgstr "恢复节点"
 
-#: ../../ops/backup.rst:267
+#: ../../ops/backup.rst:282
 msgid "Three situations differ in their consequences."
 msgstr "三种情形的后果各不相同。"
 
-#: ../../ops/backup.rst:269
+#: ../../ops/backup.rst:284
 msgid ""
 "**Moving to another machine.** Stop the node on the old machine, copy the"
 " whole data directory to the new one, and start it there. Do not start "
 "the data on the old machine again. Tasks in progress continue."
 msgstr "**迁移到另一台机器。** 在旧机器上停止节点,将整个数据目录复制到新机器并在那里启动。不要再在旧机器上启动这份数据。进行中的任务会继续。"
 
-#: ../../ops/backup.rst:273
+#: ../../ops/backup.rst:288
 msgid ""
 "**Restoring from a backup.** The state after the backup is lost. At the "
 "next contact with the hub the node finds that its data is older than the "
@@ -596,20 +636,20 @@ msgstr ""
 "时发现自身数据早于其最后发布的密钥状态,会结束进行中的任务,并重新生成加密密钥。这些任务以原因 ``local_state_lost`` "
 "结束,并通知其对方;新任务不受影响。节点会在 7 天内显示如下警告:"
 
-#: ../../ops/backup.rst:284
+#: ../../ops/backup.rst:299
 msgid ""
 "The sentence appears in ``anet status`` and as the check ``local_state`` "
 "in ``anet doctor``."
 msgstr "该语句出现在 ``anet status`` 中,并作为检查项 ``local_state`` 出现在 ``anet doctor`` 中。"
 
-#: ../../ops/backup.rst:287
+#: ../../ops/backup.rst:302
 msgid ""
 "A backup that is newer than the latest key publication, at most about a "
 "day old, is not detected as a rollback. A node with no hub configured "
 "does not perform the check."
 msgstr "比最近一次密钥发布更新的备份(至多约一天之前)不会被判定为回滚。未配置 hub 的节点不执行此项检查。"
 
-#: ../../ops/backup.rst:299
+#: ../../ops/backup.rst:314
 msgid ""
 "**Only the recovery file remains.** The identity can be recovered from "
 "the recovery file and its passphrase into a new data directory. The old "
@@ -617,7 +657,7 @@ msgid ""
 "no rollback is reported."
 msgstr "**仅剩恢复文件。** 可凭恢复文件及其口令将身份恢复到新的数据目录中。旧的任务历史不会恢复;新目录中没有交互记录,因此不会报告回滚。"
 
-#: ../../ops/backup.rst:313
+#: ../../ops/backup.rst:328
 msgid ""
 "A recovery file that has no passphrase cannot be used this way. It "
 "belongs to an identity that joined a hub without a terminal and works "
@@ -627,11 +667,11 @@ msgstr ""
 "没有口令的恢复文件无法这样使用。它属于在没有终端的情况下加入 hub 的身份,只能与其自身的数据目录配合使用,并需在该目录中通过 ``anet "
 "identity protect`` 设置口令(参见 :ref:`topics-identity`)。"
 
-#: ../../ops/backup.rst:321
+#: ../../ops/backup.rst:334
 msgid "Never run two copies of one identity"
 msgstr "切勿同时运行同一身份的两份副本"
 
-#: ../../ops/backup.rst:323
+#: ../../ops/backup.rst:336
 msgid ""
 "Two data directories of the same identity that run at the same time "
 "compete for one mailbox at the hub. Each finds that its data is older "
@@ -645,7 +685,7 @@ msgstr ""
 "上的同一个邮箱。每一份都会发现自己的数据早于对方发布的状态,从而结束各自的任务,并且其中一份可能读取并确认另一份所需要的消息。7 "
 "天内第二次检测到该情形时,将作为故障上报(``local_state.repeated``)。如果出现回滚警告,但并未恢复过备份,也未复制过目录,则数据目录可能已被他人复制。请运行:"
 
-#: ../../ops/backup.rst:335
+#: ../../ops/backup.rst:348
 msgid ""
 "The emergency rotation invalidates the signing key of the other copy, "
 "replaces every secret that can be copied from the data directory, ends "
@@ -655,17 +695,17 @@ msgstr ""
 "紧急轮换会使另一份副本的签名密钥失效,替换所有可从数据目录复制得到的机密,以原因 ``key_compromise`` "
 "结束进行中的任务,并设置新的恢复口令。它需要恢复口令和终端。"
 
-#: ../../ops/backup.rst:342
+#: ../../ops/backup.rst:355
 msgid "Damaged or incompatible data directories"
 msgstr "损坏或不兼容的数据目录"
 
-#: ../../ops/backup.rst:344
+#: ../../ops/backup.rst:357
 msgid ""
 "The node refuses to start in a data directory it cannot use and leaves "
 "the directory unchanged:"
 msgstr "节点拒绝在无法使用的数据目录中启动,并保持该目录不变:"
 
-#: ../../ops/backup.rst:347
+#: ../../ops/backup.rst:360
 msgid ""
 "``This data directory is from anet 0.2, and 0.3.0 does not migrate old "
 "data; move it away and run anet up to create a new identity.``"
@@ -673,13 +713,13 @@ msgstr ""
 "``This data directory is from anet 0.2, and 0.3.0 does not migrate old "
 "data; move it away and run anet up to create a new identity.``"
 
-#: ../../ops/backup.rst:348
+#: ../../ops/backup.rst:361
 msgid ""
 "Release 0.3.0 does not migrate old identities. Move the directory away. "
 "The new identity must join a hub again."
 msgstr "0.3.0 版不迁移旧身份。请将该目录移开。新身份须重新加入 hub。"
 
-#: ../../ops/backup.rst:351
+#: ../../ops/backup.rst:364
 msgid ""
 "``This data directory was written by a newer anet, which this version "
 "cannot open; run anet update and start again (do not delete the "
@@ -689,11 +729,11 @@ msgstr ""
 "cannot open; run anet update and start again (do not delete the "
 "directory).``"
 
-#: ../../ops/backup.rst:352
+#: ../../ops/backup.rst:365
 msgid "The data is valid. Upgrade the program."
 msgstr "数据有效。请升级程序。"
 
-#: ../../ops/backup.rst:354
+#: ../../ops/backup.rst:367
 msgid ""
 "``The identity file ... is damaged and cannot be read, so anet did not "
 "start``"
@@ -701,23 +741,23 @@ msgstr ""
 "``The identity file ... is damaged and cannot be read, so anet did not "
 "start``"
 
-#: ../../ops/backup.rst:355
+#: ../../ops/backup.rst:368
 msgid ""
 "Restore ``identity.kel`` from a backup, or recover the identity from its "
 "recovery file with ``anet identity recover``."
 msgstr "从备份中恢复 ``identity.kel``,或使用 ``anet identity recover`` 凭恢复文件恢复该身份。"
 
-#: ../../ops/backup.rst:358
+#: ../../ops/backup.rst:371
 msgid ""
 "The hub refuses a damaged or incompatible data directory in the same way "
 "(see :ref:`ops-hub`)."
 msgstr "hub 对损坏或不兼容的数据目录同样拒绝启动(参见 :ref:`ops-hub`)。"
 
-#: ../../ops/backup.rst:363
+#: ../../ops/backup.rst:376
 msgid "Deletion and backups"
 msgstr "删除与备份"
 
-#: ../../ops/backup.rst:365
+#: ../../ops/backup.rst:378
 msgid ""
 "ANet deletes content by schedule: task content at the end of its "
 "retention period, encryption keys when they can no longer be used, and "
@@ -732,4 +772,7 @@ msgstr ""
 "ANet 按计划删除内容:任务内容在保留期结束时删除,加密密钥在不再能使用时删除,hub 账本条目在 14 "
 "天后删除。这些删除作用于正在使用的文件。备份中的副本、写时复制文件系统的快照,以及固态设备上遗留的数据块,不在软件可删除的范围之内。保留期同样应适用于备份:按照对用户的承诺,定期使节点的归档和"
 " hub 的备份过期。维护任务会对 hub 备份执行此操作,备份最多保留 14 天。"
+
+#~ msgid "Private state of modules (for example the local A2A interface address)."
+#~ msgstr "模块的私有状态(例如本地 A2A 接口地址)。"
 

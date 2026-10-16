@@ -258,17 +258,17 @@ Messages sent by this node: terminal failures, waits, the outbox and the deliver
      - Next step
    * - ``delivery_unconfirmed.queued``
      - F UNVERIFIED
-     - Delivery was not confirmed within {limit}: it is still waiting at the hub (the other side may be offline), and ``anet asked`` them to cancel it; send it again later if you still need it.
+     - Delivery was not confirmed within {limit}: it is still waiting at the hub (the other side may be offline), and ``anet`` asked them to cancel it; send it again later if you still need it.
      - {limit} 内没有确认送达：信还在 hub 排队（对方可能不在线），\ ``anet`` 已请对方取消；仍需要的话请稍后重发。
      - retry later
    * - ``delivery_unconfirmed.waiting``
      - F UNVERIFIED
-     - Delivery was not confirmed within {limit} (last: {wait}), and ``anet asked`` them to cancel it; send it again later if you still need it.
+     - Delivery was not confirmed within {limit} (last: {wait}), and ``anet`` asked them to cancel it; send it again later if you still need it.
      - {limit} 内没有确认送达（最后一次：{wait}），\ ``anet`` 已请对方取消；仍需要的话请稍后重发。
      - retry later
    * - ``delivery_unconfirmed.sent``
      - F UNVERIFIED
-     - Delivery was not confirmed within {limit}: the hub did not keep it or could not be reached, and ``anet asked`` them to cancel it; send it again later if you still need it.
+     - Delivery was not confirmed within {limit}: the hub did not keep it or could not be reached, and ``anet`` asked them to cancel it; send it again later if you still need it.
      - {limit} 内没有确认送达：hub 没有保存它，或一直连不上，\ ``anet`` 已请对方取消；仍需要的话请稍后重发。
      - retry later
    * - ``delivery_unconfirmed.expired``
@@ -308,12 +308,12 @@ Messages sent by this node: terminal failures, waits, the outbox and the deliver
      - ``anet update``
    * - ``rate_limited``
      - W
-     - You are sending too fast and the hub asked you to wait; ``anet retries`` on its own.
+     - You are sending too fast and the hub asked you to wait; ``anet`` retries on its own.
      - 你发得太快，hub 要求稍等；\ ``anet`` 会自动重试。
      - auto
    * - ``redelivery_limited``
      - W
-     - You are sending too fast and the hub asked you to wait; ``anet retries`` on its own.
+     - You are sending too fast and the hub asked you to wait; ``anet`` retries on its own.
      - 你发得太快，hub 要求稍等；\ ``anet`` 会自动重试。
      - auto
    * - ``strangers_busy``
@@ -328,7 +328,7 @@ Messages sent by this node: terminal failures, waits, the outbox and the deliver
      - auto
    * - ``home_unreachable``
      - W
-     - The other side's hub cannot be reached right now, so this is queued; ``anet retries`` on its own.
+     - The other side's hub cannot be reached right now, so this is queued; ``anet`` retries on its own.
      - 暂时连不上对方所在的 hub，信在排队；\ ``anet`` 会自动重试。
      - auto
    * - ``session_unavailable``
@@ -363,7 +363,7 @@ Messages sent by this node: terminal failures, waits, the outbox and the deliver
      - ``anet status``
    * - ``outbox.unconfirmed``
      - S warn
-     - {n} messages sent over 24 hours ago are still unconfirmed: the other side has not collected them; nothing to do, ``anet keeps`` checking until they expire after 14 days.
+     - {n} messages sent over 24 hours ago are still unconfirmed: the other side has not collected them; nothing to do, ``anet`` keeps checking until they expire after 14 days.
      - {n} 条 24 小时前发出的消息还没有确认：对方一直没有取信；不需要操作，\ ``anet`` 会一直查，直到 14 天后过期。
      - 
    * - ``outbox.none``
@@ -388,7 +388,7 @@ Messages sent by this node: terminal failures, waits, the outbox and the deliver
      - 
    * - ``delivery.not_sent``
      - I
-     - Not sent yet: the hub cannot be reached; ``anet keeps`` trying.
+     - Not sent yet: the hub cannot be reached; ``anet`` keeps trying.
      - 尚未发出：暂时连不上 hub，\ ``anet`` 会继续重试。
      - 
    * - ``delivery.not_sent.ordered``
@@ -418,7 +418,7 @@ Messages sent by this node: terminal failures, waits, the outbox and the deliver
      - 
    * - ``delivery.unconfirmed.sent``
      - I
-     - Not confirmed: ``anet stopped`` waiting, and it may still have arrived.
+     - Not confirmed: ``anet`` stopped waiting, and it may still have arrived.
      - 没有确认送达：\ ``anet`` 已停止等待，对方仍可能收到过。
      - 
    * - ``delivery.ends_at``
@@ -667,7 +667,7 @@ Identity operations and states, tasks ended by identity events, local data, the 
      - ``{command}``
    * - ``recovery_file_unprotected``
      - C
-     - This recovery file has no passphrase yet and works only with its own data directory, not for recovery; copy the whole data directory to this machine, run ``anet with`` it, then run ``anet identity protect``.
+     - This recovery file has no passphrase yet and works only with its own data directory, not for recovery; copy the whole data directory to this machine, run ``anet`` with it, then run ``anet identity protect``.
      - 这份恢复文件还没有设口令，只能与它所在的数据目录一起使用，不能用于恢复；请把整个数据目录复制到这台机器上运行，再运行 ``anet identity protect``\ 。
      - ``anet identity protect``
    * - ``recovery_file_missing``
@@ -695,6 +695,11 @@ Identity operations and states, tasks ended by identity events, local data, the 
      - The passphrase needs at least 12 characters; use a longer one, such as four or more random words.
      - 口令至少要 12 个字符；请换一个更长的口令，例如 4 个以上的随机词。
      - change input
+   * - ``passphrase_not_utf8``
+     - C
+     - The passphrase has characters that cannot be read (the terminal is not using UTF-8); switch the terminal to UTF-8 (for example LANG=C.UTF-8) and try again.
+     - 口令里有无法识别的字符（终端不是 UTF-8 编码）；请把终端切换为 UTF-8（例如 LANG=C.UTF-8）后重试。
+     - change input
    * - ``no_hub_yet``
      - E C S info
      - Not joined to a hub yet, so nothing can be sent or received; run ``anet hub-register {official_hub}`` to join the official public hub, or use your organization's hub URL instead.
@@ -707,13 +712,13 @@ Identity operations and states, tasks ended by identity events, local data, the 
      - retry later
    * - ``rotation_pending``
      - C S warn
-     - The last key rotation is still being published, so sending and receiving are paused (nothing is lost); ``anet retries`` on its own, see ``anet identity status``.
+     - The last key rotation is still being published, so sending and receiving are paused (nothing is lost); ``anet`` retries on its own, see ``anet identity status``.
      - 上一次密钥轮换还在发布，期间暂停收发（不会丢消息）；\ ``anet`` 会自动重试，可用 ``anet identity status`` 查看。
      - ``anet identity status``
    * - ``hub_switch_requires_rotation``
      - C
-     - Switching hubs needs a key rotation with your recovery passphrase; run ``anet hub-register {hub}`` in a terminal.
-     - 换 hub 需要一次密钥轮换，要输入恢复口令；请在终端运行 ``anet hub-register {hub}``\ 。
+     - Joining this hub (for the first time, or coming from another hub) needs a key rotation with your recovery passphrase; run ``anet hub-register {hub}`` in a terminal.
+     - 加入这个 hub（首次加入或从别的 hub 换过来）需要一次密钥轮换，要输入恢复口令；请在终端运行 ``anet hub-register {hub}``\ 。
      - ``anet hub-register {hub}``
    * - ``hub_switch_pending_admission``
      - C
@@ -750,6 +755,11 @@ Identity operations and states, tasks ended by identity events, local data, the 
      - This data directory was written by a newer ``anet``, which this version cannot open; run ``anet update`` and start again (do not delete the directory).
      - 这个数据目录由更新版本的 ``anet`` 写入，本版本打不开；请运行 ``anet update`` 升级后再启动（不要删除这个目录）。
      - ``anet update``
+   * - ``identity_file_invalid``
+     - C
+     - The identity file {path} is damaged and cannot be read, so ``anet`` did not start; restore it from a backup and try again, or run ``anet identity`` recover in a terminal to get the identity back from its recovery file.
+     - 身份文件 {path} 已损坏，读不出来，\ ``anet`` 没有启动；请从备份恢复这个文件后重试，或在终端运行 ``anet identity`` recover 用恢复文件找回身份。
+     - change input
    * - ``rotation_emergency_done``
      - I
      - The emergency rotation is done; check your peer lists and config.json for changes, replace model API keys with each provider, restart wired coding tools, and run ``anet agents wire --all`` again for A2A clients.
@@ -757,7 +767,7 @@ Identity operations and states, tasks ended by identity events, local data, the 
      - ``anet agents wire --all``
    * - ``identity_deactivated.unconfirmed``
      - I
-     - Deactivated on this node; your witness hub {hub} has not confirmed it yet, and ``anet keeps`` retrying on its own until it does.
+     - Deactivated on this node; your witness hub {hub} has not confirmed it yet, and ``anet`` keeps retrying on its own until it does.
      - 已在本机注销；你的见证 hub {hub} 还没确认，\ ``anet`` 会自动重试，直到它确认。
      - auto
    * - ``identity.ok``
@@ -777,7 +787,7 @@ Identity operations and states, tasks ended by identity events, local data, the 
      - ``anet doctor``
    * - ``old_hub_unacked``
      - S info
-     - The new hub is in use; the old hub {hub} has not confirmed this rotation yet, and ``anet keeps`` trying; nothing to do.
+     - The new hub is in use; the old hub {hub} has not confirmed this rotation yet, and ``anet`` keeps trying; nothing to do.
      - 新 hub 已生效；旧 hub {hub} 还没确认收到这次轮换，\ ``anet`` 会继续重试，不需要操作。
      - 
    * - ``identity.quarantine``
@@ -812,8 +822,8 @@ Identity operations and states, tasks ended by identity events, local data, the 
      - ``anet identity protect``
    * - ``no_local_task``
      - E C
-     - No task {task} on this node: tasks are deleted after the retention period (now {retention}, public calls 7 days); see what the evidence log kept with ``anet audit --interaction {task}``.
-     - 本机没有任务 {task}：任务结束后按保存期删除（现在是 {retention}，公开调用 7 天）；留下的证据可用 ``anet audit --interaction {task}`` 查看。
+     - No task {task} on this node: tasks are deleted after the retention period (now {retention}, public calls 7 days), or this node's data may be older than the task; see what the evidence log kept with ``anet audit --interaction {task}``.
+     - 本机没有任务 {task}：任务结束后按保存期删除（现在是 {retention}，公开调用 7 天），也可能是本机的数据比这个任务旧；留下的证据可用 ``anet audit --interaction {task}`` 查看。
      - ``anet audit --interaction {task}``
    * - ``clock.skewed``
      - S warn
@@ -852,8 +862,8 @@ Identity operations and states, tasks ended by identity events, local data, the 
      - ``anet identity rotate --emergency``
    * - ``retention.summary``
      - S info
-     - Task content is deleted {retention} after a task ends (public calls: 7 days).
-     - 任务内容在任务结束 {retention} 后删除（公开调用 7 天）。
+     - Task content retention is {retention}, counted from when a task ends (public calls: 7 days).
+     - 任务内容的保存期是 {retention}，从任务结束起算（公开调用 7 天）。
      - 
    * - ``retention.cow``
      - S info
@@ -867,8 +877,8 @@ Identity operations and states, tasks ended by identity events, local data, the 
      - ``anet retention set 30d``
    * - ``retention.set``
      - I
-     - Task content will now be kept for {retention} after a task ends.
-     - 任务内容现在在任务结束 {retention} 后删除。
+     - Task content retention is now {retention}, counted from when a task ends.
+     - 任务内容的保存期现在是 {retention}，从任务结束起算。
      - 
    * - ``retention.confirm``
      - T
@@ -914,17 +924,17 @@ States of joining a hub and of admission.
      - ``anet-hub admit {aid}``
    * - ``hub_retrying``
      - E C S warn
-     - Could not finish joining {hub} yet ({why}); ``anet tries`` again at {time}, nothing to do.
+     - Could not finish joining {hub} yet ({why}); ``anet`` tries again at {time}, nothing to do.
      - 暂时无法在 {hub} 完成注册（{why}），\ ``anet`` 会在 {time} 自动重试，不需要操作。
      - none needed
    * - ``hub_retrying.quota``
      - E C S warn
-     - Could not finish joining {hub} yet (today's sign-ups from your network are used up); ``anet tries`` again at {time}; if it is urgent, ask the hub operator to run ``anet-hub admit {aid}``.
+     - Could not finish joining {hub} yet (today's sign-ups from your network are used up); ``anet`` tries again at {time}; if it is urgent, ask the hub operator to run ``anet-hub admit {aid}``.
      - 暂时无法在 {hub} 完成注册（你所在网段今天的注册名额已用完），\ ``anet`` 会在 {time} 自动重试；着急的话请 hub 运营者执行 ``anet-hub admit {aid}``\ 。
      - ``anet-hub admit {aid}``
    * - ``hub_refused``
      - E C S fail
-     - {hub} refused to register this node ({code}), and ``anet will`` not retry; contact the hub's operator with this message.
+     - {hub} refused to register this node ({code}), and ``anet`` will not retry; contact the hub's operator with this message.
      - {hub} 拒绝了注册（{code}），\ ``anet`` 不会再试；请把这条信息发给 hub 运营者。
      - contact
    * - ``hub_publication_blocked``
@@ -949,7 +959,7 @@ States of joining a hub and of admission.
      - ``anet hub-register {hub}``
    * - ``wire_too_old``
      - E S fail
-     - This node's ``anet is`` older than {hub} needs ({version}); run ``anet update``.
+     - This node's ``anet`` is older than {hub} needs ({version}); run ``anet update``.
      - 本节点的 ``anet`` 比 {hub} 要求的旧（需要 {version}）；请运行 ``anet update``\ 。
      - ``anet update``
    * - ``wire_too_new``
@@ -959,7 +969,7 @@ States of joining a hub and of admission.
      - contact
    * - ``probation``
      - C
-     - New accounts cannot upload reviews during probation (until {time}); ``anet uploads`` it afterwards on its own, nothing to do.
+     - New accounts cannot upload reviews during probation (until {time}); ``anet`` uploads it afterwards on its own, nothing to do.
      - 新账户见习期（到 {time}）内不能上传评价；\ ``anet`` 会在期满后自动上传，不需要操作。
      - none needed
    * - ``review_exists``
@@ -974,8 +984,8 @@ States of joining a hub and of admission.
      - futile
    * - ``receipt_not_reviewable``
      - C
-     - This receipt cannot be used for a review (it has no review commitment), and only tasks started with ``anet`` 0.3.0 can be reviewed; retrying will not help.
-     - 这张回执不能用于评价（缺少评价承诺），只能评价用 ``anet`` 0.3.0 发起的任务；重试无用。
+     - This receipt cannot be used for a review: it has no review commitment, or its signatures do not match the review; only tasks started with ``anet`` 0.3.0 can be reviewed, and retrying will not help.
+     - 这张回执不能用于评价：它缺少评价承诺，或签名与评价对不上；只能评价用 ``anet`` 0.3.0 发起的任务，重试无用。
      - futile
    * - ``review_window_closed``
      - C
@@ -1056,9 +1066,19 @@ Requests that this node refused at once. Nothing was sent.
      - contact
    * - ``daemon_not_running``
      - C
-     - ``anet is`` not running (data directory {path}); run ``anet up``.
+     - ``anet`` is not running (data directory {path}); run ``anet up``.
      - ``anet`` 没有在运行（数据目录 {path}）；请运行 ``anet up``\ 。
      - ``anet up``
+   * - ``daemon_not_answering``
+     - C
+     - ``anet`` is running (data directory {path}) but did not answer within {dur}, so nothing was changed; try again later.
+     - ``anet`` 正在运行（数据目录 {path}），但 {dur} 内没有应答，什么都没有改；请稍后再试。
+     - retry later
+   * - ``local_write_failed``
+     - C
+     - This node could not write the change to its data directory ({error}); check the disk space and the data directory's permissions and try again.
+     - 本节点没能把这次改动写进数据目录（{error}）；请检查磁盘空间与数据目录的权限后重试。
+     - change input
    * - ``aid_invalid``
      - C
      - {value} is not a full AID; copy the full AID from the AID column of ``anet find`` or ``anet peers`` list and try again.
@@ -1078,6 +1098,46 @@ Requests that this node refused at once. Nothing was sent.
      - C fail
      - The setting {key} is not valid: {rule}; fix it and try again.
      - 配置项 {key} 的值不合法：{rule}；请改正后重试。
+     - change input
+   * - ``module_absent``
+     - E C
+     - {why}, so nothing was done; {fix}.
+     - {why}，什么都没有做；{fix}。
+     - change input
+   * - ``module_absent.configured``
+     - C S fail
+     - The configuration has {key}, but {why}, so ``anet`` did not start; remove {key}, or {fix}.
+     - 配置里有 {key}，但{why}，\ ``anet`` 没有启动；请删掉 {key}，或{fix}。
+     - change input
+   * - ``module_absent.payment``
+     - IP
+     - This task asks for {amount} credits, but {why}, so nothing was signed; to pay, {fix} and run ``anet pay`` {task}; otherwise run ``anet task cancel {task}``.
+     - 这个任务要付 {amount} credits，但{why}，什么都没有签；要付款请{fix}后运行 ``anet pay`` {task}，不需要了就运行 ``anet task cancel {task}``\ 。
+     - ``anet task cancel {task}``
+   * - ``daemon_running``
+     - C
+     - ``anet`` is running (data directory {path}); this change can only be made while it is stopped, so nothing was changed; run ``anet down`` first, then try again.
+     - ``anet`` 正在运行（数据目录 {path}），这项改动要在它停止后做，什么都没有改；请先运行 ``anet down``\ ，再重试。
+     - ``anet down``
+   * - ``without_configured``
+     - C
+     - The configuration has {key}; remove it before turning off the {name} module ({m}). Nothing was changed.
+     - 配置里有 {key}，先删掉它再关闭{name}模块（{m}）；什么都没有改。
+     - change input
+   * - ``update_variant_unknown``
+     - C
+     - This ``anet`` was built locally, and ``anet update`` only updates released builds, so nothing was downloaded; rebuild it the way you built it, or install a released build with install.sh.
+     - 这个 ``anet`` 是自建的，\ ``anet update`` 只更新发布版本，什么都没有下载；请按原来的方式重新构建，或用 install.sh 改装发布版本。
+     - change input
+   * - ``update_variant_unknown.mismatch``
+     - C
+     - This ``anet`` is marked as the {variant} build, but its set of modules ({modules}) differs from the released {variant} build, and ``anet update`` will not swap it for a different set, so nothing was downloaded; install a released build with install.sh.
+     - 这个 ``anet`` 标为 {variant} 版本，但它的模块组合（{modules}）与发布的 {variant} 版本不同，\ ``anet update`` 不会换成别的组合，什么都没有下载；请用 install.sh 改装发布版本。
+     - change input
+   * - ``build_tag_pending``
+     - C
+     - This version cannot leave the {name} module ({m}) out at build time yet; that comes in v0.3.x. For now you can turn it off in the configuration with ``--without`` {m}; nothing was built.
+     - 这个版本还不能在构建时去掉{name}模块（{m}），随 v0.3.x 提供；现在可以用 ``--without`` {m} 在配置里关闭它，什么都没有构建。
      - change input
    * - ``api_key_on_argv``
      - C
@@ -1111,8 +1171,8 @@ Requests that this node refused at once. Nothing was sent.
      - change input
    * - ``work_dir_invalid``
      - C
-     - auto_reply.work_dir cannot be inside the data directory or the sandbox work directory; use another directory.
-     - auto_reply.work_dir 不能位于数据目录或沙箱工作目录之内；请换一个目录。
+     - auto_reply.work_dir cannot be inside the data directory or the sandbox work directory, or contain either of them; use another directory.
+     - auto_reply.work_dir 不能位于数据目录或沙箱工作目录之内，也不能包含它们；请换一个目录。
      - change input
    * - ``budget_invalid``
      - C
@@ -1148,8 +1208,8 @@ State sentences of the local sandbox.
      - 
    * - ``sandbox.off``
      - S info
-     - Local agents are not run for untrusted peers (untrusted=off).
-     - 不为未信任对端运行本机 agent（untrusted=off）。
+     - Local agents are not run for untrusted peers (untrusted=off, or a budget of 0).
+     - 不为未信任对端运行本机 agent（untrusted=off，或预算设为 0）。
      - 
    * - ``sandbox.trusted_direct``
      - S info
@@ -1191,10 +1251,35 @@ State sentences of the local sandbox.
      - The sandbox self-check failed (file and process isolation); run ``anet doctor`` for details.
      - 沙箱自检失败（文件与进程隔离）；请运行 ``anet doctor`` 查看详情。
      - ``anet doctor``
+   * - ``netns_failed.doctor``
+     - S fail
+     - The sandbox self-check failed (network isolation: {detail}), so the sandbox is unavailable and tasks from untrusted peers will not run; run ``anet doctor --json`` and file a report, or set ``--untrusted`` off.
+     - 沙箱自检失败（网络隔离：{detail}），沙箱不可用，未信任对端的任务不会运行；请运行 ``anet doctor --json`` 并提交问题报告，或设 ``--untrusted`` off。
+     - ``anet doctor --json``
+   * - ``seccomp_failed.doctor``
+     - S fail
+     - The sandbox self-check failed (system call filter: {detail}), so the sandbox is unavailable and tasks from untrusted peers will not run; run ``anet doctor --json`` and file a report, or set ``--untrusted`` off.
+     - 沙箱自检失败（系统调用过滤：{detail}），沙箱不可用，未信任对端的任务不会运行；请运行 ``anet doctor --json`` 并提交问题报告，或设 ``--untrusted`` off。
+     - ``anet doctor --json``
+   * - ``fs_isolation_failed.doctor``
+     - S fail
+     - The sandbox self-check failed (file and process isolation: {detail}), so the sandbox is unavailable and tasks from untrusted peers will not run; run ``anet doctor --json`` and file a report, or set ``--untrusted`` off.
+     - 沙箱自检失败（文件与进程隔离：{detail}），沙箱不可用，未信任对端的任务不会运行；请运行 ``anet doctor --json`` 并提交问题报告，或设 ``--untrusted`` off。
+     - ``anet doctor --json``
+   * - ``sandbox_start_failed``
+     - S fail
+     - bubblewrap could not set up the sandbox ({error}), so the sandbox is unavailable; run ``anet doctor --json`` and file a report, or set ``--untrusted`` off.
+     - bubblewrap 没能建立沙箱（{error}），沙箱不可用；请运行 ``anet doctor --json`` 并提交问题报告，或设 ``--untrusted`` off。
+     - ``anet doctor --json``
    * - ``agent_unsupported``
      - S fail
      - {name} cannot run in the sandbox (it cannot send its model requests through this node); use {agents} instead, or set ``--untrusted`` off.
      - {name} 不能在沙箱里运行（它不能把模型请求交给本节点代发）；请换用 {agents}，或设 ``--untrusted`` off。
+     - 
+   * - ``agent_unsupported.combo``
+     - S fail
+     - {name} cannot use this model service address in the sandbox ({why}); change or remove ``--api-base``, or set ``--untrusted`` off.
+     - {name} 在沙箱里不能用这个模型服务地址（{why}）；请改或去掉 ``--api-base``\ ，或设 ``--untrusted`` off。
      - 
    * - ``no_api_key``
      - S fail
@@ -1213,9 +1298,14 @@ State sentences of the local sandbox.
      - 
    * - ``platform_unsupported``
      - S fail
-     - There is no sandbox on this platform (only Linux and macOS); on Windows, run ``anet in`` WSL2.
+     - There is no sandbox on this platform (only Linux and macOS); on Windows, run ``anet`` in WSL2.
      - 本平台没有沙箱（只支持 Linux 与 macOS）；Windows 请在 WSL2 中运行 ``anet``\ 。
      - 
+   * - ``platform_unsupported.pending``
+     - S fail
+     - The macOS sandbox comes in v0.3.x; this version has no sandbox on macOS, so tasks from untrusted peers will not run; set ``--untrusted`` off, or run ``anet`` on Linux.
+     - macOS 沙箱随 v0.3.x 提供，本版本在 macOS 上没有沙箱，未信任对端的任务不会运行；可设 ``--untrusted`` off，或在 Linux 上运行 ``anet``\ 。
+     - ``anet autoreply set --untrusted off``
    * - ``no_sandbox_exec``
      - S fail
      - /usr/bin/sandbox-exec is missing, so the sandbox is unavailable; set ``--untrusted`` off.
@@ -1287,6 +1377,11 @@ Sentences that the agent inside the sandbox reads. They are not shown to the ope
      - Model
      - ``anet``: this node cannot reach the model service right now; try again later, or answer with what you have.
      - ``anet``: 本节点暂时连不上模型服务；请稍后再试，或根据已有结果作答。
+     - 
+   * - ``egress_host_unresolved``
+     - Model
+     - ``anet``: the allowed host {host} does not resolve right now; try again later, or say in your reply that you cannot do it.
+     - ``anet``: 放行的主机 {host} 现在解析不到地址；请稍后再试，或在回复里说明做不到。
      - 
    * - ``policy_server_tool``
      - Model
@@ -1367,7 +1462,7 @@ State sentences of local service backends and of the C1 interface, for the node 
      - 
    * - ``c1_version``
      - S fail
-     - ANetLink and ``anet speak`` different C1 versions; upgrade both to the same release.
+     - ANetLink and ``anet`` speak different C1 versions; upgrade both to the same release.
      - ANetLink 与 ``anet`` 的 C1 版本不一致；请把两者升级到同一发布。
      - 
    * - ``c1_uid_refused``
@@ -1501,7 +1596,7 @@ Confirmation prompts and common lines printed by the command line.
      - 
    * - ``identity.prompt.first_join``
      - T
-     - First time joining a hub: set a recovery passphrase. You will need it to rotate keys, switch hubs or recover this identity on another machine; ``anet does`` not store it, and it cannot be recovered if forgotten.
+     - First time joining a hub: set a recovery passphrase. You will need it to rotate keys, switch hubs or recover this identity on another machine; ``anet`` does not store it, and it cannot be recovered if forgotten.
      - 首次接入 hub：请设置恢复口令。以后轮换密钥、换 hub、在别的机器上恢复身份都要用它；\ ``anet`` 不保存口令，忘了无法找回。
      - 
    * - ``identity.prompt.passphrase``
@@ -1541,7 +1636,7 @@ Confirmation prompts and common lines printed by the command line.
      - 
    * - ``identity.protect.confirm``
      - T
-     - Set a recovery passphrase for {name} ({aid8}): it is needed to rotate keys, switch hubs or recover this identity; ``anet does`` not store it and it cannot be recovered. The unprotected recovery file in the data directory is then voided and deleted.
+     - Set a recovery passphrase for {name} ({aid8}): it is needed to rotate keys, switch hubs or recover this identity; ``anet`` does not store it and it cannot be recovered. The unprotected recovery file in the data directory is then voided and deleted.
      - 为 {name}（{aid8}）设置恢复口令：以后轮换密钥、换 hub、在别的机器上恢复身份都要用它；\ ``anet`` 不保存口令，忘了无法找回。设好后，数据目录里未设口令的恢复文件会作废并删除。
      - 
    * - ``identity.protect.resume``
@@ -1612,7 +1707,7 @@ Confirmation prompts and common lines printed by the command line.
    * - ``identity.rotate.emergency_summary.2``
      - T
      - · stop the old key at once: peers that know your new key refuse messages signed with the old one right away, the rest within 6 hours
-     - · 立即停用旧密钥：已知道你新密钥的对方马上拒收旧密钥签的消息，其余对方最迟 6 小时后拒收
+     - · 立即停用旧密钥：已知道你新密钥的对方立即拒收旧密钥签的消息，其余对方最迟 6 小时后拒收
      - 
    * - ``identity.rotate.emergency_summary.3``
      - T
@@ -1656,7 +1751,7 @@ Confirmation prompts and common lines printed by the command line.
      - 
    * - ``identity.switch.old_acked``
      - I
-     - The old hub {old} confirmed this rotation; ``anet keeps`` collecting mail there for 15 days, then leaves it on its own.
+     - The old hub {old} confirmed this rotation; ``anet`` keeps collecting mail there for 15 days, then leaves it on its own.
      - 旧 hub {old} 已确认收到这次轮换；\ ``anet`` 会继续收取旧信箱里的信 15 天，之后自动离开。
      - 
    * - ``identity.recover.start``
@@ -1706,7 +1801,7 @@ Confirmation prompts and common lines printed by the command line.
      - 
    * - ``identity.rm.dip_unacked``
      - T
-     - Your witness hub has not confirmed the deactivation yet; after removal ``anet stops`` retrying, and others may keep sending to this identity.
+     - Your witness hub has not confirmed the deactivation yet; after removal ``anet`` stops retrying, and others may keep sending to this identity.
      - 你的见证 hub 还没确认这次注销；现在删除后 ``anet`` 不会再重试，别人可能继续给这个身份发信。
      - 
    * - ``autoreply.updated``
@@ -1754,15 +1849,25 @@ Confirmation prompts and common lines printed by the command line.
      - Trust {name} ({peer}): its tasks will run local agents in the sandbox, outside the run budget.
      - 信任 {name}（{peer}）：它的任务会在沙箱中运行本机 agent，不计入预算。
      - 
+   * - ``trust_confirm.no_agent``
+     - T
+     - Trust {name} ({peer}): this node has no auto-reply and will not run a local agent for it; trust only decides whether local backends take its tasks.
+     - 信任 {name}（{peer}）：本节点没有自动回复，不会为它运行本机 agent；信任只决定本机后端是否接收它的任务。
+     - 
    * - ``egress_confirm``
      - T
-     - Allow network hosts {hosts}: tasks from untrusted peers could send data out through them; ``anet checks`` the host name only, not the content.
+     - Allow network hosts {hosts}: tasks from untrusted peers could send data out through them; ``anet`` checks the host name only, not the content.
      - 放行出网主机 {hosts}：未信任对端的任务可以经这些主机向外发送数据，\ ``anet`` 只核对主机名，不检查内容。
      - 
    * - ``trusted_direct_confirm``
      - T
      - Switch back to direct runs: trusted peers will run local agents as your user, which is the same as giving them your user's rights.
      - 改回直接运行：信任的对端将以你的用户身份运行本机 agent，等同授予你的用户权限。
+     - 
+   * - ``autoreply.prompt.api_key``
+     - T
+     - API key:
+     - API key：
      - 
    * - ``card.header``
      - I
@@ -1851,7 +1956,7 @@ Confirmation prompts and common lines printed by the command line.
      - 
    * - ``balance.trial_pending``
      - I
-     - Probation is over; the trial credits are still to come (today's allowance is used up), and ``anet tries`` again on its own, nothing to do.
+     - Probation is over; the trial credits are still to come (today's allowance is used up), and ``anet`` tries again on its own, nothing to do.
      - 见习期已结束；体验额度待发（今天的名额已用完），\ ``anet`` 会自动再试，不需要操作。
      - 
    * - ``balance.trial_granted``
@@ -1960,7 +2065,7 @@ Sentences that only the diagnostic report prints.
      - ``anet identity status``
    * - ``sender_privacy.mailbox_pending``
      - S warn
-     - This node's mailbox signing key is not registered at the hub yet, and ``anet republishes`` it on its own; if this lasts over an hour, check your connection to the hub.
+     - This node's mailbox signing key is not registered at the hub yet, and ``anet`` republishes it on its own; if this lasts over an hour, check your connection to the hub.
      - 本机的信箱签名钥还没登记到 hub，\ ``anet`` 会自动重新发布；超过 1 小时仍如此，请检查与 hub 的连接。
      - 
    * - ``clock.ts_retries``
@@ -1990,22 +2095,22 @@ Sentences that only the diagnostic report prints.
      - 
    * - ``sender_privacy.withdrawals_pending``
      - S warn
-     - {n} withdrawn delivery credentials have not reached the hub for over an hour; ``anet keeps`` retrying on its own; check your connection to the hub.
+     - {n} withdrawn delivery credentials have not reached the hub for over an hour; ``anet`` keeps retrying on its own; check your connection to the hub.
      - 有 {n} 个投递凭据的收回超过 1 小时没送到 hub；\ ``anet`` 会自动重试，请检查与 hub 的连接。
      - 
    * - ``sender_privacy.hub_refusals``
      - S warn
-     - In the last 24 hours the hub refused {n} delivery credentials for no reason ``anet could`` find, so those messages went as first contacts and the hub knows they are from you; if this keeps happening, consider another hub.
+     - In the last 24 hours the hub refused {n} delivery credentials for no reason ``anet`` could find, so those messages went as first contacts and the hub knows they are from you; if this keeps happening, consider another hub.
      - 最近 24 小时有 {n} 个投递凭据被 hub 拒绝且查不出原因，相关的信已改走首次联系，hub 因此知道是你发的；如果反复出现，请考虑换用其他 hub。
      - 
    * - ``sender_privacy.hub_small_bucket``
      - S warn
-     - The hub returned a directory group with fewer than 32 entries, which makes it easier to guess whom you look up; ``anet now`` uses wider groups on its own, and if this keeps happening, consider another hub.
+     - The hub returned a directory group with fewer than 32 entries, which makes it easier to guess whom you look up; ``anet`` now uses wider groups on its own, and if this keeps happening, consider another hub.
      - hub 返回的目录分组少于 32 条，更容易猜出你在查谁；\ ``anet`` 已自动改用更宽的分组，如果反复出现，请考虑换用其他 hub。
      - 
    * - ``sender_privacy.hub_epoch_invalid``
      - S warn
-     - The hub reported an impossibly large mailbox signing key number, so ``anet started`` again from 1; if the mailbox signing key stays unregistered, contact the hub operator.
+     - The hub reported an impossibly large mailbox signing key number, so ``anet`` started again from 1; if the mailbox signing key stays unregistered, contact the hub operator.
      - hub 报告的信箱签名钥序号大得不可能，\ ``anet`` 已从 1 重新编号；如果信箱签名钥一直登记不上，请联系 hub 运营者。
      - 
    * - ``p2p.lan_on``
@@ -2022,6 +2127,16 @@ Sentences that only the diagnostic report prints.
      - S fail
      - The capability {name} declares files but is not served by the service module; serve it through the service module, or remove files.
      - 能力 {name} 声明了 files，但不是由 service 模块提供；请改由 service 模块提供，或去掉 files。
+     - 
+   * - ``payments.unchargeable``
+     - S warn
+     - This node has priced capabilities ({n}), but {why}, so calls to them will be refused; {fix}, or remove the prices.
+     - 本节点有标了价的能力（{n} 个），但{why}，这些能力的调用都会被拒绝；请{fix}，或去掉价格。
+     - 
+   * - ``capabilities.files_not_service.absent``
+     - S fail
+     - The capability {name} declares files, but {why}, so nothing can receive the files; {fix}, or remove files.
+     - 能力 {name} 声明了 files，但{why}，没有能接收文件的服务；请{fix}，或去掉 files。
      - 
    * - ``capabilities.inflight_low``
      - S warn

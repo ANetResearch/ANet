@@ -50,10 +50,11 @@ Build tags
 
 Tags come in two directions. A *subtractive* tag removes a module that is built in by default:
 ``no_anetlink``, ``no_p2p``, ``no_blackboard``, ``no_org``, ``no_cas``, ``no_service``, ``no_mcp``,
-``no_x402`` and ``no_a2a``. An *additive* tag adds a module that is absent by default: ``shell``.
+``no_x402``, ``no_a2a``, ``no_preview`` and ``no_autoreply``. An *additive* tag adds a module that is absent by default: ``shell``.
 ``go test ./...`` does not see code behind an additive tag, so run ``go vet`` and ``go test`` with
 ``-tags shell`` as well. ``bash scripts/tagcheck.sh all`` checks every tag by the number of symbols
-in its own direction; ``build.sh --check`` and the continuous integration both call it. A new optional
+in its own direction; ``build.sh --check`` and the continuous integration both call it.
+The console has no tag yet; ``scripts/tagcheck.sh pending`` lists the modules without one. A new optional
 module gets its tag in that script and a row in ``.github/workflows/ci.yml``. See
 :doc:`topics/modules`.
 
@@ -64,6 +65,16 @@ Tests live next to the code. The daemon package has an in-memory fake hub for en
 a real hub. Wire objects are pinned by golden vectors in ``ANetCore/golden``: the bytes of an encoding
 are the oracle, and two repositories that share an object (for example the C1 interface between ``anet``
 and ANetLink) carry byte-identical copies of the vectors.
+
+Continuous integration
+~~~~~~~~~~~~~~~~~~~~~~
+
+Two jobs run tests that depend on the machine. The job ``sandbox`` runs twice, on the host with
+``bubblewrap`` and the AppArmor profile of the repository, and in a Debian 12 container; the tests that
+must pass are listed in the job, and a skip of one of them is a failure. The job ``premises`` runs the
+tests whose premise is the machine (a user that is not root, the reference A2A SDK, a build without a
+feature), and a skip there is also a failure. Jobs for macOS and for a second account (``peercred``) cover
+the other platforms.
 
 Style
 ~~~~~
@@ -119,6 +130,14 @@ update the catalogs with:
    $ sphinx-intl update -p docs/_build/gettext -l zh_CN
 
 Terms follow the glossary. Command lines, configuration keys, codes and paths are not translated.
+
+In Chinese text, inline markup that touches a Chinese character needs an escaped space (a backslash and a space)
+before or after it, because docutils does not recognise the start or the end of the markup
+otherwise. After every ``sphinx-intl update``, run the script that sets these escapes:
+
+.. code-block:: console
+
+   $ python3 docs/_tools/fix_po_markup.py
 
 
 Licensing of contributions

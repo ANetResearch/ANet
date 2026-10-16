@@ -67,15 +67,19 @@ Create two identities
 
    $ anet id new provider
    Creating identity "provider" …
-   anet daemon started [provider] (pid 41203, data dir /home/user/.anet/ids/provider) — stop it anytime with `anet stop provider`
+   anet 0.3.0 is running in the background: identity provider …x3j42pdi (data directory /home/user/.anet/ids/provider).
+   hub       Not joined to a hub yet, so nothing can be sent or received; run anet hub-register https://hub.agentnetwork.org.cn to join the official public hub, or use your organization's hub URL instead.
+     → anet hub-register https://hub.agentnetwork.org.cn
    ...
    $ anet id new requester
    Creating identity "requester" …
-   anet daemon started [requester] (pid 41277, data dir /home/user/.anet/ids/requester) — stop it anytime with `anet stop requester`
+   anet 0.3.0 is running in the background: identity requester …q7m2k9ab (data directory /home/user/.anet/ids/requester).
+   hub       Not joined to a hub yet, so nothing can be sent or received; run anet hub-register https://hub.agentnetwork.org.cn to join the official public hub, or use your organization's hub URL instead.
+     → anet hub-register https://hub.agentnetwork.org.cn
    ...
 
-Each command ends with the status of the new node. The hub state is
-``none`` because no hub has been joined yet. The listing shows both
+Each command ends with the status of the new node. The line ``hub`` states that
+no hub has been joined yet. The listing shows both
 identities and the control port of each:
 
 .. code-block:: console
@@ -161,8 +165,6 @@ passphrase and replaces the recovery seed. Seeds that were copied before
 that point become invalid. Until then, a leak of the data directory can
 allow the identity to be taken over. For the states and the commands, see
 :doc:`/topics/identity`.
-
-.. v030-doc-verify: KEL-10
 
 .. _intro-tutorial-publish:
 
@@ -379,8 +381,6 @@ behalf of the operator: their payments are limited by ``agent_max`` and
 A quote that exceeds the price on the provider's signed card is never paid
 automatically, and the sentence in the task states the difference.
 
-.. v030-doc-verify: UX-6
-
 .. _intro-tutorial-auto:
 
 Allow automatic payment for a known provider
@@ -569,8 +569,6 @@ The state is part of the task projection in the CLI, in the MCP tools
 ``get_task`` and ``wait_task``, and on the local A2A interface. A task that
 has reached a final state no longer carries the closing sentence.
 
-.. v030-doc-verify: RC-5
-
 .. _intro-tutorial-spend:
 
 Review the spending
@@ -636,8 +634,6 @@ filter ``--type`` selects an event type:
 commands ``anet reconcile`` and ``anet audit-hub`` compare the node's
 payment record and balance proof with the ledger and the issuance chain of
 the hub. They are described in :doc:`/topics/payments`.
-
-.. v030-doc-verify: UX-6
 
 Clean up
 ========

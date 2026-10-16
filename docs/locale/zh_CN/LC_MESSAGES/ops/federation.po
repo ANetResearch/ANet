@@ -185,8 +185,8 @@ msgid ""
 " base URL. With an empty list, delivery and discovery have no effect, "
 "whatever their values."
 msgstr ""
-"对等方表。\\ ``aid`` 是对等 hub 的 AID;``endpoint`` 是其公开基础 URL。列表为空时,无论 delivery 与"
-" discovery 取何值,均不产生作用。"
+"对等方表。\\ ``aid`` 是对等 hub 的 AID;\\ ``endpoint`` 是其公开基础 URL。列表为空时,无论 "
+"delivery 与 discovery 取何值,均不产生作用。"
 
 #: ../../ops/federation.rst:87
 msgid "``witness``"

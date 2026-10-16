@@ -14,13 +14,13 @@ func InstallHeader(lang Language, autoreplyTagged bool) string {
 	if lang == Chinese {
 		s := "缺省二进制不执行远程命令（shell 模块不在其中）。运营者配置自动回复之后，它会为对端运行本机 agent，未信任对端只在沙箱里运行。不想要这项功能：--without autoreply 让它永不启动；"
 		if autoreplyTagged {
-			return s + "要二进制里没有这段代码：按 docs/DISTRIBUTIONS-zh.md 用 build.sh --without autoreply 自建。"
+			return s + "要二进制里没有这段代码：按 https://docs.agentnetwork.org.cn/docs/zh-cn/latest/topics/modules.html 用 build.sh --without autoreply 自建。"
 		}
 		return s + "本版本还不能在构建时去掉这段代码。"
 	}
 	s := "The default binary does not run remote commands (the shell module is not in it). Once the operator configures auto-reply, it runs a local agent for peers, and untrusted peers only inside a sandbox. If you do not want this feature: --without autoreply keeps it from ever starting; "
 	if autoreplyTagged {
-		return s + "to leave the code out of the binary, build it yourself with build.sh --without autoreply as described in docs/DISTRIBUTIONS-zh.md."
+		return s + "to leave the code out of the binary, build it yourself with build.sh --without autoreply as described at https://docs.agentnetwork.org.cn/docs/en/latest/topics/modules.html."
 	}
 	return s + "this version cannot yet leave the code out at build time."
 }

@@ -63,19 +63,6 @@ other values do not ask for confirmation. Changing between ``off`` and the other
 values causes the node to publish its card again, so that requesters can see
 whether the provider sends previews (see :doc:`capabilities`).
 
-.. v030-doc-verify: UX-9
-   The anet preview command and its confirmation for with_reasoning are
-   specified in the design and are not yet in the main checkout. The
-   stream_preview configuration key and the card declaration are specified in the
-   same package. Confirm the command output and the doctor messages (preview.on,
-   preview.with_reasoning, preview.no_source) after the merge.
-
-.. v030-doc-verify: MOD-6
-   Preview becomes a separate module with the build tag ``no_preview``. The
-   behaviour described here is the same before and after the move. Confirm that
-   ``--without preview`` and the module-absent behaviour match the text in
-   :doc:`modules`.
-
 Sources of preview text
 -----------------------
 
@@ -110,23 +97,21 @@ The control interface
 
 The following command pushes a text for the default identity. It reads the
 control address from ``config.json`` and the token from ``control_token.txt`` in
-the data directory.
+the data directory. The function ``auth`` hands the header to ``curl`` through a
+file descriptor, so that the token does not appear in the argument list (bash or
+zsh).
 
 .. code-block:: console
 
    $ DATA=~/.anet
+   $ auth() { printf 'Authorization: Bearer %s\n' "$(cat $DATA/control_token.txt)"; }
    $ curl -sS -X POST "http://$(jq -r .control_addr $DATA/config.json)/tasks/preview" \
-       -H "Authorization: Bearer $(cat $DATA/control_token.txt)" \
+       -H @<(auth) \
        -H "Content-Type: application/json" \
        -d '{"task_id": "<task-id>", "text": "The first part of the reply"}'
    {"sent":true}
 
 The ``exec`` backend of auto-reply does not supply preview text.
-
-.. v030-doc-verify: UX-9
-   Confirm the response bodies of POST /tasks/preview after the merge of the
-   route; the route is specified in the design and is not yet in the main
-   checkout.
 
 Asking for previews as a requester
 ==================================
@@ -150,6 +135,19 @@ Local A2A interface
    ellipsis. A client that has not activated the extension receives no preview
    event.
 
+Control interface
+   ``POST /tasks/events`` with the body ``{"task_id": "..."}`` opens a stream of
+   server-sent events for one task. The event ``task`` holds the task as it is
+   (cut to about 24 KB) and is sent first, and again at each change of state.
+   The event ``preview`` holds ``seq``, ``at``, ``text`` and ``omitted``, and
+   ``reasoning`` and ``reasoning_omitted`` when reasoning is enabled; a
+   subscriber that joins while a preview exists receives the current one first.
+   The event ``delivery`` holds ``delivery``, ``detail``, ``wait`` and the
+   sentence ``text``. An idle stream writes a comment line every 20 seconds. The
+   stream ends with the final state of the task. The route needs the control
+   token. MCP and the console do not offer it. A task that is no longer on the
+   node is answered with ``no_local_task``.
+
 MCP
    MCP does not expose previews. ``wait_task`` returns the task when its state
    changes.
@@ -157,22 +155,15 @@ MCP
 .. code-block:: console
 
    $ anet delegate <provider-aid> "Explain the difference between a hub and a node." --watch
-   delivery: sent, waiting for the other node to confirm.
-   [delivered] Delivered: the other node confirmed it.
+   delivery: Sent; waiting for the other side's node to confirm it.
+   [delivered] Delivered: the other side's node confirmed it.
    [working]
-   preview (14:05:20, 0 bytes omitted):
+   preview (14:05:20, first 0 bytes left out):
      A hub carries encrypted messages between nodes. ...
    [completed]
    A hub carries encrypted messages between nodes. ...
 
 ``anet card <aid>`` shows a line when the provider declares previews.
-
-.. v030-doc-verify: UX-10
-   The commands ``anet delegate --watch`` and ``anet task watch`` (with
-   ``--reasoning``), the ``delivery`` lines they print, and the preview updates of
-   the local A2A interface depend on the events route of the control interface.
-   They are specified in the design and are not yet in the main checkout.
-   Confirm the output format after the merge.
 
 Limits
 ======

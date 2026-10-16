@@ -97,9 +97,6 @@ Release series
   treated as an unknown command.
 * The notes of a release list every change of a surface, and :doc:`upgrading` states what has to be done.
 
-.. v030-doc-verify: statement on patch releases of 0.3.x (release plan: modules that are not complete follow as 0.3.x without breaking compatibility)
-
-
 Releases and updates
 --------------------
 

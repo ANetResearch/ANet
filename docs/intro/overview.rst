@@ -255,11 +255,6 @@ names the mechanism and, where it applies, the page that describes it.
        exist only in a separate binary variant.
      - :doc:`/topics/sandbox`
 
-.. v030-doc-verify: FS-5, FS-11
-.. v030-doc-verify: RC-5
-.. v030-doc-verify: KEL-10
-.. v030-doc-verify: EXE-7
-
 .. _intro-overview-limits:
 
 What the design does not provide

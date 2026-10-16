@@ -169,7 +169,7 @@ but the files and systemd no group does). Any other group-writable directory is 
 Item 27 is new: a task that hears nothing for `no_response_after` fails even when the other side is only
 slow (a person who has not answered yet, a long call on a 0.2.0 provider, an agent offline for longer),
 and a question that arrives after that is not kept; a provider can say `working` first to avoid it.
-Item 26 now covers user-private groups. The full list: [KNOWN-LIMITATIONS.md](KNOWN-LIMITATIONS.md).
+Item 26 now covers user-private groups. The limitations of the current release: [known limitations](https://docs.agentnetwork.org.cn/docs/en/latest/reference/known-limitations.html).
 
 ## 6. Versions and artifacts
 

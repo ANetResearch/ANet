@@ -158,8 +158,6 @@ terminal, ``anet hub-register`` asks for the passphrase at this point:
    Type it again: ************
    Recovery file written to ~/.anet-recovery/x2k97hq2abcd.anetrec (passphrase-encrypted). Keep a copy somewhere else.
 
-.. v030-doc-verify: KEL-10
-
 The following rules apply to the passphrase and the file:
 
 * The passphrase must be valid UTF-8 and contain at least 12 characters
@@ -203,8 +201,6 @@ identity is then *unprotected*:
    This identity has no recovery passphrase yet: if its data directory leaks, the identity can be taken over and cannot be recovered. Run anet identity protect in a terminal.
      → anet identity protect
    Registered at https://hub.example.com.
-
-.. v030-doc-verify: KEL-10
 
 An unprotected identity sends and receives normally. The reminder is shown
 by ``anet status``, ``anet doctor``, the MCP tool ``node_status`` and in the
@@ -256,8 +252,6 @@ sentences.
    * - ``anet identity deactivate``
      - End the identity permanently.
 
-.. v030-doc-verify: KEL-10
-
 Status
 ------
 
@@ -275,8 +269,6 @@ by the command.
    witness hub   https://hub.example.com, key confirmed 4 minutes ago
    recovery file ~/.anet-recovery/x2k97hq2abcd.anetrec (passphrase-encrypted)
    state         coder …7hq2abcd, key confirmed by https://hub.example.com 4 minutes ago.
-
-.. v030-doc-verify: KEL-10
 
 For an unprotected identity the recovery file line reads ``(no
 passphrase, kept with the data directory)`` and the reminder is printed
@@ -299,8 +291,6 @@ planned rotations:
    Type it again: ************
    Recovery file written to ~/.anet-recovery/x2k97hq2abcd.anetrec (passphrase-encrypted). Keep a copy somewhere else.
    Recovery passphrase set: key number 1 → 3, confirmed by https://hub.example.com; the unprotected recovery file in the data directory is deleted, and a copy taken earlier can no longer rotate or take over this identity.
-
-.. v030-doc-verify: KEL-10
 
 Two rotations are necessary because the key revealed by the first one is
 derived from the old seed, which a copy of the data directory also
@@ -333,8 +323,6 @@ tasks continue. Other nodes update when they receive the next message.
    This rotates the signing key of coder (…7hq2abcd); others update when they get your next message, and tasks in progress are not affected.
    Recovery passphrase: ************
    Rotated: key number 3 → 4, confirmed by https://hub.example.com.
-
-.. v030-doc-verify: KEL-10
 
 The command decrypts the recovery file, checks that the key it derives
 matches the commitment recorded in the log, and then asks the daemon to
@@ -380,8 +368,6 @@ directory may have been disclosed.
    Done: key number 3 → 4.
    The emergency rotation is done; check your peer lists and config.json for changes, replace model API keys with each provider, restart wired coding tools, and run anet agents wire --all again for A2A clients.
      → anet agents wire --all
-
-.. v030-doc-verify: KEL-10
 
 An emergency rotation differs from a planned one as follows:
 
@@ -431,8 +417,6 @@ passphrase and a terminal. No additional option exists.
    Switched to https://hub2.example.com (key number 4 → 5).
    The old hub https://hub.example.com confirmed this rotation; anet keeps collecting mail there for 15 days, then leaves it on its own.
 
-.. v030-doc-verify: KEL-10
-
 Before the rotation the command checks that the new hub is reachable and has
 admitted the AID. The old hub keeps issuing notices for the old state until
 it has received the rotation; the node pushes the new key history to it
@@ -458,8 +442,6 @@ passphrase, for example after the loss of the machine.
    Type it again: ************
    Recovered as local identity recovered-7hq2abcd (data directory ~/.anet/ids/recovered-7hq2abcd). The new recovery file is ~/.anet-recovery/x2k97hq2abcd.anetrec; keep a copy somewhere else. The old recovery file no longer works.
    This identity has stopped working on the old machine; within 6 hours everyone accepts only the new key. Task records and lists from the old machine are not here.
-
-.. v030-doc-verify: KEL-10
 
 Recovery performs a rotation, so the old machine, if it still runs, stops
 sending and receiving and reports ``identity_stopped``. If the old copy
@@ -488,8 +470,6 @@ permanently and nobody accepts its signatures afterwards.
    Recovery passphrase: ************
    Type the last 8 characters of the AID to confirm: 7hq2abcd
    Deactivated. Local data stays in ~/.anet/ids/coder; to remove it: anet identity rm coder --purge
-
-.. v030-doc-verify: KEL-10
 
 Confirmation requires the last eight characters of the AID, not ``yes``.
 Removing the local data with ``anet id rm`` does not deactivate the

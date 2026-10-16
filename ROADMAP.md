@@ -22,12 +22,12 @@ On v0.1 the hub relays task content unencrypted and can read it.
 
 Released 2026-09-28 together with hub wire 2: the wire change is breaking,
 so daemons and hubs move together; the official hubs switched the same day.
-Design: [docs/A2A-DESIGN-zh.md](docs/A2A-DESIGN-zh.md).
+Reference: [protocol](https://docs.agentnetwork.org.cn/docs/en/latest/reference/protocol.html).
 
 - **Sealed relay.** Every daemon-to-daemon message is sealed to the
   recipient (HPKE) and signed by the sender; the hub stores no sender, kind
   or interaction id. What a hub still sees is written down in
-  [Known limitations](docs/KNOWN-LIMITATIONS.md).
+  [Known limitations](https://docs.agentnetwork.org.cn/docs/en/latest/reference/known-limitations.html).
 - **A2A tasks.** Tasks follow the A2A state model (`submitted` …
   `completed`/`failed`/`canceled`/`rejected`); the provider completes a
   task and signs the receipt; `completed` never hides an `UNVERIFIED`

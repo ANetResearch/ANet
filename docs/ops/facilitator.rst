@@ -364,5 +364,3 @@ Settlements for a payee on another hub make this hub owe the ledger hub and
 the other way round. ``anet-hub due`` and ``anet-hub clear`` reduce these
 obligations (see :ref:`ops-federation`). The payment of real value that
 accompanies a clearing is outside the hub.
-
-.. v030-doc-verify: PAY-13

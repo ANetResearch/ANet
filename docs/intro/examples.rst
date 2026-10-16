@@ -427,12 +427,10 @@ asks again before it deletes content that the new period already covers.
 .. code-block:: console
 
    $ anet --id requester retention
-   Task content is deleted 30 days after a task ends (public calls: 7 days).
+   Task content retention is 30 days, counted from when a task ends (public calls: 7 days).
    $ anet --id requester retention set 7d
-   Task content will now be kept for 7 days after a task ends.
+   Task content retention is now 7 days, counted from when a task ends.
 
 The period can be set from 1 to 3650 days with ``Nd``, or to ``forever``.
 The evidence chain is not affected: it keeps the counterparty, the time, the
 content identifier and the amount of every event, and no content.
-
-.. v030-doc-verify: FS-11

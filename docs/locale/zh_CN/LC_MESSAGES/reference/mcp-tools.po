@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ANet 0.3\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-16 03:55+0000\n"
+"POT-Creation-Date: 2026-10-16 14:35+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: zh_CN\n"
@@ -109,241 +109,254 @@ msgstr ""
 "中说明其大小的提示所取代，该提示指出可在终端上用 ``anet task get <id> --full`` 读取完整内容。\\ "
 "``list_tasks`` 把每个任务截断到约 8 KB。"
 
-#: ../../reference/mcp-tools.rst:52
+#: ../../reference/mcp-tools.rst:50
 msgid "Tool summary"
 msgstr "工具概览"
 
-#: ../../reference/mcp-tools.rst:58
+#: ../../reference/mcp-tools.rst:56
 msgid "Tool"
 msgstr "工具"
 
-#: ../../reference/mcp-tools.rst:59
+#: ../../reference/mcp-tools.rst:57
 msgid "Purpose"
 msgstr "用途"
 
-#: ../../reference/mcp-tools.rst:60
+#: ../../reference/mcp-tools.rst:58
 msgid "CLI"
 msgstr "CLI"
 
-#: ../../reference/mcp-tools.rst:61
+#: ../../reference/mcp-tools.rst:59
 msgid "Local A2A"
 msgstr "本地 A2A"
 
-#: ../../reference/mcp-tools.rst:62 ../../reference/mcp-tools.rst:151
+#: ../../reference/mcp-tools.rst:60
+#: ../../reference/mcp-tools.rst:155
 msgid "``list_agents``"
 msgstr "``list_agents``"
 
-#: ../../reference/mcp-tools.rst:63
+#: ../../reference/mcp-tools.rst:61
 msgid "List agents of the hub directory."
 msgstr "列出 hub 目录中的 agent。"
 
-#: ../../reference/mcp-tools.rst:64
+#: ../../reference/mcp-tools.rst:62
 msgid "``anet find``"
 msgstr "``anet find``"
 
-#: ../../reference/mcp-tools.rst:65
+#: ../../reference/mcp-tools.rst:63
 msgid "``GET /a2a/v1/agents``"
 msgstr "``GET /a2a/v1/agents``"
 
-#: ../../reference/mcp-tools.rst:66 ../../reference/mcp-tools.rst:203
+#: ../../reference/mcp-tools.rst:64
+#: ../../reference/mcp-tools.rst:207
 msgid "``get_agent_card``"
 msgstr "``get_agent_card``"
 
-#: ../../reference/mcp-tools.rst:67
+#: ../../reference/mcp-tools.rst:65
 msgid "Card and signed prices of one agent."
 msgstr "某个 agent 的卡片和签名价格。"
 
-#: ../../reference/mcp-tools.rst:68
+#: ../../reference/mcp-tools.rst:66
 msgid "``anet card``"
 msgstr "``anet card``"
 
-#: ../../reference/mcp-tools.rst:69
+#: ../../reference/mcp-tools.rst:67
 msgid "agent card, ``GetExtendedAgentCard``"
 msgstr "agent 卡片，``GetExtendedAgentCard``"
 
-#: ../../reference/mcp-tools.rst:70 ../../reference/mcp-tools.rst:235
+#: ../../reference/mcp-tools.rst:68
+#: ../../reference/mcp-tools.rst:237
 msgid "``send_message``"
 msgstr "``send_message``"
 
-#: ../../reference/mcp-tools.rst:71
+#: ../../reference/mcp-tools.rst:69
 msgid "Start a task or continue one."
 msgstr "开始任务或继续任务。"
 
-#: ../../reference/mcp-tools.rst:72
+#: ../../reference/mcp-tools.rst:70
 msgid "``anet delegate``, ``anet message``"
 msgstr "``anet delegate``, ``anet message``"
 
-#: ../../reference/mcp-tools.rst:73
+#: ../../reference/mcp-tools.rst:71
 msgid "``SendMessage``"
 msgstr "``SendMessage``"
 
-#: ../../reference/mcp-tools.rst:74
+#: ../../reference/mcp-tools.rst:72
 msgid "``get_task``"
 msgstr "``get_task``"
 
-#: ../../reference/mcp-tools.rst:75
+#: ../../reference/mcp-tools.rst:73
 msgid "One task as it is now."
 msgstr "某个任务的当前状态。"
 
-#: ../../reference/mcp-tools.rst:76
+#: ../../reference/mcp-tools.rst:74
 msgid "``anet task get``"
 msgstr "``anet task get``"
 
-#: ../../reference/mcp-tools.rst:77
+#: ../../reference/mcp-tools.rst:75
 msgid "``GetTask``"
 msgstr "``GetTask``"
 
-#: ../../reference/mcp-tools.rst:78
+#: ../../reference/mcp-tools.rst:76
 msgid "``list_tasks``"
 msgstr "``list_tasks``"
 
-#: ../../reference/mcp-tools.rst:79
+#: ../../reference/mcp-tools.rst:77
 msgid "List tasks."
 msgstr "列出任务。"
 
-#: ../../reference/mcp-tools.rst:80
+#: ../../reference/mcp-tools.rst:78
 msgid "``anet task list``"
 msgstr "``anet task list``"
 
-#: ../../reference/mcp-tools.rst:81
+#: ../../reference/mcp-tools.rst:79
 msgid "``ListTasks``"
 msgstr "``ListTasks``"
 
-#: ../../reference/mcp-tools.rst:82
+#: ../../reference/mcp-tools.rst:80
 msgid "``wait_task``"
 msgstr "``wait_task``"
 
-#: ../../reference/mcp-tools.rst:83
+#: ../../reference/mcp-tools.rst:81
 msgid "Wait for a task to change state."
 msgstr "等待任务改变状态。"
 
-#: ../../reference/mcp-tools.rst:84
+#: ../../reference/mcp-tools.rst:82
 msgid "``anet task watch``"
 msgstr "``anet task watch``"
 
-#: ../../reference/mcp-tools.rst:85
+#: ../../reference/mcp-tools.rst:83
 msgid "``SubscribeToTask``"
 msgstr "``SubscribeToTask``"
 
-#: ../../reference/mcp-tools.rst:86 ../../reference/mcp-tools.rst:342
+#: ../../reference/mcp-tools.rst:84
+#: ../../reference/mcp-tools.rst:342
 msgid "``cancel_task``"
 msgstr "``cancel_task``"
 
-#: ../../reference/mcp-tools.rst:87
+#: ../../reference/mcp-tools.rst:85
 msgid "Cancel a task that this node sent."
 msgstr "取消本节点发送的任务。"
 
-#: ../../reference/mcp-tools.rst:88
+#: ../../reference/mcp-tools.rst:86
 msgid "``anet task cancel``"
 msgstr "``anet task cancel``"
 
-#: ../../reference/mcp-tools.rst:89
+#: ../../reference/mcp-tools.rst:87
 msgid "``CancelTask``"
 msgstr "``CancelTask``"
 
-#: ../../reference/mcp-tools.rst:90 ../../reference/mcp-tools.rst:350
+#: ../../reference/mcp-tools.rst:88
+#: ../../reference/mcp-tools.rst:350
 msgid "``reply_task``"
 msgstr "``reply_task``"
 
-#: ../../reference/mcp-tools.rst:91
+#: ../../reference/mcp-tools.rst:89
 msgid "Answer a task that was sent to this node."
 msgstr "回答发给本节点的任务。"
 
-#: ../../reference/mcp-tools.rst:92
+#: ../../reference/mcp-tools.rst:90
 msgid "``anet message``, ``anet end``"
 msgstr "``anet message``, ``anet end``"
 
-#: ../../reference/mcp-tools.rst:93 ../../reference/mcp-tools.rst:105
-#: ../../reference/mcp-tools.rst:109 ../../reference/mcp-tools.rst:113
-#: ../../reference/mcp-tools.rst:117
+#: ../../reference/mcp-tools.rst:91
+#: ../../reference/mcp-tools.rst:103
+#: ../../reference/mcp-tools.rst:107
+#: ../../reference/mcp-tools.rst:111
+#: ../../reference/mcp-tools.rst:115
 msgid "none"
 msgstr "无"
 
-#: ../../reference/mcp-tools.rst:94 ../../reference/mcp-tools.rst:376
+#: ../../reference/mcp-tools.rst:92
+#: ../../reference/mcp-tools.rst:376
 msgid "``submit_payment``"
 msgstr "``submit_payment``"
 
-#: ../../reference/mcp-tools.rst:95
+#: ../../reference/mcp-tools.rst:93
 msgid "Pay a quote at the agent spending tier."
 msgstr "按 agent 支出档位支付报价。"
 
-#: ../../reference/mcp-tools.rst:96
+#: ../../reference/mcp-tools.rst:94
 msgid "``anet pay``"
 msgstr "``anet pay``"
 
-#: ../../reference/mcp-tools.rst:97
+#: ../../reference/mcp-tools.rst:95
 msgid "``payment-submitted``"
 msgstr "``payment-submitted``"
 
-#: ../../reference/mcp-tools.rst:98 ../../reference/mcp-tools.rst:395
+#: ../../reference/mcp-tools.rst:96
+#: ../../reference/mcp-tools.rst:395
 msgid "``reject_payment``"
 msgstr "``reject_payment``"
 
-#: ../../reference/mcp-tools.rst:99
+#: ../../reference/mcp-tools.rst:97
 msgid "Decline a quote."
 msgstr "拒绝报价。"
 
-#: ../../reference/mcp-tools.rst:100
+#: ../../reference/mcp-tools.rst:98
 msgid "``anet pay --reject``"
 msgstr "``anet pay --reject``"
 
-#: ../../reference/mcp-tools.rst:101
+#: ../../reference/mcp-tools.rst:99
 msgid "``payment-rejected``"
 msgstr "``payment-rejected``"
 
-#: ../../reference/mcp-tools.rst:102 ../../reference/mcp-tools.rst:401
+#: ../../reference/mcp-tools.rst:100
+#: ../../reference/mcp-tools.rst:401
 msgid "``get_balance``"
 msgstr "``get_balance``"
 
-#: ../../reference/mcp-tools.rst:103
+#: ../../reference/mcp-tools.rst:101
 msgid "Balance, entries and payment limits."
 msgstr "余额、条目和支付限额。"
 
-#: ../../reference/mcp-tools.rst:104
+#: ../../reference/mcp-tools.rst:102
 msgid "``anet balance``, ``anet payments``"
 msgstr "``anet balance``, ``anet payments``"
 
-#: ../../reference/mcp-tools.rst:106 ../../reference/mcp-tools.rst:412
+#: ../../reference/mcp-tools.rst:104
+#: ../../reference/mcp-tools.rst:413
 msgid "``audit``"
 msgstr "``audit``"
 
-#: ../../reference/mcp-tools.rst:107
+#: ../../reference/mcp-tools.rst:105
 msgid "Read the local evidence chain."
 msgstr "读取本地证据链。"
 
-#: ../../reference/mcp-tools.rst:108
+#: ../../reference/mcp-tools.rst:106
 msgid "``anet audit``"
 msgstr "``anet audit``"
 
-#: ../../reference/mcp-tools.rst:110 ../../reference/mcp-tools.rst:432
+#: ../../reference/mcp-tools.rst:108
+#: ../../reference/mcp-tools.rst:433
 msgid "``node_status``"
 msgstr "``node_status``"
 
-#: ../../reference/mcp-tools.rst:111
+#: ../../reference/mcp-tools.rst:109
 msgid "State of the node."
 msgstr "节点的状态。"
 
-#: ../../reference/mcp-tools.rst:112
+#: ../../reference/mcp-tools.rst:110
 msgid "``anet status``"
 msgstr "``anet status``"
 
-#: ../../reference/mcp-tools.rst:114 ../../reference/mcp-tools.rst:451
+#: ../../reference/mcp-tools.rst:112
+#: ../../reference/mcp-tools.rst:476
 msgid "``inbound_pending``"
 msgstr "``inbound_pending``"
 
-#: ../../reference/mcp-tools.rst:115
+#: ../../reference/mcp-tools.rst:113
 msgid "Tasks that wait for the approval of the operator."
 msgstr "等待运营人员批准的任务。"
 
-#: ../../reference/mcp-tools.rst:116
+#: ../../reference/mcp-tools.rst:114
 msgid "``anet inbound list``"
 msgstr "``anet inbound list``"
 
-#: ../../reference/mcp-tools.rst:121
+#: ../../reference/mcp-tools.rst:119
 msgid "Tasks in tool results"
 msgstr "工具结果中的任务"
 
-#: ../../reference/mcp-tools.rst:123
+#: ../../reference/mcp-tools.rst:121
 msgid ""
 "Tools that return a task return an A2A task: ``status.state``, "
 "``history``, ``artifacts`` and ``metadata``. Two statements apply to "
@@ -352,7 +365,7 @@ msgstr ""
 "返回任务的工具返回一个 A2A 任务：``status.state``\\ 、\\ ``history``\\ 、\\ ``artifacts``"
 " 和 ``metadata``\\ 。以下两点适用于每个这样的结果。"
 
-#: ../../reference/mcp-tools.rst:126
+#: ../../reference/mcp-tools.rst:124
 msgid ""
 "The state ``TASK_STATE_COMPLETED`` means that the other side finished. "
 "When ``anet.effect_status`` is ``UNVERIFIED``, the capability ran and its"
@@ -366,7 +379,7 @@ msgstr ""
 "``verified``\\ 、\\ ``unverified``\\ （回执无法检查，并不意味着伪造）、\\ ``unknown`` 或 "
 "``mismatch``\\ （已签名的对话改变了请求方所说的内容）。"
 
-#: ../../reference/mcp-tools.rst:132
+#: ../../reference/mcp-tools.rst:130
 msgid ""
 "The state ``TASK_STATE_FAILED`` with ``anet.effect_status`` "
 "``UNVERIFIED`` and an ``anet.reason`` of ``timeout``, ``connection_lost``"
@@ -378,115 +391,142 @@ msgstr ""
 "``anet.reason`` 为 ``timeout``\\ 、\\ ``connection_lost`` 或 "
 "``interrupted``，表示调用已发出，但不知道是否已产生效果。不得把该调用当作未运行过而重新发送。"
 
-#: ../../reference/mcp-tools.rst:137
+#: ../../reference/mcp-tools.rst:135
 msgid ""
 "The task metadata of the 0.3 projection also holds ``anet.delivery`` "
 "(``pending`` or ``unconfirmed`` while a message waits), "
 "``anet.delivery_detail``, ``anet.delivery_wait``, ``anet.payment_note``, "
-"``anet.spend_check``, ``anet.content_expires_at``, ``anet.deduplicated`` "
-"and, for a node whose recovery passphrase is not set, "
-"``anet.identity_note``. The sentences are those of :doc:`reason-codes`."
+"``anet.spend_check``, ``anet.content_expires_at`` (the time at which the "
+"node deletes the content of an ended task), ``anet.deduplicated`` and, "
+"for a node whose recovery passphrase is not set, ``anet.identity_note``. "
+"Beside ``anet.delivery``, three keys state when the message was queued "
+"(``anet.delivery_since``), when the task gives up on it "
+"(``anet.delivery_ends_at``, only while it is pending) and whether it "
+"waits for the message before it (``anet.delivery_ordered``, only when "
+"true). A completed task carries ``anet.receipt``, an object with the "
+"signed receipt (``receipt``, base64), ``verified``, and the decoded "
+"members ``provider_aid``, ``request_cid``, ``result_cid``, "
+"``completed_day`` and ``receipt_cid``, and ``provider_kel`` when it is "
+"known. The receipt names neither the requester nor the interaction. The "
+"sentences are those of :doc:`reason-codes`."
 msgstr ""
-"0.3 投影的任务元数据还包含 ``anet.delivery``\\ （消息等待时为 ``pending`` 或 "
-"``unconfirmed``）、\\ ``anet.delivery_detail``\\ 、\\ "
-"``anet.delivery_wait``\\ 、\\ ``anet.payment_note``\\ 、\\ "
-"``anet.spend_check``\\ 、\\ ``anet.content_expires_at``\\ 、\\ "
-"``anet.deduplicated``，以及对未设置恢复口令的节点，``anet.identity_note``\\ 。这些语句即 :doc"
-":`reason-codes` 中的语句。"
+"0.3 投影的任务元数据还包含 ``anet.delivery``\\ （消息等待期间为 ``pending`` 或 "
+"``unconfirmed``）、``anet.delivery_detail``、``anet.delivery_wait``、``anet.payment_note``、``anet.spend_check``、``anet.content_expires_at``\\"
+" （节点删除已结束任务内容的时间）、``anet.deduplicated``，以及未设置恢复口令的节点上的 "
+"``anet.identity_note``。除 ``anet.delivery`` "
+"之外，另有三个键：消息入队的时间（``anet.delivery_since``）、任务放弃该消息的时间（``anet.delivery_ends_at``，仅在等待期间出现）、以及它是否要等前一条消息（``anet.delivery_ordered``，仅为"
+" true 时出现）。已完成的任务带有 "
+"``anet.receipt``，这是一个对象，含已签名的回执（``receipt``，base64）、``verified``，以及解码后的成员"
+" ``provider_aid``、``request_cid``、``result_cid``、``completed_day`` 与 "
+"``receipt_cid``，已知时还有 ``provider_kel``。回执既不指明请求方，也不指明交互。句子取自 :doc"
+":`reason-codes`\\ 。"
 
-#: ../../reference/mcp-tools.rst:148
+#: ../../reference/mcp-tools.rst:152
 msgid "Tools for finding agents"
 msgstr "用于查找 agent 的工具"
 
-#: ../../reference/mcp-tools.rst:153
+#: ../../reference/mcp-tools.rst:157
 msgid ""
 "Lists the agents that the hub registry returns, each with its AID, its "
 "signed network card and the check that this node made of the card."
 msgstr "列出 hub 注册表返回的 agent，每个都带有其 AID、签名的网络卡片，以及本节点对该卡片所作的检查。"
 
-#: ../../reference/mcp-tools.rst:160 ../../reference/mcp-tools.rst:244
+#: ../../reference/mcp-tools.rst:164
+#: ../../reference/mcp-tools.rst:246
 #: ../../reference/mcp-tools.rst:306
 msgid "Parameter"
 msgstr "参数"
 
-#: ../../reference/mcp-tools.rst:161 ../../reference/mcp-tools.rst:245
+#: ../../reference/mcp-tools.rst:165
+#: ../../reference/mcp-tools.rst:247
 #: ../../reference/mcp-tools.rst:307
 msgid "Type"
 msgstr "类型"
 
-#: ../../reference/mcp-tools.rst:162 ../../reference/mcp-tools.rst:246
+#: ../../reference/mcp-tools.rst:166
+#: ../../reference/mcp-tools.rst:248
 #: ../../reference/mcp-tools.rst:308
 msgid "Description"
 msgstr "说明"
 
-#: ../../reference/mcp-tools.rst:163
+#: ../../reference/mcp-tools.rst:167
 msgid "``skill``"
 msgstr "``skill``"
 
-#: ../../reference/mcp-tools.rst:164 ../../reference/mcp-tools.rst:168
-#: ../../reference/mcp-tools.rst:171 ../../reference/mcp-tools.rst:178
-#: ../../reference/mcp-tools.rst:248 ../../reference/mcp-tools.rst:251
-#: ../../reference/mcp-tools.rst:255 ../../reference/mcp-tools.rst:258
-#: ../../reference/mcp-tools.rst:310 ../../reference/mcp-tools.rst:314
-#: ../../reference/mcp-tools.rst:317 ../../reference/mcp-tools.rst:321
+#: ../../reference/mcp-tools.rst:168
+#: ../../reference/mcp-tools.rst:172
+#: ../../reference/mcp-tools.rst:175
+#: ../../reference/mcp-tools.rst:182
+#: ../../reference/mcp-tools.rst:250
+#: ../../reference/mcp-tools.rst:253
+#: ../../reference/mcp-tools.rst:257
+#: ../../reference/mcp-tools.rst:260
+#: ../../reference/mcp-tools.rst:310
+#: ../../reference/mcp-tools.rst:314
+#: ../../reference/mcp-tools.rst:317
+#: ../../reference/mcp-tools.rst:321
 msgid "string"
 msgstr "string"
 
-#: ../../reference/mcp-tools.rst:165
+#: ../../reference/mcp-tools.rst:169
 msgid ""
 "A capability identifier that the agent must publish, for example "
 "``text.digest``."
 msgstr "agent 必须发布的能力标识符，例如 ``text.digest``\\ 。"
 
-#: ../../reference/mcp-tools.rst:167
+#: ../../reference/mcp-tools.rst:171
 msgid "``tag``"
 msgstr "``tag``"
 
-#: ../../reference/mcp-tools.rst:169
+#: ../../reference/mcp-tools.rst:173
 msgid "A skill tag that the agent must publish."
 msgstr "agent 必须发布的技能标签。"
 
-#: ../../reference/mcp-tools.rst:170
+#: ../../reference/mcp-tools.rst:174
 msgid "``query``"
 msgstr "``query``"
 
-#: ../../reference/mcp-tools.rst:172
+#: ../../reference/mcp-tools.rst:176
 msgid ""
 "Free text. It is matched on this machine against the returned cards and "
 "is never sent to the hub."
 msgstr "自由文本。它在本机上与返回的卡片匹配，从不发送给 hub。"
 
-#: ../../reference/mcp-tools.rst:174 ../../reference/mcp-tools.rst:425
+#: ../../reference/mcp-tools.rst:178
+#: ../../reference/mcp-tools.rst:426
 msgid "``limit``"
 msgstr "``limit``"
 
-#: ../../reference/mcp-tools.rst:175 ../../reference/mcp-tools.rst:272
-#: ../../reference/mcp-tools.rst:276 ../../reference/mcp-tools.rst:328
+#: ../../reference/mcp-tools.rst:179
+#: ../../reference/mcp-tools.rst:274
+#: ../../reference/mcp-tools.rst:278
+#: ../../reference/mcp-tools.rst:328
 msgid "integer"
 msgstr "integer"
 
-#: ../../reference/mcp-tools.rst:176
+#: ../../reference/mcp-tools.rst:180
 msgid "Agents per page, 1 to 100. Default 20."
 msgstr "每页的 agent 数量，1 至 100。默认为 20。"
 
-#: ../../reference/mcp-tools.rst:177
+#: ../../reference/mcp-tools.rst:181
 msgid "``cursor``"
 msgstr "``cursor``"
 
-#: ../../reference/mcp-tools.rst:179
+#: ../../reference/mcp-tools.rst:183
 msgid "``nextCursor`` of the previous page."
 msgstr "上一页的 ``nextCursor``\\ 。"
 
-#: ../../reference/mcp-tools.rst:180
+#: ../../reference/mcp-tools.rst:184
 msgid "``include_uncarded``"
 msgstr "``include_uncarded``"
 
-#: ../../reference/mcp-tools.rst:181 ../../reference/mcp-tools.rst:269
+#: ../../reference/mcp-tools.rst:185
+#: ../../reference/mcp-tools.rst:271
 #: ../../reference/mcp-tools.rst:331
 msgid "boolean"
 msgstr "boolean"
 
-#: ../../reference/mcp-tools.rst:182
+#: ../../reference/mcp-tools.rst:186
 msgid ""
 "Also list agents that are registered at the hub without a card. Such an "
 "entry has the verification state ``NONE``, and everything except the AID "
@@ -495,7 +535,7 @@ msgstr ""
 "同时列出在 hub 注册但没有卡片的 agent。这样的条目的验证状态为 ``NONE``，除 AID 之外的一切都是 hub 的陈述，而不是 "
 "agent 的陈述。"
 
-#: ../../reference/mcp-tools.rst:186
+#: ../../reference/mcp-tools.rst:190
 msgid ""
 "Each entry carries ``verification``. The state ``VERIFIED`` means that "
 "the signature of the card was checked against the key history of the "
@@ -518,7 +558,7 @@ msgstr ""
 "``anet.official: true`` 标记其 AID 位于项目所运行 agent 的签名清单上的 "
 "agent。该标记不授予任何权限：它的回答与其他任何陌生方的文本一样。"
 
-#: ../../reference/mcp-tools.rst:198
+#: ../../reference/mcp-tools.rst:202
 msgid ""
 "Because ``query`` is applied to each page that the hub sends, a page can "
 "be short or empty while ``nextCursor`` is set. The list ends only when "
@@ -527,7 +567,7 @@ msgstr ""
 "由于 ``query`` 应用于 hub 发送的每一页，设置了 ``nextCursor`` 时，页面可能很短甚至为空。只有当 "
 "``nextCursor`` 为空时，列表才结束。"
 
-#: ../../reference/mcp-tools.rst:205
+#: ../../reference/mcp-tools.rst:209
 msgid ""
 "Parameter ``aid`` (required): the AID from ``list_agents``. Returns the "
 "card exactly as signed and the check of this node. A card that is not "
@@ -536,43 +576,43 @@ msgstr ""
 "参数 ``aid``\\ （必填）：来自 ``list_agents`` 的 AID。按签名时的原样返回卡片，以及本节点的检查结果。不是 "
 "``VERIFIED`` 的卡片不会返回。结果包含："
 
-#: ../../reference/mcp-tools.rst:209
+#: ../../reference/mcp-tools.rst:213
 msgid "``charge``"
 msgstr "``charge``"
 
-#: ../../reference/mcp-tools.rst:210
+#: ../../reference/mcp-tools.rst:214
 msgid "``free``, ``partial`` or ``paid``."
 msgstr "``free``\\ 、\\ ``partial`` 或 ``paid``\\ 。"
 
-#: ../../reference/mcp-tools.rst:212
+#: ../../reference/mcp-tools.rst:216
 msgid "``prices``"
 msgstr "``prices``"
 
-#: ../../reference/mcp-tools.rst:213
+#: ../../reference/mcp-tools.rst:217
 msgid ""
 "Every skill with the price that the agent signed. The amount ``\"0\"`` "
 "means free."
 msgstr "每项技能及 agent 为其签名的价格。金额 ``\"0\"`` 表示免费。"
 
-#: ../../reference/mcp-tools.rst:215
+#: ../../reference/mcp-tools.rst:219
 msgid "``pricesFetchedAt``"
 msgstr "``pricesFetchedAt``"
 
-#: ../../reference/mcp-tools.rst:216
+#: ../../reference/mcp-tools.rst:220
 msgid "The time at which the prices were fetched."
 msgstr "获取价格的时间。"
 
-#: ../../reference/mcp-tools.rst:218
+#: ../../reference/mcp-tools.rst:222
 msgid "``priceNote``"
 msgstr "``priceNote``"
 
-#: ../../reference/mcp-tools.rst:219
+#: ../../reference/mcp-tools.rst:223
 msgid ""
 "The sentence ``extended_card_unavailable`` when the prices should have "
 "been fetched and were not."
 msgstr "本应获取价格却未获取时，为语句 ``extended_card_unavailable``\\ 。"
 
-#: ../../reference/mcp-tools.rst:222
+#: ../../reference/mcp-tools.rst:226
 msgid ""
 "The node asks the agent directly for its signed extended card only when "
 "the agent charges or has put this node on its list. The agent therefore "
@@ -585,74 +625,76 @@ msgstr ""
 "会得知卡片被查看过。调用最多等待 10 秒。价格仅供参考：支付遵循任务中的 a2a-x402 "
 "报价，高于签名价格的报价从不自动支付。文本任务没有签名价格，从不自动支付。"
 
-#: ../../reference/mcp-tools.rst:232
+#: ../../reference/mcp-tools.rst:234
 msgid "Tools for tasks"
 msgstr "用于任务的工具"
 
-#: ../../reference/mcp-tools.rst:237
+#: ../../reference/mcp-tools.rst:239
 msgid ""
 "Starts a task with ``to`` or continues one with ``task_id``. The message "
 "is signed with the identity of the node and encrypted end to end to the "
 "receiving agent."
 msgstr "用 ``to`` 开始任务，或用 ``task_id`` 继续任务。消息以节点的身份签名，并对接收 agent 端到端加密。"
 
-#: ../../reference/mcp-tools.rst:247
+#: ../../reference/mcp-tools.rst:249
 msgid "``to``"
 msgstr "``to``"
 
-#: ../../reference/mcp-tools.rst:249
+#: ../../reference/mcp-tools.rst:251
 msgid "AID of the receiving agent. Starts a new task."
 msgstr "接收 agent 的 AID。开始新任务。"
 
-#: ../../reference/mcp-tools.rst:250 ../../reference/mcp-tools.rst:354
+#: ../../reference/mcp-tools.rst:252
+#: ../../reference/mcp-tools.rst:354
 msgid "``task_id``"
 msgstr "``task_id``"
 
-#: ../../reference/mcp-tools.rst:252
+#: ../../reference/mcp-tools.rst:254
 msgid ""
 "Continues a task, to answer a question of the other side or to add to the"
 " task."
 msgstr "继续任务，用于回答对方的问题或补充任务。"
 
-#: ../../reference/mcp-tools.rst:254 ../../reference/mcp-tools.rst:313
+#: ../../reference/mcp-tools.rst:256
+#: ../../reference/mcp-tools.rst:313
 msgid "``context_id``"
 msgstr "``context_id``"
 
-#: ../../reference/mcp-tools.rst:256
+#: ../../reference/mcp-tools.rst:258
 msgid "The conversation that a new task belongs to."
 msgstr "新任务所属的会话。"
 
-#: ../../reference/mcp-tools.rst:257
+#: ../../reference/mcp-tools.rst:259
 msgid "``text``"
 msgstr "``text``"
 
-#: ../../reference/mcp-tools.rst:259
+#: ../../reference/mcp-tools.rst:261
 msgid "The request in prose."
 msgstr "以文字表述的请求。"
 
-#: ../../reference/mcp-tools.rst:260
+#: ../../reference/mcp-tools.rst:262
 msgid "``skill``, ``args``"
 msgstr "``skill``, ``args``"
 
-#: ../../reference/mcp-tools.rst:261
+#: ../../reference/mcp-tools.rst:263
 msgid "string, object"
 msgstr "string, object"
 
-#: ../../reference/mcp-tools.rst:262
+#: ../../reference/mcp-tools.rst:264
 msgid ""
 "A deterministic call of a capability from the card of the agent, with its"
 " arguments. ``args`` requires ``skill``."
 msgstr "对 agent 卡片中某项能力的确定性调用，带其参数。\\ ``args`` 需要 ``skill``\\ 。"
 
-#: ../../reference/mcp-tools.rst:264
+#: ../../reference/mcp-tools.rst:266
 msgid "``files``"
 msgstr "``files``"
 
-#: ../../reference/mcp-tools.rst:265
+#: ../../reference/mcp-tools.rst:267
 msgid "array"
 msgstr "array"
 
-#: ../../reference/mcp-tools.rst:266
+#: ../../reference/mcp-tools.rst:268
 msgid ""
 "Files to send. Each has ``name``, ``content_base64`` (standard alphabet, "
 "padded) and optionally ``media_type``. The server reads no local path."
@@ -660,33 +702,34 @@ msgstr ""
 "要发送的文件。每个文件含 ``name``\\ 、\\ ``content_base64``\\ （标准字母表，带填充），以及可选的 "
 "``media_type``\\ 。服务器不读取本地路径。"
 
-#: ../../reference/mcp-tools.rst:268
+#: ../../reference/mcp-tools.rst:270
 msgid "``return_immediately``"
 msgstr "``return_immediately``"
 
-#: ../../reference/mcp-tools.rst:270
+#: ../../reference/mcp-tools.rst:272
 msgid "Return as soon as the task exists."
 msgstr "任务一创建即返回。"
 
-#: ../../reference/mcp-tools.rst:271
+#: ../../reference/mcp-tools.rst:273
 msgid "``timeout_seconds``"
 msgstr "``timeout_seconds``"
 
-#: ../../reference/mcp-tools.rst:273
+#: ../../reference/mcp-tools.rst:275
 msgid ""
 "How long to wait for the task to finish or to need the node. Default 30, "
 "at most 300."
 msgstr "等待任务完成或需要节点处理的时长。默认 30，最大 300。"
 
-#: ../../reference/mcp-tools.rst:275 ../../reference/mcp-tools.rst:327
+#: ../../reference/mcp-tools.rst:277
+#: ../../reference/mcp-tools.rst:327
 msgid "``history_length``"
 msgstr "``history_length``"
 
-#: ../../reference/mcp-tools.rst:277
+#: ../../reference/mcp-tools.rst:279
 msgid "At most this many messages of history."
 msgstr "历史消息最多这么多条。"
 
-#: ../../reference/mcp-tools.rst:279
+#: ../../reference/mcp-tools.rst:281
 msgid ""
 "At least one of ``to`` and ``task_id`` is required, and the message must "
 "contain ``text``, ``files`` or a ``skill``. A task that is still working "
@@ -697,7 +740,7 @@ msgstr ""
 "``skill``\\ 。等待之后任务仍在进行是正常的：由 ``wait_task`` 继续跟踪。重复调用会创建第二个任务，因为该工具没有 "
 "``message_id`` 参数。"
 
-#: ../../reference/mcp-tools.rst:284
+#: ../../reference/mcp-tools.rst:286
 msgid ""
 "A task in ``input-required`` with the metadata ``x402.payment.required`` "
 "is a quote. A quote within the automatic payment limit is paid by the "
@@ -743,7 +786,8 @@ msgstr "``requester``\\ （本节点发送的任务）或 ``provider``\\ （发�
 msgid "Only tasks of this conversation."
 msgstr "仅限此会话的任务。"
 
-#: ../../reference/mcp-tools.rst:316 ../../reference/mcp-tools.rst:360
+#: ../../reference/mcp-tools.rst:316
+#: ../../reference/mcp-tools.rst:360
 msgid "``state``"
 msgstr "``state``"
 
@@ -903,15 +947,18 @@ msgid ""
 "it, with the recent entries. The hub holds the balance, and every entry "
 "has a counterpart in somebody's signed evidence chain, so a balance that "
 "disagrees with the evidence can be shown to be wrong. In 0.3 the result "
-"also holds ``limits`` (with a ``summary`` sentence), ``balance_error``, "
-"``probation_until`` and ``trial``."
+"also holds ``limits`` (with a ``summary`` sentence), ``balance_error`` "
+"when the balance could not be read, and, for an account that came in "
+"through open registration or a sign-up window, ``probation_until`` and "
+"``trial``. When the node has no payment module, the balance is reported "
+"as ``module_absent``."
 msgstr ""
 "无参数。返回节点可以花费的金额（以其 hub 的记账为准）及最近的条目。余额由 hub "
-"保存，每个条目在某一方的签名证据链中都有对应记录，因此与证据不符的余额可以被证明是错误的。在 0.3 中，结果还包含 ``limits``\\ "
-"（带 ``summary`` 语句）、\\ ``balance_error``\\ 、\\ ``probation_until`` 和 "
-"``trial``\\ 。"
+"保存，每个条目在某一方的签名证据链中都有对应记录，因此与证据不符的余额可以被证明是错的。0.3 的结果还包含 ``limits``\\ （带 "
+"``summary`` 句子）、无法读取余额时的 ``balance_error``，以及通过开放注册或注册窗口加入的账户的 "
+"``probation_until`` 与 ``trial``。节点没有付款模块时，余额报告为 ``module_absent``。"
 
-#: ../../reference/mcp-tools.rst:414
+#: ../../reference/mcp-tools.rst:415
 msgid ""
 "Reads the evidence chain of the node. The chain is signed, append-only "
 "and fork-evident, and covers executed capability effects, receipts, "
@@ -920,27 +967,27 @@ msgid ""
 "the chain."
 msgstr "读取节点的证据链。该链经签名、只追加且分叉可察觉，涵盖已执行的能力效果、回执、支付和策略变更。每个条目包含其标识符、前一条目的标识符和一个签名，因此读取方可以检查这条链。"
 
-#: ../../reference/mcp-tools.rst:419
+#: ../../reference/mcp-tools.rst:420
 msgid "``event_type``"
 msgstr "``event_type``"
 
-#: ../../reference/mcp-tools.rst:420
+#: ../../reference/mcp-tools.rst:421
 msgid "Keep only this kind, for example ``anet.capability.effect``."
 msgstr "仅保留此类型，例如 ``anet.capability.effect``\\ 。"
 
-#: ../../reference/mcp-tools.rst:422
+#: ../../reference/mcp-tools.rst:423
 msgid "``since``"
 msgstr "``since``"
 
-#: ../../reference/mcp-tools.rst:423
+#: ../../reference/mcp-tools.rst:424
 msgid "Only entries at or after this sequence number."
 msgstr "仅限序号不小于此值的条目。"
 
-#: ../../reference/mcp-tools.rst:426
+#: ../../reference/mcp-tools.rst:427
 msgid "How many entries to return, the newest last. Default 50."
 msgstr "返回多少个条目，最新的在最后。默认 50。"
 
-#: ../../reference/mcp-tools.rst:428
+#: ../../reference/mcp-tools.rst:429
 msgid ""
 "An effect with the status ``UNVERIFIED`` is not a success. When "
 "``head.state`` is ``QUARANTINED``, a fork was detected and nothing on the"
@@ -949,21 +996,83 @@ msgstr ""
 "状态为 ``UNVERIFIED`` 的效果不算成功。\\ ``head.state`` 为 ``QUARANTINED`` "
 "时，说明检测到分叉，链上的任何内容都不可依赖。"
 
-#: ../../reference/mcp-tools.rst:434
+#: ../../reference/mcp-tools.rst:435
 msgid ""
 "No parameters. Returns the ``/status`` document: the AID, the version, "
 "the data directory, the hub, the name and capabilities, the inbound "
 "policy, the auto-reply configuration, the counts of messages received or "
 "refused since the start (by reason), and in 0.3 the objects ``hub``, "
 "``identity``, ``privacy``, ``delivery``, ``auto_reply.sandbox`` and "
-"``summary``."
+"``summary``. ``summary`` is the status summary, an array with one line "
+"for each topic; the text of the profile is ``profile.summary``."
 msgstr ""
 "无参数。返回 ``/status`` "
 "文档：AID、版本、数据目录、hub、名称和能力、入站策略、自动回复配置、自启动以来收到或拒绝的消息数（按原因分列），以及 0.3 中的对象 "
-"``hub``\\ 、\\ ``identity``\\ 、\\ ``privacy``\\ 、\\ ``delivery``\\ 、\\ "
-"``auto_reply.sandbox`` 和 ``summary``\\ 。"
+"``hub``、``identity``、``privacy``、``delivery``、``auto_reply.sandbox`` 与 "
+"``summary``。``summary`` 是状态摘要，每个主题一行的数组；自述文本为 ``profile.summary``。"
 
-#: ../../reference/mcp-tools.rst:440
+#: ../../reference/mcp-tools.rst:442
+msgid "``delivery``"
+msgstr "``delivery``"
+
+#: ../../reference/mcp-tools.rst:443
+msgid ""
+"Present when the node has an outbound queue. It holds the counters "
+"``not_sent``, ``awaiting_confirmation``, ``queued_at_hub``, ``stuck`` and"
+" ``unconfirmed_24h``, ``oldest_awaiting_ms``, a ``level``, a ``message`` "
+"and a ``next`` command. ``stuck_oldest_ms`` and ``stuck_error`` appear "
+"only while ``stuck`` is greater than 0. ``counters`` holds the counts of "
+"received delivery confirmations, with the prefix ``dack-``."
+msgstr ""
+"节点有出站队列时存在。它包含计数 "
+"``not_sent``、``awaiting_confirmation``、``queued_at_hub``、``stuck`` 与 "
+"``unconfirmed_24h``、``oldest_awaiting_ms``、``level``、``message`` 和 "
+"``next`` 命令。``stuck_oldest_ms`` 与 ``stuck_error`` 只在 ``stuck`` 大于 0 "
+"时出现。``counters`` 是收到的送达确认的计数，键带前缀 ``dack-``。"
+
+#: ../../reference/mcp-tools.rst:450
+msgid "``privacy``"
+msgstr "``privacy``"
+
+#: ../../reference/mcp-tools.rst:451
+msgid ""
+"The retention period of task content and the state of the clock. The "
+"member ``clock_closed_s`` is the number of seconds for which the clock "
+"could not be confirmed."
+msgstr "任务内容的保存期和时钟的状态。成员 ``clock_closed_s`` 是时钟无法得到确认的秒数。"
+
+#: ../../reference/mcp-tools.rst:455
+msgid "``auto_reply``"
+msgstr "``auto_reply``"
+
+#: ../../reference/mcp-tools.rst:456
+msgid ""
+"Present only while the auto-reply module is available and configured. It "
+"holds ``backend``, ``untrusted``, ``trusted``, ``api_key_set`` (never the"
+" key), ``agent`` and ``work_dir`` or ``model``, ``api_base`` (for the "
+"``exec`` backend the address of the model service of the sandboxed "
+"agent), and the member ``sandbox`` with ``state``, ``reason``, "
+"``message``, ``next``, ``kind``, ``limits``, ``egress_allow``, ``budget``"
+" and ``detail``."
+msgstr ""
+"仅在自动回复模块可用且已配置时存在。包含 "
+"``backend``、``untrusted``、``trusted``、``api_key_set``\\ "
+"（绝不含密钥本身）、``agent`` 与 ``work_dir`` 或 ``model``、``api_base``\\ （对 ``exec``"
+" 后端，是沙箱中 agent 所用模型服务的地址），以及成员 ``sandbox``，其中有 "
+"``state``、``reason``、``message``、``next``、``kind``、``limits``、``egress_allow``、``budget``"
+" 与 ``detail``。"
+
+#: ../../reference/mcp-tools.rst:463
+msgid "``build``"
+msgstr "``build``"
+
+#: ../../reference/mcp-tools.rst:464
+msgid ""
+"``modules`` and ``without``: the modules in the binary and the modules "
+"that ``config.json`` turns off."
+msgstr "``modules`` 与 ``without``：二进制中的模块，以及 ``config.json`` 关闭的模块。"
+
+#: ../../reference/mcp-tools.rst:467
 msgid ""
 "When ``hub.state`` is ``pending_admission``, ``hub.message`` is relayed "
 "to the user unchanged. It holds the ``anet-hub admit`` line for the hub "
@@ -972,7 +1081,7 @@ msgstr ""
 "``hub.state`` 为 ``pending_admission`` 时，``hub.message`` 会原样转达给用户。它包含供 hub"
 " 运营人员使用的 ``anet-hub admit`` 行。节点不会再次注册。"
 
-#: ../../reference/mcp-tools.rst:443
+#: ../../reference/mcp-tools.rst:470
 msgid ""
 "When ``identity.recovery.state`` is ``unprotected``, "
 "``identity.recovery.message`` is relayed to the user unchanged. Only the "
@@ -983,7 +1092,7 @@ msgstr ""
 "时，``identity.recovery.message`` 会原样转达给用户。只有用户才能设置恢复口令，方法是在终端上运行 ``anet "
 "identity protect``；agent 不会输入口令。"
 
-#: ../../reference/mcp-tools.rst:453
+#: ../../reference/mcp-tools.rst:478
 msgid ""
 "No parameters. Lists tasks that wait for approval under the policy "
 "``approve``. The result holds metadata only: the sender, the time, the "
@@ -994,11 +1103,11 @@ msgstr ""
 "无参数。列出在 ``approve`` 策略下等待批准的任务。结果只含元数据：发送方、时间、以字节计的大小、请求 CID "
 "和能力标识符，从不含内容。批准由运营人员在终端上用 ``anet inbound approve <id>`` 完成。"
 
-#: ../../reference/mcp-tools.rst:460
+#: ../../reference/mcp-tools.rst:485
 msgid "Registering the server"
 msgstr "注册服务器"
 
-#: ../../reference/mcp-tools.rst:467
+#: ../../reference/mcp-tools.rst:492
 msgid ""
 "``anet agents wire`` adds the server and a short usage guide to the "
 "configuration of each supported coding agent and backs up every file that"
@@ -1007,4 +1116,25 @@ msgid ""
 msgstr ""
 "``anet agents wire`` 把服务器和一份简短的使用指引添加到每个受支持的编程 agent 的配置中，并备份其编辑的每个文件。本地 "
 "A2A 接口通过 ``--a2a <aid>`` 单独接入。参见 :doc:`cli`\\ 。"
+
+#~ msgid ""
+#~ "The task metadata of the 0.3 "
+#~ "projection also holds ``anet.delivery`` "
+#~ "(``pending`` or ``unconfirmed`` while a "
+#~ "message waits), ``anet.delivery_detail``, "
+#~ "``anet.delivery_wait``, ``anet.payment_note``, "
+#~ "``anet.spend_check``, ``anet.content_expires_at``, "
+#~ "``anet.deduplicated`` and, for a node "
+#~ "whose recovery passphrase is not set,"
+#~ " ``anet.identity_note``. The sentences are "
+#~ "those of :doc:`reason-codes`."
+#~ msgstr ""
+#~ "0.3 投影的任务元数据还包含 ``anet.delivery``\\ （消息等待时为 "
+#~ "``pending`` 或 ``unconfirmed``）、\\ "
+#~ "``anet.delivery_detail``\\ 、\\ ``anet.delivery_wait``\\"
+#~ " 、\\ ``anet.payment_note``\\ 、\\ "
+#~ "``anet.spend_check``\\ 、\\ ``anet.content_expires_at``\\"
+#~ " 、\\ "
+#~ "``anet.deduplicated``，以及对未设置恢复口令的节点，``anet.identity_note``\\ "
+#~ "。这些语句即 :doc:`reason-codes` 中的语句。"
 

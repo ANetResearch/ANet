@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ANet 0.3\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-16 03:55+0000\n"
+"POT-Creation-Date: 2026-10-16 14:35+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: zh_CN\n"
@@ -16,7 +16,7 @@ msgstr ""
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"Generated-By: Babel 2.18.0\n"
+"Generated-By: Babel 2.10.3\n"
 
 #: ../../topics/preview.rst:5
 msgid "Preview streaming"
@@ -117,21 +117,21 @@ msgstr ""
 "设置 ``with_reasoning`` 需要在终端上确认，因为模型的推理可能包含系统提示词和内部信息。其他取值无需确认。在 ``off`` "
 "与其他取值之间切换，会使节点重新发布其卡片，使请求方能够看到提供方是否发送预览（参见 :doc:`capabilities`）。"
 
-#: ../../topics/preview.rst:80
+#: ../../topics/preview.rst:67
 msgid "Sources of preview text"
 msgstr "预览文本的来源"
 
-#: ../../topics/preview.rst:82
+#: ../../topics/preview.rst:69
 msgid ""
 "A node sends a preview only when something supplies the text so far. "
 "There are two sources."
 msgstr "只有在有来源提供目前已生成的文本时，节点才会发送预览。来源有两种。"
 
-#: ../../topics/preview.rst:85
+#: ../../topics/preview.rst:72
 msgid "The ``openai`` auto-reply backend"
 msgstr "``openai`` 自动回复后端"
 
-#: ../../topics/preview.rst:86
+#: ../../topics/preview.rst:73
 msgid ""
 "When the task asks for previews, the daemon calls the model service in "
 "streaming mode, collects the text as it arrives, and hands it to the "
@@ -140,11 +140,11 @@ msgid ""
 "repeat it as a non-streaming call, because that would be billed twice."
 msgstr "任务请求预览时，守护进程以流式模式调用模型服务，在文本到达时收集，并交给预览发送器。最终回复与非流式调用的回复逐字节相同。如果流式调用失败，节点不会改用非流式调用重试，因为那样会被计费两次。"
 
-#: ../../topics/preview.rst:92
+#: ../../topics/preview.rst:79
 msgid "The control interface"
 msgstr "控制接口"
 
-#: ../../topics/preview.rst:93
+#: ../../topics/preview.rst:80
 #, python-brace-format
 msgid ""
 "A program that the operator runs can push the text written so far to "
@@ -159,60 +159,62 @@ msgstr ""
 "``text`` 最大 1 MiB，``reasoning`` 可选。该调用需要控制令牌。调用成功时返回 ``{\"sent\": "
 "true}``，表示文本已交给发送器，而不表示已经到达。"
 
-#: ../../topics/preview.rst:100
+#: ../../topics/preview.rst:87
 msgid "``POST /tasks/preview`` answers with these refusals:"
 msgstr "``POST /tasks/preview`` 的拒绝应答如下："
 
-#: ../../topics/preview.rst:102
+#: ../../topics/preview.rst:89
 msgid "``preview_off`` (409)"
 msgstr "``preview_off``\\ （409）"
 
-#: ../../topics/preview.rst:103
+#: ../../topics/preview.rst:90
 msgid "Previews are off on this node."
 msgstr "此节点上预览已关闭。"
 
-#: ../../topics/preview.rst:105
+#: ../../topics/preview.rst:92
 msgid "``task_not_open`` (409)"
 msgstr "``task_not_open``\\ （409）"
 
-#: ../../topics/preview.rst:106
+#: ../../topics/preview.rst:93
 msgid "The task has ended or is not a text task sent to this node."
 msgstr "任务已结束，或不是发给本节点的文本任务。"
 
-#: ../../topics/preview.rst:108
+#: ../../topics/preview.rst:95
 msgid "``not_requested`` (200 with ``\"sent\": false``)"
 msgstr "``not_requested``\\ （200，带 ``\"sent\": false``）"
 
-#: ../../topics/preview.rst:109
+#: ../../topics/preview.rst:96
 msgid "The requester did not ask for a preview in this turn."
 msgstr "请求方在本轮对话中未请求预览。"
 
-#: ../../topics/preview.rst:111
+#: ../../topics/preview.rst:98
 msgid ""
 "The following command pushes a text for the default identity. It reads "
 "the control address from ``config.json`` and the token from "
-"``control_token.txt`` in the data directory."
+"``control_token.txt`` in the data directory. The function ``auth`` hands "
+"the header to ``curl`` through a file descriptor, so that the token does "
+"not appear in the argument list (bash or zsh)."
 msgstr ""
 "下面的命令为默认身份推送一段文本。它从 ``config.json`` 读取控制地址，从数据目录中的 ``control_token.txt`` "
-"读取令牌。"
+"读取令牌。函数 ``auth`` 通过文件描述符把头交给 ``curl``，使令牌不出现在参数列表中（bash 或 zsh）。"
 
-#: ../../topics/preview.rst:124
+#: ../../topics/preview.rst:114
 msgid "The ``exec`` backend of auto-reply does not supply preview text."
 msgstr "自动回复的 ``exec`` 后端不提供预览文本。"
 
-#: ../../topics/preview.rst:132
+#: ../../topics/preview.rst:117
 msgid "Asking for previews as a requester"
 msgstr "请求方请求预览"
 
-#: ../../topics/preview.rst:134
+#: ../../topics/preview.rst:119
 msgid "A requester asks for previews for a single task."
 msgstr "请求方针对单个任务请求预览。"
 
-#: ../../topics/preview.rst:136
+#: ../../topics/preview.rst:121
 msgid "Command line"
 msgstr "命令行"
 
-#: ../../topics/preview.rst:137
+#: ../../topics/preview.rst:122
 msgid ""
 "``anet delegate <aid> \"text\" --watch`` sends the task, asks for "
 "previews and continues with ``anet task watch``. ``anet task watch <task-"
@@ -224,11 +226,11 @@ msgstr ""
 "watch``\\ 。\\ ``anet task watch <task-id>`` "
 "跟踪已存在的任务，输出预览、送达状态变化和最终结果。提供方发送推理文本时，选项 ``--reasoning`` 会将其输出。"
 
-#: ../../topics/preview.rst:143
+#: ../../topics/preview.rst:128
 msgid "Local A2A interface"
 msgstr "本地 A2A 接口"
 
-#: ../../topics/preview.rst:144
+#: ../../topics/preview.rst:129
 msgid ""
 "A client that streams a message with ``SendStreamingMessage`` or follows "
 "a task with ``SubscribeToTask``, and that has activated the extension "
@@ -244,101 +246,129 @@ msgstr ""
 "时，会把每个预览作为产物 ``anet.reply`` 的更新收到。该更新取代该产物此前的文本，并在元数据中标记为 ``anet.preview:"
 " true``\\ 。预览省略文本开头时，以省略号开头。未激活该扩展的客户端不会收到任何预览事件。"
 
-#: ../../topics/preview.rst:153
+#: ../../topics/preview.rst:138
+msgid "Control interface"
+msgstr "控制接口"
+
+#: ../../topics/preview.rst:139
+#, python-brace-format
+msgid ""
+"``POST /tasks/events`` with the body ``{\"task_id\": \"...\"}`` opens a "
+"stream of server-sent events for one task. The event ``task`` holds the "
+"task as it is (cut to about 24 KB) and is sent first, and again at each "
+"change of state. The event ``preview`` holds ``seq``, ``at``, ``text`` "
+"and ``omitted``, and ``reasoning`` and ``reasoning_omitted`` when "
+"reasoning is enabled; a subscriber that joins while a preview exists "
+"receives the current one first. The event ``delivery`` holds "
+"``delivery``, ``detail``, ``wait`` and the sentence ``text``. An idle "
+"stream writes a comment line every 20 seconds. The stream ends with the "
+"final state of the task. The route needs the control token. MCP and the "
+"console do not offer it. A task that is no longer on the node is answered"
+" with ``no_local_task``."
+msgstr ""
+"``POST /tasks/events``，请求体为 ``{\"task_id\": \"...\"}``，为一个任务打开服务器发送事件流。事件"
+" ``task`` 是任务当前的样子（截取到约 24 KB），最先发送，并在每次状态变化时再次发送。事件 ``preview`` 含 "
+"``seq``、``at``、``text`` 与 ``omitted``，启用推理时还有 ``reasoning`` 与 "
+"``reasoning_omitted``；在已有预览时加入的订阅者，先收到当前的预览。事件 ``delivery`` 含 "
+"``delivery``、``detail``、``wait`` 和句子 ``text``。空闲的流每 20 "
+"秒写一行注释。流随任务的最终状态结束。该路由需要控制令牌，MCP 与控制台不提供它。节点上已没有的任务，以 ``no_local_task`` "
+"应答。"
+
+#: ../../topics/preview.rst:151
 msgid "MCP"
 msgstr "MCP"
 
-#: ../../topics/preview.rst:154
+#: ../../topics/preview.rst:152
 msgid ""
 "MCP does not expose previews. ``wait_task`` returns the task when its "
 "state changes."
 msgstr "MCP 不提供预览。\\ ``wait_task`` 在任务状态变化时返回该任务。"
 
-#: ../../topics/preview.rst:168
+#: ../../topics/preview.rst:166
 msgid "``anet card <aid>`` shows a line when the provider declares previews."
 msgstr "提供方声明了预览时，``anet card <aid>`` 会显示相应的一行。"
 
-#: ../../topics/preview.rst:178
+#: ../../topics/preview.rst:169
 msgid "Limits"
 msgstr "限制"
 
-#: ../../topics/preview.rst:180
+#: ../../topics/preview.rst:171
 msgid "The values are fixed in the code and have no setting."
 msgstr "这些值固定在代码中，没有对应的设置。"
 
-#: ../../topics/preview.rst:186
+#: ../../topics/preview.rst:177
 msgid "Limit"
 msgstr "限制"
 
-#: ../../topics/preview.rst:187
+#: ../../topics/preview.rst:178
 msgid "Value"
 msgstr "取值"
 
-#: ../../topics/preview.rst:188
+#: ../../topics/preview.rst:179
 msgid "Interval between two previews of one task"
 msgstr "同一任务两次预览的间隔"
 
-#: ../../topics/preview.rst:189
+#: ../../topics/preview.rst:180
 msgid "at least 5 seconds"
 msgstr "至少 5 秒"
 
-#: ../../topics/preview.rst:190
+#: ../../topics/preview.rst:181
 msgid "Delay of the last change"
 msgstr "最后一次变化的延迟"
 
-#: ../../topics/preview.rst:191
+#: ../../topics/preview.rst:182
 msgid "sent within 5 seconds"
 msgstr "5 秒内发出"
 
-#: ../../topics/preview.rst:192
+#: ../../topics/preview.rst:183
 msgid "Previews sent by one node"
 msgstr "单个节点发出的预览"
 
-#: ../../topics/preview.rst:193
+#: ../../topics/preview.rst:184
 msgid "at most 20 per second; the rest are dropped and counted"
 msgstr "每秒最多 20 个；其余的丢弃并计数"
 
-#: ../../topics/preview.rst:194
+#: ../../topics/preview.rst:185
 msgid "Text of a preview"
 msgstr "预览文本"
 
-#: ../../topics/preview.rst:195
+#: ../../topics/preview.rst:186
 msgid "the last 8 KiB, cut at a character boundary"
 msgstr "最后 8 KiB，在字符边界处截断"
 
-#: ../../topics/preview.rst:196
+#: ../../topics/preview.rst:187
 msgid "Lifetime of a preview in transit"
 msgstr "预览在传输中的生存期"
 
-#: ../../topics/preview.rst:197
+#: ../../topics/preview.rst:188
 msgid "60 seconds"
 msgstr "60 秒"
 
-#: ../../topics/preview.rst:198
+#: ../../topics/preview.rst:189
 msgid "Previews accepted for one task"
 msgstr "同一任务接受的预览"
 
-#: ../../topics/preview.rst:199
+#: ../../topics/preview.rst:190
 msgid "one per 2 seconds"
 msgstr "每 2 秒一个"
 
-#: ../../topics/preview.rst:200
+#: ../../topics/preview.rst:191
 msgid "Previews accepted from one peer"
 msgstr "单个对端接受的预览"
 
-#: ../../topics/preview.rst:201
+#: ../../topics/preview.rst:192
 msgid "10 per second"
 msgstr "每秒 10 个"
 
-#: ../../topics/preview.rst:202
+#: ../../topics/preview.rst:193
 msgid "Tasks whose latest preview is kept by a requester"
 msgstr "请求方保留最新预览的任务数"
 
-#: ../../topics/preview.rst:203
+#: ../../topics/preview.rst:194
 msgid "1024"
 msgstr "1024"
 
-#: ../../topics/preview.rst:205
+#: ../../topics/preview.rst:196
 msgid ""
 "A preview is sent only while the task is open and while the provider has "
 "not yet sent an answer for the current turn. When the real answer or "
@@ -349,11 +379,11 @@ msgid ""
 "fails these checks is discarded without a reply."
 msgstr "只有在任务处于打开状态，且提供方尚未发出当前一轮的答复时，才会发送预览。真正的答复或结果入队时，节点取消仍在等待的预览，此后不再发送该轮的预览。请求方只接受同时满足以下条件的预览：属于其发出的任务、比已见过的预览更新、并且回应的是请求预览的那条消息。未通过这些检查的预览被丢弃，不作回复。"
 
-#: ../../topics/preview.rst:214
+#: ../../topics/preview.rst:205
 msgid "Properties"
 msgstr "性质"
 
-#: ../../topics/preview.rst:216
+#: ../../topics/preview.rst:207
 msgid ""
 "A preview is sent as an ordinary encrypted message through the hub, "
 "signed by the provider. The hub cannot read it. The message carries a "
@@ -361,51 +391,51 @@ msgid ""
 "ends."
 msgstr "预览作为普通的加密消息经由 Hub 发送，由提供方签名。Hub 无法读取。消息的生存期很短，为 60 秒，生存期结束后 Hub 将其丢弃。"
 
-#: ../../topics/preview.rst:219
+#: ../../topics/preview.rst:210
 msgid ""
 "A preview is held in memory only. It is not written to the task database,"
 " the outbound queue or the evidence chain, and its text is not written to"
 " a log."
 msgstr "预览只保存在内存中。它不写入任务数据库、出站队列或证据链，其文本也不写入日志。"
 
-#: ../../topics/preview.rst:221
+#: ../../topics/preview.rst:212
 msgid ""
 "A requester keeps only the latest preview of each task. A new message or "
 "the result of the task, and the end of the task, delete it."
 msgstr "请求方对每个任务只保留最新的预览。新消息、任务结果以及任务结束都会将其删除。"
 
-#: ../../topics/preview.rst:223
+#: ../../topics/preview.rst:214
 msgid ""
 "A restart of the provider forgets the turn that was being previewed. That"
 " turn sends no further previews and its result is delivered as usual. The"
 " next turn can be previewed again."
 msgstr "提供方重启后会忘记正在预览的那一轮。该轮不再发送预览，其结果照常交付。下一轮可以再次预览。"
 
-#: ../../topics/preview.rst:226
+#: ../../topics/preview.rst:217
 msgid ""
 "``GetTask``, the task history and every MCP tool never contain a preview."
 " The reasoning text appears only on the local control interface and is "
 "never in the local A2A projection."
 msgstr "``GetTask``\\ 、任务历史和每个 MCP 工具都不包含预览。推理文本只出现在本地控制接口上，从不出现在本地 A2A 投影中。"
 
-#: ../../topics/preview.rst:231
+#: ../../topics/preview.rst:222
 msgid "Notes"
 msgstr "说明"
 
-#: ../../topics/preview.rst:233
+#: ../../topics/preview.rst:224
 msgid ""
 "A preview can differ from the final reply. A model can write a text and "
 "then replace it. Any program that displays previews must label them as "
 "previews, and must not act on them."
 msgstr "预览可能与最终回复不同。模型可能写出一段文本后又将其替换。任何显示预览的程序都必须将其标注为预览，且不得依据预览采取行动。"
 
-#: ../../topics/preview.rst:236
+#: ../../topics/preview.rst:227
 msgid ""
 "Reasoning previews can reveal the instructions and internal data of the "
 "provider. They are off by default and need a separate confirmation."
 msgstr "推理预览可能泄露提供方的指令和内部数据。它默认关闭，并需要单独确认。"
 
-#: ../../topics/preview.rst:238
+#: ../../topics/preview.rst:229
 msgid ""
 "A peer that holds an earlier key of the provider, and that has not yet "
 "learned of a key rotation, can forge a preview for a task in progress. "
@@ -414,7 +444,7 @@ msgid ""
 "stored and is replaced by the result."
 msgstr "持有提供方较早密钥、且尚未得知密钥轮换的对端，可以为进行中的任务伪造预览。预览依据为该对端存储的身份记录进行验证，不要求新的密钥确认。伪造的预览不会被存储，并会被结果取代。"
 
-#: ../../topics/preview.rst:243
+#: ../../topics/preview.rst:234
 msgid ""
 "A provider whose node has previews on and no ``openai`` backend sends "
 "previews only through ``POST /tasks/preview``. ``anet doctor`` reports "
@@ -423,21 +453,21 @@ msgstr ""
 "节点已开启预览但没有 ``openai`` 后端的提供方，只通过 ``POST /tasks/preview`` 发送预览。\\ ``anet "
 "doctor`` 将此作为信息报告。"
 
-#: ../../topics/preview.rst:248
+#: ../../topics/preview.rst:239
 msgid "See also"
 msgstr "另请参阅"
 
-#: ../../topics/preview.rst:250
+#: ../../topics/preview.rst:241
 msgid ""
 ":doc:`messaging` for the delivery confirmation lines that ``anet task "
 "watch`` prints."
 msgstr ":doc:`messaging`：``anet task watch`` 输出的送达确认行。"
 
-#: ../../topics/preview.rst:252
+#: ../../topics/preview.rst:243
 msgid ":doc:`delegation` for auto-reply."
 msgstr ":doc:`delegation`：自动回复。"
 
-#: ../../topics/preview.rst:253
+#: ../../topics/preview.rst:244
 msgid ":doc:`modules` for the ``preview`` module."
 msgstr ":doc:`modules`：``preview`` 模块。"
 

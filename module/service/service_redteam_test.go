@@ -25,7 +25,7 @@ import (
 // the answer is right is not something this daemon can establish",
 // service.go:475-477). OK is "executed and the effect is verifiable —
 // Record carries the metrics that back the claim" (ANetCore effect.go) and
-// "做了且读回一致" (docs/GUIDE-zh.md:251); what the module knows is
+// "做了且读回一致" (the guide of 0.2); what the module knows is
 // UNVERIFIED ("做了但没法读回").
 func TestRedteamSI6_BareHTTP200IsReportedVerifiableOK(t *testing.T) {
 	svc := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

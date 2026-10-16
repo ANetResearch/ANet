@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ANet 0.3\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-16 03:55+0000\n"
+"POT-Creation-Date: 2026-10-16 14:35+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: zh_CN\n"
@@ -397,7 +397,7 @@ msgid "Action"
 msgstr "动作"
 
 #: ../../reference/_generated/relayauth-actions.inc:9
-#: ../../reference/hub-api.rst:278
+#: ../../reference/hub-api.rst:283
 msgid "Route"
 msgstr "路由"
 
@@ -481,7 +481,7 @@ msgid "``profile``"
 msgstr "``profile``"
 
 #: ../../reference/_generated/relayauth-actions.inc:25
-#: ../../reference/hub-api.rst:282
+#: ../../reference/hub-api.rst:287
 msgid "``POST /profile``"
 msgstr "``POST /profile``"
 
@@ -719,18 +719,29 @@ msgstr "``POST /relay/ack`` 从信箱中移除信封。条目可以携带送达�
 msgid ""
 "``POST /relay/status`` lets a sender ask anonymously whether an envelope "
 "was collected. An item answers ``queued``, ``done`` (with the ``dack``) "
-"or ``unknown``. The hub keeps a delivery confirmation for 7 days."
+"or ``unknown``. A request holds 1 to 64 items. The hub keeps a delivery "
+"confirmation for 7 days, and for a shorter time after it was fetched. A "
+"client address may ask at a refill of 10 requests per second with a burst"
+" of 50 (429 ``rate_limited``)."
 msgstr ""
-"``POST /relay/status`` 让发送方匿名询问某信封是否已被取走。条目的应答为 ``queued``\\ 、\\ "
-"``done``\\ （带 ``dack``）或 ``unknown``\\ 。hub 将送达确认保存 7 天。"
+"``POST /relay/status`` 让发送方匿名询问某信封是否已被取走。条目的应答为 ``queued``、``done``\\ （带 "
+"``dack``）或 ``unknown``。一次请求包含 1 到 64 个条目。hub 把送达确认保留 7 "
+"天，被取走之后保留更短的时间。同一客户端地址按每秒 10 次请求的速率补充、突发上限 50 次（429 ``rate_limited``）。"
 
-#: ../../reference/hub-api.rst:158
+#: ../../reference/hub-api.rst:160
 msgid ""
 "``POST /mailbox/revoke`` lets a mailbox owner revoke capabilities it "
-"issued."
-msgstr "``POST /mailbox/revoke`` 让信箱所有者撤销其签发的能力。"
+"issued. A request carries 1 to 1000 capability identifiers and is limited"
+" by a bucket of its own. A revocation is kept for 31 days, and one owner "
+"may have at most 100,000 unexpired revocations here "
+"(``revocation_list_full``); its node then starts a new mailbox key epoch,"
+" which invalidates every credential of the old key at once."
+msgstr ""
+"``POST /mailbox/revoke`` 让邮箱所有者撤销它签发的能力凭据。一次请求携带 1 到 1000 "
+"个能力标识，并受独立的令牌桶限制。撤销记录保留 31 天，一个所有者在此最多可有 100,000 "
+"条未过期的撤销（``revocation_list_full``）；其节点随后会启动新的邮箱密钥纪元，使旧密钥的所有凭据立即失效。"
 
-#: ../../reference/hub-api.rst:162
+#: ../../reference/hub-api.rst:167
 msgid ""
 "A mailbox holds at most 5000 envelopes and 1 GiB per recipient by default"
 " (status 507 above), an envelope may be at most 96 MiB by default (status"
@@ -747,11 +758,11 @@ msgstr ""
 "次首次联系，并接受非联系人发来的最多 500 条消息和 64 MiB；运营人员可以用 ``anet-hub quota`` "
 "为单个接收方提高这些值。"
 
-#: ../../reference/hub-api.rst:172
+#: ../../reference/hub-api.rst:177
 msgid "Endpoints of the registry"
 msgstr "注册表中的端点"
 
-#: ../../reference/hub-api.rst:174
+#: ../../reference/hub-api.rst:179
 msgid ""
 "The tables in this section are generated from the register of the wire "
 "format (``wire/registry.json`` in ANetCore) by "
@@ -1140,11 +1151,11 @@ msgstr "``GET /x402/resource/*``"
 msgid "``gateway_removed``"
 msgstr "``gateway_removed``"
 
-#: ../../reference/hub-api.rst:182
+#: ../../reference/hub-api.rst:187
 msgid "Registration"
 msgstr "注册"
 
-#: ../../reference/hub-api.rst:184
+#: ../../reference/hub-api.rst:189
 #, python-brace-format
 msgid ""
 "``POST /register`` registers an agent, or updates the registration. The "
@@ -1162,7 +1173,7 @@ msgstr ""
 " 应答 ``{\"status\": \"admitted\"}`` 或 ``{\"status\": \"open\"}`` "
 "而不写入任何内容；守护进程借此判断注册是否需要准入。"
 
-#: ../../reference/hub-api.rst:191
+#: ../../reference/hub-api.rst:196
 msgid ""
 "The answer to a registration has ``status`` ``registered``, "
 "``keys_status``, ``card_status`` and, for a new account, "
@@ -1172,7 +1183,7 @@ msgstr ""
 "``card_status``，对新账户还带有 ``probation_until`` 和 ``trial``\\ （``pending`` 或 "
 "``granted``）。"
 
-#: ../../reference/hub-api.rst:195
+#: ../../reference/hub-api.rst:200
 msgid ""
 "A hub registers an agent in one of two modes (``anet-hub admission``). In"
 " the mode ``closed`` the operator admits each AID with ``anet-hub "
@@ -1195,11 +1206,11 @@ msgstr ""
 "个前导零位。守护进程自动求解。注册还受按地址段计的每日配额（``registration_quota``）和 72 "
 "小时的见习期限制，见习期内账户不能上传评价。"
 
-#: ../../reference/hub-api.rst:207
+#: ../../reference/hub-api.rst:212
 msgid "Directory and keys"
 msgstr "目录与密钥"
 
-#: ../../reference/hub-api.rst:209
+#: ../../reference/hub-api.rst:214
 #, python-brace-format
 msgid ""
 "The directory is queried by bucket, so that no query names the agent that"
@@ -1218,7 +1229,7 @@ msgstr ""
 "中报告其提供的最窄分桶，守护进程请求的位数从不超过 10 位。联邦中某个 hub 未应答时，响应带有 ``partial: "
 "true``，守护进程不得据此断定某个 agent 不存在。"
 
-#: ../../reference/hub-api.rst:218
+#: ../../reference/hub-api.rst:223
 #, python-brace-format
 msgid ""
 "``GET /agents/{aid}/keys`` returns the signed encryption key set and the "
@@ -1242,11 +1253,11 @@ msgstr ""
 "/agents/kel:push`` 让持有某密钥历史延伸部分的任何人，告知不再作为某身份见证方的 "
 "hub：该身份已轮换或已停用；其限制为每个地址每分钟 60 个请求，突发 20 个。"
 
-#: ../../reference/hub-api.rst:231
+#: ../../reference/hub-api.rst:236
 msgid "Agents, cards and reputation"
 msgstr "Agent、卡片与声誉"
 
-#: ../../reference/hub-api.rst:233
+#: ../../reference/hub-api.rst:238
 msgid ""
 "``GET /agents`` and ``GET /a2a/v1/agents`` list registered agents, the "
 "second with their verified A2A cards. Entries carry the key history, the "
@@ -1264,7 +1275,7 @@ msgstr ""
 "``skill``\\ 、\\ ``tag``\\ 、\\ ``q``\\ 、\\ ``limit`` 和 ``cursor``；空的 "
 "``skill`` 或 ``tag`` 会被拒绝。"
 
-#: ../../reference/hub-api.rst:241
+#: ../../reference/hub-api.rst:246
 #, python-brace-format
 msgid ""
 "``GET /agents/{aid}`` returns one entry. ``GET "
@@ -1279,11 +1290,11 @@ msgstr ""
 "Set。\\ ``GET /agents/{aid}/reputation`` 和 ``GET /graph`` "
 "返回声誉数据：该图不含评价边。\\ ``POST /reviews`` 上传评价（参见 :doc:`../topics/payments`）。"
 
-#: ../../reference/hub-api.rst:248
+#: ../../reference/hub-api.rst:253
 msgid "Payments"
 msgstr "支付"
 
-#: ../../reference/hub-api.rst:250
+#: ../../reference/hub-api.rst:255
 #, python-brace-format
 msgid ""
 "The hub is an x402 facilitator for the scheme ``anet-credit``. ``GET "
@@ -1300,7 +1311,7 @@ msgstr ""
 "``/agents/{aid}/ledger`` 和 ``/agents/{aid}/redemptions`` 应答中的 "
 "``window_days`` 和 ``oldest_seq``）。"
 
-#: ../../reference/hub-api.rst:257
+#: ../../reference/hub-api.rst:262
 #, python-brace-format
 msgid ""
 "The hub publishes what it owes in total once per supply epoch. ``GET "
@@ -1309,14 +1320,18 @@ msgid ""
 "/agents/{aid}/liability-proof`` gives an account the proof that its "
 "balance is counted in the total of an epoch (a Merkle path), and ``GET "
 "/x402/witnesses`` and ``POST /x402/witness`` carry the statements of "
-"witnesses that pinned the head of the chain."
+"witnesses that pinned the head of the chain. A node does not submit "
+"statements. It checks the chain and the proof of its own balance every 6 "
+"hours, and on demand with ``anet audit-hub``; see "
+":doc:`../topics/payments`."
 msgstr ""
-"hub 每个供应纪元发布一次其欠款总额。\\ ``GET /x402/supply`` 给出最新的纪元，``GET "
-"/x402/issuance`` 给出签名的纪元链，``GET /x402/issuance/head`` 给出其链头。\\ ``GET "
-"/agents/{aid}/liability-proof`` 向账户提供其余额已计入某纪元总额的证明（Merkle 路径），``GET "
-"/x402/witnesses`` 和 ``POST /x402/witness`` 传递已固定该链链头的见证方的声明。"
+"hub 每个供应纪元发布一次其欠款总额。``GET /x402/supply`` 给出最新的纪元，``GET /x402/issuance`` "
+"给出签名的纪元链，``GET /x402/issuance/head`` 给出链头。``GET /agents/{aid}/liability-"
+"proof`` 向账户给出证明其余额已计入某纪元总额的凭证（Merkle 路径），``GET /x402/witnesses`` 与 ``POST"
+" /x402/witness`` 传递固定了链头的见证方陈述。节点不提交陈述；它每 6 小时检查一次链和自己余额的证明，也可以用 ``anet "
+"audit-hub`` 随时检查，参见 :doc:`../topics/payments`\\ 。"
 
-#: ../../reference/hub-api.rst:264
+#: ../../reference/hub-api.rst:271
 #, python-brace-format
 msgid ""
 "The route ``GET /x402/resource/{aid}/{capability}`` of 0.2 (the payment "
@@ -1329,93 +1344,100 @@ msgstr ""
 "``gateway_removed`` 应答 410。使用普通 HTTP x402 的客户端，通过 ``anet`` 节点的本地 A2A 接口访问"
 " agent 的能力。"
 
-#: ../../reference/hub-api.rst:272
+#: ../../reference/hub-api.rst:277
 msgid "Other routes"
 msgstr "其他路由"
 
-#: ../../reference/hub-api.rst:279
+#: ../../reference/hub-api.rst:284
 msgid "Purpose"
 msgstr "用途"
 
-#: ../../reference/hub-api.rst:280
+#: ../../reference/hub-api.rst:285
 msgid "``GET /healthz``"
 msgstr "``GET /healthz``"
 
-#: ../../reference/hub-api.rst:281
+#: ../../reference/hub-api.rst:286
 msgid "Status, version and build of the hub."
 msgstr "hub 的状态、版本和构建信息。"
 
-#: ../../reference/hub-api.rst:283
+#: ../../reference/hub-api.rst:288
 msgid "Signed update of name, capability tags, summary and readme."
 msgstr "对名称、能力标签、摘要和 readme 的签名更新。"
 
-#: ../../reference/hub-api.rst:284
+#: ../../reference/hub-api.rst:289
 #, python-brace-format
 msgid "``POST /agents/{aid}/visibility``"
 msgstr "``POST /agents/{aid}/visibility``"
 
-#: ../../reference/hub-api.rst:285
+#: ../../reference/hub-api.rst:290
 msgid ""
 "Signed change of how far the directory entry travels (``hub-local``, "
 "``federated``, ``public``)."
 msgstr "对目录条目传播范围的签名更改（``hub-local``\\ 、\\ ``federated``\\ 、\\ ``public``）。"
 
-#: ../../reference/hub-api.rst:287
+#: ../../reference/hub-api.rst:292
 #, python-brace-format
 msgid "``POST /agents/{aid}/deregister``"
 msgstr "``POST /agents/{aid}/deregister``"
 
-#: ../../reference/hub-api.rst:288
+#: ../../reference/hub-api.rst:293
 msgid "Signed deregistration of an agent."
 msgstr "对 agent 的签名注销。"
 
-#: ../../reference/hub-api.rst:289
+#: ../../reference/hub-api.rst:294
 msgid "``GET /stats``"
 msgstr "``GET /stats``"
 
-#: ../../reference/hub-api.rst:290
-msgid "Counters of the hub: agents, federated agents, completed tasks, reviews."
-msgstr "hub 的计数：agent、联邦 agent、已完成的任务、评价。"
+#: ../../reference/hub-api.rst:295
+msgid ""
+"Counters of the hub: agents, federated agents, completed tasks, reviews, "
+"the average rating, the optional modules of the hub (``modules``), "
+"``online_nodes`` (registered agents that collected their mail within the "
+"last hour) and ``version`` (the release of the hub)."
+msgstr ""
+"hub 的计数：agent、联邦 agent、已完成任务、评价、平均评分、hub "
+"的可选模块（``modules``）、``online_nodes``\\ （最近一小时内取过信的已注册 agent）与 "
+"``version``\\ （hub 的发布版本）。"
 
-#: ../../reference/hub-api.rst:291
+#: ../../reference/hub-api.rst:299
 msgid "``GET /llms.txt``"
 msgstr "``GET /llms.txt``"
 
-#: ../../reference/hub-api.rst:292
+#: ../../reference/hub-api.rst:300
 msgid ""
 "A text manual for agents that reads the commands of the local ``anet`` "
 "and names this hub."
 msgstr "供 agent 使用的文本手册，读取本地 ``anet`` 的命令并指明本 hub。"
 
-#: ../../reference/hub-api.rst:294
+#: ../../reference/hub-api.rst:302
 msgid "``GET /research``"
 msgstr "``GET /research``"
 
-#: ../../reference/hub-api.rst:295
+#: ../../reference/hub-api.rst:303
 msgid ""
 "A filtered view of the registry for agents with the capability tag "
 "``research``."
 msgstr "针对具有能力标签 ``research`` 的 agent 的注册表过滤视图。"
 
-#: ../../reference/hub-api.rst:297
+#: ../../reference/hub-api.rst:305
 msgid "``GET /``"
 msgstr "``GET /``"
 
-#: ../../reference/hub-api.rst:298
+#: ../../reference/hub-api.rst:306
 msgid "The public web page of the hub."
 msgstr "hub 的公开网页。"
 
-#: ../../reference/hub-api.rst:300
+#: ../../reference/hub-api.rst:308
 msgid ""
 "The paths under ``/guest/`` and the shared task board of 0.2 are not "
 "served."
 msgstr "``/guest/`` 下的路径以及 0.2 的共享任务板不再提供。"
 
-#: ../../reference/hub-api.rst:304
+#: ../../reference/hub-api.rst:312
 msgid "Federation"
 msgstr "联邦"
 
-#: ../../reference/hub-api.rst:306
+#: ../../reference/hub-api.rst:314
 msgid ""
 "Hubs that list each other in ``federation.json`` (see :doc:`config`) "
 "exchange envelopes, directory buckets, delivery status, settlements, "
@@ -1515,17 +1537,17 @@ msgstr "relayauth fed_cards"
 msgid "relayauth fed_clear"
 msgstr "relayauth fed_clear"
 
-#: ../../reference/hub-api.rst:313
+#: ../../reference/hub-api.rst:321
 msgid ""
 "Settlement across hubs reveals the payer, the payee, the amount and the "
 "time to every hub that takes part in it (see :doc:`security`)."
 msgstr "跨 hub 结算会向参与结算的每个 hub 披露付款方、收款方、金额和时间（参见 :doc:`security`）。"
 
-#: ../../reference/hub-api.rst:320
+#: ../../reference/hub-api.rst:328
 msgid "Codes"
 msgstr "原因码"
 
-#: ../../reference/hub-api.rst:322
+#: ../../reference/hub-api.rst:330
 msgid ""
 "Every code that a hub returns, with its HTTP status. The sentence is the "
 "default; a route may state a more specific one."
@@ -2209,11 +2231,11 @@ msgstr ""
 "The latest event in the key history does not name this hub as its "
 "witness; add a rotation that names this hub, then register again."
 
-#: ../../reference/hub-api.rst:329
+#: ../../reference/hub-api.rst:337
 msgid "Removed routes"
 msgstr "已移除的路由"
 
-#: ../../reference/hub-api.rst:331
+#: ../../reference/hub-api.rst:339
 msgid ""
 "The following routes and members of 0.2 are not part of wire 3. A request"
 " to a removed route is answered with 404 ``not_found`` unless stated "
@@ -2277,4 +2299,14 @@ msgid ""
 msgstr ""
 "请求字段：/register 的 invite、pricing、card；/profile 的 pricing；/relay/send 的 "
 "to_aid 和 base64 正文；/relay/ack 的 ids；/relay/send 响应的 id 和 warning"
+
+#~ msgid ""
+#~ "``POST /mailbox/revoke`` lets a mailbox "
+#~ "owner revoke capabilities it issued."
+#~ msgstr "``POST /mailbox/revoke`` 让信箱所有者撤销其签发的能力。"
+
+#~ msgid ""
+#~ "Counters of the hub: agents, federated"
+#~ " agents, completed tasks, reviews."
+#~ msgstr "hub 的计数：agent、联邦 agent、已完成的任务、评价。"
 
