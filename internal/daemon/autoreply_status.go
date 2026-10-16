@@ -62,7 +62,13 @@ func (d *Daemon) sandboxView(ar *AutoReplyConfig) map[string]any {
 		v["kind"], v["limits"] = sandboxKind, sandboxLimits()
 		key, state, args = d.sandboxProblem(ar)
 	}
-	v["state"], v["reason"] = state, a2ashape.ReasonCode(key)
+	// The reason is the sentence's key where the sentence is a status one (sandbox.off, sandbox.ready,
+	// sandbox.ready_egress), else the code of the refusal (a variant such as .combo is not part of it).
+	reason := a2ashape.ReasonCode(key)
+	if strings.HasPrefix(key, "sandbox.") {
+		reason = key
+	}
+	v["state"], v["reason"] = state, reason
 	if d, _ := args["detail"].(string); d != "" && state == sandboxStateUnavailable {
 		v["detail"] = d // what the self-check saw, for the operator's doctor
 	}
@@ -222,3 +228,7 @@ func (d *Daemon) TestAutoReplyPaths(ctx context.Context, prompt string) ([]AutoR
 		Message: a2ashape.Sentence("autoreply_test.pass_sandbox", lang, a2ashape.Args{"n": e.ModelRequests, "m": e.ConnectAllowed})})
 	return out, nil
 }
+
+// SandboxLimits is auto_reply.sandbox.limits on this host: "full", "no_cgroup" (Linux without a user
+// systemd) or "rlimit_only" (macOS); "" where there is no sandbox. doctor asks it directly.
+func SandboxLimits() string { return sandboxLimits() }

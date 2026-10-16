@@ -117,7 +117,10 @@ func printAutoReplyShow(w io.Writer, view map[string]any, lang a2ashape.Language
 			trusted = "sandbox.trusted_sandbox"
 		}
 		rows = append(rows, row{"autoreply.trusted", a2ashape.Sentence(trusted, lang, nil), ""})
-		rows = append(rows, row{"autoreply.untrusted", oneLine(str(sb, "message"), maxLineRunes), oneLine(str(sb, "next"), maxLineRunes)})
+		// A missing key is the API key row's sentence; saying it on this row too would repeat it.
+		if str(sb, "reason") != "no_api_key" {
+			rows = append(rows, row{"autoreply.untrusted", oneLine(str(sb, "message"), maxLineRunes), oneLine(str(sb, "next"), maxLineRunes)})
+		}
 	}
 	switch {
 	case view["api_key_set"] == true:

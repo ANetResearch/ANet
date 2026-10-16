@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -94,14 +95,24 @@ func TestDoctorSandbox(t *testing.T) {
 		t.Errorf("trusted peers in the sandbox, two hosts allowed: %+v", f)
 	}
 
-	for _, reason := range []string{"no_sandbox_exec", "fs_isolation_failed", "netns_failed", "platform_unsupported", "userns_blocked"} {
+	for _, reason := range []string{"no_sandbox_exec", "fs_isolation_failed", "netns_failed", "seccomp_failed", "platform_unsupported",
+		"userns_blocked", "sandbox_start_failed"} {
 		env.sandbox = check(daemon.SandboxCheck{Kind: "seatbelt", Reason: reason, Detail: "1 home (listed the real home)"})
 		f, rep := sandboxFinding(t, sandboxDoctorLayout(t, sandboxed), env)
-		if f == nil || f.Status != stFail || f.Reason != reason || f.Detail != a2ashape.Sentence(reason, lang, nil) {
+		// In doctor the three self-check reasons say what the self-check saw (their .doctor variants), and
+		// sandbox_start_failed says bubblewrap's first line; the others are the sentence everywhere shows.
+		key, args := reason, a2ashape.Args(nil)
+		switch reason {
+		case "fs_isolation_failed", "netns_failed", "seccomp_failed":
+			key, args = reason+".doctor", a2ashape.Args{"detail": "1 home (listed the real home)"}
+		case "sandbox_start_failed":
+			args = a2ashape.Args{"error": "1 home (listed the real home)"}
+		}
+		if f == nil || f.Status != stFail || f.Reason != key || f.Detail != a2ashape.Sentence(key, lang, args) {
 			t.Errorf("%s: %+v", reason, f)
 			continue
 		}
-		if next := a2ashape.Next(reason, lang, nil); next != "" && f.Hint != next || next == "" && f.Hint != noHint {
+		if next := a2ashape.Next(key, lang, args); next != "" && f.Hint != next || next == "" && f.Hint != noHint {
 			t.Errorf("%s: hint %q, want %q", reason, f.Hint, next)
 		}
 		if rep.OK || rep.Sandbox == nil || rep.Sandbox.Detail != "1 home (listed the real home)" {
@@ -156,5 +167,110 @@ func TestDoctorSandboxFromTheRunningDaemon(t *testing.T) {
 	}
 	if defaultDoctorEnv().sandbox == nil {
 		t.Error("doctor's own environment runs no self-check")
+	}
+}
+
+// ux §5.2: doctor shows the items after sandbox when it is shown, and the agent and the model service are
+// told apart: an agent that cannot run is sandbox.agent, a missing key sandbox.upstream; a list of hosts
+// the daemon would refuse is sandbox.egress; a proxy variable warns.
+func TestDoctorSandboxDetailItems(t *testing.T) {
+	env := testDoctorEnv(t)
+	env.sandbox = func() daemon.SandboxCheck { return daemon.SandboxCheck{Kind: "bwrap"} }
+	env.getenv = func(k string) string {
+		if k == "HTTPS_PROXY" {
+			return "http://proxy.invalid:3128"
+		}
+		return ""
+	}
+	ids := func(ar map[string]any) map[string][]doctorCheck {
+		rep, err := collectDoctor(sandboxDoctorLayout(t, ar), env)
+		if err != nil {
+			t.Fatal(err)
+		}
+		m := map[string][]doctorCheck{}
+		for _, c := range rep.Checks {
+			if strings.HasPrefix(c.ID, "sandbox") || c.ID == "auto_reply" {
+				m[c.ID] = append(m[c.ID], c)
+			}
+		}
+		return m
+	}
+	m := ids(map[string]any{"backend": "exec", "agent": "claude", "untrusted": "sandbox"})
+	if c := m["sandbox.upstream"]; len(c) != 1 || c[0].Status != stFail || c[0].Reason != "no_api_key" || m["sandbox.agent"][0].Status != stOK {
+		t.Errorf("no key: %+v", m)
+	}
+	if c := m["sandbox.egress"]; len(c) != 2 || c[0].Status != stOK || c[1].Status != stWarn || c[1].Reason != "sandbox.proxy_env" {
+		t.Errorf("egress: %+v", c)
+	}
+	if c := m["sandbox.budget"]; len(c) != 1 || c[0].Status != stUnknown || c[0].Reason != doctorDaemonDown {
+		t.Errorf("budget without the daemon: %+v", c)
+	}
+	if c := m["auto_reply"]; len(c) != 1 || c[0].Status != stOK || !strings.Contains(c[0].Detail, "exec / claude") {
+		t.Errorf("auto_reply: %+v", c)
+	}
+
+	m = ids(map[string]any{"backend": "exec", "agent": "cursor", "untrusted": "sandbox", "api_key": "k"})
+	if c := m["sandbox.agent"]; len(c) != 1 || c[0].Status != stFail || c[0].Reason != "agent_unsupported" || len(m["sandbox.upstream"]) != 0 {
+		t.Errorf("cursor: %+v", m)
+	}
+	m = ids(map[string]any{"backend": "exec", "agent": "codex", "untrusted": "sandbox", "api_key": "k", "api_base": "https://example.org/v1", "model": "m"})
+	if c := m["sandbox.agent"]; len(c) != 1 || c[0].Reason != "agent_unsupported.combo" {
+		t.Errorf("combo: %+v", c)
+	}
+	m = ids(map[string]any{"backend": "exec", "agent": "claude", "untrusted": "sandbox", "api_key": "k",
+		"sandbox": map[string]any{"egress_allow": []string{"api.anthropic.com"}}})
+	if c := m["sandbox.egress"]; len(c) < 1 || c[0].Status != stFail || c[0].Reason != "egress_allow_model_host" {
+		t.Errorf("model host in egress_allow: %+v", c)
+	}
+
+	// Off: none of the sandbox items, and the auto-reply item says off.
+	m = ids(map[string]any{"backend": "exec", "agent": "claude"})
+	if len(m["sandbox"])+len(m["sandbox.agent"])+len(m["sandbox.budget"]) != 0 {
+		t.Errorf("off: %+v", m)
+	}
+	if c := ids(nil)["auto_reply"]; len(c) != 1 || c[0].Reason != "autoreply.off" {
+		t.Errorf("none: %+v", c)
+	}
+}
+
+// ux §5.2 hub: the finding is the join state of hub_join.json in the words of /status.hub, graded by the
+// state, whatever config.json says.
+func TestDoctorHubReadsTheJoinRecord(t *testing.T) {
+	for _, tc := range []struct {
+		state, reason, status string
+	}{
+		{"pending_admission", "hub_pending_admission", stWarn},
+		{"retrying", "hub_retrying", stWarn},
+		{"refused", "hub_refused", stFail},
+		{"registered", "registered", stOK},
+		{"registered", "registered.probation", stOK},
+	} {
+		l := freshInit(t)
+		rec := `{"v":1,"hub":"https://hub.example","state":"` + tc.state + `","reason":"` + tc.reason + `","since":1760000000000,"probation_until":9999999999999}`
+		if err := os.WriteFile(filepath.Join(l.Root, "hub_join.json"), []byte(rec), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		rep, err := collectDoctor(l, testDoctorEnv(t))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var hub, probation *doctorCheck
+		for i, c := range rep.Checks {
+			switch c.ID {
+			case "hub":
+				hub = &rep.Checks[i]
+			case "hub.probation":
+				probation = &rep.Checks[i]
+			}
+		}
+		if hub == nil || hub.Status != tc.status || (tc.state != "registered" && hub.Reason != tc.reason) {
+			t.Errorf("%s: %+v", tc.reason, hub)
+		}
+		if (probation != nil) != (tc.reason == "registered.probation") {
+			t.Errorf("%s: hub.probation %+v", tc.reason, probation)
+		}
+		if tc.state == "registered" && (!rep.Hub.Registered || rep.Hub.URL != "https://hub.example") {
+			t.Errorf("%s: report %+v", tc.reason, rep.Hub)
+		}
 	}
 }

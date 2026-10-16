@@ -122,11 +122,7 @@ func TestDoctorOutputForm(t *testing.T) {
 			failed := false
 			for _, c := range rep.Checks {
 				if !doctorIDKnown(c.ID) {
-					if p := doctorIDsPending[c.ID]; p != "" {
-						t.Logf("%s: %s replaces this id", c.ID, p)
-					} else {
-						t.Errorf("id %s is not registered (ux §5.2, doctor_ids.go)", c.ID)
-					}
+					t.Errorf("id %s is not registered (ux §5.2, doctor_ids.go)", c.ID)
 				}
 				switch c.Status {
 				case stOK, stInfo, stWarn, stFail, stUnknown:
@@ -150,18 +146,6 @@ func TestDoctorOutputForm(t *testing.T) {
 				t.Errorf("doctor failed instead of reporting: %v", err)
 			}
 		})
-	}
-}
-
-// The ids doctor may still print outside the register (ux §5.3, each until
-// its work item replaces it) may only go away: an id added there would pass
-// UX-T9a unregistered.
-func TestDoctorIDsPendingOnlyShrinks(t *testing.T) {
-	most := map[string]string{"auto_reply.sandbox": "v030-todo(EXE-7)"}
-	for id, p := range doctorIDsPending {
-		if most[id] != p {
-			t.Errorf("%s (%s) is let through unregistered; register it in doctor_ids.go (ux §5.2)", id, p)
-		}
 	}
 }
 

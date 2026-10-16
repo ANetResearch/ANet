@@ -917,23 +917,13 @@ func runAutoReply(c *client, rest []string) error {
 		body := map[string]any{}
 		// --egress-allow first: the list is checked here (CN-1) and an added host confirmed on the
 		// terminal before anything else is read or sent; it rides in the same request as the rest.
-		if _, ok := flags["egress-allow"]; ok && flags["backend"] == "" && flags["agent"] == "" {
-			cur, err := autoReplyNow(c)
-			if err != nil {
-				return err
-			}
-			if cur == nil {
-				needBackendFirst(a2ashape.Lang())
-				return errExit1
-			}
-		}
 		if v, ok := flags["trusted"]; ok && v == "direct" {
 			if err := confirmTrustedDirect(c); err != nil {
 				return err
 			}
 		}
 		if v, ok := flags["egress-allow"]; ok {
-			sandbox, err := egressAllowRequest(c, v, flags["api-base"])
+			sandbox, err := egressAllowRequest(c, v, flags["api-base"], flags["backend"] != "" || flags["agent"] != "")
 			if err != nil {
 				return err
 			}
@@ -1123,7 +1113,7 @@ var knownFlags = map[string][]string{
 	"version":  {},
 	"update":   {"check", "base"},
 	"init":     {"json"},
-	"doctor":   {"json"},
+	"doctor":   {"json", "apparmor-profile"},
 	"audit":    {"since", "peer", "interaction", "type", "json", "export"},
 
 	// through the daemon when it runs, from the data directory when not

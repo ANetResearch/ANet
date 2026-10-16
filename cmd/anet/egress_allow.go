@@ -36,7 +36,7 @@ const egressAllowUsage = `autoreply set --egress-allow host[,host…]   (--egres
 // egressAllowRequest reads --egress-allow (value v, other the API base the same command sets) and
 // returns the sandbox member of the /autoreply request, after the terminal confirmation that adding a
 // host needs. An error has been said already (errExit1) or is a usage error.
-func egressAllowRequest(c *client, v, apiBase string) (map[string]any, error) {
+func egressAllowRequest(c *client, v, apiBase string, configuring bool) (map[string]any, error) {
 	if v == "true" { // the flag without a value
 		return nil, usageError{egressAllowUsage}
 	}
@@ -53,9 +53,14 @@ func egressAllowRequest(c *client, v, apiBase string) (map[string]any, error) {
 		return nil, errExit1
 	}
 	if len(hosts) > 0 {
-		current, err := currentEgressAllow(c)
+		current, configured, err := currentEgressAllow(c)
 		if err != nil {
 			return nil, err
+		}
+		if !configured && !configuring {
+			// A list of hosts for a sandbox that is not configured yet: the backend comes first.
+			needBackendFirst(lang)
+			return nil, errExit1
 		}
 		var added []string
 		for _, h := range hosts {
@@ -80,13 +85,13 @@ func egressAllowRequest(c *client, v, apiBase string) (map[string]any, error) {
 }
 
 // currentEgressAllow is the allowlist the daemon holds now (/status auto_reply.sandbox.egress_allow).
-func currentEgressAllow(c *client) ([]string, error) {
+func currentEgressAllow(c *client) (list []string, configured bool, err error) {
 	b, code, err := c.fetch("/status", nil)
 	if err != nil {
-		return nil, diagnoseNoDaemon(c.base, c.dataDir, err)
+		return nil, false, diagnoseNoDaemon(c.base, c.dataDir, err)
 	}
 	if code != 200 {
-		return nil, fmt.Errorf("status: %s", strings.TrimSpace(string(b)))
+		return nil, false, fmt.Errorf("status: %s", strings.TrimSpace(string(b)))
 	}
 	var st struct {
 		AutoReply *struct {
@@ -96,12 +101,12 @@ func currentEgressAllow(c *client) ([]string, error) {
 		} `json:"auto_reply"`
 	}
 	if err := json.Unmarshal(b, &st); err != nil {
-		return nil, fmt.Errorf("status: %v", err)
+		return nil, false, fmt.Errorf("status: %v", err)
 	}
 	if st.AutoReply == nil {
-		return nil, nil
+		return nil, false, nil
 	}
-	return st.AutoReply.Sandbox.EgressAllow, nil
+	return st.AutoReply.Sandbox.EgressAllow, true, nil
 }
 
 // shellSafe is an argument a shell takes as it is.
