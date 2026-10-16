@@ -1114,7 +1114,9 @@ func (m *autoReplyModule) runSandboxed(ctx context.Context, req sandboxRequest) 
 		res.Egress = plan.egressSummary()
 	}
 	watch.end()
-	if watch.over.Load() {
+	if watch.over.Load() || errors.Is(err, errAgentOutputTooLarge) {
+		// The disk watch killed the run, or the agent printed past its output bound (agents.go): the
+		// run ended as resource, both directories go and the turn counts, since it ran.
 		execwork.RemoveTree(workDir)
 		return res, errSandboxResource
 	}

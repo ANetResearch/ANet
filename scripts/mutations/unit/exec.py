@@ -74,6 +74,25 @@ MUTS = [
   tests=[('ANet:./module/autoreply', 'TestCheckSandboxVsock')],
   full=['ANet:./module/autoreply'],
  ),
+ dict(
+  id='m-av-9', group='AV', repo='ANet',
+  desc='agent 的 stdout/stderr 不设上限(提示注入让 agent 死循环打印即可撑爆 daemon 堆,T-1 EXE F2)',
+  edits=[
+   ('module/autoreply/agents.go', '\tfull := room < len(p)\n', '\tfull := false\n'),
+   ('module/autoreply/agents.go', '\tif room > len(p) {\n\t\troom = len(p)\n\t}\n', '\troom = len(p)\n'),
+  ],
+  tests=[('ANet:./module/autoreply', 'TestAgentStdoutFloodIsCutAndKilled')],
+  full=['ANet:./module/autoreply'],
+ ),
+ dict(
+  id='m-av-9b', group='AV', repo='ANet',
+  desc='agent 的输出原样进日志(换行/ESC 可伪造日志行,T-1 EXE F5)',
+  edits=[
+   ('module/autoreply/agents.go', 'return fmt.Errorf("%s: %s", filepath.Base(bin), logText(msg, 400))', 'return fmt.Errorf("%s: %s", filepath.Base(bin), truncate(msg, 400))'),
+  ],
+  tests=[('ANet:./module/autoreply', 'TestAgentOutputInTheLogIsOneLine')],
+  full=['ANet:./module/autoreply'],
+ ),
  # --- EXE-2: the egress endpoint and the injection route (LEC §4.3.3, §4.3.4; SI-57) ---
  dict(
   id='m-bp-1', group='BP', repo='ANet',
