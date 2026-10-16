@@ -1299,3 +1299,50 @@ func TestEveryD1SentenceReachesBothClientsAlike(t *testing.T) {
 		t.Fatalf("only %d sentences of ux D1", n)
 	}
 }
+
+// TestProxyCardSignerOnlyWhenPayable: the proxy card declares a2a-x402 (this
+// node as the signer) only while the node can pay now, and a node that becomes
+// able to pay after the server started declares it without a restart or the
+// cache running out (MOD-2, K-11, m-mod-6).
+func TestProxyCardSignerOnlyWhenPayable(t *testing.T) {
+	e := newEnv(t)
+	e.seam.cards[agentA] = verifiedRemote(agentA)
+	declares := func() (bool, map[string]any) {
+		t.Helper()
+		resp, raw := e.raw("GET", agentsPath+"/"+agentA+"/.well-known/agent-card.json", map[string]string{"Authorization": "Bearer " + testToken}, "")
+		if resp.StatusCode != 200 {
+			t.Fatalf("card: %d %s", resp.StatusCode, raw)
+		}
+		var card a2a.AgentCard
+		if err := json.Unmarshal(raw, &card); err != nil {
+			t.Fatal(err)
+		}
+		for _, x := range card.Capabilities.Extensions {
+			if x.URI == a2ashape.X402ExtensionURI {
+				return true, x.Params
+			}
+		}
+		return false, nil
+	}
+
+	e.seam.mu.Lock()
+	e.seam.cannotPay = true // no payment module, or no hub yet
+	e.seam.mu.Unlock()
+	if ok, _ := declares(); ok {
+		t.Fatal("a node that cannot pay declares a2a-x402")
+	}
+	e.seam.mu.Lock()
+	e.seam.cannotPay = false // hub-register finished
+	e.seam.mu.Unlock()
+	ok, params := declares()
+	if !ok || params["signer"] != "anet-daemon" || params["clientPayload"] != false {
+		t.Fatalf("a node that can pay: declared %v, params %v", ok, params)
+	}
+
+	e.seam.mu.Lock()
+	e.seam.cannotPay = true
+	e.seam.mu.Unlock()
+	if ok, _ := declares(); ok {
+		t.Fatal("the declaration stayed after the node could no longer pay")
+	}
+}

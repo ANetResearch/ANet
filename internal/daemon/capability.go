@@ -446,7 +446,8 @@ func (d *Daemon) tryCapabilityPaid(ctx context.Context, interactionID, capID str
 			// done: "I cannot take your money, so I will not do it" is
 			// true, and doing it anyway is a decision nobody made.
 			res.Status = string(effect.Unavailable)
-			res.Message = errNoPayments().Error()
+			// What the caller is told says nothing of how this build is made.
+			res.Message = "this node cannot take payment now, so the paid capability was not run"
 			d.deliverCapabilityResult(ctx, interactionID, capID, ix, res, nil, resultOpts{reason: "payments_unavailable"})
 			return true
 		}

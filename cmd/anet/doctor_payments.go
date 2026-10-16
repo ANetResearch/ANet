@@ -7,6 +7,7 @@ import (
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
 	"github.com/ANetResearch/ANet/internal/daemon"
+	"github.com/ANetResearch/ANet/module"
 )
 
 // paymentsCardCheck is payments.card (ux §5.2, HPP §5.6): when this node
@@ -53,6 +54,32 @@ func paymentsCardCheck(say func(id, status, key string, args a2ashape.Args),
 		}
 		say("payments.card", stFail, reason, args)
 	}
+}
+
+// paymentsUnchargeableCheck is payments.unchargeable (MOD-2): this node has
+// capabilities with prices, public or for the allow and trust lists, and no
+// payment module to charge with, so every call to them is refused. A warning
+// that names how many and how the module is absent. The daemon counts them
+// (GET /status?doctor=1), because only it knows what its providers price;
+// nothing is told while it is not running, as the other payment checks that
+// ask it do not rule either way.
+func paymentsUnchargeableCheck(say func(id, status, key string, args a2ashape.Args), rep *doctorReport,
+	env doctorEnv, layout daemon.Layout, avail module.Availability) {
+	reason := avail.Absence("x402")
+	if reason == "" {
+		return
+	}
+	st, ok := runtimeStatusQuiet(env, rep, layout)
+	if !ok {
+		return
+	}
+	c, _ := st["payments_unchargeable"].(map[string]any)
+	n, _ := c["n"].(float64)
+	if n < 1 {
+		return
+	}
+	say("payments.unchargeable", stWarn, "payments.unchargeable",
+		a2ashape.Args{"n": int(n), "m": "x402", "reason": reason})
 }
 
 // paymentsAuditCheck is payments.audit (HPP §5.6): the newest row of the

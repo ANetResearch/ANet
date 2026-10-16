@@ -384,7 +384,9 @@ func addTaskTools(s *mcp.Server, c Control) {
 			"When the quote offers several options, pass the one you chose as `accept`, copied " +
 			"unchanged from x402.payment.required.accepts. Check get_balance first. The answer is " +
 			"the decision, not the task: x402.payment.status payment-submitted means the payment " +
-			"was sent, not that it settled or that the work was done — follow the task with wait_task.",
+			"was sent, not that it settled or that the work was done — follow the task with wait_task. " +
+			"A node without its payment module answers module_absent and signs nothing: tell the user " +
+			"that sentence as it is; do not suggest anet pay, which cannot work there.",
 		Annotations: spends(),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in payIn) (*mcp.CallToolResult, any, error) {
 		if in.TaskID == "" {

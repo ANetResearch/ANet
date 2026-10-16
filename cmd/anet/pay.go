@@ -345,13 +345,10 @@ func limitsPrompt(c *client, set map[string]uint64) (string, error) {
 // The payee is the hub's AID, sent as pay_to: the daemon signs only to that
 // hub, refusing when the node settles on another by then (a hub-register in
 // between), so what the operator confirmed and what is signed cannot
-// differ. A build without the payment module says so before anything is
-// asked.
+// differ. A node without the payment module says so before anything is
+// asked (runClient).
 func runRedeem(c *client, rest []string) error {
 	const use = "anet redeem <amount> [--ref R]"
-	if !paymentsCompiled() {
-		return errNoPaymentModule
-	}
 	pos, flags := splitFlags(rest)
 	if len(pos) < 1 {
 		return usageError{use}

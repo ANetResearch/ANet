@@ -54,6 +54,16 @@ type fakeSeam struct {
 	ext map[string]fakeExt
 	// extCalls counts ExtendedCard calls.
 	extCalls int
+	// cannotPay is what CanPay denies (a node without a payment module, or
+	// without a hub); a test may change it while the server runs.
+	cannotPay bool
+}
+
+// CanPay is TaskSeam.CanPay: true unless the test says the node cannot.
+func (f *fakeSeam) CanPay() bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return !f.cannotPay
 }
 
 // fakeExt is one scripted answer of ExtendedCard.

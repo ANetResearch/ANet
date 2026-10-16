@@ -55,10 +55,6 @@ func redeemDaemon(t *testing.T, hubAID string) (*client, func() []string, func()
 // Without a terminal nothing reaches the daemon; without "yes", nothing
 // is redeemed.
 func TestRedeemSendsThePayeeItShowed(t *testing.T) {
-	// The flow of a build with the payment module, in any build.
-	prev := paymentsCompiled
-	t.Cleanup(func() { paymentsCompiled = prev })
-	paymentsCompiled = func() bool { return true }
 	const hub = "bafyreihub00000000000"
 	c, paths, body := redeemDaemon(t, hub)
 	withTTY(t, "")
@@ -86,27 +82,5 @@ func TestRedeemSendsThePayeeItShowed(t *testing.T) {
 	}
 	if b := body(); b["pay_to"] != hub || b["amount"] != 7.0 || b["reference"] != "invoice 7" {
 		t.Fatalf("/redeem body %v, want pay_to %s", b, hub)
-	}
-}
-
-// A build without the payment module says so before it asks anything: no
-// terminal is opened and the daemon is not asked. [mut] the check after
-// ttyConfirm → the operator is asked to confirm a redemption that cannot
-// happen, and this is red.
-func TestRedeemWithoutThePaymentModuleDoesNotAsk(t *testing.T) {
-	prev := paymentsCompiled
-	t.Cleanup(func() { paymentsCompiled = prev })
-	paymentsCompiled = func() bool { return false }
-	c, paths, _ := redeemDaemon(t, "bafyreihub00000000000")
-	prevTTY := openTTY
-	t.Cleanup(func() { openTTY = prevTTY })
-	opened := false
-	openTTY = func() (io.ReadWriteCloser, error) { opened = true; return nil, errors.New("asked") }
-	err := runRedeem(c, []string{"7"})
-	if !errors.Is(err, errNoPaymentModule) || !strings.Contains(err.Error(), "no payment module") {
-		t.Fatalf("redeem without the payment module: %v", err)
-	}
-	if opened || len(paths()) != 0 {
-		t.Fatalf("terminal opened %v, daemon asked %v", opened, paths())
 	}
 }

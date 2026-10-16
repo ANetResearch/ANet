@@ -208,7 +208,7 @@ func (d *Daemon) recordQuote(ctx context.Context, ix *interactions.Interaction, 
 	announce bool) error {
 	p := d.payer()
 	if p == nil {
-		return errNoPayments()
+		return d.noPayments()
 	}
 	pr := p.Quote(capID, price)
 	if pr == nil || len(pr.Accepts) == 0 {
@@ -1047,6 +1047,9 @@ func (d *Daemon) triesAutoPay(pp *providerPayment) bool {
 func (d *Daemon) afterProviderPayment(ctx context.Context, ixID string, pp *providerPayment, announce func()) {
 	switch {
 	case pp.status == x402a2a.StatusRequired && pp.quoted:
+		if d.payer() == nil {
+			d.noteNoPayer(ixID)
+		}
 		auto := d.triesAutoPay(pp)
 		if !auto {
 			d.publishState(ixID)
@@ -1085,6 +1088,7 @@ func (d *Daemon) afterProviderPayment(ctx context.Context, ixID string, pp *prov
 // One the cache can answer is taken here, before the status is announced.
 func (d *Daemon) autoPay(ctx context.Context, ixID string, resend bool, announce func()) {
 	if d.payer() == nil {
+		d.noteNoPayer(ixID)
 		announce()
 		return
 	}
@@ -1098,6 +1102,26 @@ func (d *Daemon) autoPay(ctx context.Context, ixID string, resend bool, announce
 	}
 	d.autoPayNow(ctx, ixID, resend)
 	announce()
+}
+
+// noteNoPayer keeps, for a quote this node cannot pay because it has no
+// payment module, the sentence that says so (MOD-2): module_absent.payment
+// names no `anet pay`, which would fail, and says to cancel the task if the
+// price is not wanted. Nothing is declined, signed or sent to the payee:
+// doing nothing is the failing-closed answer.
+func (d *Daemon) noteNoPayer(ixID string) {
+	ix, err := d.ix.Get(ixID)
+	if err != nil || ix.Role != interactions.RoleOutbound || ix.IsTerminal() {
+		return
+	}
+	n := a2ashape.PayNote{Code: "module_absent.payment", Peer: ix.PeerAID, At: d.now().UTC()}
+	if ref := d.noPayments(); ref != nil {
+		n.Why, _ = ref.Args["reason"].(string)
+	}
+	if pr := storedQuote(ix); pr != nil {
+		n.Amount = quoteAmount(pr.Accepts[0])
+	}
+	d.storePayNote(ixID, n)
 }
 
 // autoPayNow is autoPay's decision, here and now.
@@ -1498,6 +1522,11 @@ func plainText(s string, max int) string {
 // spending policy (§8.6). The control plane (/tasks/pay, /tasks/pay-manual)
 // and the local A2A interface call this.
 func (d *Daemon) PayTask(ctx context.Context, req PayRequest) (PayOutcome, error) {
+	if d.payer() == nil {
+		// Before anything of the task is read: a node without a payment
+		// module answers module_absent whatever the task (MOD-2).
+		return PayOutcome{TaskID: req.TaskID}, d.noPayments()
+	}
 	unlock := d.outboxLocks.lock("pay:" + req.TaskID)
 	defer unlock()
 	ix, err := d.ix.Get(req.TaskID)
@@ -1537,9 +1566,6 @@ func (d *Daemon) PayTask(ctx context.Context, req PayRequest) (PayOutcome, error
 		return out, ErrQuoteExpired
 	}
 	p := d.payer()
-	if p == nil {
-		return out, errNoPayments()
-	}
 	pr := storedQuote(ix)
 	if pr == nil {
 		return out, ErrNoQuote
@@ -2078,7 +2104,7 @@ func (d *Daemon) planReceipts(ixID string, m map[string]any, afterTerminal bool)
 		verified := false
 		switch {
 		case p == nil:
-			entry["refused"] = "this build has no payment module to check the receipt with"
+			entry["refused"] = moduleAbsent + ".payment: no payment module to check the receipt with"
 		case enc == "":
 			entry["refused"] = "the settlement carries no hub receipt"
 		default:

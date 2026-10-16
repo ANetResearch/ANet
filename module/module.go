@@ -286,6 +286,13 @@ type TaskSeam interface {
 	// authorization within the agent-tier limits and sends it; reject
 	// declines. The purpose is always task-agent.
 	Pay(ctx context.Context, peerAID, taskID string, decision PayDecision) (Task, error)
+	// CanPay reports whether this node can sign a payment and settle it
+	// now: a payment module that is available, a hub address, and the
+	// hub's AID. It is worked out at each call and never kept (K-11): a
+	// node registers at its hub after it starts, so the answer changes
+	// while the interface runs. The proxy card declares a2a-x402 only when
+	// it is true.
+	CanPay() bool
 }
 
 // WatchOpts are what a subscriber asks of Watch.
