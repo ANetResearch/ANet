@@ -431,3 +431,22 @@ func TestRevocationListFullRotatesMbox(t *testing.T) {
 		t.Fatal("the new mailbox key is not reported registered")
 	}
 }
+
+// RT-SSRC-14: a hub that keeps answering revocation_list_full does not make
+// the node replace its mailbox key again within listFullMinGapMS.
+func TestRevocationListFullRotatesOncePerWindow(t *testing.T) {
+	keepRevokeLoopOut(t)
+	keepMboxLoopOut(t)
+	srv, _, prov := registeredPair(t)
+	ctx := context.Background()
+	before := currentMbox(t, prov)
+	if err := prov.revocationListFull(ctx, srv.URL); err != nil {
+		t.Fatal(err)
+	}
+	if err := prov.revocationListFull(ctx, srv.URL); err == nil {
+		t.Fatal("a second replacement inside the window was not refused")
+	}
+	if after := currentMbox(t, prov); after.Epoch != before.Epoch+1 {
+		t.Fatalf("the mailbox key %d → %d, want one replacement", before.Epoch, after.Epoch)
+	}
+}

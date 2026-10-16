@@ -35,6 +35,10 @@ type Daemon struct {
 	// is the seq of the key set the hub last confirmed holding.
 	enc             *encKeyRing
 	publishedKeySeq atomic.Uint64
+	// listFullRotatedAt is when revocationListFull last replaced the mailbox
+	// key (unix ms), so a hub that keeps answering list-full does not make
+	// this node replace it again and again (RT-SSRC-14).
+	listFullRotatedAt atomic.Uint64
 	// clk is what the clock gate knows besides the ring: the latest check
 	// against the hub and the previous maintenance period (enckeys.go).
 	clk clockState

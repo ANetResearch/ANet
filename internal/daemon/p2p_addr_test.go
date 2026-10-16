@@ -97,6 +97,7 @@ func TestReachableNeedsContactGrantWithAddr(t *testing.T) {
 			// without one, as caps_held would hold it.
 			h.P2P = ""
 		}
+		allowPeers(t, d, aid)
 		putHeld(t, d, h)
 		got, ok := p2pHost(d).P2PAddr(aid)
 		if ok != c.want || (ok && got != addr) {
@@ -153,6 +154,7 @@ func TestP2PAddrLiteralPrecheck(t *testing.T) {
 		}
 		for i, c := range cases {
 			aid := "bafyreipeer" + strings.Repeat("q", i+1)
+			allowPeers(t, d, aid)
 			putHeld(t, d, interactions.HeldCap{Issuer: aid, Scope: "peer", CapID: bytes.Repeat([]byte{byte(i + 1)}, seal.CapIDLen),
 				Class: seal.CapClassContact, P2P: c.addr})
 			want := c.off

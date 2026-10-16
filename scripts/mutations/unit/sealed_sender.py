@@ -385,7 +385,7 @@ MUTS += [
 
 # ---- the hub's directory buckets and registry (SS-5; repo ANetHub): M20 and M31 on the hub side,
 # SSR-W17-W19, SSR-H17, SSR-H18, the bucket route's limit and the removed lookup routes.
-DIR_T = [('ANetHub:./internal/aghub', '^(TestDirMaxBitsProperty|TestDirMaxBitsIsComputedAgainHourly|TestBucketTooNarrow|'
+DIR_T = [('ANetHub:./internal/aghub', '^(TestMaxBitsCountsALocalAgentWithAPeerCardOnce|TestDirMaxBitsProperty|TestDirMaxBitsIsComputedAgainHourly|TestBucketTooNarrow|'
           'TestBucketPrefixFormat|TestBucketPagination8MiB|TestBucketRateLimit|TestDirEntryTooLargeSkipped|'
           'TestDirBoxRecomputedOnChange|TestDirectoryHidesEveryEntry|TestMaxBitsCountsPeerCardsButBucketsDoNot|'
           'TestDirEntryCarriesTheResignedKeySet|TestDirEntryCarriesACardListedAgain|TestDirEntryTooLargeBoundary|'
@@ -702,9 +702,8 @@ MUTS += [
   edits=[('internal/aghub/session.go', '\theld, registered, err := s.store.registeredKEL(au.AID)\n',
           '\theld, registered, err := au.KEL, true, error(nil)\n')],
   tests=PROP_T('TestASessionOpenedDuringADropEndsWithIt'), full=[AGHUB]),
- dict(id='ss4-exp-unstorable', group='SS-4', repo='ANetHub', desc='存不下的外层 exp 答 500 internal 而不是 400 bad_envelope',
-  edits=[('internal/aghub/server.go', '\tcase errors.Is(err, ErrBadEnvelope):\n', '\tcase false && errors.Is(err, ErrBadEnvelope):\n')],
-  tests=PROP_T('TestAnOuterExpiryBeyondTheTableIsRefused'), full=[AGHUB]),
+ # ss4-exp-unstorable removed: an equivalent mutant (the HTTP layer refuses an oversized exp before the
+ # enqueue, so the ErrBadEnvelope branch is unreachable through HTTP).
  dict(id='ss4-mailbox-bytes', group='SS-4', repo='ANetHub', desc='信箱总量只按条数限,不按字节',
   edits=[('internal/aghub/relay.go', 'if n+1 > s.quota.messages || total+size > s.quota.bytes {', 'if n+1 > s.quota.messages {')],
   tests=SEND_T('10'), full=[AGHUB]),
@@ -1036,7 +1035,8 @@ MUTS += [
   edits=[('internal/daemon/relay.go', '\t\tif env, derr := hubapi.DecodeB64(m.Envelope, -1); derr != nil {', '\t\tif env, derr := base64.StdEncoding.DecodeString(m.Envelope); derr != nil {')],
   tests=[('ANet:./internal/daemon', '^TestDaemonDecodesHubBinaryAsBase64URL$')], full=S9_FULL),
  dict(id='ss9-b64-identity', group='SS-9', repo='ANet', desc='hub 身份的 KEL 兼收标准 base64',
-  edits=[('internal/daemon/hub_client.go', '\traw, err := hubapi.DecodeB64(out.KEL, -1)\n\tif err != nil || out.AID == "" {',
+  edits=[('internal/daemon/hub_client.go', 'import (\n\t"bytes"\n', 'import (\n\t"bytes"\n\t"encoding/base64"\n'),
+          ('internal/daemon/hub_client.go', '\traw, err := hubapi.DecodeB64(out.KEL, -1)\n\tif err != nil || out.AID == "" {',
           '\traw, err := hubapi.DecodeB64(out.KEL, -1)\n\tif err != nil {\n\t\traw, err = base64.StdEncoding.DecodeString(out.KEL)\n\t}\n\tif err != nil || out.AID == "" {')],
   tests=[('ANet:./internal/daemon', '^TestDaemonDecodesHubBinaryAsBase64URL$')], full=S9_FULL),
  # ---- the task board is gone
@@ -1199,7 +1199,7 @@ MUTS += [
   tests=FED6_T(['TestFedCardsV3', 'TestFedCardsV3ReadsOnlyBase64URL']), full=FED6_FULL),
  dict(id='ss6-notice-kept', group='SS-6', repo='ANetHub', desc='对端卡片条目的见证通告不保存',
   edits=[('internal/aghub/fed_a2acard.go', 'fedNoticeToStore(states[len(states)-1], e.Notice), home,', 'nil, home,')],
-  tests=HUB6_T(['TestTheCardStreamCarriesTheNotice']), full=FED6_FULL),
+  tests=HUB6_T(['TestTheCardStreamCarriesTheNotice', 'TestFedNoticeToStoreKeepsOnlyNoticeSized']), full=FED6_FULL),
  dict(id='ss6-notice-any', group='SS-6', repo='ANetHub', desc='对端卡片条目的见证通告不核对是否关于该 agent',
   # Re-pointed by KEL-6: the row keeps a notice only about the tip of the KEL it came with, which names
   # the agent too; dropping that check keeps another agent's notice.
@@ -1589,7 +1589,8 @@ MUTS += [
           '\t"grant", "dack", "会话 MAC", "seal", "首联"}')],
   tests=[('ANet:./internal/a2ashape', '^TestTheHubCannotTellIsNeverPromised$')], full=['ANet:./internal/a2ashape']),
  dict(id='ss12-b64-fixed', group='SS-12', repo='ANet', desc='hub 身份的 KEL 以标准 base64 也被钉住(TestDaemonDecodesHubBinaryAsBase64URL 不再跳过)',
-  edits=[('internal/daemon/hub_client.go', '\traw, err := hubapi.DecodeB64(out.KEL, -1)\n\tif err != nil || out.AID == "" {\n\t\treturn "", nil, fmt.Errorf("anet: hub %s served an unreadable identity", key)',
+  edits=[('internal/daemon/hub_client.go', 'import (\n\t"bytes"\n', 'import (\n\t"bytes"\n\t"encoding/base64"\n'),
+          ('internal/daemon/hub_client.go', '\traw, err := hubapi.DecodeB64(out.KEL, -1)\n\tif err != nil || out.AID == "" {\n\t\treturn "", nil, fmt.Errorf("anet: hub %s served an unreadable identity", key)',
           '\traw, err := hubapi.DecodeB64(out.KEL, -1)\n\tif err != nil {\n\t\traw, err = base64.StdEncoding.DecodeString(out.KEL)\n\t}\n\tif err != nil || out.AID == "" {\n\t\treturn "", nil, fmt.Errorf("anet: hub %s served an unreadable identity", key)')],
   tests=[('ANet:./internal/daemon', '^TestDaemonDecodesHubBinaryAsBase64URL$')], full=S12_FULL),
 ]
