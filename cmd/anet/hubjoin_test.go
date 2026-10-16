@@ -119,6 +119,7 @@ func TestHubRegisterWithoutATerminal(t *testing.T) {
 	pending := joinAnswer(daemon.JoinPendingAdmission, "hub_pending_admission", a2ashape.Args{"hub": testHub, "aid": testAID}, true)
 	hc := &hubControl{dryStatus: 200, dry: dryJoin(), joinStatus: 200, join: pending}
 	c := hc.serve(t, nil)
+	c.dataDir, _ = freshIdentityDir(t)
 	h, out, errb := testHubCLI(nil)
 	if err := h.hubRegister(c, []string{testHub, "--name", "coder", "--caps", "a,b"}); err != nil {
 		t.Fatalf("exit: %v", err)
@@ -152,9 +153,9 @@ func TestHubRegisterUnreachable(t *testing.T) {
 	c := hc.serve(t, nil)
 	asked := false
 	prev := joinRecovery
-	joinRecovery = func(string, bool, map[string]string) ([]byte, bool, error) {
+	joinRecovery = func(hubCLI, string, string, map[string]string) ([]byte, bool, func(), error) {
 		asked = true
-		return prev("", false, nil)
+		return nil, false, nil, errors.New("must not be asked")
 	}
 	t.Cleanup(func() { joinRecovery = prev })
 	h, out, errb := testHubCLI(nil)
@@ -186,6 +187,7 @@ func TestHubRegisterExitStatus(t *testing.T) {
 	} {
 		hc := &hubControl{dryStatus: 200, dry: dryJoin(), joinStatus: 200, join: joinAnswer(c.state, c.reason, args, false)}
 		cl := hc.serve(t, nil)
+		cl.dataDir, _ = freshIdentityDir(t)
 		h, out, _ := testHubCLI(nil)
 		if err := h.hubRegister(cl, []string{testHub}); err != c.want {
 			t.Errorf("%s: %v, want %v", c.reason, err, c.want)
@@ -236,6 +238,7 @@ func TestHubRegisterIgnoresANETINVITE(t *testing.T) {
 	hc := &hubControl{dryStatus: 200, dry: dryJoin(), joinStatus: 200,
 		join: joinAnswer(daemon.JoinRegistered, "registered", a2ashape.Args{"hub": testHub}, false)}
 	c := hc.serve(t, nil)
+	c.dataDir, _ = freshIdentityDir(t)
 	h, _, errb := testHubCLI(map[string]string{"ANET_INVITE": "anetinv_SECRET"})
 	if err := h.hubRegister(c, []string{testHub}); err != nil {
 		t.Fatal(err)
@@ -300,6 +303,7 @@ func TestHubRegisterExitStatusOfTheBinary(t *testing.T) {
 			if c.dry != 200 {
 				hc.dry = a2ashape.Refuse("hub_unreachable", a2ashape.Args{"hub": testHub}).Body(a2ashape.English)
 			}
+			writeTestIdentity(t, h.data)
 			hc.serve(t, h)
 			stdout, stderr, code := runCLI(t, h, c.args)
 			if code != c.code || len(hc.requests()) != c.asked {

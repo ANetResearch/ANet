@@ -94,7 +94,11 @@ func main() {
 		fail(runUp(idFlag, rest))
 	case "stop", "down": // graceful shutdown: `anet stop [name] [--all]`
 		fail(runStop(idFlag, rest))
-	case "id", "ids", "identity": // manage named identities on this machine
+	case "id", "ids", "identity": // manage named identities on this machine, and the keys of one (KEL-10)
+		if len(rest) > 0 && identitySubcommands[rest[0]] {
+			fail(runIdentity(layout, explicit, rest[0], rest[1:]))
+			return
+		}
 		fail(runID(rest))
 	case "version", "--version", "-v":
 		fmt.Printf("anet %s (commit %s, built %s)\n",
@@ -243,7 +247,18 @@ func runDaemon(layout daemon.Layout) {
 		defer lf.Close()
 	}
 	d, err := daemon.New(layout)
+	if errors.Is(err, daemon.ErrDataLockHeld) {
+		_ = refuseBusyDaemon(layout)
+		os.Exit(1)
+	}
 	if err != nil {
+		var cr *daemon.ConfigRefusal
+		if errors.As(err, &cr) {
+			for _, s := range cr.Sentences(a2ashape.Lang()) {
+				fmt.Fprintln(os.Stderr, s)
+			}
+			os.Exit(1)
+		}
 		fmt.Fprintln(os.Stderr, "daemon: start:", err)
 		os.Exit(1)
 	}
@@ -328,6 +343,21 @@ func localDaemonUp(layout daemon.Layout) bool {
 	return up
 }
 
+// probeTimeout is how long the probe of a daemon's control plane waits.
+const probeTimeout = 1500 * time.Millisecond
+
+// refuseBusyDaemon says daemon_not_answering when a daemon holds the data directory without answering
+// the probe: the caller then starts nothing and changes nothing (KEL-10).
+func refuseBusyDaemon(layout daemon.Layout) error {
+	if !daemon.DataLockHeld(layout) {
+		return nil
+	}
+	lang := a2ashape.Lang()
+	args := a2ashape.Args{"path": layout.Root, "dur": probeTimeout}
+	say(os.Stderr, a2ashape.Sentence("daemon_not_answering", lang, args), a2ashape.Next("daemon_not_answering", lang, args))
+	return errExit1
+}
+
 // probeLocalDaemon is localDaemonUp with the reason it is not up, when there is one worth telling.
 //
 // It runs as the first step of `anet up`, which is exactly when the daemon is not holding its port and
@@ -348,7 +378,7 @@ func probeLocalDaemon(layout daemon.Layout) (bool, error) {
 	c := &client{
 		base:    "http://" + addr,
 		token:   strings.TrimSpace(string(tb)),
-		timeout: 1500 * time.Millisecond,
+		timeout: probeTimeout,
 	}
 	_, code, e := c.fetch("/status", nil)
 	return e == nil && code == 200, e
@@ -369,6 +399,10 @@ func runDaemonDetached(layout daemon.Layout) error {
 		// sent; the daemon moves to a free port and records it in config.json, which every later
 		// command reads.
 		fmt.Fprintf(os.Stderr, "note: %v\n      starting the daemon on another port\n", perr)
+	}
+	// A daemon that holds the data directory and does not answer is not started a second time.
+	if err := refuseBusyDaemon(layout); err != nil {
+		return err
 	}
 	// The child would refuse the same config.json; say why here, not after the readiness poll.
 	if err := refuseConfig(layout); err != nil {
@@ -623,7 +657,7 @@ func runID(rest []string) error {
 	case "rm", "remove", "delete":
 		return idRm(rest)
 	default:
-		return usageError{fmt.Sprintf("anet id ls|new|use|rm  (%q is none of them)", printable(sub, 64))}
+		return usageError{fmt.Sprintf("%s  (%q is none of them)", identityUsage, printable(sub, 64))}
 	}
 }
 
@@ -730,6 +764,7 @@ func idRm(rest []string) error {
 	if !layout.Initialized() {
 		return fmt.Errorf("no identity %q to remove", name)
 	}
+	rmWarnings(layout, a2ashape.Lang())
 	if flags["purge"] != "true" {
 		fmt.Printf("This will PERMANENTLY delete identity %q and its key/history:\n  %s\n", name, layout.Root)
 		fmt.Printf("Re-run with --purge to confirm:  anet id rm %s --purge\n", name)
@@ -1069,9 +1104,9 @@ var knownFlags = map[string][]string{
 	"up":       {"detach", "all"},
 	"stop":     {"all"},
 	"down":     {"all"},
-	"id":       {"purge", "all"},
-	"ids":      {"purge", "all"},
-	"identity": {"purge", "all"},
+	"id":       {"purge", "all", "json", "new-recovery", "emergency", "recovery-file", "hub", "name"},
+	"ids":      {"purge", "all", "json", "new-recovery", "emergency", "recovery-file", "hub", "name"},
+	"identity": {"purge", "all", "json", "new-recovery", "emergency", "recovery-file", "hub", "name"},
 	"agents":   {"all", "refresh", "a2a"},
 	"verify":   {"receipt", "kel", "result", "hub", "attestation", "chain", "head"},
 	"logs":     {"all"},

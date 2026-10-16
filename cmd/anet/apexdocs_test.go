@@ -305,10 +305,8 @@ func TestSiteJSONSource(t *testing.T) {
 func TestSiteJSONCommandsInHelp(t *testing.T) {
 	h := apexReadHelp(t)
 	s := apexSiteSource(t)
-	// v030-todo(KEL-10): `anet identity protect` (KEL L-10) is in the hint
-	// before it is in the help; KEL-10 deletes this entry.
-	pending := map[string]string{"identity protect": "KEL-10"}
 	var waiting []string
+	pending := map[string]string{}
 	seen := 0
 	for _, field := range []struct {
 		name, text string

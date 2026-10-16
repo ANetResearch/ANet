@@ -28,7 +28,7 @@ var doctorIDs = []doctorID{
 	{id: "control"},
 	{id: "control.token"},
 	{id: "identity"},
-	{id: "identity.format", keys: []string{"identity_v02", "datadir_too_new"}},
+	{id: "identity.format", keys: []string{"identity_v02", "datadir_too_new", "identity_file_invalid"}},
 	// identity.witness says /identity/status's sentence: in no_hub the hub
 	// row's (ux UX-C9), and while a key event is published rotation_pending
 	// or clock_skew.
