@@ -101,5 +101,3 @@ func TestAutoReplyEgressAllowRoute(t *testing.T) {
 		t.Errorf("policy changes %q", changes)
 	}
 }
-
-

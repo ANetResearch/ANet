@@ -42,8 +42,6 @@ echo "EXEC-OK: processed delegation"
 	}
 }
 
-
-
 func contains(s, sub string) bool {
 	return len(sub) == 0 || (len(s) >= len(sub) && stringIndex(s, sub) >= 0)
 }
@@ -56,4 +54,3 @@ func stringIndex(s, sub string) int {
 	}
 	return -1
 }
-

@@ -115,10 +115,6 @@ func checkBudgetRefusal(t *testing.T, req *Daemon, ix string) {
 	}
 }
 
-
-
-
-
 // slotReplier answers after a while and records how many turns it answers at once, in all and per
 // interaction's peer.
 type slotReplier struct {
@@ -150,21 +146,6 @@ func (r *slotReplier) Reply(ctx context.Context, rc replyContext, _ []chatTurn) 
 	r.mu.Unlock()
 	return "answered", nil
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 func jsonString(s string) string {
 	b, _ := json.Marshal(s)
@@ -254,5 +235,3 @@ func TestTrustedAndBudgetChangesAreRecorded(t *testing.T) {
 		t.Errorf("the auto_reply record: %s", got["auto_reply"])
 	}
 }
-
-

@@ -31,14 +31,6 @@ func realSandboxFixture(t *testing.T, stub string) *autoReplyFixture {
 		Untrusted: UntrustedSandbox, APITimeoutSeconds: 60}, nil)
 }
 
-
-
-
-
-
-
-
-
 // noSandbox makes the host's sandbox unavailable for the test, and returns the local reason a refused
 // run is recorded with: no bubblewrap.
 func noSandbox(t *testing.T) string {

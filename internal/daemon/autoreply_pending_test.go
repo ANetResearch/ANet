@@ -394,8 +394,6 @@ func TestOpenAIReplierStreamsOnlyWhenAskedAndAgrees(t *testing.T) {
 	}
 }
 
-
-
 // CUX-P5, TestStreamFailureNoRecall: a failed stream is one failed call.
 // There is no second call without stream, and the requester gets
 // backend_failed.

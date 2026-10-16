@@ -22,10 +22,8 @@ import (
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 )
 
-
 // liveRoute is the injection route's address in the sandbox, as the agents' configuration must name it.
 func liveRoute(name string) string { return "http://127.0.0.1:3128/anet-upstream/" + name }
-
 
 // readAgentConfig reads the model service address, pinned model and key out of the configuration file an
 // agent's prepare wrote (raw), parsed as the agent parses it, and checks the rest of what the file must
@@ -143,11 +141,6 @@ func yamlJSONValues(t *testing.T, s string) map[string]string {
 	return out
 }
 
-
-
-
-
-
 // openCodeArgsStub parses its arguments as opencode run does (what follows "--" joins the message): --model takes a
 // value, any other argument starting with "-" before "--" is an option it does not know (an error), the
 // other words and everything after "--" are the message. It writes the message beside itself.
@@ -207,4 +200,3 @@ p.add_argument("-v", "--version", action="store_true")
 ns = p.parse_args(sys.argv[1:])
 print(json.dumps(ns.oneshot))
 `
-

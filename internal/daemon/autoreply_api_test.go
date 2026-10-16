@@ -46,21 +46,11 @@ func statusOf(t *testing.T, d *Daemon) (map[string]any, string) {
 	return out, rec.Body.String()
 }
 
-
 func sameAutoReply(a, b AutoReplyConfig) bool {
 	ja, _ := json.Marshal(a)
 	jb, _ := json.Marshal(b)
 	return bytes.Equal(ja, jb)
 }
-
-
-
-
-
-
-
-
-
 
 func readTokenFile(t *testing.T, path string) string {
 	t.Helper()
@@ -74,4 +64,3 @@ func readTokenFile(t *testing.T, path string) string {
 	}
 	return strings.TrimSpace(string(b))
 }
-

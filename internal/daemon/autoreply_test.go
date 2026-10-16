@@ -193,7 +193,6 @@ func TestAutoReplyVisionRoundTrip(t *testing.T) {
 	}
 }
 
-
 // TestAutoReplyOutbound verifies auto-reply is symmetric: when WE delegated a task (an outbound thread)
 // and the peer replies, our autopilot answers too — not only when others delegate to us.
 func TestAutoReplyOutbound(t *testing.T) {
@@ -312,7 +311,6 @@ func TestAutoReplyDoneSentinelProposesEnd(t *testing.T) {
 	}
 }
 
-
 // outboxReplier is a test backend that drops a file in rc.Outbox (like the exec agent delivering an
 // artifact) and returns its reply text — exercising the daemon's outbox → attachment path.
 type outboxReplier struct {
@@ -381,8 +379,6 @@ func execStub(t *testing.T) (runs func() int) {
 		return strings.Count(string(b), "run")
 	}
 }
-
-
 
 // sleepyReplier answers after a while, as an exec agent doing real work
 // does.
