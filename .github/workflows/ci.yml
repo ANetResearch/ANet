@@ -142,22 +142,23 @@ jobs:
           - "no_mcp"
           - "no_x402"
           - "no_preview"
+          - "no_autoreply"
           # Alone, so MCP stays in: the build an A2A-less agent tool uses.
           # The symbol pattern is the special case in scripts/tagcheck.sh
           # (module/a2a|a2aproject/a2a-go); until module/a2a is in the tree
           # only "nothing of it in the lean build" is checked.
           - "no_a2a"
-          - "no_a2a,no_x402,no_service,no_mcp,no_cas,no_org,no_blackboard,no_p2p,no_anetlink,no_preview"
+          - "no_a2a,no_x402,no_service,no_mcp,no_cas,no_org,no_blackboard,no_p2p,no_anetlink,no_preview,no_autoreply"
           # The self-build recipes, as `bash scripts/tagcheck.sh recipes`
           # prints them; TestRecipesMatchCI compares these five rows with
           # that output (full is the default build and takes no tags).
           # A design naming combinations nobody builds is a design that
           # will stop compiling without anyone noticing.
-          - "no_a2a,no_anetlink,no_blackboard,no_cas,no_mcp,no_org,no_p2p,no_preview,no_service,no_x402"
-          - "no_anetlink,no_blackboard,no_cas,no_mcp,no_org,no_p2p,no_preview,no_x402"
-          - "no_anetlink,no_blackboard,no_cas,no_mcp,no_org,no_p2p,no_preview"
-          - "no_anetlink,no_blackboard,no_cas,no_org,no_p2p,no_preview,no_x402"
-          - "no_anetlink,no_blackboard,no_cas,no_mcp,no_org,no_preview,no_x402"
+          - "no_a2a,no_anetlink,no_autoreply,no_blackboard,no_cas,no_mcp,no_org,no_p2p,no_preview,no_service,no_x402"
+          - "no_anetlink,no_autoreply,no_blackboard,no_cas,no_mcp,no_org,no_p2p,no_preview,no_x402"
+          - "no_anetlink,no_autoreply,no_blackboard,no_cas,no_mcp,no_org,no_p2p,no_preview"
+          - "no_anetlink,no_autoreply,no_blackboard,no_cas,no_org,no_p2p,no_preview,no_x402"
+          - "no_anetlink,no_autoreply,no_blackboard,no_cas,no_mcp,no_org,no_preview,no_x402"
           # Reserved for the anet3 subsystems as they land. Each name is
           # claimed here first so the seam is enforced from the module's
           # first commit rather than retrofitted after it has spread:
@@ -263,7 +264,7 @@ jobs:
       CGO_ENABLED: "0"
       TMPDIR: /tmp
       # The packages the sandbox tests live in, twice (see the `sandbox` job).
-      SANDBOX_PKGS: ./internal/daemon/ ./internal/daemon/
+      SANDBOX_PKGS: ./module/autoreply/... ./internal/daemon/
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -298,9 +299,9 @@ jobs:
             grep -q -- "--- PASS: $t" /tmp/seatbelt.out || { echo "$t did not run" >&2; exit 1; }
           done
       - name: init, the keyed egress endpoint and doctor on macOS
-        run: go test -count=1 -run 'SandboxInit|SandboxSpec|EgressKeyed|EgressUnkeyed|SandboxEgressEnv|Doctor' ./internal/daemon/ ./cmd/anet/
+        run: go test -count=1 -run 'SandboxInit|SandboxSpec|EgressKeyed|EgressUnkeyed|SandboxEgressEnv|Doctor' ./module/autoreply/ ./internal/daemon/ ./cmd/anet/
       - name: the agents' configurations and command lines on macOS
-        run: go test -count=1 -run 'UpstreamCombinationsFailClosed|SystemPromptStartingWithADash|AgentSandbox|AgentCommandLines|EgressUpstream|UnsupportedAgentsFailClosed' ./internal/daemon/
+        run: go test -count=1 -run 'UpstreamCombinationsFailClosed|SystemPromptStartingWithADash|AgentSandbox|AgentCommandLines|EgressUpstream|UnsupportedAgentsFailClosed' ./module/autoreply/ ./internal/daemon/
 
   # The platforms the release builds for, and one it does not: peercred is
   # read on Linux, macOS and FreeBSD, and on OpenBSD everything builds and
@@ -322,8 +323,9 @@ jobs:
             GOOS=$os go vet ./internal/peercred/... ./internal/backendconn/ ./tools/anetpeer/ ./module/p2p/
             GOOS=$os go test -c -o /dev/null ./internal/peercred
             GOOS=$os go test -c -o /dev/null ./internal/backendconn
-            GOOS=$os go vet ./internal/daemon/ ./cmd/anet/
+            GOOS=$os go vet ./module/autoreply/ ./internal/daemon/ ./cmd/anet/
             GOOS=$os go test -c -o /dev/null ./internal/daemon
+            GOOS=$os go test -c -o /dev/null ./module/autoreply
           done
 
   # C1-1 across the two repositories: the C1 v1 golden vectors in
@@ -378,9 +380,9 @@ jobs:
   # sysctl is changed), and in a Debian 12 container (bubblewrap 0.8, a non-root user), which is the oldest
   # host anet supports.
   #
-  # SANDBOX_PKGS names the packages the sandbox tests live in, twice, so that the autoreply module's move
-  # out of internal/daemon is a change of one value: both run the same -run filter, because tests that stay
-  # in internal/daemon (autoreply_test.go and others) still hold Sandbox cases.
+  # SANDBOX_PKGS names the packages the sandbox tests live in, twice: the auto-reply module and the kernel,
+  # which run the same -run filter, because tests that stay in internal/daemon still hold Sandbox cases.
+  # The Debian 12 leg runs the module's test binary only.
   sandbox:
     strategy:
       fail-fast: false
@@ -389,7 +391,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       CGO_ENABLED: "0"
-      SANDBOX_PKGS: ./internal/daemon/ ./internal/daemon/
+      SANDBOX_PKGS: ./module/autoreply/... ./internal/daemon/
       SANDBOX_RUN: Sandbox|Bwrap|Seccomp
       SANDBOX_MUST_PASS: >-
         TestSandboxIntegrationConfinesTheAgent TestSandboxIntegrationConfiguresEachAgent
@@ -437,7 +439,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p /tmp/sbtest
-          go test -c -o /tmp/sbtest/daemon.test ./internal/daemon/
+          go test -c -o /tmp/sbtest/autoreply.test ./module/autoreply/
           sudo tee /etc/apparmor.d/anet-ci-userns >/dev/null <<'PROFILE'
           abi <abi/4.0>,
           include <tunables/global>
@@ -455,8 +457,8 @@ jobs:
               apt-get install -y -qq bubblewrap >/dev/null
               bwrap --version
               useradd -m -u 1001 tester
-              cd /src/internal/daemon
-              su tester -c "/sbtest/daemon.test -test.count=1 -test.v -test.timeout 30m -test.run \"$SANDBOX_RUN\"" > /tmp/sandbox.out 2>&1 || { cat /tmp/sandbox.out; exit 1; }
+              cd /src/module/autoreply
+              su tester -c "/sbtest/autoreply.test -test.count=1 -test.v -test.timeout 30m -test.run \"$SANDBOX_RUN\"" > /tmp/sandbox.out 2>&1 || { cat /tmp/sandbox.out; exit 1; }
               cat /tmp/sandbox.out
               if grep -- "--- SKIP" /tmp/sandbox.out; then echo "a sandbox test skipped; here that is a failure" >&2; exit 1; fi
               for t in $SANDBOX_MUST_PASS; do

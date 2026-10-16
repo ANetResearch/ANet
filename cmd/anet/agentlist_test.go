@@ -1,10 +1,12 @@
+//go:build !no_autoreply
+
 package main
 
 import (
 	"strings"
 	"testing"
 
-	"github.com/ANetResearch/ANet/internal/daemon"
+	"github.com/ANetResearch/ANet/module/autoreply"
 )
 
 // Every agent the registry supports has to appear where a user looks for
@@ -14,7 +16,7 @@ import (
 // works. Two of the three are now derived; this keeps the rest honest.
 func TestTheHelpNamesEveryAgentTheRegistrySupports(t *testing.T) {
 	help := usageAllText()
-	for _, id := range daemon.SupportedExecAgents() {
+	for _, id := range autoreply.SupportedExecAgents() {
 		if !strings.Contains(help, id) {
 			t.Errorf("`anet help --all` never mentions the %q agent, but the registry serves it", id)
 		}
@@ -26,7 +28,7 @@ func TestTheHelpNamesEveryAgentTheRegistrySupports(t *testing.T) {
 // removed rather than added.
 func TestTheHelpAdvertisesNoAgentTheRegistryLacks(t *testing.T) {
 	supported := map[string]bool{}
-	for _, id := range daemon.SupportedExecAgents() {
+	for _, id := range autoreply.SupportedExecAgents() {
 		supported[id] = true
 	}
 	// The rendered choice list is the one place the help enumerates them.
@@ -45,7 +47,7 @@ func TestTheHelpAdvertisesNoAgentTheRegistryLacks(t *testing.T) {
 // is swapped for another.
 func TestTheNamedCodingAgentsAreAllSupported(t *testing.T) {
 	have := map[string]bool{}
-	for _, id := range daemon.SupportedExecAgents() {
+	for _, id := range autoreply.SupportedExecAgents() {
 		have[id] = true
 	}
 	for _, want := range []string{"claude", "codex", "cursor", "opencode"} {
@@ -59,7 +61,7 @@ func TestTheNamedCodingAgentsAreAllSupported(t *testing.T) {
 // the registry — the flag checker rejects unknown values, and an agent
 // nobody can pass is not integrated.
 func TestEveryAgentIdIsAcceptedByTheFlagChecker(t *testing.T) {
-	for _, id := range daemon.SupportedExecAgents() {
+	for _, id := range autoreply.SupportedExecAgents() {
 		for _, cmd := range []struct {
 			name string
 			rest []string
@@ -98,5 +100,13 @@ func TestBothSpellingsOfTheCapabilityFlagWorkEverywhere(t *testing.T) {
 		if err := checkFlags("find", []string{bad, "x"}); err == nil {
 			t.Errorf("anet find %s was accepted", bad)
 		}
+	}
+}
+
+// The list the help text names in a build without the auto-reply module is a copy of the registry's; it
+// is kept equal here, in every build that can read the registry.
+func TestFixedAgentChoicesMatchTheRegistry(t *testing.T) {
+	if got := strings.Join(autoreply.SupportedExecAgents(), "|"); got != fixedAgentChoices {
+		t.Errorf("fixedAgentChoices = %q, the registry says %q", fixedAgentChoices, got)
 	}
 }

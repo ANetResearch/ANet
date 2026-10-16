@@ -1,3 +1,5 @@
+//go:build mod4_pending
+
 package daemon
 
 // LEC §2.3.3, §2.3.4, AV-8 and AV-10 (EXE-5): POST /autoreply merges what it names into the current

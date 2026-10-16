@@ -34,16 +34,16 @@ cd "$(dirname "$0")/.."
 export CGO_ENABLED=0
 
 # In by default, removed with -tags no_<m>.
-SUBTRACTIVE="anetlink p2p blackboard org cas service mcp x402 a2a preview"
+SUBTRACTIVE="anetlink p2p blackboard org cas service mcp x402 a2a preview autoreply"
 # Absent by default, added with -tags <m>. shell executes commands on the
 # host (A2A-DESIGN §16): the build nobody asked about is the one that must
 # lack it.
 ADDITIVE="shell"
 # In the name table (module/known.go) with no tag: build.sh --without says
-# build_tag_pending for these. autoreply gets a tag when it moves out (MOD-4),
-# console in v0.3.x; each then moves from here to SUBTRACTIVE (preview did, with
-# MOD-6). A test keeps both lists equal to the table.
-PENDING="autoreply console"
+# build_tag_pending for these. console gets a tag in v0.3.x and then moves from
+# here to SUBTRACTIVE (preview did, with MOD-6, autoreply with MOD-4). A test
+# keeps both lists equal to the table.
+PENDING="console"
 
 # pattern <m> — what the module's code is called in `go tool nm` output.
 #

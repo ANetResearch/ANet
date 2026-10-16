@@ -1,3 +1,5 @@
+//go:build !no_autoreply
+
 package main
 
 import (
@@ -60,11 +62,11 @@ func sandboxFinding(t *testing.T, l daemon.Layout, env doctorEnv) (*doctorCheck,
 func TestDoctorSandbox(t *testing.T) {
 	lang := a2ashape.LangFrom(func(string) string { return "" })
 	calls := 0
-	check := func(c daemon.SandboxCheck) func() daemon.SandboxCheck {
-		return func() daemon.SandboxCheck { calls++; return c }
+	check := func(c sandboxReport) func() sandboxReport {
+		return func() sandboxReport { calls++; return c }
 	}
 	env := testDoctorEnv(t)
-	env.sandbox = check(daemon.SandboxCheck{Kind: "seatbelt"})
+	env.sandbox = check(sandboxReport{Kind: "seatbelt"})
 
 	for name, ar := range map[string]map[string]any{
 		"no auto_reply":  nil,
@@ -97,7 +99,7 @@ func TestDoctorSandbox(t *testing.T) {
 
 	for _, reason := range []string{"no_sandbox_exec", "fs_isolation_failed", "netns_failed", "seccomp_failed", "platform_unsupported",
 		"userns_blocked", "sandbox_start_failed"} {
-		env.sandbox = check(daemon.SandboxCheck{Kind: "seatbelt", Reason: reason, Detail: "1 home (listed the real home)"})
+		env.sandbox = check(sandboxReport{Kind: "seatbelt", Reason: reason, Detail: "1 home (listed the real home)"})
 		f, rep := sandboxFinding(t, sandboxDoctorLayout(t, sandboxed), env)
 		// In doctor the three self-check reasons say what the self-check saw (their .doctor variants), and
 		// sandbox_start_failed says bubblewrap's first line; the others are the sentence everywhere shows.
@@ -139,9 +141,9 @@ func doctorIDKeys(id string) []string {
 func TestDoctorSandboxFromTheRunningDaemon(t *testing.T) {
 	calls := 0
 	env := testDoctorEnv(t)
-	env.sandbox = func() daemon.SandboxCheck {
+	env.sandbox = func() sandboxReport {
 		calls++
-		return daemon.SandboxCheck{Kind: "seatbelt", Reason: "netns_failed"}
+		return sandboxReport{Kind: "seatbelt", Reason: "netns_failed"}
 	}
 	status := map[string]any{}
 	env.running = func(string, string) bool { return true }
@@ -175,7 +177,7 @@ func TestDoctorSandboxFromTheRunningDaemon(t *testing.T) {
 // the daemon would refuse is sandbox.egress; a proxy variable warns.
 func TestDoctorSandboxDetailItems(t *testing.T) {
 	env := testDoctorEnv(t)
-	env.sandbox = func() daemon.SandboxCheck { return daemon.SandboxCheck{Kind: "bwrap"} }
+	env.sandbox = func() sandboxReport { return sandboxReport{Kind: "bwrap"} }
 	env.getenv = func(k string) string {
 		if k == "HTTPS_PROXY" {
 			return "http://proxy.invalid:3128"

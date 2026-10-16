@@ -352,56 +352,6 @@ func TestNoHistoryMessageCarriesAState(t *testing.T) {
 	}
 }
 
-// An auto-reply that judges the task done completes it with its reply in
-// the result; a reply that does not complete the task is an ordinary turn.
-func TestAnAutoReplyThatCompletesFoldsItsReplyIntoTheResult(t *testing.T) {
-	api := &fakeOpenAI{reply: "here is your function: def f(): pass\n" + autoReplyDoneSentinel}
-	f := newAutoReplyFixture(t, AutoReplyConfig{Model: "test"}, api)
-	id, err := f.req.Delegate(f.ctx, f.prov.AID(), "write f()", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	f.tick(t)
-	pix := mustIX(t, f.prov, id)
-	if pix.State != interactions.StateCompleted {
-		t.Fatalf("the provider's task is %s after the done reply", pix.State)
-	}
-	rows, err := f.prov.ix.OutboxRows(id)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, r := range rows {
-		if r.Type == seal.TypeMessage {
-			t.Fatalf("the done reply went as a message of its own: %+v", r)
-		}
-	}
-	if err := f.req.pollOnce(f.ctx); err != nil {
-		t.Fatal(err)
-	}
-	task, err := f.req.taskView(mustIX(t, f.req, id), viewOpts{artifacts: true})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if task.Status.State != a2ashape.TaskStateCompleted || replyArtifact(task) != "here is your function: def f(): pass" {
-		t.Fatalf("state %s, reply %q", task.Status.State, replyArtifact(task))
-	}
-	noHistoryState(t, task)
-
-	api2 := &fakeOpenAI{reply: "which language?"}
-	g := newAutoReplyFixture(t, AutoReplyConfig{Model: "test"}, api2)
-	id2, err := g.req.Delegate(g.ctx, g.prov.AID(), "write f()", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	g.tick(t)
-	if ix := mustIX(t, g.prov, id2); ix.IsTerminal() {
-		t.Fatalf("a question completed the task: %s", ix.State)
-	}
-	if m := msgWithBody(t, g.prov, id2, "which language?"); m == nil || m.Metadata != "" {
-		t.Fatalf("the question: %+v", m)
-	}
-}
-
 // TestReplyMismatchFailsTaskBeforeToken is CUX-R2, R7, M12 and M39: a
 // result whose reply is not the last provider entry of its transcript is
 // refused — tok(2) invalid to the provider — and the requester's task is

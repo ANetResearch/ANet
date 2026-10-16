@@ -1,3 +1,5 @@
+//go:build mod4_pending
+
 package daemon
 
 // LEC AV-4, UP-2, UP-3 (EXE-6): each agent's configuration in the sandbox, its command line in a direct

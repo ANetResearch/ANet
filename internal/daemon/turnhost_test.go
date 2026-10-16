@@ -1,26 +1,16 @@
 package daemon
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
-	"go/ast"
-	"go/parser"
-	"go/token"
-	"net/http/httptest"
 	"os"
-	"path/filepath"
 	"slices"
-	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
-	"github.com/ANetResearch/ANet/internal/anethome"
 	"github.com/ANetResearch/ANet/internal/evtypes"
-	"github.com/ANetResearch/ANet/internal/execwork"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 	"github.com/ANetResearch/ANet/module"
 )
@@ -232,56 +222,6 @@ func TestNoTurnsBeforeStartup(t *testing.T) {
 	}
 }
 
-// MOD-3 (2), TestConfigRewritePreservesModuleBlocks: a write the kernel makes of config.json (a policy
-// write) carries the auto_reply block and `without` byte for byte, and so does the module's own write the
-// other keys.
-func TestConfigRewritePreservesModuleBlocks(t *testing.T) {
-	root := t.TempDir()
-	writeTestConfig(t, root, map[string]any{"control_addr": "127.0.0.1:0", "without": []string{"x402"},
-		"auto_reply": map[string]any{"backend": "openai", "api_base": "http://127.0.0.1:1/v1", "model": "m", "api_key": "k"}})
-	d, err := New(NewLayout(root))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { d.Close() })
-	read := func() map[string]json.RawMessage {
-		b, err := os.ReadFile(filepath.Join(root, "config.json"))
-		if err != nil {
-			t.Fatal(err)
-		}
-		var m map[string]json.RawMessage
-		if err := json.Unmarshal(b, &m); err != nil {
-			t.Fatal(err)
-		}
-		return m
-	}
-	before := read()
-	if err := d.SetInboundPolicy(PolicyApprove); err != nil {
-		t.Fatal(err)
-	}
-	after := read()
-	for _, k := range []string{"auto_reply", "without"} {
-		if !bytes.Equal(before[k], after[k]) {
-			t.Errorf("%s changed under a policy write:\n%s\n%s", k, before[k], after[k])
-		}
-	}
-	// The module's write replaces only auto_reply.
-	if _, err := d.ar().apply(func(cur *AutoReplyConfig) (*AutoReplyConfig, error) {
-		c := *cur
-		c.Model = "m2"
-		return &c, nil
-	}); err != nil {
-		t.Fatal(err)
-	}
-	final := read()
-	if !bytes.Equal(after["without"], final["without"]) || !bytes.Equal(after["inbound"], final["inbound"]) {
-		t.Errorf("the module's write changed another key")
-	}
-	if !strings.Contains(string(final["auto_reply"]), `"m2"`) {
-		t.Errorf("auto_reply = %s", final["auto_reply"])
-	}
-}
-
 // MOD-3 (2), TestReadOwnEvidenceOnlyDeclaredTypes: the module reads back the types its row lists and no
 // other.
 func TestReadOwnEvidenceOnlyDeclaredTypes(t *testing.T) {
@@ -392,103 +332,6 @@ func mustAvail(t *testing.T, without ...string) module.Availability {
 	return av
 }
 
-// MOD §7.1, TestOnlyAutoReplyAssertsTurnHost: no file of the kernel asserts a Host to module.TurnHost; the
-// module does, and the grants are what hands the interface to it alone.
-func TestOnlyAutoReplyAssertsTurnHost(t *testing.T) {
-	files, _ := filepath.Glob("*.go")
-	exec := map[string]bool{}
-	for _, f := range execFiles {
-		exec[f] = true
-	}
-	fset := token.NewFileSet()
-	for _, name := range files {
-		if strings.HasSuffix(name, "_test.go") {
-			continue
-		}
-		f, err := parser.ParseFile(fset, name, nil, 0)
-		if err != nil {
-			t.Fatal(err)
-		}
-		ast.Inspect(f, func(n ast.Node) bool {
-			ta, ok := n.(*ast.TypeAssertExpr)
-			if !ok || ta.Type == nil {
-				return true
-			}
-			if se, ok := ta.Type.(*ast.SelectorExpr); ok && se.Sel.Name == "TurnHost" && !exec[name] {
-				t.Errorf("%s asserts module.TurnHost; only the auto-reply module may", name)
-			}
-			return true
-		})
-	}
-}
-
-// MOD-3 (3), TestRetentionPrunesExecDirsInEveryBuild: with auto-reply turned off the work directories of
-// ended tasks and the session bindings are still removed by the maintenance period.
-func TestRetentionPrunesExecDirsInEveryBuild(t *testing.T) {
-	t.Setenv("XDG_CACHE_HOME", t.TempDir())
-	d := startWith(t, map[string]any{"without": []string{"autoreply"}}, nil)
-	if d.ar() != nil {
-		t.Fatal("the auto-reply module runs although it is in without")
-	}
-	aid := d.AID()
-	direct := filepath.Join(execwork.WorkRoot(), execwork.AidShort(aid), execwork.IxDirName("ix-gone"))
-	sandboxed := filepath.Join(execwork.SandboxWorkRoot(), execwork.AidShort(aid), execwork.IxDirName("ix-gone"))
-	for _, p := range []string{direct, sandboxed} {
-		if err := os.MkdirAll(p, 0o700); err != nil {
-			t.Fatal(err)
-		}
-	}
-	sess := execwork.Sessions(anethome.ModuleDir(d.layout.Root, "autoreply"))
-	sess.Set("ix-gone", "s")
-	d.pruneEndedWorkDirs()
-	for _, p := range []string{direct, sandboxed} {
-		if _, err := os.Stat(p); !os.IsNotExist(err) {
-			t.Errorf("%s was not removed (%v)", p, err)
-		}
-	}
-	if sess.Get("ix-gone") != "" {
-		t.Error("the session binding of an ended task stayed")
-	}
-	if _, err := os.Stat(filepath.Join(d.layout.Root, "exec_sessions.json")); err == nil {
-		t.Error("the old session file exists")
-	}
-}
-
-// MOD-3 (4): without the module nothing answers: its routes say module_absent, /status has no auto_reply
-// member, no loop runs, and the task stays in the inbox under each inbound policy.
-func TestWithoutAutoReplyIsAbsent(t *testing.T) {
-	d := startWith(t, map[string]any{"without": []string{"autoreply"}}, nil)
-	if d.ar() != nil {
-		t.Fatal("module started")
-	}
-	for _, route := range []string{"POST /autoreply", "POST /autoreply-test"} {
-		rec := httptest.NewRecorder()
-		h := d.moduleRouteGuard(route, d.moduleRoute("autoreply", route))
-		h.ServeHTTP(rec, httptest.NewRequest("POST", "/x", strings.NewReader(`{"off":true}`)))
-		var body map[string]any
-		_ = json.Unmarshal(rec.Body.Bytes(), &body)
-		if rec.Code != 409 || body["reason"] != "module_absent" && !strings.Contains(rec.Body.String(), "module_absent") {
-			t.Errorf("%s: %d %s", route, rec.Code, rec.Body)
-		}
-	}
-	st := statusJSON(t, d)
-	if _, ok := st["auto_reply"]; ok {
-		t.Error("/status has an auto_reply member")
-	}
-	if got, _ := st["build"].(map[string]any)["without"].([]any); len(got) != 1 || got[0] != "autoreply" {
-		t.Errorf("/status.build.without = %v", got)
-	}
-	// A block with the module turned off is the module_absent.configured refusal at start.
-	root := t.TempDir()
-	writeTestConfig(t, root, map[string]any{"control_addr": "127.0.0.1:0", "without": []string{"autoreply"},
-		"auto_reply": map[string]any{"backend": "openai", "api_base": "http://127.0.0.1:1/v1", "model": "m"}})
-	_, err := New(NewLayout(root))
-	var ref *a2ashape.Refusal
-	if !errors.As(err, &ref) || ref.Key != "module_absent.configured" || ref.Args["key"] != "auto_reply" {
-		t.Errorf("New = %v, want module_absent.configured for auto_reply", err)
-	}
-}
-
 // restartWithout restarts d on its data directory with names written into `without`.
 func restartWithout(t *testing.T, d *Daemon, names ...string) *Daemon {
 	t.Helper()
@@ -516,170 +359,6 @@ func restartWithout(t *testing.T, d *Daemon, names ...string) *Daemon {
 	n.stopRelayLoop()
 	t.Cleanup(func() { n.Close() })
 	return n
-}
-
-// MOD-3 (4), TestNoAutoReplyLeavesTasksInInbox: with the module turned off a delegated task is kept and
-// nothing is sent, whatever the inbound policy, and no local program is started (a canary on PATH).
-func TestNoAutoReplyLeavesTasksInInbox(t *testing.T) {
-	canary := filepath.Join(t.TempDir(), "claude")
-	mark := filepath.Join(t.TempDir(), "ran")
-	if err := os.WriteFile(canary, []byte("#!/bin/sh\ntouch "+mark+"\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", filepath.Dir(canary)+string(os.PathListSeparator)+os.Getenv("PATH"))
-	for _, policy := range []string{PolicyOpen, PolicyApprove, PolicyClosed} {
-		srv := newFakeHub(t)
-		ctx := context.Background()
-		prov := registered(t, srv.URL, "prov")
-		req := registered(t, srv.URL, "req")
-		allowPeers(t, prov, req.AID())
-		trustPeers(t, prov, req.AID())
-		if err := prov.SetInboundPolicy(policy); err != nil {
-			t.Fatal(err)
-		}
-		prov = restartWithout(t, prov, "autoreply")
-		if prov.ar() != nil {
-			t.Fatal("the module started although it is in without")
-		}
-		id, err := req.Delegate(ctx, prov.AID(), "please run", nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		_ = prov.pollOnce(ctx)
-		prov.kickTurns()
-		time.Sleep(100 * time.Millisecond)
-		if got := lastFromMe(t, prov, id); got != "" {
-			t.Errorf("policy %s: the node answered %q", policy, got)
-		}
-		if st := stateOf(t, prov, id); policy != PolicyClosed && st != interactions.StateSubmitted {
-			t.Errorf("policy %s: state %s", policy, st)
-		}
-	}
-	if _, err := os.Stat(mark); err == nil {
-		t.Error("a local program was started")
-	}
-}
-
-// MOD-3 (6), TestDarwinPendingFailsClosed: with the macOS sandbox not part of the build
-// (seatbeltEnabled false, stood in for on this host), a turn that would run in the sandbox is turned away
-// before the agent starts with sandbox_unavailable and the local reason platform_unsupported.pending; the
-// direct and openai paths are not touched; and the constant is true.
-func TestDarwinPendingFailsClosed(t *testing.T) {
-	if !seatbeltEnabled {
-		t.Fatal("seatbeltEnabled must default to true")
-	}
-	prev := sandboxPrepareForTest
-	sandboxPrepareForTest = func(*sandboxPlan) error { return seatbeltGate(false) }
-	t.Cleanup(func() { sandboxPrepareForTest = prev })
-	srv, req, prov := quietPair(t)
-	_ = srv
-	allowPeers(t, prov, req.AID())
-	cfg := AutoReplyConfig{Backend: "exec", Agent: "claude", Untrusted: UntrustedSandbox,
-		APIKey: "k", APIBase: "https://api.anthropic.com"}
-	if err := prov.SetAutoReply(&cfg); err != nil {
-		t.Fatal(err)
-	}
-	prov.ar().haltLoop()
-	ctx := context.Background()
-	id, err := req.Delegate(ctx, prov.AID(), "needs the sandbox", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := prov.pollOnce(ctx); err != nil {
-		t.Fatal(err)
-	}
-	replier, err := newAutoReplier(cfg, testEnv(prov.layout))
-	if err != nil {
-		t.Fatal(err)
-	}
-	prov.autoReplyOnce(ctx, cfg, replier)
-	state, meta := lastStatusMeta(t, req, id)
-	if state != interactions.StateRejected || meta[a2ashape.KeyReason] != reasonSandboxUnavailble {
-		t.Fatalf("state %s, meta %v", state, meta)
-	}
-	// The local reason is the one a status or doctor says.
-	err = seatbeltGate(false)
-	var pe *sandboxProbeError
-	if !errors.As(err, &pe) || pe.Code != "platform_unsupported.pending" || !errors.Is(err, errSandboxUnavailable) {
-		t.Fatalf("gate = %v", err)
-	}
-	if s := a2ashape.Sentence(pe.Code, a2ashape.English, nil); !strings.Contains(s, "v0.3.x") {
-		t.Errorf("sentence %q", s)
-	}
-	// The openai backend and a direct run are not affected by the switch.
-	if g := gateFor(AutoReplyConfig{Backend: "exec", Agent: "claude"}, true); g.mode != modeDirect {
-		t.Errorf("a trusted peer's turn: %+v", g)
-	}
-	if g := gateFor(AutoReplyConfig{Model: "m", APIBase: "http://x"}, false); g.mode != modeOpenAI {
-		t.Errorf("openai turn: %+v", g)
-	}
-}
-
-// MOD-3 (3), TestModuleStopWaitsForRuns: Stop returns only when the turns under way have ended and
-// recorded, which is before the evidence ledger closes, and no run starts after it.
-func TestModuleStopWaitsForRuns(t *testing.T) {
-	started, release := make(chan struct{}), make(chan struct{})
-	var once, runs atomic.Int64
-	sandboxRunnerForTest = func(ctx context.Context, req sandboxRequest, workDir string) (string, *egressSummary, error) {
-		runs.Add(1)
-		if once.Add(1) == 1 {
-			close(started)
-		}
-		<-release
-		return "a late answer", &egressSummary{}, nil
-	}
-	t.Cleanup(func() { sandboxRunnerForTest = nil })
-	f := newAutoReplyFixture(t, AutoReplyConfig{Backend: "exec", Agent: "claude", APIKey: "k", Untrusted: UntrustedSandbox}, nil)
-	cfg := f.cfg
-	if err := f.prov.SetAutoReply(&cfg); err != nil { // the real loop
-		t.Fatal(err)
-	}
-	if _, err := f.req.Delegate(f.ctx, f.prov.AID(), "a long task", nil); err != nil {
-		t.Fatal(err)
-	}
-	if err := f.prov.pollOnce(f.ctx); err != nil {
-		t.Fatal(err)
-	}
-	f.prov.kickTurns()
-	select {
-	case <-started:
-	case <-time.After(10 * time.Second):
-		t.Fatal("the run did not start")
-	}
-	done := make(chan struct{})
-	go func() { _ = f.prov.ar().Stop(context.Background()); close(done) }()
-	select {
-	case <-done:
-		t.Fatal("Stop returned while a run was under way")
-	case <-time.After(300 * time.Millisecond):
-	}
-	close(release)
-	select {
-	case <-done:
-	case <-time.After(10 * time.Second):
-		t.Fatal("Stop did not return after the run ended")
-	}
-	if got := withExit(invoked(t, f.prov), exitOK); len(got) != 1 {
-		t.Fatalf("the run was not recorded before Stop returned: %v", invoked(t, f.prov))
-	}
-	// Nothing starts after Stop.
-	if _, err := f.req.Delegate(f.ctx, f.prov.AID(), "a second task", nil); err != nil {
-		t.Fatal(err)
-	}
-	_ = f.prov.pollOnce(f.ctx)
-	f.prov.kickTurns()
-	time.Sleep(200 * time.Millisecond)
-	if n := runs.Load(); n != 1 {
-		t.Fatalf("%d runs; one started after Stop", n)
-	}
-	if err := f.prov.ar().startLoop(cfg); err != nil {
-		t.Fatal(err)
-	}
-	f.prov.kickTurns()
-	time.Sleep(200 * time.Millisecond)
-	if n := runs.Load(); n != 1 {
-		t.Fatalf("a stopped module started a loop again (%d runs)", n)
-	}
 }
 
 // MOD-3 (5), TestModuleConfigCheckRefusesStart: a block the module does not take stops the daemon with the

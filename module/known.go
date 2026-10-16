@@ -66,8 +66,7 @@ type Info struct {
 	// the word in `anet version`, in `without`, in `--without`.
 	Name string
 	// Tag is the build tag that removes (`no_<name>`) or adds (`shell`) the
-	// module; empty while the module has no tag yet (autoreply until it moves
-	// out, console until v0.3.x).
+	// module; empty while the module has no tag yet (console until v0.3.x).
 	Tag string
 	// Additive is true for a module a tag adds (shell); every other module
 	// is in the default build and a tag removes it.
@@ -175,11 +174,11 @@ var known = []Info{
 		ConfigKey: "modules.anetlink", Zh: "设备能力", En: "device capability",
 		DoctorIDs: []string{"anetlink.publish", "anetlink.socket"},
 		Grants:    []Grant{GrantProviders}, AbsenceReady: true},
-	// autoreply has no tag and no registration yet: it is declared compiled
-	// (internal/daemon/declare.go) until MOD-4 moves it out. Its absent path
-	// is real since MOD-3 (the loop, the routes and the status member are all
-	// behind the seams), so it may be written into `without`.
-	{Name: "autoreply", ConfigKey: "auto_reply", Zh: "自动回复", En: "auto-reply",
+	// autoreply is module/autoreply, registered by the package itself; the
+	// build tag no_autoreply removes it. Its absent path (the loop, the routes
+	// and the status member are all behind the seams) is real, so it may be
+	// written into `without`.
+	{Name: "autoreply", Tag: "no_autoreply", Packages: []string{"module/autoreply"}, ConfigKey: "auto_reply", Zh: "自动回复", En: "auto-reply",
 		Routes:      []string{"POST /autoreply", "POST /autoreply-test"},
 		CLICommands: []string{"autoreply"},
 		DoctorIDs:   []string{"auto_reply", "sandbox", "sandbox.agent", "sandbox.budget", "sandbox.egress", "sandbox.limits", "sandbox.upstream"},

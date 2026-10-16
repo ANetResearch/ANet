@@ -989,7 +989,7 @@ func (d *Daemon) InboundStatus() InboundState {
 	ps := d.readPeers()
 	st := InboundState{Policy: in.Policy,
 		Allow: sortedKeys(ps.allow), Deny: sortedKeys(ps.deny), Trust: sortedKeys(ps.trust),
-		PublicCapabilities: in.PublicCapabilities, UntrustedAutoReply: UntrustedOff}
+		PublicCapabilities: in.PublicCapabilities, UntrustedAutoReply: untrustedOff}
 	if v, ok := moduleSI5(cfg)["auto_reply.untrusted"].(string); ok {
 		st.UntrustedAutoReply = v
 	}

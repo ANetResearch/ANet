@@ -1,3 +1,5 @@
+//go:build !no_autoreply
+
 package main
 
 // egress_allow.go is `anet autoreply set --egress-allow host[,host…]` (v0.3.0 LEC CN-1, CN-8, CL-1; ux
@@ -16,19 +18,15 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"regexp"
 	"slices"
 	"strings"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
-	"github.com/ANetResearch/ANet/internal/daemon"
+	"github.com/ANetResearch/ANet/module/autoreply"
 )
 
 // egressStderr is where the command's sentences go; tests replace it.
 var egressStderr io.Writer = os.Stderr
-
-// commandLine is the command as the user typed it, after "anet"; tests replace it.
-var commandLine = func() []string { return os.Args[1:] }
 
 // egressAllowUsage is the flag's usage line.
 const egressAllowUsage = `autoreply set --egress-allow host[,host…]   (--egress-allow "" clears the list)`
@@ -47,7 +45,7 @@ func egressAllowRequest(c *client, v, apiBase string, configuring bool) (map[str
 			list = append(list, h)
 		}
 	}
-	hosts, ref := daemon.CheckEgressAllow(list, apiBase)
+	hosts, ref := autoreply.CheckEgressAllow(list, apiBase)
 	if ref != nil {
 		say(egressStderr, a2ashape.Sentence(ref.Key, lang, ref.Args), a2ashape.Next(ref.Key, lang, ref.Args))
 		return nil, errExit1
@@ -107,30 +105,4 @@ func currentEgressAllow(c *client) (list []string, configured bool, err error) {
 		return nil, false, nil
 	}
 	return st.AutoReply.Sandbox.EgressAllow, true, nil
-}
-
-// shellSafe is an argument a shell takes as it is.
-var shellSafe = regexp.MustCompile(`^[A-Za-z0-9_@%+=:,./-]+$`)
-
-// typedCommand is the command line given, as a user would type it again: each argument quoted where a
-// shell needs it, and the value of a key given on the command line left out.
-func typedCommand(args []string) string {
-	out := []string{"anet"}
-	for i := 0; i < len(args); i++ {
-		a := args[i]
-		switch {
-		case a == "--api-key" && i+1 < len(args):
-			out = append(out, a, "…")
-			i++
-			continue
-		case strings.HasPrefix(a, "--api-key="):
-			out = append(out, "--api-key=…")
-			continue
-		}
-		if !shellSafe.MatchString(a) {
-			a = "'" + strings.ReplaceAll(a, "'", `'\''`) + "'"
-		}
-		out = append(out, a)
-	}
-	return strings.Join(out, " ")
 }

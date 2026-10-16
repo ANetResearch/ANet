@@ -1,12 +1,16 @@
+//go:build !no_autoreply
+
 package main
 
 import (
+	"encoding/json"
 	"runtime"
 	"slices"
 	"strings"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
 	"github.com/ANetResearch/ANet/internal/daemon"
+	"github.com/ANetResearch/ANet/module/autoreply"
 )
 
 // sandboxPlatformReasons are the reasons the sandbox item of doctor reports (ux §5.2 sandbox): the ones
@@ -27,8 +31,8 @@ var sandboxSelfCheckReasons = []string{"netns_failed", "seccomp_failed", "fs_iso
 // probe files under the system temp dir only. What the self-check saw goes to the --json report
 // (sandbox.detail), since the sentence asks for the details doctor holds.
 func sandboxCheck(say func(id, status, key string, args a2ashape.Args), rep *doctorReport, env doctorEnv,
-	layout daemon.Layout, ar *daemon.AutoReplyConfig) {
-	if ar == nil || (ar.UntrustedMode() != daemon.UntrustedSandbox && ar.TrustedMode() != daemon.TrustedSandbox) {
+	layout daemon.Layout, ar *autoreply.AutoReplyConfig) {
+	if ar == nil || (ar.UntrustedMode() != autoreply.UntrustedSandbox && ar.TrustedMode() != autoreply.TrustedSandbox) {
 		return
 	}
 	c, ok := sandboxFromStatus(env, rep, layout)
@@ -63,13 +67,13 @@ func sandboxCheck(say func(id, status, key string, args a2ashape.Args), rep *doc
 
 // sandboxFromStatus is the running daemon's own sandbox result, from GET /status auto_reply.sandbox (LEC
 // §2.3.3), when it holds one this item reports: ready, or unavailable for one of sandboxPlatformReasons.
-func sandboxFromStatus(env doctorEnv, rep *doctorReport, layout daemon.Layout) (daemon.SandboxCheck, bool) {
+func sandboxFromStatus(env doctorEnv, rep *doctorReport, layout daemon.Layout) (sandboxReport, bool) {
 	if !rep.Control.Running || env.status == nil {
-		return daemon.SandboxCheck{}, false
+		return sandboxReport{}, false
 	}
 	st, err := env.status(rep.Control.Addr, layout.ControlTokenPath())
 	if err != nil {
-		return daemon.SandboxCheck{}, false
+		return sandboxReport{}, false
 	}
 	ar, _ := st["auto_reply"].(map[string]any)
 	sb, _ := ar["sandbox"].(map[string]any)
@@ -79,16 +83,16 @@ func sandboxFromStatus(env doctorEnv, rep *doctorReport, layout daemon.Layout) (
 	detail, _ := sb["detail"].(string)
 	switch {
 	case state == "ready":
-		return daemon.SandboxCheck{Kind: kind}, true
+		return sandboxReport{Kind: kind}, true
 	case state == "unavailable" && slices.Contains(sandboxPlatformReasons, reason):
-		return daemon.SandboxCheck{Kind: kind, Reason: reason, Detail: detail}, true
+		return sandboxReport{Kind: kind, Reason: reason, Detail: detail}, true
 	}
-	return daemon.SandboxCheck{}, false
+	return sandboxReport{}, false
 }
 
 // autoReplyCheck is doctor's auto_reply item: off, or the backend and agent or model, with how trusted
 // peers' tasks run when the backend runs a local agent (ux §5.2 auto_reply).
-func autoReplyCheck(rep *doctorReport, ar *daemon.AutoReplyConfig, lang a2ashape.Language) {
+func autoReplyCheck(rep *doctorReport, ar *autoreply.AutoReplyConfig, lang a2ashape.Language) {
 	if ar == nil {
 		rep.Checks = append(rep.Checks, sayCheck("auto_reply", stInfo, "autoreply.off", nil, lang))
 		return
@@ -100,7 +104,7 @@ func autoReplyCheck(rep *doctorReport, ar *daemon.AutoReplyConfig, lang a2ashape
 	c := sayCheck("auto_reply", stOK, "autoreply.summary", a2ashape.Args{"backend": rep.AutoReply.Backend, "name": name}, lang)
 	if rep.AutoReply.Backend == "exec" {
 		key := "sandbox.trusted_direct"
-		if ar.TrustedMode() == daemon.TrustedSandbox {
+		if ar.TrustedMode() == autoreply.TrustedSandbox {
 			key = "sandbox.trusted_sandbox"
 		}
 		c.Detail += " " + a2ashape.Sentence(key, lang, nil)
@@ -111,8 +115,8 @@ func autoReplyCheck(rep *doctorReport, ar *daemon.AutoReplyConfig, lang a2ashape
 // sandboxDetailChecks adds the items that follow sandbox, shown when it is (ux §5.2, UX-K6): the agent
 // and the model service, the hosts the sandbox may reach, today's budget, and the resource limits.
 func sandboxDetailChecks(add func(id, status, detail, hint string), say func(id, status, key string, args a2ashape.Args),
-	rep *doctorReport, env doctorEnv, layout daemon.Layout, ar *daemon.AutoReplyConfig, lang a2ashape.Language) {
-	if ar == nil || (ar.UntrustedMode() != daemon.UntrustedSandbox && ar.TrustedMode() != daemon.TrustedSandbox) {
+	rep *doctorReport, env doctorEnv, layout daemon.Layout, ar *autoreply.AutoReplyConfig, lang a2ashape.Language) {
+	if ar == nil || (ar.UntrustedMode() != autoreply.UntrustedSandbox && ar.TrustedMode() != autoreply.TrustedSandbox) {
 		return
 	}
 	if ar.Backend == "exec" {
@@ -135,7 +139,7 @@ func sandboxDetailChecks(add func(id, status, detail, hint string), say func(id,
 	if ar.Sandbox != nil {
 		hosts = ar.Sandbox.EgressAllow
 	}
-	switch _, ref := daemon.CheckEgressAllow(hosts, ar.APIBase); {
+	switch _, ref := autoreply.CheckEgressAllow(hosts, ar.APIBase); {
 	case ref != nil:
 		say("sandbox.egress", stFail, ref.Key, ref.Args)
 	case len(hosts) > 0:
@@ -163,7 +167,7 @@ func sandboxDetailChecks(add func(id, status, detail, hint string), say func(id,
 		say("sandbox.budget", stUnknown, doctorDaemonDown, nil)
 	}
 	if runtime.GOOS == "linux" {
-		if daemon.SandboxLimits() == "no_cgroup" {
+		if autoreply.SandboxLimits() == "no_cgroup" {
 			say("sandbox.limits", stWarn, "no_cgroup_limits", nil)
 		} else {
 			add("sandbox.limits", stOK, "", "")
@@ -171,13 +175,38 @@ func sandboxDetailChecks(add func(id, status, detail, hint string), say func(id,
 	}
 }
 
-// runtimeStatusQuiet is GET /status of the running daemon, without saying anything when it does not
-// answer.
-func runtimeStatusQuiet(env doctorEnv, rep *doctorReport, layout daemon.Layout) (map[string]any, bool) {
-	if rep.Control.Running && env.status != nil {
-		if st, err := env.status(rep.Control.Addr, layout.ControlTokenPath()); err == nil {
-			return st, true
-		}
+// sandboxSelfCheck is this host's sandbox self-check as the report holds it.
+func sandboxSelfCheck() sandboxReport { return sandboxReport(autoreply.SandboxSelfCheck()) }
+
+// autoReplyReport fills the auto_reply member of the report from the configuration's block.
+func autoReplyReport(rep *doctorReport, cfg daemon.Config) {
+	ar := autoreply.ParseAutoReply(cfg.AutoReply) // the block, decoded (the daemon keeps it raw)
+	if ar == nil {
+		return
 	}
-	return nil, false
+	rep.AutoReply.Configured = true
+	rep.AutoReply.Backend = ar.Backend
+	if rep.AutoReply.Backend == "" {
+		rep.AutoReply.Backend = "openai"
+	}
+	rep.AutoReply.APIKeyConfigured = strings.TrimSpace(ar.APIKey) != ""
+}
+
+// autoReplyChecks adds doctor's auto_reply item and, when the sandbox is in use, the sandbox items.
+func autoReplyChecks(add func(id, status, detail, hint string), say func(id, status, key string, args a2ashape.Args),
+	rep *doctorReport, env doctorEnv, layout daemon.Layout, cfg daemon.Config, lang a2ashape.Language) {
+	arCfg := autoreply.ParseAutoReply(cfg.AutoReply)
+	autoReplyCheck(rep, arCfg, lang)
+	sandboxCheck(say, rep, env, layout, arCfg)
+	sandboxDetailChecks(add, say, rep, env, layout, arCfg, lang)
+}
+
+// autoReplyBackend is the backend the auto_reply block names ("" when it names none, or there is no
+// block): doctor's preview item asks whether an openai auto-reply makes the previews.
+func autoReplyBackend(raw json.RawMessage) (backend string, configured bool) {
+	ar := autoreply.ParseAutoReply(raw)
+	if ar == nil {
+		return "", false
+	}
+	return ar.Backend, true
 }
