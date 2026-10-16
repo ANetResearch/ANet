@@ -116,7 +116,7 @@ var si5Items = []struct {
 		return nil
 	}},
 	{"payees.allow is an empty 0600 file", "", func(f freshSI5) error { return emptyPrivateFile(f, "payees.allow") }},
-	{"stream_preview is off", "v030-todo(UX-15)", func(f freshSI5) error {
+	{"stream_preview is off", "", func(f freshSI5) error {
 		si5, _ := f.doctor["si5"].(map[string]any)
 		if si5["stream_preview"] != "off" {
 			return errors.New("doctor si5 has no stream_preview off")

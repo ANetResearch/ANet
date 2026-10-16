@@ -659,8 +659,8 @@ func TestDaemonErrorsReachTheCaller(t *testing.T) {
 	res, err := sess.CallTool(context.Background(), &mcp.CallToolParams{
 		Name: "submit_payment", Arguments: map[string]any{"task_id": "ix-1"}})
 	msg, isErr := resultText(t, res, err)
-	if !isErr || !strings.Contains(msg, "over the agent limit") || !strings.Contains(msg, "reason: agent_max") {
-		t.Errorf("the daemon's explanation must survive to the model, got %q", msg)
+	if !isErr || msg != "anet: payment refused: over the agent limit" {
+		t.Errorf("the tool error is the daemon's error, word for word (UX-M4), got %q", msg)
 	}
 }
 

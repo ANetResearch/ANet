@@ -1191,6 +1191,12 @@ func PaymentNote(n PayNote, lang Language) string {
 type Said struct {
 	Key  string
 	Args Args
+	// Text, NextText and Lvl, when Text is set, are the sentence another
+	// area already rendered in this process's language (the sandbox state,
+	// the outbox message); the summary shows them as they are. Key then
+	// only names the sentence.
+	Text, NextText string
+	Lvl            Level
 }
 
 // StatusInput is what the status summary is made of (ux §4.7): for each
@@ -1251,6 +1257,31 @@ const (
 	TopicPreview  = "preview"
 )
 
+// SummaryLabel is the label of a summary topic in lang (ux §4.7): the
+// first column of an `anet status` line. "" for an unknown topic.
+func SummaryLabel(topic string, lang Language) string {
+	l, ok := summaryLabels[topic]
+	if !ok {
+		return ""
+	}
+	if lang == Chinese {
+		return l[0]
+	}
+	return l[1]
+}
+
+var summaryLabels = map[string][2]string{
+	TopicIdentity: {"身份", "identity"},
+	TopicRecovery: {"恢复", "recovery"},
+	TopicHub:      {"hub", "hub"},
+	TopicDelivery: {"送达", "delivery"},
+	TopicInbound:  {"接单", "inbound"},
+	TopicSandbox:  {"沙箱", "sandbox"},
+	TopicPayments: {"付款", "payments"},
+	TopicPrivacy:  {"隐私", "privacy"},
+	TopicPreview:  {"预览", "preview"},
+}
+
 // Identity states that StatusSummary reads (/identity/status.state, KEL
 // §4.3.1) and the recovery state that adds the recovery line (ux §4.7, line 1a).
 const (
@@ -1274,6 +1305,12 @@ func StatusSummary(in StatusInput, lang Language) []SummaryLine {
 		l := SummaryLine{Topic: topic, Text: Sentence(s.Key, lang, s.Args), Next: Next(s.Key, lang, s.Args)}
 		if r, ok := Lookup(s.Key); ok {
 			l.Level = r.Level
+		}
+		if s.Text != "" {
+			l.Text, l.Next = s.Text, s.NextText
+			if s.Lvl != "" {
+				l.Level = s.Lvl
+			}
 		}
 		if l.Level == "" {
 			l.Level = LevelOK

@@ -65,7 +65,7 @@ func TestControlWireFields(t *testing.T) {
 	}{
 		// TaskBody is ErrorBody with the members only message_id_reused carries (task_id, state).
 		{route: "error body", resp: reflect.TypeFor[a2ashape.TaskBody]()},
-		{route: "/status", todo: "v030-todo(UX-15)"},
+		{route: "/status", resp: reflect.TypeFor[statusWire]()},
 		{route: "/tasks/events delivery", todo: "v030-todo(RC-5)"},
 		{route: "/identity/status", req: reflect.TypeFor[struct{}](), resp: reflect.TypeFor[IdentityStatus]()},
 		{route: "/hub-register", alt: "joined", req: reflect.TypeFor[hubRegisterReq](), resp: reflect.TypeFor[hubRegisterResp]()},

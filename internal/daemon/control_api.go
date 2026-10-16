@@ -615,7 +615,7 @@ func (d *Daemon) hStatus(w http.ResponseWriter, r *http.Request) {
 		"hub_url":        cfg.HubURL,
 		"name":           cfg.Name,
 		"caps":           cfg.Caps,
-		"summary":        cfg.Summary,
+		"profile":        statusProfile{Summary: cfg.Summary},
 		"readme":         cfg.Readme,
 		"inbound_policy": cfg.inbound().Policy,
 		"console_url":    consoleURL(cfg),
@@ -664,6 +664,13 @@ func (d *Daemon) hStatus(w http.ResponseWriter, r *http.Request) {
 	// How often the hub found this node's signing time behind its floor in
 	// the last hour (doctor clock.ts_retries; HPP PAY-R11).
 	out["clock"] = map[string]any{"ts_retries": d.TSRetries()}
+	// The preview setting: the member is there when this build can preview
+	// (ux §4.7: the summary's preview line asks for nothing else).
+	out["preview"] = map[string]any{"mode": cfg.streamPreview()}
+	// What may still be paid today, for doctor's payments line.
+	out["payments"] = d.SpendStatus()
+	// The status summary, last: it reads the members above (ux UX-C6).
+	out["summary"] = d.statusSummary(out, a2ashape.Lang())
 	writeJSON(w, http.StatusOK, out)
 }
 
