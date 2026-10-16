@@ -2,6 +2,7 @@ package autoreply
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"go/ast"
 	"go/parser"
@@ -167,8 +168,8 @@ type evidenceRun struct {
 	payload map[string]any
 }
 
-func replaySource(recs *[]evidenceRun) func(since time.Time) []budgetRun {
-	return func(since time.Time) []budgetRun {
+func replaySource(recs *[]evidenceRun) budgetSource {
+	return func(since time.Time) ([]budgetRun, error) {
 		var out []budgetRun
 		for _, r := range *recs {
 			if r.at < since.UnixMilli() {
@@ -182,7 +183,7 @@ func replaySource(recs *[]evidenceRun) func(since time.Time) []budgetRun {
 				out = append(out, br)
 			}
 		}
-		return out
+		return out, nil
 	}
 }
 
@@ -392,4 +393,35 @@ func TestTheBudgetAndTheSpendingLimitsShareTheLocalDay(t *testing.T) {
 			}
 		}
 	})
+}
+
+// BU-2 (T-1 EXE F8): a chain that cannot be read at the first use leaves the budget unloaded and the run
+// unstarted, instead of counting from zero; once it can be read the day's count is the chain's.
+func TestRunBudgetDoesNotStartWhenTheChainCannotBeRead(t *testing.T) {
+	quietLog(t)
+	now := time.Now()
+	recs := []evidenceRun{}
+	for i := 0; i < 5; i++ {
+		run := autoReplyRun{Agent: "claude", InteractionID: "ix", Peer: "A", Mode: modeSandbox, Exit: exitOK, Duration: time.Second}
+		recs = append(recs, evidenceRun{at: now.Add(-time.Minute).UnixMilli(), payload: run.payload()})
+	}
+	readable := replaySource(&recs)
+	broken := true
+	src := budgetSource(func(since time.Time) ([]budgetRun, error) {
+		if broken {
+			return nil, errors.New("the ledger is not open")
+		}
+		return readable(since)
+	})
+	var b runBudget
+	if tk, v, _ := b.reserve("A", 20, 5, src); v == budgetGranted || tk != nil {
+		t.Fatalf("a run was granted on a chain that could not be read: %v", v)
+	}
+	if n := b.today(src); n != 0 {
+		t.Fatalf("today counted %d from nothing", n)
+	}
+	broken = false
+	if _, v, _ := b.reserve("A", 20, 5, src); v != budgetSpent {
+		t.Fatalf("after the chain could be read, peer A's sixth run: %v, want spent", v)
+	}
 }

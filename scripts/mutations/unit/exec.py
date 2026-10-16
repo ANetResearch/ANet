@@ -93,6 +93,42 @@ MUTS = [
   tests=[('ANet:./module/autoreply', 'TestAgentOutputInTheLogIsOneLine')],
   full=['ANet:./module/autoreply'],
  ),
+ dict(
+  id='m-bu-10', group='BU-2', repo='ANet',
+  desc='读不到证据链时预算从 0 开始计(把一天的额度全部还回去,T-1 EXE F8)',
+  edits=[
+   ('module/autoreply/sandbox_budget.go', '\t\tif past, err = runs(start.Add(-48 * time.Hour)); err != nil {\n\t\t\treturn err\n\t\t}', '\t\tpast, _ = runs(start.Add(-48 * time.Hour))'),
+  ],
+  tests=[('ANet:./module/autoreply', 'TestRunBudgetDoesNotStartWhenTheChainCannotBeRead')],
+  full=['ANet:./module/autoreply'],
+ ),
+ dict(
+  id='m-cn-6', group='CN-5', repo='ANet',
+  desc='只判拒 ECH 正式码位 0xfe0d(草案号与 ESNI 的 ClientHello 通过,T-1 EXE F-4)',
+  edits=[
+   ('module/autoreply/clienthello.go', 'case tlsExtECH, 0xfe08, 0xfe09, 0xfe0a, 0xfe0b, 0xfe0c, 0xff02, 0xff03, 0xffce:', 'case tlsExtECH:'),
+  ],
+  tests=[('ANet:./module/autoreply', 'TestClientHelloRefusesEveryECHNumber')],
+  full=['ANet:./module/autoreply'],
+ ),
+ dict(
+  id='m-bp-8', group='BP-5', repo='ANet',
+  desc='注入路由放行与已知成员仅大小写/Unicode 折叠不同的键(ſtore 覆盖被钉死的 store,T-1 EXE F-5)',
+  edits=[
+   ('module/autoreply/egress_policy.go', '\t\tif !known[k] && folded[foldKey(k)] {', '\t\tif false && !known[k] && folded[foldKey(k)] {'),
+  ],
+  tests=[('ANet:./module/autoreply', 'TestInjectRefusesFoldedAliases')],
+  full=['ANet:./module/autoreply'],
+ ),
+ dict(
+  id='m-sb-12', group='SB-2', repo='ANet',
+  desc='TMPDIR 太长时出站 socket 不退到 /tmp(整个沙箱 sandbox_unavailable,T-1 EXE F-8)',
+  edits=[
+   ('module/autoreply/sandbox_unix.go', '\tif parents[0] != "/tmp" {', '\tif false && parents[0] != "/tmp" {'),
+  ],
+  tests=[('ANet:./module/autoreply', 'TestSandboxEgressSocketWithALongTMPDIR')],
+  full=['ANet:./module/autoreply'],
+ ),
  # --- EXE-2: the egress endpoint and the injection route (LEC §4.3.3, §4.3.4; SI-57) ---
  dict(
   id='m-bp-1', group='BP', repo='ANet',

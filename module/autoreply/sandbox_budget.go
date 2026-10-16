@@ -20,6 +20,8 @@ package autoreply
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
+	"log"
 	"strconv"
 	"sync"
 	"time"
@@ -184,24 +186,35 @@ func (b *runBudget) clock() time.Time {
 
 // loadLocked fills the counts from the runs on the evidence chain (BU-2), once. runs returns the runs
 // whose record was written at or after since.
-func (b *runBudget) loadLocked(now time.Time, runs func(since time.Time) []budgetRun) {
+func (b *runBudget) loadLocked(now time.Time, runs budgetSource) error {
 	if b.loaded {
-		return
+		return nil
 	}
-	b.loaded = true
 	if b.days == nil {
 		b.days = map[int64]*budgetDay{}
 	}
-	if runs == nil {
-		return
-	}
 	start, _ := localday.Bounds(now)
-	for _, r := range runs(start.Add(-48 * time.Hour)) {
+	var past []budgetRun
+	if runs != nil {
+		var err error
+		// A chain that cannot be read leaves the budget unloaded and the caller refusing to start
+		// anything: counting from zero would hand the whole day's budget back (T-1 EXE F8).
+		if past, err = runs(start.Add(-48 * time.Hour)); err != nil {
+			return err
+		}
+	}
+	b.loaded = true
+	for _, r := range past {
 		ds, _ := localday.Bounds(r.start.In(now.Location()))
 		b.dayLocked(ds.UnixMilli()).add(r.peer, 1)
 	}
 	b.pruneLocked(start)
+	return nil
 }
+
+// budgetSource reads the counted runs recorded at or after since; an error is a chain that could not be
+// read.
+type budgetSource func(since time.Time) ([]budgetRun, error)
 
 func (b *runBudget) dayLocked(key int64) *budgetDay {
 	if b.days == nil {
@@ -235,14 +248,17 @@ func (b *runBudget) pruneLocked(today time.Time) {
 
 // reserve asks for a run for peer under the budgets: granted with its ticket, busy, off (a budget of 0),
 // or spent with the time until the local day ends. runs is the evidence chain's (BU-2), read on first use.
-func (b *runBudget) reserve(peer string, daily, perPeer int, runs func(since time.Time) []budgetRun) (*budgetTicket, budgetVerdict, time.Duration) {
+func (b *runBudget) reserve(peer string, daily, perPeer int, runs budgetSource) (*budgetTicket, budgetVerdict, time.Duration) {
 	if daily <= 0 || perPeer <= 0 {
 		return nil, budgetOff, 0
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	now := b.clock()
-	b.loadLocked(now, runs)
+	if err := b.loadLocked(now, runs); err != nil {
+		log.Printf("anet: auto-reply: the run budget cannot be counted, nothing starts until the evidence chain can be read: %v", err)
+		return nil, budgetBusy, 0
+	}
 	start, end := localday.Bounds(now)
 	key := start.UnixMilli()
 	day := b.dayLocked(key)
@@ -285,11 +301,13 @@ func (t *budgetTicket) release(counted bool) {
 }
 
 // today is the number of runs counted today.
-func (b *runBudget) today(runs func(since time.Time) []budgetRun) int {
+func (b *runBudget) today(runs budgetSource) int {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	now := b.clock()
-	b.loadLocked(now, runs)
+	if b.loadLocked(now, runs) != nil {
+		return 0
+	}
 	start, _ := localday.Bounds(now)
 	if d := b.days[start.UnixMilli()]; d != nil {
 		return d.total
@@ -337,10 +355,13 @@ func int64Of(v any) int64 {
 
 // budgetRunsOnChain is the counted runs on this node's evidence chain recorded at or after since, read
 // back through the module's own evidence (OwnEvidenceHost, BU-2).
-func (m *autoReplyModule) budgetRunsOnChain(since time.Time) []budgetRun {
+func (m *autoReplyModule) budgetRunsOnChain(since time.Time) ([]budgetRun, error) {
+	if m.ev == nil {
+		return nil, errors.New("no evidence host")
+	}
 	evs, err := m.ev.ReadOwnEvidence(EvAutoReplyInvoked, since)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	var out []budgetRun
 	for _, e := range evs {
@@ -348,7 +369,7 @@ func (m *autoReplyModule) budgetRunsOnChain(since time.Time) []budgetRun {
 			out = append(out, r)
 		}
 	}
-	return out
+	return out, nil
 }
 
 // reserveRun asks the budget for a run for peer under cfg's budgets (BU-2 to BU-5).

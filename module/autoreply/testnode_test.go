@@ -83,7 +83,8 @@ func (n *testNode) reserveRun(cfg AutoReplyConfig, peer string) (*budgetTicket, 
 	return n.mod.reserveRun(cfg, peer)
 }
 func (n *testNode) budgetRunsOnChain(since time.Time) []budgetRun {
-	return n.mod.budgetRunsOnChain(since)
+	runs, _ := n.mod.budgetRunsOnChain(since)
+	return runs
 }
 
 // openSandboxTask is a no-op here: no maintenance runs on a bare node that could remove the work directory

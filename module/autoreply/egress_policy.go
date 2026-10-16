@@ -411,10 +411,6 @@ func egressInlineData(u string) bool {
 func responsesMediaByURL(obj map[string]any) *egressRefusal {
 	return mediaByURL(obj["input"], "input", func(m map[string]any) string {
 		switch typ, _ := m["type"].(string); {
-		case typ == "item_reference":
-			return "type" // a reference to an item stored in the operator's account
-		case (typ == "input_image" || typ == "input_file") && presentMember(m, "file_id"):
-			return "file_id" // a file in the operator's account
 		case typ == "input_image" && presentMember(m, "image_url"):
 			if u, isStr := m["image_url"].(string); !isStr || !egressInlineData(u) {
 				return "image_url"
@@ -450,9 +446,6 @@ func chatMediaByURL(obj map[string]any) *egressRefusal {
 			}
 		}
 		if f, ok := m["file"].(map[string]any); ok {
-			if presentMember(f, "file_id") {
-				return "file.file_id"
-			}
 			if d, ok := f["file_data"].(string); ok && strings.Contains(d, ":") && !egressInlineData(d) {
 				return "file.file_data"
 			}
