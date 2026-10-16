@@ -616,7 +616,7 @@ MUTS += [
   edits=[(IDNOTICE, '\tcase knownNoticeErrors[noticeErr]:\n', '\tcase false:\n')],
   tests=K8(['TestTheNoticeComesWithRegisterAndPoll']), full=K8_FULL),
  dict(id='kel8-d50h', group='KEL-8', repo='ANet', desc='D-50:poll 的答复不记录通告',
-  edits=[('internal/daemon/relay.go', '\td.noteHubNotice(resp.KeyStateNotice, resp.KeyStateNoticeError)\n', '')],
+  edits=[('internal/daemon/relay.go', '\t\td.noteHubNoticeFrom(hub, resp.KeyStateNotice, resp.KeyStateNoticeError)\n', '')],
   tests=K8(['TestTheNoticeComesWithRegisterAndPoll']), full=K8_FULL),
  dict(id='kel8-d50i', group='KEL-8', repo='ANet', desc='D-13 第 4 步、D-50:注册答复的通告不记录',
   edits=[(HUBJOIN, '\t\td.noteHubNotice(out.reg.KeyStateNotice, out.reg.KeyStateNoticeError)\n', '')],

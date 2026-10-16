@@ -273,7 +273,8 @@ MUTS = [
   id='fx30-2', group='F30', repo='ANet',
   desc='直连入站先等启动完成再过第 0 步限速',
   edits=[
-   ('internal/daemon/transport.go', '\tif !in.d.rxStep0(envelope, &path) {\n\t\tin.d.count(transientP2PRate)\n\t\treturn nil, errP2PRateLimited\n\t}\n\tif err := in.d.awaitReady(ctx); err != nil {\n\t\treturn nil, err\n\t}', '\tif err := in.d.awaitReady(ctx); err != nil {\n\t\treturn nil, err\n\t}\n\tif !in.d.rxStep0(envelope, &path) {\n\t\tin.d.count(transientP2PRate)\n\t\treturn nil, errP2PRateLimited\n\t}'),
+   ('internal/daemon/transport.go', '\t\treturn nil, errIdentityGone\n\t}\n\tif err := in.d.awaitReady(ctx); err != nil {\n\t\treturn nil, err\n\t}\n', '\t\treturn nil, errIdentityGone\n\t}\n'),
+   ('internal/daemon/transport.go', '\tpath := rxPath{direct: true}\n\tif !in.d.rxStep0(envelope, &path) {\n', '\tif err := in.d.awaitReady(ctx); err != nil {\n\t\treturn nil, err\n\t}\n\tpath := rxPath{direct: true}\n\tif !in.d.rxStep0(envelope, &path) {\n'),
   ],
   tests=[('ANet:./internal/daemon', 'TestTheDirectRateLimitHoldsDuringStartUp')],
   full=['ANet:./internal/daemon'],

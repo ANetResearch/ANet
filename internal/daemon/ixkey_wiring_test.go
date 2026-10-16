@@ -735,11 +735,11 @@ func TestEveryTerminalPathSettlesIXKey(t *testing.T) {
 					t.Fatal(err)
 				}
 			}},
-		// UX-3's completion: the reply folded into the result is one
-		// terminal write of its own (completeWithReply).
+		// CUX-R4 step 4: the reply folded into the result settles the key
+		// in the same transaction.
 		{name: "provider completes with a reply", side: onProv, cause: interactions.CauseProviderEnd, fate: "deleted",
 			run: func(t *testing.T, _ string, _, prov *Daemon, id string) {
-				if err := prov.completeWithReply(ctx, id, "done", nil); err != nil {
+				if err := prov.completeWithReply(ctx, id, "here it is", nil); err != nil {
 					t.Fatal(err)
 				}
 			}},
