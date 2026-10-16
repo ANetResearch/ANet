@@ -32,7 +32,9 @@ var sandboxSelfCheckReasons = []string{"netns_failed", "seccomp_failed", "fs_iso
 // (sandbox.detail), since the sentence asks for the details doctor holds.
 func sandboxCheck(say func(id, status, key string, args a2ashape.Args), rep *doctorReport, env doctorEnv,
 	layout daemon.Layout, ar *autoreply.AutoReplyConfig) {
-	if ar == nil || (ar.UntrustedMode() != autoreply.UntrustedSandbox && ar.TrustedMode() != autoreply.TrustedSandbox) {
+	// The openai backend runs no local program: nothing is sandboxed, and /status says sandbox.off, so
+	// doctor must not report a sandbox that runs (T-1 EXE F-8).
+	if ar == nil || ar.Backend != "exec" || (ar.UntrustedMode() != autoreply.UntrustedSandbox && ar.TrustedMode() != autoreply.TrustedSandbox) {
 		return
 	}
 	c, ok := sandboxFromStatus(env, rep, layout)

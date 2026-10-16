@@ -12,6 +12,7 @@ import (
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
 	"github.com/ANetResearch/ANet/internal/daemon"
+	"github.com/ANetResearch/ANet/module/autoreply"
 )
 
 // sandboxDoctorLayout is a fresh data directory with the auto_reply block given.
@@ -326,6 +327,19 @@ func TestDoctorAutoReplyIDsFollowTheModule(t *testing.T) {
 	for id := range offWithBlock {
 		if strings.HasPrefix(id, "sandbox") {
 			t.Errorf("a block with the module off: item %s", id)
+		}
+	}
+}
+
+// The openai backend runs no local program, so doctor has no sandbox item for it, with untrusted=sandbox or
+// not (the status says sandbox.off; T-1 EXE F-8).
+func TestDoctorHasNoSandboxItemForTheOpenAIBackend(t *testing.T) {
+	for _, backend := range []string{"", "openai"} {
+		ar := &autoreply.AutoReplyConfig{Backend: backend, Model: "m", Untrusted: autoreply.UntrustedSandbox}
+		var said []string
+		sandboxCheck(func(id, status, key string, args a2ashape.Args) { said = append(said, id+"/"+key) }, &doctorReport{}, doctorEnv{}, daemon.Layout{}, ar)
+		if len(said) != 0 {
+			t.Errorf("backend %q: doctor said %v", backend, said)
 		}
 	}
 }
