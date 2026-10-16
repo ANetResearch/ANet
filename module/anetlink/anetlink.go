@@ -25,6 +25,7 @@
 package anetlink
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -45,8 +46,8 @@ const registerTimeout = 10 * time.Second
 
 func init() {
 	module.Register(name, func(raw []byte) (module.Module, error) {
-		if len(raw) == 0 {
-			return nil, nil // compiled in, not configured
+		if len(raw) == 0 || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+			return nil, nil // compiled in, not configured; "anetlink": null is the same as no block
 		}
 		var cfg Config
 		if err := json.Unmarshal(raw, &cfg); err != nil {

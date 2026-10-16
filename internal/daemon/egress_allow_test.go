@@ -85,7 +85,7 @@ func TestAutoReplyEgressAllowRoute(t *testing.T) {
 	}
 	rec = httptest.NewRecorder()
 	d.hStatus(rec, httptest.NewRequest(http.MethodGet, "/status", nil))
-	if !strings.Contains(rec.Body.String(), `"sandbox":{"egress_allow":[]}`) {
+	if !strings.Contains(rec.Body.String(), `"egress_allow":[]`) {
 		t.Errorf("/status after clearing: %s", rec.Body)
 	}
 	_, recs := d.ledger.Evidence(EvidenceQuery{EventType: EvPolicyChanged})

@@ -16,6 +16,23 @@
       }
     }
   },
+  "egress_host_unresolved": {
+    "status": 502,
+    "anthropic": {
+      "error": {
+        "message": "anet: the allowed host pypi.org does not resolve right now; try again later, or say in your reply that you cannot do it.",
+        "type": "api_error"
+      },
+      "type": "error"
+    },
+    "openai": {
+      "error": {
+        "code": "egress_host_unresolved",
+        "message": "anet: the allowed host pypi.org does not resolve right now; try again later, or say in your reply that you cannot do it.",
+        "type": "server_error"
+      }
+    }
+  },
   "egress_plain_http": {
     "status": 403,
     "anthropic": {

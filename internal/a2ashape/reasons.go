@@ -527,8 +527,12 @@ func value(code, variant, name string, lang Language, args Args, now time.Time) 
 	case "name":
 		s = clean(s, maxNameRunes)
 		return s, s != ""
-	case "value", "error":
+	case "value":
 		s = clean(s, maxShortRunes)
+		return s, s != ""
+	case "error":
+		// bwrap's first line (sandbox_start_failed) is cut at 120 characters (ux §1.4 H).
+		s = clean(s, maxErrorRunes)
 		return s, s != ""
 	case "code":
 		// A code is shown only in a code's form (CORE-K19): a hub's or a
@@ -546,6 +550,7 @@ func value(code, variant, name string, lang Language, args Args, now time.Time) 
 // Bounds on a placeholder value (ux UX-G8 and the notes under §1.4 C4, G).
 const (
 	maxNameRunes  = 64
+	maxErrorRunes = 120
 	maxValueRunes = 512
 )
 
@@ -953,6 +958,14 @@ var labels = map[string]phrasePair{
 	"status.payments": {"付款", "payments"},
 	"status.privacy":  {"隐私", "privacy"},
 	"status.preview":  {"预览", "preview"},
+
+	// LEC §5.2: the rows of `anet autoreply show`, and the line of `anet autoreply set` that says
+	// where the sandbox stands.
+	"autoreply.backend":   {"自动回复", "auto-reply"},
+	"autoreply.trusted":   {"信任对端", "trusted"},
+	"autoreply.untrusted": {"未信任", "untrusted"},
+	"autoreply.key":       {"API key", "API key"},
+	"autoreply.budget":    {"预算", "budget"},
 
 	"task.reason":   {"原因", "reason"},
 	"task.delivery": {"送达", "delivery"},

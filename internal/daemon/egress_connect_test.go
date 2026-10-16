@@ -278,15 +278,33 @@ func TestEgressConnectRefusesSpecialAddresses(t *testing.T) {
 			t.Errorf("%v: %+v", answer, ep.Summary())
 		}
 	}
-	// A host that does not resolve is 502, without a sentence of its own.
+	// A host that does not resolve is 502 with its own sentence, and is not a refusal.
 	f := &fakeConnectNet{target: "127.0.0.1:9"}
 	quietLog(t)
 	ep, sock := connectTestEgress(t, f, "pypi.org")
-	if _, _, st, _ := connectRaw(t, sock, "pypi.org:443"); st != 502 {
-		t.Errorf("no such host: %d", st)
+	_, _, st, body := connectRaw(t, sock, "pypi.org:443")
+	if want := a2ashape.Sentence("egress_host_unresolved", a2ashape.Lang(), a2ashape.Args{"host": "pypi.org"}); st != 502 || strings.TrimSpace(body) != want {
+		t.Errorf("no such host: %d %q", st, body)
 	}
 	if s := ep.Summary(); len(s.Connect.Refused) != 0 || len(s.Connect.Allowed) != 0 {
 		t.Errorf("no such host: %+v", s)
+	}
+}
+
+// TestEgressHostUnresolvedIs502: a host that does not resolve answers 502 egress_host_unresolved, twice
+// the same, and neither is counted as a refusal (CN-4).
+func TestEgressHostUnresolvedIs502(t *testing.T) {
+	f := &fakeConnectNet{target: "127.0.0.1:9"}
+	quietLog(t)
+	ep, sock := connectTestEgress(t, f, "pypi.org")
+	for i := 0; i < 2; i++ {
+		if _, _, st, body := connectRaw(t, sock, "pypi.org:443"); st != 502 || !strings.Contains(body, "pypi.org") ||
+			strings.Contains(body, "Bad Gateway") {
+			t.Fatalf("attempt %d: %d %q", i, st, body)
+		}
+	}
+	if s := ep.Summary(); len(s.Connect.Refused) != 0 {
+		t.Errorf("an unresolved host was counted as refused: %+v", s)
 	}
 }
 

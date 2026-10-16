@@ -463,14 +463,37 @@ type hubView struct {
 
 // viewOfJoin is what a record says now, in lang; nil is no hub (none).
 func (d *Daemon) viewOfJoin(r *joinRecord, now time.Time, lang a2ashape.Language) hubView {
+	return joinViewOf(r, now, lang, d.AID(), d.started, d.layout.Root)
+}
+
+// HubStatus is the hub object of /status, as HubView and ReadHubView give it.
+type HubStatus = hubView
+
+// ReadHubView is the hub object of /status read from the data directory, for a process that is not the
+// daemon (doctor): the same sentences, from hub_join.json alone. A record that cannot be read is an
+// error; no record is no hub.
+func ReadHubView(l Layout, lang a2ashape.Language) (HubStatus, error) {
+	r, err := loadJoinRecord(l)
+	if err != nil {
+		return hubView{}, err
+	}
+	return joinViewOf(r, time.Now(), lang, ReadIdentityAID(l), time.Time{}, l.Root), nil
+}
+
+// joinViewOf is viewOfJoin for any process: aid and root name the identity, started the moment the
+// daemon did (zero: not shown).
+func joinViewOf(r *joinRecord, now time.Time, lang a2ashape.Language, aid string, started time.Time, root string) hubView {
 	if r == nil {
-		v := hubView{State: JoinNone, Reason: reasonNoHub, key: reasonNoHub, Since: d.started.UTC().Format(time.RFC3339)}
+		v := hubView{State: JoinNone, Reason: reasonNoHub, key: reasonNoHub}
+		if !started.IsZero() {
+			v.Since = started.UTC().Format(time.RFC3339)
+		}
 		v.Message = a2ashape.Sentence(v.key, lang, nil)
 		v.Next = a2ashape.Next(v.key, lang, nil)
 		return v
 	}
 	key := r.Reason
-	args := a2ashape.Args{"hub": r.Hub, "aid": d.AID(), "now": now}
+	args := a2ashape.Args{"hub": r.Hub, "aid": aid, "now": now}
 	switch key {
 	case reasonProbation:
 		if r.ProbationUntil <= uint64(now.UnixMilli()) {
@@ -490,7 +513,7 @@ func (d *Daemon) viewOfJoin(r *joinRecord, now time.Time, lang a2ashape.Language
 			args["version"] = r.Version
 		}
 	case reasonStopped:
-		if n := IdentityNameForDir(d.layout.Root); n != "" {
+		if n := IdentityNameForDir(root); n != "" {
 			args["name"] = n
 		}
 	}

@@ -117,8 +117,8 @@ func TestRunBudgetCountsTheLocalDay(t *testing.T) {
 	if v, _ := run("Z"); v != budgetSpent {
 		t.Fatalf("a run after the clock went back into a spent day: %v", v)
 	}
-	// 0 runs nothing.
-	if _, v, _ := b.reserve("R", 0, 0, nil); v != budgetSpent {
+	// A budget of 0 is untrusted = off: not spent, so no "try again tomorrow" (BU-3).
+	if _, v, wait := b.reserve("R", 0, 0, nil); v != budgetOff || wait != 0 {
 		t.Fatalf("a budget of 0: %v", v)
 	}
 }
@@ -279,6 +279,8 @@ func TestRunBudgetProperty(t *testing.T) {
 				}
 				want := budgetGranted
 				switch {
+				case daily == 0 || perPeer == 0:
+					want = budgetOff
 				case total(date) >= daily || known[date][peer] >= perPeer:
 					want = budgetSpent
 				case running >= 2 || peerRunning >= 1:

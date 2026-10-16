@@ -158,6 +158,9 @@ const (
 	budgetBusy
 	// budgetSpent: today's budget is used up (BU-4).
 	budgetSpent
+	// budgetOff: a budget of 0 is untrusted = off (BU-3): nothing runs, nothing is refused, the task stays
+	// in the inbox. "Try again tomorrow" would not be true of a budget that is 0 tomorrow as well.
+	budgetOff
 )
 
 // budgetRun is a run that counts, as the evidence chain has it: whose, and when it started.
@@ -253,9 +256,12 @@ func (b *runBudget) pruneLocked(today time.Time) {
 	}
 }
 
-// reserve asks for a run for peer under the budgets: granted with its ticket, busy, or spent with the
-// time until the local day ends. runs is the evidence chain's (BU-2), read on first use.
+// reserve asks for a run for peer under the budgets: granted with its ticket, busy, off (a budget of 0),
+// or spent with the time until the local day ends. runs is the evidence chain's (BU-2), read on first use.
 func (b *runBudget) reserve(peer string, daily, perPeer int, runs func(since time.Time) []budgetRun) (*budgetTicket, budgetVerdict, time.Duration) {
+	if daily <= 0 || perPeer <= 0 {
+		return nil, budgetOff, 0
+	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	now := b.clock()
@@ -388,4 +394,10 @@ func (d *Daemon) SandboxBudget() SandboxBudget {
 	}
 	daily, perPeer := cfg.runBudgets()
 	return SandboxBudget{Today: d.budget.today(d.budgetRunsOnChain), RunsPerDay: daily, RunsPerPeerPerDay: perPeer}
+}
+
+// BudgetOff reports whether a budget of 0 turns the sandbox off for untrusted peers (BU-3).
+func (c AutoReplyConfig) BudgetOff() bool {
+	daily, perPeer := c.runBudgets()
+	return daily <= 0 || perPeer <= 0
 }

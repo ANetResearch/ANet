@@ -415,7 +415,7 @@ func (d *Daemon) tryCapabilityPaid(ctx context.Context, interactionID, capID str
 		// the code, no message: its own node renders the sentence. What the
 		// far side said (ANetLink's C1 code, the socket it could not reach)
 		// stays in this log.
-		log.Printf("anet: %s: %s: %v", interactionID, capID, err)
+		log.Printf("anet: %q: %q: %v", interactionID, capID, err)
 		res.Status, opts = refusalOutcome(refused.Reason)
 	case isUnknown:
 		// Sent, and the answer lost — or the call's deadline passed while
