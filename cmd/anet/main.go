@@ -213,6 +213,10 @@ func shortAID(aid string) string {
 	return aid
 }
 
+// payingCommand are the commands of the payment module (the name table's
+// CLICommands for x402), which cannot do anything without it.
+var payingCommand = map[string]bool{"pay": true, "redeem": true, "reconcile": true, "audit-hub": true}
+
 // exitStatus is the exit status of a command that ended in err (ux UX-C4),
 // after saying what is left to say on w: 2 for a command used wrongly (its
 // usage line), 1 for everything else. An error without words (errExit1,
@@ -1247,6 +1251,14 @@ func splitFlags(rest []string) (pos []string, flags map[string]string) {
 }
 
 func runClient(layout daemon.Layout, cmd string, rest []string, explicit bool) error {
+	// The commands that belong to the payment module say module_absent, with
+	// exit status 2, before the daemon is contacted and before anything is
+	// asked on the terminal (MOD-F3, MOD-2).
+	if payingCommand[cmd] {
+		if err := requireModule(layout, "x402"); err != nil {
+			return err
+		}
+	}
 	// With an explicit identity selection, resolve STRICTLY (this identity's own daemon only) so several
 	// running daemons can't be confused; otherwise keep the lenient uid-pointer fallback (single-daemon
 	// norm + agent sandboxes whose HOME differs from the operator's).

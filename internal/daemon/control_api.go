@@ -665,6 +665,9 @@ func (d *Daemon) hStatus(w http.ResponseWriter, r *http.Request) {
 			if a := p.AuditSummary(); a != nil {
 				out["payments_audit"] = a
 			}
+		} else if n := d.unchargeableCount(); n > 0 {
+			// Priced capabilities and no payment module (payments.unchargeable).
+			out["payments_unchargeable"] = map[string]any{"n": n}
 		}
 		if cfg.HubURL != "" {
 			ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
@@ -1592,7 +1595,7 @@ func (d *Daemon) hEvidence(w http.ResponseWriter, r *http.Request) {
 func (d *Daemon) hReconcile(w http.ResponseWriter, r *http.Request) {
 	p := d.payer()
 	if p == nil {
-		relayError(w, errNoPayments())
+		relayError(w, d.noPayments())
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), hubCallTimeout)
@@ -1610,7 +1613,7 @@ func (d *Daemon) hReconcile(w http.ResponseWriter, r *http.Request) {
 func (d *Daemon) hAuditHub(w http.ResponseWriter, r *http.Request) {
 	p := d.payer()
 	if p == nil {
-		relayError(w, errNoPayments())
+		relayError(w, d.noPayments())
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), hubCallTimeout)

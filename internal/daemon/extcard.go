@@ -461,6 +461,36 @@ func (d *Daemon) listOnlySkillIDs(public []string) []string {
 	return out
 }
 
+// unchargeableCount is how many capabilities carry a price, public or for
+// the allow and trust lists only, on a node that has no payment module: the
+// number doctor's payments.unchargeable tells (MOD-2). Calls to them are
+// refused (capability.go); the count exists so the operator learns it before
+// a caller does. 0 when the node can charge.
+func (d *Daemon) unchargeableCount() int {
+	if d.payer() != nil || d.providers == nil {
+		return 0
+	}
+	seen := map[string]bool{}
+	n := 0
+	ids := make([]string, 0, 8)
+	for _, p := range d.config().inbound().PublicCapabilities {
+		ids = append(ids, p.ID)
+	}
+	ids = append(ids, d.allowOnlyCapabilityIDs()...)
+	for _, id := range ids {
+		if strings.TrimSpace(id) == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		if prov, ok := d.providers.Resolve(id); ok {
+			if _, priced := priceOfCapability(prov, id); priced {
+				n++
+			}
+		}
+	}
+	return n
+}
+
 // cardCheck is doctor's payments.card as the daemon finds it (GET
 // /status?doctor=1): ok, or fail with the reason-table key and its
 // arguments.

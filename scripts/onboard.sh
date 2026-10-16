@@ -179,13 +179,13 @@ st=$(echo "$res" | jq_ "print(d.get('status',''))")
 msg=$(echo "$res" | jq_ "print(d.get('message',''))")
 [ "$st" = UNAVAILABLE ] && ok "无付费模块的提供方拒绝标价的活,而不是白干" \
   || no "状态是 $st,期望 UNAVAILABLE"
-case "$msg" in *no_x402*) ok "拒绝时说清了原因(提到 no_x402)";; *) no "没说原因: ${msg:0:100}";; esac
+case "$msg" in *"cannot take payment"*) ok "拒绝时说清了原因(该节点现在收不了款)";; *) no "没说原因: ${msg:0:100}";; esac
 
 hd "7  min 试图付款"
 for c in balance redeem reconcile audit-hub; do
   r=$(ctl min 29710 "/$c" '{"amount":1,"reference":"x"}')
-  case "$(echo "$r" | jq_ "print(d.get('error',''))")" in
-    *no_x402*) ok "/$c 明确回答本构建没有付费支持";;
+  case "$(echo "$r" | jq_ "print(d.get('reason',''))")" in
+    module_absent) ok "/$c 答 module_absent(本构建没有付款模块)";;
     *) no "/$c 的回答不对: ${r:0:100}";;
   esac
 done

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
+	"github.com/ANetResearch/ANet/module"
 )
 
 // payments.card (ux §5.2): the daemon's finding from GET /status?doctor=1
@@ -69,5 +70,52 @@ func TestPaymentsCardDoctorCheck(t *testing.T) {
 	got = run(true, map[string]any{"payments_card": map[string]any{"status": "fail", "reason": "something.else"}})
 	if len(got) != 1 || got[0].Reason != "payments.card_failed" || got[0].Status != stFail {
 		t.Errorf("unknown reason: %+v", got)
+	}
+}
+
+// payments.unchargeable (MOD-2): priced capabilities on a node without the
+// payment module are warned, with the count and how the module is absent;
+// nothing when the module is available, nothing priced, or the daemon is
+// down (the other checks of the daemon's findings say that).
+func TestDoctorUnchargeable(t *testing.T) {
+	l := freshInit(t)
+	run := func(without []string, running bool, st map[string]any) []doctorCheck {
+		env := testDoctorEnv(t)
+		rep := &doctorReport{}
+		rep.Control.Running = running
+		env.status = func(addr, token string) (map[string]any, error) { return st, nil }
+		av, err := module.NewAvailability(without)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []doctorCheck
+		say := func(id, status, key string, args a2ashape.Args) {
+			out = append(out, sayCheck(id, status, key, args, a2ashape.English))
+		}
+		paymentsUnchargeableCheck(say, rep, env, l, av)
+		return out
+	}
+	priced := map[string]any{"payments_unchargeable": map[string]any{"n": float64(2)}}
+	got := run([]string{"x402"}, true, priced)
+	want := sayCheck("payments.unchargeable", stWarn, "payments.unchargeable",
+		a2ashape.Args{"n": 2, "m": "x402", "reason": absentReason()}, a2ashape.English)
+	if len(got) != 1 || got[0] != want {
+		t.Fatalf("without: %+v, want %+v", got, want)
+	}
+	for _, frag := range []string{"2 capabilities have prices", "payment module (x402", "remove the prices"} {
+		if !strings.Contains(want.Detail, frag) {
+			t.Errorf("sentence %q lacks %q", want.Detail, frag)
+		}
+	}
+	if got := run([]string{"x402"}, true, map[string]any{"aid": "x"}); len(got) != 0 {
+		t.Errorf("nothing priced: %+v", got)
+	}
+	if got := run([]string{"x402"}, false, priced); len(got) != 0 {
+		t.Errorf("daemon down: %+v", got)
+	}
+	if module.Compiled() != nil && (module.Availability{}).Available("x402") {
+		if got := run(nil, true, priced); len(got) != 0 {
+			t.Errorf("payment module available: %+v", got)
+		}
 	}
 }

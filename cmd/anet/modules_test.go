@@ -124,10 +124,11 @@ func daemonLayout(t *testing.T) daemon.Layout { return daemon.NewLayout(t.TempDi
 
 // MOD-F2 (5): the English sentences the modules' absence used to have are
 // gone from the sources; module_absent is the one sentence. (The payment
-// module's two, errNoPayments and errNoPaymentModule, go with MOD-2.)
+// module's two, errNoPayments and errNoPaymentModule, went with MOD-2.)
 func TestOldAbsenceSentencesAreGone(t *testing.T) {
 	old := []string{"was compiled with -tags no_mcp", "is not compiled into this build", "is configured but not compiled",
-		"is part of this build but is not configured", "no MCP server to register", "built without the anetlink module"}
+		"is part of this build but is not configured", "no MCP server to register", "built without the anetlink module",
+		"this build has no payment support", "this build has no payment module"}
 	err := filepath.WalkDir(filepath.Join("..", ".."), func(p string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err

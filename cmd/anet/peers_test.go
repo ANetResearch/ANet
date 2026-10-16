@@ -71,7 +71,6 @@ func recordingDaemon(t *testing.T) (*client, func() []string) {
 // daemon at all; without "yes" nothing that changes anything does; the other
 // commands need none.
 func TestGrantingCommandsNeedATerminal(t *testing.T) {
-	withPaymentsCompiled(t)
 	grants := [][]string{
 		{"peers", "allow", "bafyreipeer000000000"},
 		{"peers", "trust", "bafyreipeer000000000"},
@@ -168,7 +167,6 @@ func runClientArgs(c *client, args []string) error {
 // Approving an id the daemon does not hold ends without asking and without
 // calling approve.
 func TestConfirmationsDescribeWhatTheyGrant(t *testing.T) {
-	withPaymentsCompiled(t)
 	lang := a2ashape.Lang()
 	prompt := func(args []string) string {
 		t.Helper()
@@ -226,7 +224,6 @@ func TestConfirmationsDescribeWhatTheyGrant(t *testing.T) {
 // ends before the question: there is no payee to show and nothing the
 // daemon could sign to.
 func TestRedeemWithoutAKnownHubDoesNotAsk(t *testing.T) {
-	withPaymentsCompiled(t)
 	for name, body := range map[string]string{
 		"no hub":           `{"hub":"","hub_aid":"","explicit_max":10,"daily_max":50}`,
 		"hub not answered": `{"hub":"https://hub.example","hub_aid":"","hub_error":"timeout","explicit_max":10,"daily_max":50}`,
@@ -262,15 +259,4 @@ func TestPrintableStripsTerminalControl(t *testing.T) {
 	if got := printable(strings.Repeat("a", 10), 4); got != "aaaa…" {
 		t.Fatalf("cut = %q", got)
 	}
-}
-
-// withPaymentsCompiled makes the CLI behave as a build with the payment
-// module for one test. These tests are about the terminal confirmation and
-// the prompt, which a -tags no_x402 build never reaches: there `anet
-// redeem` ends before asking (redeem_nox402_test.go).
-func withPaymentsCompiled(t *testing.T) {
-	t.Helper()
-	prev := paymentsCompiled
-	t.Cleanup(func() { paymentsCompiled = prev })
-	paymentsCompiled = func() bool { return true }
 }

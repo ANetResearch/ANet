@@ -578,6 +578,7 @@ func collectDoctor(layout daemon.Layout, env doctorEnv) (*doctorReport, error) {
 	previewCheck(say, cfg)
 	paymentsCardCheck(say, add, rep, env, layout) // doctor_payments.go
 	paymentsAuditCheck(say, add, rep, env, layout)
+	paymentsUnchargeableCheck(say, rep, env, layout, avail)
 	haveProbation := false // hubCheck already told it from the join record
 	for _, c := range rep.Checks {
 		haveProbation = haveProbation || c.ID == "hub.probation"

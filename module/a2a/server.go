@@ -102,7 +102,7 @@ func newServer(seam module.TaskSeam, cfg serverConfig) *server {
 	if cfg.tokenFile != "" {
 		s.tokens = &tokenSource{path: cfg.tokenFile}
 	}
-	s.cards = newCardCache(seam, cardBuilder{host: cfg.host, port: cfg.port}, cfg.signer)
+	s.cards = newCardCache(seam, cardBuilder{host: cfg.host, port: cfg.port, canPay: seam.CanPay}, cfg.signer)
 	h := &handler{seam: seam, extended: s.extendedAgentCard}
 	s.h = h
 	opts := []a2asrv.TransportOption{

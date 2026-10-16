@@ -3,7 +3,6 @@ package daemon
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log"
 	"net/http"
 	"strings"
@@ -12,6 +11,7 @@ import (
 	"github.com/ANetResearch/ANetCore/payment"
 	"github.com/ANetResearch/ANetCore/relayauth"
 
+	"github.com/ANetResearch/ANet/internal/a2ashape"
 	"github.com/ANetResearch/ANet/module"
 	"github.com/ANetResearch/ANet/provider"
 )
@@ -40,12 +40,17 @@ func (d *Daemon) payer() module.Payer {
 	return d.pay
 }
 
-// errNoPayments is what every payment surface says in a build that has
-// none. Named so the surfaces cannot each invent their own wording for
-// the same fact.
-func errNoPayments() error {
-	return fmt.Errorf("anet: this build has no payment support " +
-		"(built with -tags no_x402, or the x402 module is not configured)")
+// noPayments is what every payment surface says on a node that cannot pay
+// or charge: module_absent for the payment module, in the words of the way
+// it is absent (not built in, or turned off by without). Named so the
+// surfaces cannot each invent their own wording for the same fact (MOD-2).
+// A node whose module is available but holds no payer (a start that did not
+// finish) is told as not built in.
+func (d *Daemon) noPayments() *a2ashape.Refusal {
+	if ref := d.avail.Absent("x402", ""); ref != nil {
+		return ref
+	}
+	return a2ashape.Refuse("module_absent", module.AbsentArgs("x402", module.AbsentNotCompiled))
 }
 
 // paymentSeam is the narrow grant module/x402 receives: sign as this
@@ -203,7 +208,7 @@ func (d *Daemon) Balance(ctx context.Context) (map[string]any, error) {
 	} else {
 		if aerr != nil {
 			// Neither half to give: the older answer, which names the cause.
-			return nil, errNoPayments()
+			return nil, d.noPayments()
 		}
 		out = map[string]any{"aid": d.AID(), "hub": d.config().HubURL, "balance": moduleAbsent}
 	}
@@ -226,7 +231,7 @@ func (d *Daemon) Balance(ctx context.Context) (map[string]any, error) {
 func (d *Daemon) RedeemCredit(ctx context.Context, amount uint64, reference, payTo string) (map[string]any, error) {
 	p := d.payer()
 	if p == nil {
-		return nil, errNoPayments()
+		return nil, d.noPayments()
 	}
 	if strings.TrimSpace(payTo) == "" {
 		return nil, errRedeemNoPayee

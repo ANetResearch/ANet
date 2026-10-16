@@ -169,6 +169,20 @@ func (s *DaemonTaskSeam) ExtendedCard(ctx context.Context, aid string) (module.E
 	return module.ExtendedAgent{Agent: ra, Card: append([]byte(nil), res.Card.Bytes...)}, nil
 }
 
+// CanPay is TaskSeam.CanPay (K-11): this node can sign a payment and settle
+// it now. Worked out at each call. The PaymentSeam is granted as soon as a
+// daemon exists, so holding it says nothing; what makes a payment possible is
+// a payer, a hub address and the hub's AID, and the last two appear when the
+// node registers, after start.
+func (s *DaemonTaskSeam) CanPay() bool {
+	return s.d.canPay()
+}
+
+// canPay is the K-11 condition.
+func (d *Daemon) canPay() bool {
+	return d.payer() != nil && strings.TrimSpace(d.config().HubURL) != "" && d.hubAID() != ""
+}
+
 // Pay answers a payment-required task at the agent tier (A2A-DESIGN §8.7).
 func (s *DaemonTaskSeam) Pay(ctx context.Context, peerAID, taskID string, decision module.PayDecision) (a2ashape.Task, error) {
 	sc, err := peerScope(peerAID)

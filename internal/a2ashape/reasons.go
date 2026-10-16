@@ -1228,9 +1228,7 @@ func PaymentNote(n PayNote, lang Language) string {
 	if n.Code == "" {
 		return ""
 	}
-	args := Args{"amount": n.Amount, "price": n.Price, "tier": n.Tier, "single": n.Single, "left": n.Left,
-		"key": n.Key, "value": n.Value, "why": n.Why, "peer": n.Peer, "task": n.Task}
-	return Sentence(n.Code, lang, args)
+	return Sentence(n.Code, lang, PayNoteArgs(n))
 }
 
 // --- status ---
