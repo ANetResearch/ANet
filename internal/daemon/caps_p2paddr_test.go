@@ -15,6 +15,9 @@ import (
 // advertise value is written in the grant's form; one that is not an
 // address even then is left out of the grant rather than stopping it.
 func TestGrantP2PAddrIsTheGrantsForm(t *testing.T) {
+	if !haveP2P {
+		t.Skip("the module is not in this build (-tags)")
+	}
 	for in, want := range map[string]string{
 		"192.0.2.1:4710":                   "192.0.2.1:4710",
 		"tcp://192.0.2.1:4710":             "192.0.2.1:4710",

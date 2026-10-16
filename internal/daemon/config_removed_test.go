@@ -175,6 +175,9 @@ func TestRemovedSettingsHaveTheirPhrases(t *testing.T) {
 // the sentence names the key and what to do instead. A fresh config and a
 // missing one start.
 func TestRemovedSettingsStopTheDaemon(t *testing.T) {
+	if !haveP2P {
+		t.Skip("the module is not in this build (-tags)")
+	}
 	// A removed key under modules.anetlink makes a block without socket,
 	// which has a default only where XDG_RUNTIME_DIR is set
 	// (anetlink_config.go): the one refusal is then the removed key's.
@@ -249,6 +252,9 @@ func TestNoRemovedKeyIsExempted(t *testing.T) {
 // Several removed keys are refused at once, so that one edit fixes them all;
 // a key still written by this binary is not among them.
 func TestRemovedSettingsAllAtOnce(t *testing.T) {
+	if !haveP2P {
+		t.Skip("the module is not in this build (-tags)")
+	}
 	l := NewLayout(t.TempDir())
 	m := freshConfigFile(t)
 	withKey(m, "pricing", "x")

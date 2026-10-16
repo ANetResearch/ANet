@@ -280,6 +280,9 @@ func TestContactReplacesStranger(t *testing.T) {
 // SSR-D8: p2p only in a contact peer capability of a listed peer, pay only
 // in a peer capability, never in a one-shot one; the recipient takes each.
 func TestP2PAndPayPlacement(t *testing.T) {
+	if !haveP2P {
+		t.Skip("the module is not in this build (-tags)")
+	}
 	_, req, prov := registeredPair(t)
 	now := prov.nowMS()
 	const addr = "203.0.113.7:4001"

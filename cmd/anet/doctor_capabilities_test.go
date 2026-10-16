@@ -75,6 +75,7 @@ func TestCapabilityDoctorItems(t *testing.T) {
 }
 
 func TestPreviewDoctorItem(t *testing.T) {
+	needModule(t, "autoreply")
 	for _, c := range []struct{ cfg, want string }{
 		{`{}`, ""},
 		{`{"stream_preview":"off"}`, ""},

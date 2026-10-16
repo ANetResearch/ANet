@@ -98,6 +98,7 @@ func TestRefuseAPIKeyOnArgvMatching(t *testing.T) {
 // nowhere else, with only the members set named; nothing prints the key.
 // "-" after the flag, the usual name of standard input, reads it the same way.
 func TestAPIKeyStdinSendsTheKeyInTheBody(t *testing.T) {
+	needModule(t, "autoreply")
 	for _, flag := range [][]string{{"--api-key-stdin"}, {"--api-key-stdin", "-"}, {"--api-key-stdin=-"}} {
 		h := newCLIHome(t, "C")
 		rc := newRecordingControl(t, h)
@@ -122,6 +123,7 @@ func TestAPIKeyStdinSendsTheKeyInTheBody(t *testing.T) {
 // `set` sends only the settings it names: the daemon merges them into what is configured (LEC §2.3.4).
 // --agent names the exec backend; --api-base alone names none.
 func TestAutoReplySetSendsOnlyWhatItNames(t *testing.T) {
+	needModule(t, "autoreply")
 	for _, c := range []struct {
 		args []string
 		want string
@@ -158,6 +160,7 @@ func TestAutoReplySetSendsOnlyWhatItNames(t *testing.T) {
 // An empty key is api_key_empty, a key over 4096 bytes config_invalid: exit 1, the sentence, nothing
 // sent.
 func TestAPIKeyStdinRefusesEmptyAndOversizedInput(t *testing.T) {
+	needModule(t, "autoreply")
 	for _, c := range []struct {
 		in   string
 		code string

@@ -168,6 +168,9 @@ func TestUnknownModuleIsGrantedNothing(t *testing.T) {
 // process with different `without` do not see each other's, and neither is
 // a process-wide setting a later test inherits.
 func TestAvailabilityIsPerDaemon(t *testing.T) {
+	if !haveP2P {
+		t.Skip("the module is not in this build (-tags)")
+	}
 	a := startWith(t, map[string]any{"without": []string{"service", "x402"}}, nil)
 	b := startWith(t, nil, nil)
 	for _, c := range []struct {

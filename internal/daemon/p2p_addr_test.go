@@ -176,6 +176,9 @@ func TestP2PAddrLiteralPrecheck(t *testing.T) {
 // retry), a lan that is not a bool and an advertise no contact could dial
 // are config_invalid naming the key.
 func TestP2PConfigIsCheckedAtStart(t *testing.T) {
+	if !haveP2P {
+		t.Skip("the module is not in this build (-tags)")
+	}
 	for _, tc := range []struct {
 		block map[string]any
 		key   string // "" for a block that passes
