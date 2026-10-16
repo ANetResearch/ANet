@@ -210,6 +210,16 @@ func TestRefuseTurnReasonAllowlist(t *testing.T) {
 		if got := lastFromMe(t, prov, id); got != "" {
 			t.Errorf("%s: a text went out: %q", reason, got)
 		}
+		// The status that turned the task away carries no text either (UX-R1: only anet.reason).
+		msgs, err := prov.ix.Messages(id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, m := range msgs {
+			if m.SenderAID == prov.AID() && m.Kind == interactions.MsgStatus && m.Body != "" {
+				t.Errorf("%s: the status message carries text %q", reason, m.Body)
+			}
+		}
 	}
 }
 

@@ -1218,7 +1218,7 @@ MUTS += [
  dict(
   id='m-gt-5', group='GT-5', repo='ANet',
   desc='恢复 policy open 与 exec untrusted=sandbox 的互斥',
-  edits=[('internal/daemon/inbound.go', '\tif in.Policy != PolicyOpen {\n\t\treturn nil\n\t}\n\tif untrustedBackend {', '\tif in.Policy != PolicyOpen {\n\t\treturn nil\n\t}\n\tif strings.Contains(string(c.AutoReply), "\"untrusted\":\"sandbox\"") {\n\t\treturn ErrPolicyConflict\n\t}\n\tif untrustedBackend {')],
+  edits=[('internal/daemon/inbound.go', '\tif in.Policy != PolicyOpen {\n\t\treturn nil\n\t}\n\tif untrustedBackend {', '\tif in.Policy != PolicyOpen {\n\t\treturn nil\n\t}\n\tif strings.Contains(string(c.AutoReply), `"untrusted":"sandbox"`) {\n\t\treturn ErrPolicyConflict\n\t}\n\tif untrustedBackend {')],
   tests=[(KERNEL, 'TestOpenWithTheSandboxForUntrustedPeers')],
   full=[KERNEL, DAEMON],
  ),
