@@ -582,3 +582,37 @@ func TestServiceIsAFileReceiver(t *testing.T) {
 		t.Fatalf("FileReceiver %v", ok)
 	}
 }
+
+// The service's own words stay in this node's log: a 500, a gateway
+// error, a redirect and a non-JSON 200 give the requester a fixed
+// sentence, never the body (T-1 UX-MOD).
+func TestBackendBodyNeverReachesTheRequester(t *testing.T) {
+	const secret = "internal db password=hunter2"
+	for name, h := range map[string]http.HandlerFunc{
+		"500": func(w http.ResponseWriter, _ *http.Request) { http.Error(w, `{"error":"`+secret+`"}`, 500) },
+		"502": func(w http.ResponseWriter, _ *http.Request) { http.Error(w, secret, 502) },
+		"504": func(w http.ResponseWriter, _ *http.Request) { http.Error(w, secret, 504) },
+		"302": func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(302)
+			_, _ = w.Write([]byte(secret))
+		},
+		"text200": func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(secret)) },
+	} {
+		svc := httptest.NewServer(h)
+		reg := start(t, `{"allow_tcp":true,"capabilities":[{"id":"x.do","url":"`+svc.URL+`"}]}`)
+		p, _ := reg.Resolve("x.do")
+		eff, err := p.Invoke(context.Background(), provider.Call{Capability: "x.do"})
+		seen := eff.Message
+		if err != nil {
+			seen += " " + err.Error()
+			var ou *provider.OutcomeUnknownError
+			if errors.As(err, &ou) {
+				seen += " " + ou.Error() + " " + ou.Err.Error()
+			}
+		}
+		if strings.Contains(seen, "hunter2") || strings.Contains(seen, "password") {
+			t.Errorf("%s: the backend's words reached the requester: %q", name, seen)
+		}
+		svc.Close()
+	}
+}
