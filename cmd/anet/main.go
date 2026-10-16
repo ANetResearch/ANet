@@ -696,7 +696,7 @@ func printIdentities() error {
 	}
 	if len(ids) == 0 {
 		fmt.Println("No identities yet. Create one with:  anet id new <name>")
-		fmt.Println("(or just `anet up` to start the default identity)")
+		fmt.Println("(or `anet up` to start the default identity)")
 		return nil
 	}
 	fmt.Printf("%-2s %-14s %-8s %-18s %-22s %s\n", "", "NAME", "STATE", "CONTROL", "AID", "DATA DIR")
