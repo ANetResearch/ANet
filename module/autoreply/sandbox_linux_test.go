@@ -1137,3 +1137,34 @@ func TestCheckSandboxVsock(t *testing.T) {
 		}
 	}
 }
+
+// A TMPDIR too long for a socket path does not make the sandbox unavailable: the socket goes to /tmp
+// (T-1 EXE F-8).
+func TestSandboxEgressSocketWithALongTMPDIR(t *testing.T) {
+	longTmp := filepath.Join(t.TempDir(), strings.Repeat("t", 70))
+	if err := os.MkdirAll(longTmp, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TMPDIR", longTmp)
+	run := filepath.Join(t.TempDir(), strings.Repeat("r", 60), "Eabcdef01-123")
+	if err := os.MkdirAll(run, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	se, err := startSandboxEgress(run, &egressUpstream{Name: egressUpstreamAnthropic, Routes: egressAnthropicRoutes})
+	if err != nil {
+		t.Fatalf("a long TMPDIR: %v", err)
+	}
+	if len(se.sock) > sandboxSockMax || !strings.HasPrefix(se.sockDir, "/tmp/anet-sock-") {
+		t.Errorf("socket %s in %s", se.sock, se.sockDir)
+	}
+	c, err := net.Dial("unix", se.sock)
+	if err != nil {
+		t.Errorf("the socket does not take a connection: %v", err)
+	} else {
+		_ = c.Close()
+	}
+	se.close()
+	if _, err := os.Stat(se.sockDir); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the socket dir survived: %v", err)
+	}
+}

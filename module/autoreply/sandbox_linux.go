@@ -823,11 +823,28 @@ func startSandboxEgress(runDir string, up *egressUpstream) (*sandboxEgress, erro
 	if len(se.sock) > sandboxSockMax {
 		// Named after the run directory's identity prefix, so that the start-up sweep finds it (SB-9).
 		prefix, _, _ := strings.Cut(filepath.Base(runDir), "-")
-		dir, err := os.MkdirTemp("", sandboxSockDirPrefix+prefix+"-")
-		if err != nil {
-			return nil, err
+		if len(prefix) > 16 {
+			prefix = prefix[:16]
 		}
-		se.sockDir, se.sock = dir, filepath.Join(dir, "egress.sock")
+		var lastErr error
+		for _, parent := range sandboxSockDirParents() {
+			dir, err := os.MkdirTemp(parent, sandboxSockDirPrefix+prefix+"-")
+			if err != nil {
+				lastErr = err
+				continue
+			}
+			sock := filepath.Join(dir, "egress.sock")
+			if len(sock) > sandboxSockMax { // a long TMPDIR: try the next parent
+				_ = os.Remove(dir)
+				lastErr = fmt.Errorf("the socket path %q is too long", sock)
+				continue
+			}
+			se.sockDir, se.sock = dir, sock
+			break
+		}
+		if se.sockDir == "" {
+			return nil, lastErr
+		}
 	}
 	ln, err := net.Listen("unix", se.sock)
 	if err != nil {
