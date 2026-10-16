@@ -759,9 +759,13 @@ func TestEveryTerminalPathSettlesIXKey(t *testing.T) {
 				}
 			}},
 		{name: "requester stores a failed result", side: onReq, cause: interactions.CausePeerEnded, fate: "deleted",
-			run: func(t *testing.T, _ string, req, prov *Daemon, id string) { take(t, req, failedResult(t, prov, req, id)) }},
+			run: func(t *testing.T, _ string, req, prov *Daemon, id string) {
+				take(t, req, failedResult(t, prov, req, id))
+			}},
 		{name: "requester stores a terminal status", side: onReq, cause: interactions.CausePeerEnded, fate: "deleted",
-			run: func(t *testing.T, _ string, req, prov *Daemon, id string) { take(t, req, failedStatus(t, prov, req, id)) }},
+			run: func(t *testing.T, _ string, req, prov *Daemon, id string) {
+				take(t, req, failedStatus(t, prov, req, id))
+			}},
 		{name: "requester cancels after the delegation left", side: onReq, cause: interactions.CauseLocalEnded, fate: "close_after",
 			run: func(t *testing.T, _ string, req, _ *Daemon, id string) { cancel(t, req, id) }},
 		{name: "requester canceled, then the provider's failed status", side: onReq, cause: interactions.CausePeerEnded, fate: "deleted",
