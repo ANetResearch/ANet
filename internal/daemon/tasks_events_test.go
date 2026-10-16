@@ -362,3 +362,21 @@ func TestWatchSendsReplyArtifactBeforeStatus(t *testing.T) {
 		t.Fatalf("GetTask at input-required: %+v %v", got.Artifacts, err)
 	}
 }
+
+// thread, pull, end and review say no_local_task for an id this node does
+// not have, the same sentence as the task commands (T-1 UX-MOD).
+func TestInteractionCommandsSayNoLocalTask(t *testing.T) {
+	_, req, _ := registeredPair(t)
+	p := newPlaneFor(t, req, "tok")
+	for _, route := range []string{"/thread", "/end", "/review", "/pull"} {
+		resp, body := p.req(t, "POST", route, `{"interaction_id":"ix_nope","rating":5,"out_dir":"`+t.TempDir()+`"}`, p.bearer)
+		var out struct {
+			Error  string `json:"error"`
+			Reason string `json:"reason"`
+		}
+		_ = json.Unmarshal(body, &out)
+		if resp.StatusCode != http.StatusNotFound || out.Reason != "no_local_task" || strings.Contains(out.Error, "no such interaction") {
+			t.Errorf("%s: %d %s", route, resp.StatusCode, body)
+		}
+	}
+}
