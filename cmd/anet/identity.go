@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"time"
@@ -128,6 +129,11 @@ func (x *identityCLI) control() *client {
 	if x.c != nil {
 		return x.c
 	}
+	return x.resolveControl()
+}
+
+// resolveControl reads the control address and token afresh.
+func (x *identityCLI) resolveControl() *client {
 	resolve := daemon.ResolveControl
 	if x.explicit {
 		resolve = daemon.ResolveControlStrict
@@ -178,10 +184,25 @@ func (x *identityCLI) needDaemon() error {
 	return diagnoseNoDaemon("http://"+daemon.LocalControlAddr(x.layout), x.layout.Root, errors.New("no daemon"))
 }
 
+// fetchRetoken is x.c.fetch, except that a 401 is asked again once with the token the data directory
+// holds now: an emergency rotation changes the control token while the command is still waiting for
+// it (KEL E3), and the token read at the start is then the old one [T-1].
+func (x *identityCLI) fetchRetoken(path string, body any) ([]byte, int, error) {
+	b, code, err := x.c.fetch(path, body)
+	if err != nil || code != http.StatusUnauthorized {
+		return b, code, err
+	}
+	if nc := x.resolveControl(); nc != nil && nc.token != x.c.token {
+		x.c = nc
+		return x.c.fetch(path, body)
+	}
+	return b, code, err
+}
+
 // post calls a control route and decodes a 200 answer into out; a refusal is said as the daemon
 // words it.
 func (x *identityCLI) post(path string, body, out any) error {
-	b, code, err := x.c.fetch(path, body)
+	b, code, err := x.fetchRetoken(path, body)
 	if err != nil {
 		return diagnoseNoDaemon(x.c.base, x.layout.Root, err)
 	}
@@ -199,7 +220,7 @@ func (x *identityCLI) post(path string, body, out any) error {
 
 // postRaw is post without the printing, for a call whose refusal the caller words.
 func (x *identityCLI) postRaw(path string, body any) ([]byte, int, error) {
-	b, code, err := x.c.fetch(path, body)
+	b, code, err := x.fetchRetoken(path, body)
 	if err != nil {
 		return nil, 0, diagnoseNoDaemon(x.c.base, x.layout.Root, err)
 	}

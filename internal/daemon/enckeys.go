@@ -1306,6 +1306,11 @@ func (d *Daemon) noteHubDate(hubURL, date string) {
 	defer d.clk.mu.Unlock()
 	d.clk.hub = strings.TrimRight(hubURL, "/")
 	d.clk.obs = clockObs{hub: true, checked: true, wall: wall, mono: mono, offset: int64(wall) - at.UnixMilli()}
+	if absMS(d.clk.obs.offset) <= seal.ClockSkewMS {
+		d.clk.closedSince = 0 // the gate is open now
+	} else if d.clk.closedSince == 0 {
+		d.clk.closedSince = max(mono, 1) // the answer itself closes it
+	}
 }
 
 // clockObservation is the latest check that applies to the configured hub,
