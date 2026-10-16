@@ -103,6 +103,7 @@ func TestAFreshInitIsSafeByDoctorJSON(t *testing.T) {
 // Each SI-5 key moved off its safe default is reported under its own name,
 // and only that key.
 func TestDoctorReportsEachSI5KeyThatChanged(t *testing.T) {
+	needModule(t, "autoreply")
 	const aid = "bafyreisomepeer000001"
 	editConfig := func(t *testing.T, l daemon.Layout, f func(m map[string]any)) {
 		b, err := os.ReadFile(l.ConfigPath())

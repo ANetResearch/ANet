@@ -166,6 +166,9 @@ func LoadConfig(l Layout) (Config, error) {
 	if err != nil {
 		return Config{}, fmt.Errorf("anet: read config: %w", err)
 	}
+	if ref := withoutTypeRefusal(b); ref != nil {
+		return Config{}, &ConfigRefusal{Refusals: []*a2ashape.Refusal{ref}}
+	}
 	var c Config
 	if err := json.Unmarshal(b, &c); err != nil {
 		return Config{}, fmt.Errorf("anet: parse config %s: %w", l.ConfigPath(), err)
@@ -572,6 +575,9 @@ func CheckConfigForStart(l Layout) error {
 	{
 		var c Config
 		var m map[string]any
+		if ref := withoutTypeRefusal(raw); ref != nil {
+			return &ConfigRefusal{Refusals: append(refusals, ref)}
+		}
 		if err := json.Unmarshal(raw, &c); err != nil {
 			return fmt.Errorf("anet: parse config %s: %w", l.ConfigPath(), err)
 		}
@@ -766,4 +772,22 @@ func checkStreamPreview(_ Config, raw map[string]any) *a2ashape.Refusal {
 		return nil
 	}
 	return a2ashape.Refuse("config_invalid", a2ashape.Args{"key": "stream_preview", "rule": "off, on or with_reasoning"})
+}
+
+// withoutTypeRefusal is config_invalid for a "without" that is not a list of
+// module names, in the reason table's words rather than the decoder's ("json:
+// cannot unmarshal string into Go struct field Config.without of type
+// []string"). nil when the file has no such mistake or is not an object.
+func withoutTypeRefusal(raw []byte) *a2ashape.Refusal {
+	var m map[string]any
+	if json.Unmarshal(raw, &m) != nil {
+		return nil
+	}
+	if _, err := withoutOf(m); err != nil {
+		var ref *a2ashape.Refusal
+		if errors.As(err, &ref) {
+			return ref
+		}
+	}
+	return nil
 }

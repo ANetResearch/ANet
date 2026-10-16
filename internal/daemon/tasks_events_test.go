@@ -94,6 +94,9 @@ func nextEvent(t *testing.T, ch <-chan sseEvent, name string) sseEvent {
 }
 
 func TestTasksEventsStreamsTaskPreviewAndDelivery(t *testing.T) {
+	if !haveAutoreply {
+		t.Skip("a module of this test is not in this build (-tags)")
+	}
 	needPreviewModule(t)
 	_, req, prov := quietPair(t)
 	clk := frozenClock(req)
@@ -186,6 +189,14 @@ func TestTasksEventsUnknownTask(t *testing.T) {
 	resp, body := p.req(t, "POST", "/tasks/events", `{"task_id":"ix_nope"}`, p.bearer)
 	if resp.StatusCode != http.StatusNotFound || !strings.Contains(string(body), "no_local_task") {
 		t.Fatalf("%d %s", resp.StatusCode, body)
+	}
+	// The same sentence as /tasks/get: the retention is told, not a dash.
+	_, getBody := p.req(t, "POST", "/tasks/get", `{"task_id":"ix_nope"}`, p.bearer)
+	var a, b struct {
+		Error string `json:"error"`
+	}
+	if json.Unmarshal(body, &a) != nil || json.Unmarshal(getBody, &b) != nil || a.Error == "" || a.Error != b.Error {
+		t.Errorf("/tasks/events says %q, /tasks/get says %q", a.Error, b.Error)
 	}
 	resp, body = p.req(t, "POST", "/tasks/events", `{}`, p.bearer)
 	if resp.StatusCode != http.StatusBadRequest {
@@ -352,5 +363,23 @@ func TestWatchSendsReplyArtifactBeforeStatus(t *testing.T) {
 	got, err := seam.Get(ctx, prov.AID(), task.ID, nil)
 	if err != nil || len(got.Artifacts) != 1 || got.Artifacts[0].ID != "anet.reply" {
 		t.Fatalf("GetTask at input-required: %+v %v", got.Artifacts, err)
+	}
+}
+
+// thread, pull, end and review say no_local_task for an id this node does
+// not have, the same sentence as the task commands (T-1 UX-MOD).
+func TestInteractionCommandsSayNoLocalTask(t *testing.T) {
+	_, req, _ := registeredPair(t)
+	p := newPlaneFor(t, req, "tok")
+	for _, route := range []string{"/thread", "/end", "/review", "/pull"} {
+		resp, body := p.req(t, "POST", route, `{"interaction_id":"ix_nope","rating":5,"out_dir":"`+t.TempDir()+`"}`, p.bearer)
+		var out struct {
+			Error  string `json:"error"`
+			Reason string `json:"reason"`
+		}
+		_ = json.Unmarshal(body, &out)
+		if resp.StatusCode != http.StatusNotFound || out.Reason != "no_local_task" || strings.Contains(out.Error, "no such interaction") {
+			t.Errorf("%s: %d %s", route, resp.StatusCode, body)
+		}
 	}
 }

@@ -189,6 +189,9 @@ func TestRemovedSettingsStopTheDaemon(t *testing.T) {
 	}
 	for _, rs := range removedSettings {
 		t.Run(rs.key, func(t *testing.T) {
+			if strings.HasPrefix(rs.key, "modules.p2p.") && !haveP2P || strings.HasPrefix(rs.key, "modules.service.") && !haveService || strings.HasPrefix(rs.key, "modules.x402.") && !haveX402 {
+				t.Skip("the module of this key is not in this build (-tags)")
+			}
 			l := NewLayout(t.TempDir())
 			m := freshConfigFile(t)
 			withKey(m, rs.key, removedValue(rs.key))
@@ -249,6 +252,9 @@ func TestNoRemovedKeyIsExempted(t *testing.T) {
 // Several removed keys are refused at once, so that one edit fixes them all;
 // a key still written by this binary is not among them.
 func TestRemovedSettingsAllAtOnce(t *testing.T) {
+	if !haveP2P {
+		t.Skip("the module is not in this build (-tags)")
+	}
 	l := NewLayout(t.TempDir())
 	m := freshConfigFile(t)
 	withKey(m, "pricing", "x")
@@ -326,4 +332,20 @@ func FuzzFindRemovedSettings(f *testing.F) {
 			}
 		}
 	})
+}
+
+// A without that is not a list of module names is refused in the table's
+// words, not with the decoder's Go type names.
+func TestWrongTypedWithoutIsATableSentence(t *testing.T) {
+	for _, c := range []string{`{"without":"autoreply"}`, `{"without":[1]}`, `{"without":{"a":1}}`} {
+		l := NewLayout(t.TempDir())
+		if err := os.WriteFile(l.ConfigPath(), []byte(c), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		for name, err := range map[string]error{"start": CheckConfigForStart(l), "load": func() error { _, e := LoadConfig(l); return e }()} {
+			if err == nil || strings.Contains(err.Error(), "Go struct") || strings.Contains(err.Error(), "json:") {
+				t.Errorf("%s %s: %v", name, c, err)
+			}
+		}
+	}
 }

@@ -696,7 +696,7 @@ func printIdentities() error {
 	}
 	if len(ids) == 0 {
 		fmt.Println("No identities yet. Create one with:  anet id new <name>")
-		fmt.Println("(or just `anet up` to start the default identity)")
+		fmt.Println("(or `anet up` to start the default identity)")
 		return nil
 	}
 	fmt.Printf("%-2s %-14s %-8s %-18s %-22s %s\n", "", "NAME", "STATE", "CONTROL", "AID", "DATA DIR")
@@ -1505,7 +1505,19 @@ func taskList(c *client, rest []string) error {
 			if v == "true" || strings.TrimSpace(v) == "" {
 				return usageError{use}
 			}
-			body[key] = strings.TrimSpace(v)
+			v = strings.TrimSpace(v)
+			if flag == "state" {
+				// completed, COMPLETED, input-required, TASK_STATE_INPUT_REQUIRED
+				// all name a state; anything else is a usage error here,
+				// not the daemon's InvalidParams text.
+				n := strings.ToUpper(strings.NewReplacer("-", "_", " ", "_").Replace(v))
+				n = "TASK_STATE_" + strings.TrimPrefix(n, "TASK_STATE_")
+				if !a2ashape.TaskState(n).Valid() {
+					return usageError{use}
+				}
+				v = strings.ToLower(strings.ReplaceAll(strings.TrimPrefix(n, "TASK_STATE_"), "_", "-"))
+			}
+			body[key] = v
 		}
 	}
 	return c.do("/tasks/list", body)

@@ -194,3 +194,21 @@ func TestConfiguredKey(t *testing.T) {
 		}
 	}
 }
+
+// The report does not list the value of without from before the change as a
+// setting left alone, next to the line that tells the new one.
+func TestInitWithDoesNotReportTheOldWithoutAsKept(t *testing.T) {
+	l := NewLayout(t.TempDir())
+	if _, _, err := InitWithout(l, []string{"cas", "service"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	rep, _, err := InitWithout(l, nil, []string{"service"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, k := range rep.Kept {
+		if k.Key == "without" {
+			t.Errorf("without is reported as kept with %v after it was changed", k.Value)
+		}
+	}
+}

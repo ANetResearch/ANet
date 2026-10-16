@@ -9,6 +9,7 @@ import (
 
 // LEC CL-8: the sandbox's internal commands run before anything else and no help mentions them.
 func TestSandboxCommandsAreHidden(t *testing.T) {
+	needModule(t, "autoreply")
 	for name, text := range map[string]string{"help --all": usageAllText(), "banner": guideBanner()} {
 		if strings.Contains(text, "__sandbox") {
 			t.Errorf("%s mentions an internal sandbox command", name)

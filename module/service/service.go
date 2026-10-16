@@ -566,10 +566,12 @@ func (p *svcProvider) Invoke(ctx context.Context, call provider.Call) (effect.Ef
 		if resp.StatusCode == http.StatusGatewayTimeout {
 			reason = provider.ReasonTimeout
 		}
+		// What the gateway said stays in this node's log (T1 F-leak).
+		log.Printf("service: %s: HTTP %d from a gateway: %s", call.Capability, resp.StatusCode, snippet(raw))
 		ev := &effect.Evidence{Protocol: protoOf(target), Requested: call.Capability, LatencyMS: latency}
 		return effect.Effect{Status: effect.Unverified, Evidence: ev},
 			fmt.Errorf("service %s: %w", call.Capability, &provider.OutcomeUnknownError{Reason: reason,
-				Err: fmt.Errorf("HTTP %d from a gateway: %s", resp.StatusCode, snippet(raw))})
+				Err: fmt.Errorf("HTTP %d from a gateway", resp.StatusCode)})
 	}
 	if refusal := refusalOf(resp, raw, call.Capability); refusal != nil {
 		// The service said no to this call, or not now (CUX-F22). Its
@@ -579,31 +581,25 @@ func (p *svcProvider) Invoke(ctx context.Context, call provider.Call) (effect.Ef
 			Protocol: protoOf(target), Requested: call.Capability, LatencyMS: latency}}, refusal
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		// 503 and 429 are the service saying "not now": busy, or out of
-		// time under load. UNAVAILABLE, like an unreachable service, so the
-		// requester knows a retry may succeed; every other refusal is an
-		// answer about this call, and FAILED.
-		st := effect.Failed
-		if resp.StatusCode == http.StatusServiceUnavailable || resp.StatusCode == http.StatusTooManyRequests {
-			st = effect.Unavailable
-		}
+		// A 5xx, a redirect or anything else outside 2xx and the refusals
+		// above: the service's own words (an error page, a stack trace, a
+		// credential in a message) stay in this node's log, and the
+		// requester gets the table's backend_failed, never the body.
+		log.Printf("service: %s: HTTP %d: %s", call.Capability, resp.StatusCode, snippet(raw))
 		return effect.Effect{
-			Status:  st,
-			Message: fmt.Sprintf("service %s: HTTP %d: %s", call.Capability, resp.StatusCode, snippet(raw)),
-			Evidence: &effect.Evidence{
-				Protocol: protoOf(target), Requested: call.Capability, LatencyMS: latency,
-			},
+			Status:   effect.Failed,
+			Message:  fmt.Sprintf("service %s: backend_failed (HTTP %d)", call.Capability, resp.StatusCode),
+			Evidence: &effect.Evidence{Protocol: protoOf(target), Requested: call.Capability, LatencyMS: latency},
 		}, nil
 	}
 
 	var reply map[string]any
 	if err := json.Unmarshal(raw, &reply); err != nil {
+		log.Printf("service: %s: reply is not a JSON object: %s", call.Capability, snippet(raw))
 		return effect.Effect{
-			Status:  effect.Failed,
-			Message: fmt.Sprintf("service %s: reply is not a JSON object: %s", call.Capability, snippet(raw)),
-			Evidence: &effect.Evidence{
-				Protocol: protoOf(target), Requested: call.Capability, LatencyMS: latency,
-			},
+			Status:   effect.Failed,
+			Message:  fmt.Sprintf("service %s: backend_failed (the reply is not a JSON object)", call.Capability),
+			Evidence: &effect.Evidence{Protocol: protoOf(target), Requested: call.Capability, LatencyMS: latency},
 		}, nil
 	}
 

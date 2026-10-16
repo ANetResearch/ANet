@@ -183,6 +183,7 @@ func TestRequireModuleConsole(t *testing.T) {
 // module off, with the one sentence and exit status 2; the API key on the command line is refused ahead of
 // it (api_key_on_argv, AV-8).
 func TestAutoReplyIsRefusedWhenTurnedOff(t *testing.T) {
+	needModule(t, "autoreply")
 	layout := daemonLayout(t)
 	if err := requireModule(layout, "autoreply"); err != nil {
 		t.Fatalf("nothing turned off: %v", err)

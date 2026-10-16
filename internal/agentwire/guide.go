@@ -99,8 +99,9 @@ A price within ` + "`auto_max`" + ` is paid by the node and the task goes on. A 
 ` + "`input-required`" + ` with ` + "`anet.reason`" + ` ` + "`needs_operator_approval`" + `: someone has to decide. If the user
 wants it paid, call ` + "`submit_payment`" + `; when it answers ` + "`needs_operator_approval`" + ` with a
 ` + "`spend_refusal`" + `, the price is above the agent limits: tell the user the price and the payee and
-let them decide. The auto and agent limits are 0 on a new node, and no tool shows their current
-values: do not tell the user what they are, or that a skill cannot be paid, before the node or
+let them decide. The auto and agent limits are 0 on a new node; get_balance (limits) and node_status
+(payments) show their current values, so read them before telling the user what they are, and do
+not say a paid ability cannot be paid before the node or
 ` + "`submit_payment`" + ` has answered. Never try to raise a limit or to get around one. The payee
 must be in the operator's ` + "`payees.allow`" + `; ` + "`reject_payment`" + ` declines the quote.
 

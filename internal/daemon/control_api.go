@@ -1074,6 +1074,9 @@ func (d *Daemon) hPull(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
+	if len(files) == 0 && d.unknownTask(w, req.InteractionID) {
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"interaction_id": req.InteractionID, "files": files, "count": len(files)})
 }
 
@@ -1142,6 +1145,9 @@ func (d *Daemon) hEnd(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "interaction_id required"})
 		return
 	}
+	if d.unknownTask(w, req.InteractionID) {
+		return
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), hubCallTimeout)
 	defer cancel()
 	if err := d.RequestEnd(ctx, req.InteractionID); err != nil {
@@ -1177,6 +1183,22 @@ func (d *Daemon) hThreads(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"threads": ts, "aid": d.AID(), "name": cfg.Name, "hub": cfg.HubURL})
 }
 
+// unknownTask answers the request with no_local_task, the one sentence the
+// task commands use, when this node has no such interaction, and reports
+// whether it did. thread, pull, end and review used to answer in their own
+// words (no such interaction, interactions: not found, a count of 0).
+func (d *Daemon) unknownTask(w http.ResponseWriter, id string) bool {
+	if _, err := d.ix.Get(id); !errors.Is(err, interactions.ErrNotFound) {
+		return false
+	}
+	var ref *a2ashape.Refusal
+	if errors.As(d.noLocalTask(id), &ref) {
+		writeRefusal(w, http.StatusNotFound, ref)
+		return true
+	}
+	return false
+}
+
 // hThread returns ONE interaction's full conversation (the multi-turn message log + end-negotiation
 // state), best-effort pulling the relay first so a CLI-driven agent can READ the ongoing conversation
 // (e.g. a follow-up the requester just sent) before deciding what to reply / whether to end.
@@ -1188,11 +1210,17 @@ func (d *Daemon) hThread(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "interaction_id required"})
 		return
 	}
+	if d.unknownTask(w, req.InteractionID) {
+		return
+	}
 	d.pollFresh(r.Context()) // best-effort freshness; large inbound transfers are left to the background loop
 	t, err := d.Thread(req.InteractionID)
-	if errors.Is(err, interactions.ErrNotFound) {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "no such interaction: " + req.InteractionID})
-		return
+	if errors.Is(err, interactions.ErrNotFound) { // gone between the check and the read
+		var ref *a2ashape.Refusal
+		if errors.As(d.noLocalTask(req.InteractionID), &ref) {
+			writeRefusal(w, http.StatusNotFound, ref)
+			return
+		}
 	}
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
@@ -1265,6 +1293,9 @@ func (d *Daemon) hReview(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := readJSON(r, &req); err != nil || req.InteractionID == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "interaction_id + rating required"})
+		return
+	}
+	if d.unknownTask(w, req.InteractionID) {
 		return
 	}
 	res, err := d.SubmitReview(req.InteractionID, req.Rating, req.Comment)

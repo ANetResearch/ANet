@@ -58,7 +58,7 @@ func runPreview(c *client, rest []string) error {
 		return fmt.Errorf("preview: the daemon's answer does not read")
 	}
 	if flags["json"] == "true" {
-		fmt.Fprintln(outW(), string(out))
+		fmt.Fprintln(outW(), escapeTerminalRunes(string(out)))
 		return nil
 	}
 	fmt.Fprintln(outW(), a2ashape.Sentence("preview."+ans.Mode, lang, nil))

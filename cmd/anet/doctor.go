@@ -618,7 +618,12 @@ func collectDoctor(layout daemon.Layout, env doctorEnv) (*doctorReport, error) {
 		rep.SI5Changed = []string{}
 	}
 	rep.AutoReply.Untrusted, _ = rep.SI5["auto_reply.untrusted"].(string)
-	autoReplyChecks(add, say, rep, env, layout, cfg, lang)       // doctor_sandbox.go
+	if avail.Available("autoreply") {
+		autoReplyChecks(add, say, rep, env, layout, cfg, lang) // doctor_sandbox.go
+	} else {
+		// An absent module is info with the module_absent sentence (UX-K6).
+		say("auto_reply", stInfo, "module_absent", module.AbsentArgs("autoreply", avail.Absence("autoreply")))
+	}
 	capabilitiesFilesChecks(say, avail, st.ConfigPath)           // doctor_modules.go
 	a2aBackendChecks(add, st.Inbound.Policy, cfg, len(st.Trust)) // doctor_backends.go
 	backendTransportChecks(add, say, cfg)                        // doctor_backends.go

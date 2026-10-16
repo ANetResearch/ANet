@@ -568,3 +568,27 @@ func TestRetentionSentencesReadRightForForever(t *testing.T) {
 		}
 	}
 }
+
+// 12-gui-docs section 1: no colloquial words in a user-visible sentence.
+func TestReasonSentencesAreNotColloquial(t *testing.T) {
+	en := regexp.MustCompile(`(?i)\b(just (run|use|type|anet)|simply|let's|you'll|awesome)\b`)
+	zh := []string{"马上", "赶紧", "搞定", "一键", "您", "你只需"}
+	check := func(where, zhS, enS string) {
+		if m := en.FindString(enS); m != "" {
+			t.Errorf("%s: %q in the English sentence: %s", where, m, enS)
+		}
+		for _, w := range zh {
+			if strings.Contains(zhS, w) {
+				t.Errorf("%s: %q in the Chinese sentence: %s", where, w, zhS)
+			}
+		}
+	}
+	for _, r := range reasonTable {
+		check(r.Key(), r.Zh, r.En)
+	}
+	for set, ps := range phraseSets {
+		for k, p := range ps {
+			check(set+"/"+k, p.zh, p.en)
+		}
+	}
+}

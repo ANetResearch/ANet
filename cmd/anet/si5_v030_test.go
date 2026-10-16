@@ -201,6 +201,9 @@ func TestRemovedKeysStopAnetDaemon(t *testing.T) {
 					m, _, _ := strings.Cut(rest, ".")
 					needModule(t, m)
 				}
+				if strings.HasPrefix(key, "auto_reply.") {
+					needModule(t, "autoreply") // the key of an absent module block: a second sentence
+				}
 				h := newCLIHome(t, lang)
 				layout := daemon.NewLayout(h.data)
 				if err := initTo(nopWriter{}, layout, false, nil, nil); err != nil {

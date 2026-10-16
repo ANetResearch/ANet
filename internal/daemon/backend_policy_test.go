@@ -39,6 +39,9 @@ func startRefusals(t *testing.T, modules map[string]any) []*a2ashape.Refusal {
 // not there and a peer_check other than "path-only" stop the daemon with
 // config_invalid naming the key.
 func TestBackendPolicyKeysAreCheckedAtStart(t *testing.T) {
+	if !haveService {
+		t.Skip("a module of this test is not in this build (-tags)")
+	}
 	me, err := user.Current()
 	if err != nil {
 		t.Fatal(err)
@@ -91,6 +94,9 @@ func TestBackendPolicyKeysAreCheckedAtStart(t *testing.T) {
 // in any of the three it stops the daemon with config_key_removed, whose
 // sentence says to use expected_user, which takes a uid too (LEC §3.1).
 func TestExpectedUIDStopsTheDaemonInEveryModule(t *testing.T) {
+	if !haveService {
+		t.Skip("a module of this test is not in this build (-tags)")
+	}
 	for path, modules := range map[string]map[string]any{
 		"modules.service.expected_uid":         {"service": map[string]any{"expected_uid": 1000}},
 		"modules.a2a.backends[0].expected_uid": {"a2a": map[string]any{"backends": []any{map[string]any{"match": "*", "expected_uid": 1000}}}},

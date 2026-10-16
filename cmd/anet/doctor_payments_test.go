@@ -102,7 +102,7 @@ func TestDoctorUnchargeable(t *testing.T) {
 	if len(got) != 1 || got[0] != want {
 		t.Fatalf("without: %+v, want %+v", got, want)
 	}
-	for _, frag := range []string{"2 capabilities have prices", "payment module (x402", "remove the prices"} {
+	for _, frag := range []string{"priced capabilities (2)", "payment module (x402", "remove the prices"} {
 		if !strings.Contains(want.Detail, frag) {
 			t.Errorf("sentence %q lacks %q", want.Detail, frag)
 		}

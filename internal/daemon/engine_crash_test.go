@@ -168,10 +168,9 @@ func TestET1_AQueuedRowGoesInTheFirstRoundAfterAKill(t *testing.T) {
 // is handed over: a cancel does not withdraw the delegation, and the
 // recipient's token for it can still be verified.
 func TestET2_AKillInsideAnAttemptLeavesTheRowHandedOver(t *testing.T) {
-	srv, req, prov, id, _, row := crashedAtSend(t)
-	if row.Attempting {
-		t.Fatalf("still attempting after the start: %+v", row)
-	}
+	srv, req, prov, id, _, _ := crashedAtSend(t)
+	// The start counts the row handed over on its own schedule; looking at
+	// the row the instant the daemon is up raced it under load (T-1).
 	waitUntil(t, "the start to count the row handed over", func() bool {
 		r := outboxRows(t, req, id)
 		return len(r) == 1 && r[0].HandedAt != 0 && !r[0].Attempting

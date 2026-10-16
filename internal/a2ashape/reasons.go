@@ -917,7 +917,7 @@ var phraseSets = map[string]map[string]phrasePair{
 		"taskboard": {"hub 共享看板已删除，请删掉 config.json 里的这一块；要把任务交给别人，请改用 anet delegate",
 			"the hub task board was removed; delete this block from config.json, and use anet delegate to hand a task to someone"},
 		"invite_env": {"hub 已不再使用邀请码，已忽略；请删掉这个环境变量，直接运行 anet hub-register",
-			"hubs no longer use invites, so it is ignored; remove it and just run anet hub-register"},
+			"hubs no longer use invites, so it is ignored; remove it and run anet hub-register"},
 	},
 }
 
@@ -2533,7 +2533,7 @@ var reasonTable = []Row{
 		Zh: "紧急轮换 {name}（{aid8}）：用于私钥或数据目录可能已经泄露的情况。将会：",
 		En: "Emergency rotation of {name} ({aid8}): for when the private key or the data directory may have leaked. It will:"},
 	{Code: "identity.rotate.emergency_summary.2", Class: ClassT,
-		Zh: "· 立即停用旧密钥：已知道你新密钥的对方马上拒收旧密钥签的消息，其余对方最迟 6 小时后拒收",
+		Zh: "· 立即停用旧密钥：已知道你新密钥的对方立即拒收旧密钥签的消息，其余对方最迟 6 小时后拒收",
 		En: "· stop the old key at once: peers that know your new key refuse messages signed with the old one right away, the rest within 6 hours"},
 	{Code: "identity.rotate.emergency_summary.3", Class: ClassT,
 		Zh: "· 更换加密钥，作废你发出的全部投递凭据",
@@ -2809,8 +2809,8 @@ var reasonTable = []Row{
 		Zh: "能力 {name} 声明了 files，但不是由 service 模块提供；请改由 service 模块提供，或去掉 files。",
 		En: "The capability {name} declares files but is not served by the service module; serve it through the service module, or remove files."},
 	{Code: "payments.unchargeable", Class: ClassS, Level: LevelWarn,
-		Zh: "{n} 个能力标了价，但{why}，这些能力的调用都会被拒绝；请{fix}，或去掉价格。",
-		En: "{n} capabilities have prices, but {why}, so calls to them will be refused; {fix}, or remove the prices."},
+		Zh: "本节点有标了价的能力（{n} 个），但{why}，这些能力的调用都会被拒绝；请{fix}，或去掉价格。",
+		En: "This node has priced capabilities ({n}), but {why}, so calls to them will be refused; {fix}, or remove the prices."},
 	{Code: "capabilities.files_not_service.absent", Class: ClassS, Level: LevelFail,
 		Zh: "能力 {name} 声明了 files，但{why}，没有能接收文件的服务；请{fix}，或去掉 files。",
 		En: "The capability {name} declares files, but {why}, so nothing can receive the files; {fix}, or remove files."},

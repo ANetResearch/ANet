@@ -162,6 +162,7 @@ func TestDoctorBackendTransport(t *testing.T) {
 // (J10's doctor half); a fail, peer_cred_unsupported, where the platform
 // cannot tell who listens and the backend is not path-only.
 func TestDoctorBackendsPeerCheck(t *testing.T) {
+	needModule(t, "service")
 	needModule(t, "a2a")
 	needModule(t, "anetlink")
 	private := t.TempDir()

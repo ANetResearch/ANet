@@ -144,3 +144,13 @@ func TestUnchargeableCount(t *testing.T) {
 		t.Errorf("unchargeable = %d, want 1", n)
 	}
 }
+
+// A priced capability that is not public (it sits only where the allow and
+// trust lists reach it) is refused without a payer too, so it is counted.
+func TestUnchargeableCountIncludesANonPublicCapability(t *testing.T) {
+	_, _, prov := paidPair(t, &meteredWork{price: 3})
+	withoutPayments(prov)
+	if n := prov.unchargeableCount(); n != 1 {
+		t.Errorf("a priced capability that is not public: unchargeable = %d, want 1", n)
+	}
+}
