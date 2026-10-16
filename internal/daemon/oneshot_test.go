@@ -10,6 +10,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -306,6 +307,71 @@ func TestET33_ACardRequestTheHubFindsBusy(t *testing.T) {
 		}
 	})
 }
+
+// ENG-O8, ENG-O8a: only a 429 that says the hub is busy (rate_limited,
+// strangers_busy) earns the card request its one more try; any other
+// refusal ends it, and a kid_stale is not met with a new sealing.
+func TestAHubRefusalOtherThanBusyIsNotRetried(t *testing.T) {
+	for _, c := range []struct {
+		status int
+		code   string
+	}{{429, "blocked"}, {429, "quota_caller_per_min"}, {409, "kid_stale"}, {403, "forbidden"}} {
+		t.Run(c.code, func(t *testing.T) {
+			srv, req, prov := quietPair(t)
+			log := &sentLog{next: func(int, []byte) fakeSendAnswer {
+				return fakeSendAnswer{kind: fakeSendRefuse, status: c.status, code: c.code, retryAfter: "1"}
+			}}
+			setFake(t, srv.URL, func(h *fakeHub) { h.sendHook = log.hook })
+			body, _ := delegation.CardGet{}.Marshal()
+			ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cardWaitMS)*time.Millisecond)
+			defer cancel()
+			res := req.oneShotSend(ctx, oneShotCardGet, prov.AID(), cardIX(t), body)
+			if res.HubReason != c.code || log.count() != 1 {
+				t.Fatalf("%+v after %d sends, want one send and the hub's code", res, log.count())
+			}
+		})
+	}
+}
+
+// ENG-O8, DLV-S-30: a direct path that took the bytes and refused them backs
+// off like any, and the one-shot envelope goes by the hub; the next one does
+// not try the direct path again until the backoff ends.
+func TestADirectPathThatRefusesAOneShotBacksOff(t *testing.T) {
+	srv, req, prov := quietPair(t)
+	id, _ := previewTask(t, req, prov)
+	log := &sentLog{}
+	setFake(t, srv.URL, func(h *fakeHub) { h.sendHook = log.hook })
+	nack := &nackingPath{}
+	prov.RegisterTransport(nack)
+	co := &testCoalescer{d: prov}
+	for i := 0; i < 3; i++ {
+		if res := co.frame(t, req.AID(), id, strings.Repeat("w ", i+1)); !res.Handed {
+			t.Fatalf("frame %d: %+v", i, res)
+		}
+	}
+	if n := nack.sends(); n != 1 {
+		t.Fatalf("the refusing direct path was tried %d times, want once and then backed off", n)
+	}
+	if log.count() != 3 {
+		t.Fatalf("the hub took %d frames, want all 3", log.count())
+	}
+}
+
+// nackingPath is a direct path that takes every envelope and refuses it.
+type nackingPath struct {
+	mu sync.Mutex
+	n  int
+}
+
+func (p *nackingPath) Name() string                           { return "p2p-nacking" }
+func (p *nackingPath) Reachable(context.Context, string) bool { return true }
+func (p *nackingPath) Send(context.Context, string, []byte) ([]byte, bool, error) {
+	p.mu.Lock()
+	p.n++
+	p.mu.Unlock()
+	return nil, true, errors.New("refused")
+}
+func (p *nackingPath) sends() int { p.mu.Lock(); defer p.mu.Unlock(); return p.n }
 
 // DLV T26 (DLV-R-1a, ENG-V6, CUX-P19; DLV M22, ENG-M6): previews and card
 // requests, by the hub and directly, leave no delivery token anywhere —
