@@ -179,10 +179,12 @@ func seenOf(row *interactions.PeerIdentity) *seal.Seen {
 }
 
 // seenAgainst is seenOf, except that a stored key set signed under a key state kel has since retired
-// binds nothing: the mark is dropped, as the hub drops such a set on a rotation (KEL H-2).
-func seenAgainst(row *interactions.PeerIdentity, kel []identity.SignedEvent, now uint64) *seal.Seen {
+// binds nothing: a mark above the seq of the set now offered is dropped, as the hub drops such a set on
+// a rotation (KEL H-2). Kept as a floor, it would let whoever held the key before the rotation pin it
+// out of the owner's reach (T-1 RT-F1). An equal or lower mark still decides same-set and fork.
+func seenAgainst(row *interactions.PeerIdentity, kel []identity.SignedEvent, now, offeredSeq uint64) *seal.Seen {
 	seen := seenOf(row)
-	if seen == nil || len(kel) == 0 {
+	if seen == nil || len(kel) == 0 || seen.Seq <= offeredSeq {
 		return seen
 	}
 	st, err := seal.UnmarshalSignedEncKeySet(row.KeySet)
@@ -284,7 +286,7 @@ func (d *Daemon) peerUpdate(aid string, kel []identity.SignedEvent, keys *peerKe
 			}
 		}
 		if keys != nil {
-			switch seal.DecideHighWater(seenAgainst(cur, mergedKEL(cur, kel, next), now), keys.set.Seq, mustSetBytes(keys.signed)) {
+			switch seal.DecideHighWater(seenAgainst(cur, mergedKEL(cur, kel, next), now, keys.set.Seq), keys.set.Seq, mustSetBytes(keys.signed)) {
 			case seal.Replace:
 				next.KeySet, next.KeySetSeq = keys.signed, keys.set.Seq
 				next.KeysCheckedAt = int64(now)

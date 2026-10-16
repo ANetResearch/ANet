@@ -597,7 +597,7 @@ func (d *Daemon) againstRecord(m *peerMaterial, now uint64) peerVerdict {
 		m.Keys = nil
 		return verdictFound
 	}
-	switch seal.DecideHighWater(seenAgainst(row, use, now), set.Seq, signed.Set) {
+	switch seal.DecideHighWater(seenAgainst(row, use, now, set.Seq), set.Seq, signed.Set) {
 	case seal.Ignore:
 		d.count(keysRollback)
 		m.Keys = nil
