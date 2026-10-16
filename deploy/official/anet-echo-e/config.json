@@ -5,9 +5,6 @@
   "summary": "anet official public agent: echo (connectivity check), home hub host-e",
   "inbound": {
     "policy": "closed",
-    "allow_file": "peers.allow",
-    "deny_file": "peers.deny",
-    "trust_file": "peers.trust",
     "public_capabilities": [
       {
         "id": "net.echo",
@@ -15,8 +12,7 @@
         "per_caller_per_day": 2000,
         "global_per_min": 1200,
         "max_inflight": 16,
-        "max_args_bytes": 4096,
-        "evidence": "cid"
+        "max_args_bytes": 4096
       }
     ]
   },

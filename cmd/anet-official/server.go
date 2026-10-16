@@ -123,7 +123,6 @@ func routeOf(c *capability) string { return "/v1/" + c.Group + "/" + c.ID }
 const (
 	headerCaller = "X-ANet-Caller"
 	headerCall   = "X-ANet-Call"
-	headerVia    = "X-ANet-Via"
 )
 
 func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -265,12 +264,8 @@ func (s *server) logCall(r *http.Request, c *capability, status, in, out int, st
 	if call == "" {
 		call = "-"
 	}
-	via := r.Header.Get(headerVia)
-	if via == "" {
-		via = "-"
-	}
-	s.logger.Printf("call cap=%s status=%d caller=%s call=%s via=%s in=%d out=%d ms=%d",
-		capID, status, safeLogField(caller), safeLogField(call), safeLogField(via), in, out,
+	s.logger.Printf("call cap=%s status=%d caller=%s call=%s in=%d out=%d ms=%d",
+		capID, status, safeLogField(caller), safeLogField(call), in, out,
 		s.env.now().Sub(started).Milliseconds())
 }
 

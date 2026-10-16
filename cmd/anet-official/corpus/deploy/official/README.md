@@ -89,6 +89,8 @@ for id in anet-echo-e anet-echo-f anet-tools anet-docs anet-paid-demo; do
   install -m 0644 deploy/official/$id/backend.env /etc/anet-official/$id/backend.env
   install -d -o anet-official -g anet-official -m 0700 /var/lib/anet-official/$id
   install -o anet-official -g anet-official -m 0600 deploy/official/$id/config.json /var/lib/anet-official/$id/config.json
+  # 部署前检查:以运行账户在该身份的数据目录执行,config.removed 不得为 fail
+  sudo -u anet-official -H env ANET_DATA_DIR=/var/lib/anet-official/$id anet-standard doctor
 done
 
 # 4) 单元
@@ -101,10 +103,17 @@ for id in anet-echo-e anet-echo-f anet-tools anet-docs anet-paid-demo; do
   systemctl enable --now anet-official-backend@$id anet-official-daemon@$id
 done
 
-# 5) 注册到各自的 hub(A2 注册到 host-f)
-sudo -u anet-official env ANET_DATA_DIR=/var/lib/anet-official/anet-tools \
+# 5) 注册到各自的 hub(A2 注册到 host-f),分两步:
+#    a) 官方 hub 的运营者先按 AID 准入(免 PoW、地址段配额与见习期)
+anet-hub admit <AID>
+#    b) 再在终端以该账户注册,按提示设置恢复口令(一个身份一次)
+sudo -u anet-official -H env ANET_DATA_DIR=/var/lib/anet-official/anet-tools \
   anet-standard hub-register https://hub.agentnetwork.org.cn --name anet-tools
 ```
+
+`-H` 让恢复文件写到该账户主目录下的 `/var/lib/anet-official/.anet-recovery/`,不落在任何身份的数据目录
+`/var/lib/anet-official/<id>` 之内。之后的 `anet identity …` 终端命令同样要带 `-H`。恢复文件另存一份到别处。
+官方 hub 一侧的 `anet-hub identity setup-recovery` 与 `anet-hub admission open` 见 ANetHub 的部署文档。
 
 `config.json` 里的 `hub_url` 与第 5 步的 hub 要一致。能力清单在 `hub-register` 那一刻
 折进注册(GUIDE §6.2),改了能力表要重新注册。
@@ -149,9 +158,8 @@ daemon 发给后端的请求头(`module/service`):
 | 头 | 值 |
 |---|---|
 | `Authorization` | `Bearer <令牌>` |
-| `X-ANet-Caller` | 已验证的调用方 AID;只有经中继、发送方签名已验证的调用才有。凭证兑付口(`Via=voucher`)不带:那里的 AID 只说明谁付了钱,不说明谁在调用 |
-| `X-ANet-Call` | 交互 id(兑付口为凭证 id) |
-| `X-ANet-Via` | `relay` 或 `voucher` |
+| `X-ANet-Caller` | 已验证的调用方 AID;只有经中继、发送方签名已验证的调用才有 |
+| `X-ANet-Call` | 交互 id |
 | `X-ANet-Capability` | 能力 id |
 
 ## 5. 内容保存策略(A2A-DESIGN §21 第 4 条)
@@ -160,7 +168,7 @@ daemon 发给后端的请求头(`module/service`):
 保存什么。
 
 **后端 `anet-official`**:不保存参数与结果。每次调用在 journald 写一行:时间、能力 id、
-HTTP 状态、调用方 AID、交互 id、入口(`relay`/`voucher`)、入出字节数、耗时。
+HTTP 状态、调用方 AID、交互 id、入出字节数、耗时。
 不写参数与结果的任何部分。这行日志随 journald 的轮转策略保留。
 
 **daemon(官方身份的数据目录)**:
@@ -168,8 +176,7 @@ HTTP 状态、调用方 AID、交互 id、入口(`relay`/`voucher`)、入出字�
 - **证据链**(只追加,永久):公共能力调用的 `anet.capability.effect` 事件只记调用方 AID、
   能力 id、状态、指标(`metrics`)、`result_cid`,以及说明"效果如何核验"的四项
   (`protocol`、`verify_trust`、`latency_ms`、`native_ack`);不记参数,不记结果,
-  不记 `observed_state`(即后端的完整回复)。这是 `public_capabilities` 每项的
-  `"evidence": "cid"`,也是 daemon 的缺省值,样例配置显式写出(§6)。公共能力调用的
+  不记 `observed_state`(即后端的完整回复)。证据一律只记 CID,没有可选项(§6)。公共能力调用的
   接收与陌生人请求的拒绝按 10 分钟窗口聚合计数(`anet.delegation.received`/`refused_summary`,
   只记次数、按原因/信任分类计数与前 10 个 AID);对话消息事件
   (`anet.message.sent/received`)只记 CID 与字节数,`public`/`public_cap` 交互上的同样按窗口聚合。
@@ -193,21 +200,16 @@ HTTP 状态、调用方 AID、交互 id、入口(`relay`/`voucher`)、入出字�
 **hub**:只见密文信封与路由元数据(§2)。hub admin 对官方 agent 只登记
 `id/aid/hub/caps`,不采集运行数据(A2A-DESIGN §2 "hub admin 采集")。
 
-## 6. 公共能力的证据模式
+## 6. 公共能力的证据
 
-C5 证据面对公共能力有两种模式,按能力配置在 `inbound.public_capabilities[].evidence`
-(契约文档 C5 写明两种模式)。模式作用于 `trust=public_cap` 的调用,即列入
+证据一律只记 CID,没有别的模式,配置里也没有对应的键。作用于 `trust=public_cap` 的调用,即列入
 `public_capabilities` 的能力的每一次调用:入站判定第 2 行(A2A-DESIGN §5.2)先于允许名单,
-允许名单里的对端调用公开能力同样按 `public_cap` 准入、按本模式记录、7 天后清理。
-未公开的能力只有允许名单(`trust=peer`)或人工批准的对端能调,证据链照常记完整 provenance。
+名单里的对端调用公开能力同样按 `public_cap` 准入、按下表记录、7 天后清理。
+未公开的能力只有名单内(`trust=peer`)或人工批准的对端能调,证据链照常记完整 provenance。
 
-| 模式 | `anet.capability.effect` 事件内容 | 用途 |
-|---|---|---|
-| `cid`(缺省) | 调用方、能力、状态、指标、`result_cid`;provenance 只留 `protocol`、`verify_trust`、`latency_ms`、`native_ack` | 公共能力;证据链不再是调用内容的第二份拷贝 |
-| `full` | 以上,加完整 provenance(含 `observed_state`、`requested`、`quirk`、`auth_trust`) | 运营者需要事后从证据链复原陌生人调用结果时显式打开 |
-
-官方公共 agent 一律用 `cid`;`anet-official service-config` 生成的配置带
-`"evidence": "cid"`,`cmd/anet-official` 的测试检查五个样例都是 `cid`。
+| `anet.capability.effect` 事件内容 | 用途 |
+|---|---|
+| 调用方、能力、状态、指标、`result_cid`;provenance 只留 `protocol`、`verify_trust`、`latency_ms`、`native_ack` | 证据链不再是调用内容的第二份拷贝 |
 
 ## 7. 尚未就绪的依赖
 
