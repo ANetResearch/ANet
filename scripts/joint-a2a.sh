@@ -425,8 +425,10 @@ hub_holds_no_text(){
     || no "the text sent is in $hits file(s) of the hub$1: $(grep -rlaF -- "$NONCE" "$RUN/hub" "$RUN/hub.log" 2>/dev/null | tr '\n' ' ')"
 }
 hub_holds_no_text ""
-got=$(grep -rlaF -- "$NONCE" "$PROV/.anet" 2>/dev/null | wc -l)
-[ "$got" -gt 0 ] && ok "and the provider has it (the search finds what is there)" || no "the text is nowhere at the provider either: the search proves nothing"
+# The positive control: the text is at the provider, read through its own task list. Its data directory
+# holds the text encrypted (FS), so a raw search there finds nothing and would prove nothing either way.
+got=$(pc /tasks/list '{"role":"inbound","max_task_bytes":65536}' | grep -cF -- "$NONCE")
+[ "$got" -gt 0 ] && ok "and the provider has it (its task list shows what the hub's files lack)" || no "the text is not in the provider's task list either: the hub's empty search proves nothing"
 
 hd "4/6  the requester restarts: the client's configuration still works"
 if stop_node req; then
