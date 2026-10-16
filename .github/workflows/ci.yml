@@ -395,8 +395,8 @@ jobs:
       SANDBOX_RUN: Sandbox|Bwrap|Seccomp
       SANDBOX_MUST_PASS: >-
         TestSandboxIntegrationConfinesTheAgent TestSandboxIntegrationConfiguresEachAgent
-        TestSandboxProbeFiveItems TestSandboxProbeSeccompAloneRefusesUserNamespaces
-        TestSandboxDiskWatchCountsTheRunDirectory TestSeccompFilterInKernel
+        TestSandboxProbeSixItems TestSandboxProbeSeccompAloneRefusesUserNamespaces
+        TestSandboxDiskWatchKillsTheRun TestSeccompFilterInKernel TestSandboxOutboxLinkSendsNothing
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -493,7 +493,8 @@ jobs:
         shell: bash
         run: |
           [ "$(id -u)" != 0 ] || { echo "this job must run as a user that is not root" >&2; exit 1; }
-          go test -count=1 -v -run 'TestRemoveWorkTreeTakesAnUnreadableTop|TestTheDiskWatchCannotBeHiddenFrom|TestAPolicyWriteThatFailedToSaveIsNotInForce|TestPublicCapabilitiesAndAutoReplyWritesThatFailedToSaveAreNotInForce' ./internal/daemon/ | tee /tmp/premises.out
+          go test -count=1 -v -run 'TestRemoveWorkTreeTakesAnUnreadableTop|TestTheDiskWatchCannotBeHiddenFrom' ./module/autoreply/ | tee /tmp/premises.out
+          go test -count=1 -v -run 'TestAPolicyWriteThatFailedToSaveIsNotInForce|TestPublicCapabilitiesAndAutoReplyWritesThatFailedToSaveAreNotInForce' ./internal/daemon/ | tee -a /tmp/premises.out
           go test -count=1 -v -run 'TestExtCard1VerifiesInA2APython' ./internal/netcard/ | tee -a /tmp/premises.out
           if grep -- '--- SKIP' /tmp/premises.out; then
             echo "a test skipped for its premise; here that is a failure" >&2

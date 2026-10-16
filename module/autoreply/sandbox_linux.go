@@ -81,7 +81,7 @@ const (
 )
 
 // systemd-run wrapper (LEC SB-7): memory and task limits through a user scope.
-var sandboxSystemdRunArgs = []string{"--user", "--scope", "--quiet", "-p", "MemoryMax=2G", "-p", "TasksMax=256", "--"}
+var sandboxSystemdRunArgs = []string{"--user", "--scope", "--quiet", "-p", "MemoryMax=2G", "-p", "MemorySwapMax=0", "-p", "TasksMax=256", "--"}
 
 // sandboxKind is the sandbox a run on this platform is in: the sandbox member of
 // anet.autoreply.invoked (LEC §2.5).
@@ -422,6 +422,7 @@ func (r sandboxCheckReport) summary(reached int32) string {
 	add(r.AbstractRefused, "abstract")
 	add(r.KeyctlEPERM, "keyctl")
 	add(r.UsernsRefused, "userns")
+	add(r.VsockRefused, "vsock")
 	if reached > 0 {
 		bad = append(bad, fmt.Sprintf("host listeners reached %d times", reached))
 	}
@@ -431,7 +432,7 @@ func (r sandboxCheckReport) summary(reached int32) string {
 // usable: the Linux probe needs the host's loopback port and abstract socket to try (SB-2).
 func (s sandboxCheckSpec) usable() bool { return s.TCP != "" && s.Abstract != "" }
 
-// runSandboxChecks runs the five checks of SB-2 inside the sandbox.
+// runSandboxChecks runs the six checks of SB-2 inside the sandbox.
 func runSandboxChecks(spec sandboxCheckSpec) sandboxCheckReport {
 	r := sandboxCheckReport{Detail: map[string]string{}}
 	note := func(k string, err error) {
@@ -475,7 +476,31 @@ func runSandboxChecks(spec sandboxCheckSpec) sandboxCheckReport {
 	}
 	// 5. A new user namespace, by unshare(2) in a single-threaded child and by clone(2).
 	r.UsernsRefused, r.Detail["userns"] = checkSandboxUserns(trySandboxUserns)
+	// 6. AF_VSOCK belongs to no network namespace; the filter must refuse the socket itself (SI-55). The
+	// answer must be EPERM, which only the filter gives: a kernel without vsock says EAFNOSUPPORT, and
+	// that would not show the filter is in place.
+	r.VsockRefused, r.Detail["vsock"] = checkSandboxVsock()
 	return r
+}
+
+// checkSandboxVsock is item 6 of the probe: socket(AF_VSOCK, SOCK_STREAM) must answer EPERM.
+func checkSandboxVsock() (refused bool, detail string) {
+	return checkVsockWith(syscall.Socket)
+}
+
+// checkVsockWith is checkSandboxVsock with the socket call passed in, so that the three answers can be tested
+// on any host.
+func checkVsockWith(socket func(domain, typ, proto int) (int, error)) (refused bool, detail string) {
+	const afVsock = 40
+	fd, err := socket(afVsock, syscall.SOCK_STREAM, 0)
+	switch {
+	case err == nil:
+		_ = syscall.Close(fd)
+		return false, "socket(AF_VSOCK) succeeded"
+	case err == syscall.EPERM:
+		return true, err.Error()
+	}
+	return false, "socket(AF_VSOCK): " + err.Error()
 }
 
 // checkSandboxUserns is item 5 of the probe: start reports whether a child started with attr ran. A plain
@@ -798,11 +823,28 @@ func startSandboxEgress(runDir string, up *egressUpstream) (*sandboxEgress, erro
 	if len(se.sock) > sandboxSockMax {
 		// Named after the run directory's identity prefix, so that the start-up sweep finds it (SB-9).
 		prefix, _, _ := strings.Cut(filepath.Base(runDir), "-")
-		dir, err := os.MkdirTemp("", sandboxSockDirPrefix+prefix+"-")
-		if err != nil {
-			return nil, err
+		if len(prefix) > 16 {
+			prefix = prefix[:16]
 		}
-		se.sockDir, se.sock = dir, filepath.Join(dir, "egress.sock")
+		var lastErr error
+		for _, parent := range sandboxSockDirParents() {
+			dir, err := os.MkdirTemp(parent, sandboxSockDirPrefix+prefix+"-")
+			if err != nil {
+				lastErr = err
+				continue
+			}
+			sock := filepath.Join(dir, "egress.sock")
+			if len(sock) > sandboxSockMax { // a long TMPDIR: try the next parent
+				_ = os.Remove(dir)
+				lastErr = fmt.Errorf("the socket path %q is too long", sock)
+				continue
+			}
+			se.sockDir, se.sock = dir, sock
+			break
+		}
+		if se.sockDir == "" {
+			return nil, lastErr
+		}
 	}
 	ln, err := net.Listen("unix", se.sock)
 	if err != nil {

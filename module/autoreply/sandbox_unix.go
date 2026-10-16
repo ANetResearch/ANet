@@ -228,7 +228,19 @@ func removeSandboxLeftovers(aid string) {
 		}
 	}
 	sweep(sandboxRunRoot(), prefix)
-	sweep(os.TempDir(), sandboxSockDirPrefix+prefix)
+	for _, parent := range sandboxSockDirParents() {
+		sweep(parent, sandboxSockDirPrefix+prefix)
+	}
+}
+
+// sandboxSockDirParents are the directories a run's socket directory may be made in: the temp dir, and
+// /tmp when the temp dir's own path is too long for a socket (a long TMPDIR, T-1 EXE F-8).
+func sandboxSockDirParents() []string {
+	parents := []string{os.TempDir()}
+	if parents[0] != "/tmp" {
+		parents = append(parents, "/tmp")
+	}
+	return parents
 }
 
 func randHex(n int) string {

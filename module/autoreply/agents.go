@@ -15,8 +15,12 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/ANetResearch/ANet/internal/pathsafe"
 )
@@ -211,6 +215,13 @@ func runCmd(ctx context.Context, o execInvokeOpts, stdin []byte, bin string, arg
 		defer l.Close()
 		bin, args, env, extra, in = l.Path, l.Args, l.Env, l.Files, nil
 	}
+	// The agent's output is the peer's to cause (a prompt injection is enough to make an agent print in a
+	// loop), so it is kept up to a bound and the run is killed when it passes it: pipes are covered by no
+	// RLIMIT_FSIZE and no disk watch, and the daemon's heap is outside the sandbox's cgroup.
+	parent := ctx
+	ctx, stop := context.WithCancel(parent)
+	defer stop()
+	over := &outputOverflow{stop: stop}
 	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Dir = o.WorkDir
 	cmd.Env = env
@@ -224,16 +235,67 @@ func runCmd(ctx context.Context, o execInvokeOpts, stdin []byte, bin string, arg
 		return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) // negative pid: the whole group
 	}
 	cmd.WaitDelay = 3 * time.Second
-	var outBuf, errBuf bytes.Buffer
-	cmd.Stdout = &outBuf
-	cmd.Stderr = &errBuf
+	outBuf, errBuf := &cappedBuffer{max: agentStdoutMax, over: over}, &cappedBuffer{max: agentStderrMax, over: over}
+	cmd.Stdout, cmd.Stderr = outBuf, errBuf
 	err = cmd.Run()
+	if over.hit.Load() {
+		return outBuf.Bytes(), errBuf.Bytes(), fmt.Errorf("%w (more than %d bytes on stdout or %d on stderr)", errAgentOutputTooLarge, agentStdoutMax, agentStderrMax)
+	}
 	// A killed group reports the kill, not the timeout that caused it. Say which it was, because
 	// "signal: killed" sends an operator looking for an OOM that did not happen.
-	if ctxErr := ctx.Err(); err != nil && ctxErr != nil {
+	if ctxErr := parent.Err(); err != nil && ctxErr != nil {
 		err = fmt.Errorf("%w (agent did not finish: %v)", ctxErr, err)
 	}
 	return outBuf.Bytes(), errBuf.Bytes(), err
+}
+
+// How much of an agent's output the daemon keeps. A reply is text and a few KiB; 4 MiB of stdout covers a
+// verbose JSON event stream, and stderr is only for the log (400 bytes of it are used).
+const (
+	agentStdoutMax = 4 << 20
+	agentStderrMax = 64 << 10
+)
+
+// errAgentOutputTooLarge ends a run that printed more than agentStdoutMax or agentStderrMax: the agent and
+// everything it started are killed. In a sandbox the turn ends as resource (errSandboxResource).
+var errAgentOutputTooLarge = errors.New("agent output over the limit")
+
+// outputOverflow is shared by an agent's two pipes: the first one to pass its bound kills the run.
+type outputOverflow struct {
+	hit  atomic.Bool
+	stop context.CancelFunc
+}
+
+// cappedBuffer keeps the first max bytes written to it. A write past the bound is accepted (so the writer
+// is not blocked while the group is being killed) but not kept, and raises the overflow.
+type cappedBuffer struct {
+	mu   sync.Mutex
+	buf  []byte
+	max  int
+	over *outputOverflow
+}
+
+func (c *cappedBuffer) Write(p []byte) (int, error) {
+	c.mu.Lock()
+	room := c.max - len(c.buf)
+	if room > len(p) {
+		room = len(p)
+	}
+	if room > 0 {
+		c.buf = append(c.buf, p[:room]...)
+	}
+	full := room < len(p)
+	c.mu.Unlock()
+	if full && c.over.hit.CompareAndSwap(false, true) {
+		c.over.stop()
+	}
+	return len(p), nil
+}
+
+func (c *cappedBuffer) Bytes() []byte {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.buf
 }
 
 func trimReply(s string) string {
@@ -327,7 +389,7 @@ func stdinInput(instructions, conversation string) []byte {
 // The argument list is left out: it holds the instructions, and is no business of the log. A sandbox
 // refusal is returned unchanged so callers can still recognise errSandboxUnavailable.
 func cmdError(bin string, _ []string, stdout, stderr []byte, err error) error {
-	if errors.Is(err, errSandboxUnavailable) {
+	if errors.Is(err, errSandboxUnavailable) || errors.Is(err, errAgentOutputTooLarge) {
 		return err
 	}
 	msg := strings.TrimSpace(string(stderr))
@@ -337,7 +399,27 @@ func cmdError(bin string, _ []string, stdout, stderr []byte, err error) error {
 	if msg == "" {
 		msg = err.Error()
 	}
-	return fmt.Errorf("%s: %s", filepath.Base(bin), truncate(msg, 400))
+	return fmt.Errorf("%s: %s", filepath.Base(bin), logText(msg, 400))
+}
+
+// logText is text from an agent or a peer made safe for one line of the local log: control characters
+// (newlines, ESC and the rest) become spaces, so that it cannot forge a log line or drive the terminal the
+// log is read on, and the cut at n bytes falls on a rune boundary.
+func logText(s string, n int) string {
+	s = strings.ToValidUTF8(s, "?")
+	s = strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return ' '
+		}
+		return r
+	}, s)
+	if len(s) <= n {
+		return s
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n] + "…"
 }
 
 // --- cursor: agent -p --output-format text [--model] [--workspace] MESSAGE (conversation in a file) ---

@@ -9,7 +9,7 @@
 # rule table and the in-kernel filter test) carry the kill. The CI sandbox job, where a skip is a failure, and a
 # Debian 12 host run the probe tests themselves red for each of these mutations.
 
-PROBE = 'TestSandboxProbeFiveItems|TestSandboxProbeSeccompAloneRefusesUserNamespaces|TestSandboxIntegrationConfinesTheAgent'
+PROBE = 'TestSandboxProbeSixItems|TestSandboxProbeSeccompAloneRefusesUserNamespaces|TestSandboxIntegrationConfinesTheAgent'
 
 # The injection route's policy tests (EXE-2): the SI-57 corpus through the endpoint, the rules one by one, G-BP, and the
 # endpoint's credential test.
@@ -45,6 +45,88 @@ MUTS = [
     'return bwrapFeatures{DisableUserns: false, Size: has("--size")}'),
   ],
   tests=[('ANet:./module/autoreply', PROBE), ('ANet:./module/autoreply', 'TestSeccompGolden|TestSeccompRules|TestSeccompFilterInKernel')],
+  full=['ANet:./module/autoreply'],
+ ),
+ dict(
+  id='m-sb-3v', group='SB-2', repo='ANet',
+  desc='seccomp 放行所有 socket 协议族(AF_VSOCK 不属任何网络命名空间,沙箱里能连宿主/hypervisor 的 vsock,SI-55)',
+  edits=[
+   ('module/autoreply/seccomp_linux.go', '\ta.jeq(afNetlink, "allow", "eperm")\n', '\ta.jeq(afNetlink, "allow", "allow")\n'),
+  ],
+  tests=[('ANet:./module/autoreply', PROBE), ('ANet:./module/autoreply', 'TestSeccompGolden|TestSeccompRules|TestSeccompFilterInKernel')],
+  full=['ANet:./module/autoreply'],
+ ),
+ dict(
+  id='m-sb-3w', group='SB-2', repo='ANet',
+  desc='seccomp 只过滤 socket 不过滤 socketpair 的协议族',
+  edits=[
+   ('module/autoreply/seccomp_linux.go', '\ta.jeq(abi.nr["socketpair"], "socket", "")\n', ''),
+  ],
+  tests=[('ANet:./module/autoreply', 'TestSeccompGolden|TestSeccompRules|TestSeccompFilterInKernel')],
+  full=['ANet:./module/autoreply'],
+ ),
+ dict(
+  id='m-sb-3x', group='SB-2', repo='ANet',
+  desc='探针第 6 项把任何错误(含 EAFNOSUPPORT)都当作被拒',
+  edits=[
+   ('module/autoreply/sandbox_linux.go', '\tcase err == syscall.EPERM:\n\t\treturn true, err.Error()\n\t}\n\treturn false, "socket(AF_VSOCK)', '\tcase err != nil:\n\t\treturn true, err.Error()\n\t}\n\treturn false, "socket(AF_VSOCK)'),
+  ],
+  tests=[('ANet:./module/autoreply', 'TestCheckSandboxVsock')],
+  full=['ANet:./module/autoreply'],
+ ),
+ dict(
+  id='m-av-t1a', group='AV', repo='ANet',
+  desc='agent 的 stdout/stderr 不设上限(提示注入让 agent 死循环打印即可撑爆 daemon 堆,T-1 EXE F2)',
+  edits=[
+   ('module/autoreply/agents.go', '\tfull := room < len(p)\n', '\tfull := false\n'),
+   ('module/autoreply/agents.go', '\tif room > len(p) {\n\t\troom = len(p)\n\t}\n', '\troom = len(p)\n'),
+  ],
+  tests=[('ANet:./module/autoreply', 'TestAgentStdoutFloodIsCutAndKilled')],
+  full=['ANet:./module/autoreply'],
+ ),
+ dict(
+  id='m-av-t1b', group='AV', repo='ANet',
+  desc='agent 的输出原样进日志(换行/ESC 可伪造日志行,T-1 EXE F5)',
+  edits=[
+   ('module/autoreply/agents.go', 'return fmt.Errorf("%s: %s", filepath.Base(bin), logText(msg, 400))', 'return fmt.Errorf("%s: %s", filepath.Base(bin), truncate(msg, 400))'),
+  ],
+  tests=[('ANet:./module/autoreply', 'TestAgentOutputInTheLogIsOneLine')],
+  full=['ANet:./module/autoreply'],
+ ),
+ dict(
+  id='m-bu-t1', group='BU-2', repo='ANet',
+  desc='读不到证据链时预算从 0 开始计(把一天的额度全部还回去,T-1 EXE F8)',
+  edits=[
+   ('module/autoreply/sandbox_budget.go', '\t\tif past, err = runs(start.Add(-48 * time.Hour)); err != nil {\n\t\t\treturn err\n\t\t}', '\t\tpast, err = runs(start.Add(-48 * time.Hour))\n\t\t_ = err'),
+  ],
+  tests=[('ANet:./module/autoreply', 'TestRunBudgetDoesNotStartWhenTheChainCannotBeRead')],
+  full=['ANet:./module/autoreply'],
+ ),
+ dict(
+  id='m-cn-t1', group='CN-5', repo='ANet',
+  desc='只判拒 ECH 正式码位 0xfe0d(草案号与 ESNI 的 ClientHello 通过,T-1 EXE F-4)',
+  edits=[
+   ('module/autoreply/clienthello.go', 'case tlsExtECH, 0xfe08, 0xfe09, 0xfe0a, 0xfe0b, 0xfe0c, 0xff02, 0xff03, 0xffce:', 'case tlsExtECH:'),
+  ],
+  tests=[('ANet:./module/autoreply', 'TestClientHelloRefusesEveryECHNumber')],
+  full=['ANet:./module/autoreply'],
+ ),
+ dict(
+  id='m-bp-8', group='BP-5', repo='ANet',
+  desc='注入路由放行与已知成员仅大小写/Unicode 折叠不同的键(ſtore 覆盖被钉死的 store,T-1 EXE F-5)',
+  edits=[
+   ('module/autoreply/egress_policy.go', '\t\tif !known[k] && folded[foldKey(k)] {', '\t\tif false && !known[k] && folded[foldKey(k)] {'),
+  ],
+  tests=[('ANet:./module/autoreply', 'TestInjectRefusesFoldedAliases')],
+  full=['ANet:./module/autoreply'],
+ ),
+ dict(
+  id='m-sb-12', group='SB-2', repo='ANet',
+  desc='TMPDIR 太长时出站 socket 不退到 /tmp(整个沙箱 sandbox_unavailable,T-1 EXE F-8)',
+  edits=[
+   ('module/autoreply/sandbox_unix.go', '\tif parents[0] != "/tmp" {', '\tif false && parents[0] != "/tmp" {'),
+  ],
+  tests=[('ANet:./module/autoreply', 'TestSandboxEgressSocketWithALongTMPDIR')],
   full=['ANet:./module/autoreply'],
  ),
  # --- EXE-2: the egress endpoint and the injection route (LEC §4.3.3, §4.3.4; SI-57) ---
@@ -212,54 +294,55 @@ MUTS = [
 # surfaces it reaches (MC-2, LA-2, §4.10 install.sh, SKILL.md, nginx). The P-JOIN cases run 400 random
 # sequences of hub answers and restarts; the daemon cases run a daemon against the fake hub.
 DAEMON = 'ANet:./module/autoreply'
+KERNEL = 'ANet:./internal/daemon'  # the kernel's own tests of the module's routes (the daemon test binary has the module in)
 MUTS += [
  dict(
   id='m-ad-1', group='AD-4', repo='ANet',
   desc='未确认准入即调用 Prepare(check_only 的任何回答之后都去构造 rot)',
-  edits=[('module/autoreply/hubjoin.go', '\t\tif act != actPrepare {\n\t\t\treturn joinOutcome{rec: r}\n\t\t}',
+  edits=[('internal/daemon/hubjoin.go', '\t\tif act != actPrepare {\n\t\t\treturn joinOutcome{rec: r}\n\t\t}',
           '\t\tif false && act != actPrepare {\n\t\t\treturn joinOutcome{rec: r}\n\t\t}')],
-  tests=[(DAEMON, 'TestPJoin$|TestJoinAClosedHubWaitsForAdmissionThenFinishes')],
-  full=[DAEMON],
+  tests=[(KERNEL, 'TestPJoin$|TestJoinAClosedHubWaitsForAdmissionThenFinishes')],
+  full=[KERNEL, DAEMON],
  ),
  dict(
   id='m-ad-2', group='AD-4', repo='ANet',
   desc='重试时重复构造 rot(不记住本进程已为 (hub, 顶端 seq) 准备过的 KEL)',
-  edits=[('module/autoreply/hubjoin.go', '\t\tif kel, ok = e.prepared.get(key); !ok {',
+  edits=[('internal/daemon/hubjoin.go', '\t\tif kel, ok = e.prepared.get(key); !ok {',
           '\t\tif kel, ok = e.prepared.get(key); !ok || true {')],
-  tests=[(DAEMON, 'TestPJoin$')],
-  full=[DAEMON],
+  tests=[(KERNEL, 'TestPJoin$')],
+  full=[KERNEL, DAEMON],
  ),
  dict(
   id='m-ad-3', group='AD-6', repo='ANet',
   desc='待准入时发送照常进队列(发送闸门总是放行)',
-  edits=[('module/autoreply/hubjoin_daemon.go', '\tif v.State == JoinRegistered {\n\t\treturn nil\n\t}',
+  edits=[('internal/daemon/hubjoin_daemon.go', '\tif v.State == JoinRegistered {\n\t\treturn nil\n\t}',
           '\tif true || v.State == JoinRegistered {\n\t\treturn nil\n\t}')],
-  tests=[(DAEMON, 'TestSendingWaitsForTheHub|TestARegisteredNodeKeepsSendingWhileItsHubIsAway')],
-  full=[DAEMON],
+  tests=[(KERNEL, 'TestSendingWaitsForTheHub|TestARegisteredNodeKeepsSendingWhileItsHubIsAway')],
+  full=[KERNEL, DAEMON],
  ),
  dict(
   id='m-ad-4', group='AD-5', repo='ANet',
   desc='已注册节点的暂时失败把 hub.state 改为 retrying',
-  edits=[('module/autoreply/hubjoin.go', '\t\tif r.RegisteredAt == 0 {\n\t\t\treason, why := reasonRetrying, a.why',
+  edits=[('internal/daemon/hubjoin.go', '\t\tif r.RegisteredAt == 0 {\n\t\t\treason, why := reasonRetrying, a.why',
           '\t\tif true {\n\t\t\treason, why := reasonRetrying, a.why')],
-  tests=[(DAEMON, 'TestATemporaryFailureAfterRegistrationChangesNothing|TestPJoin$|TestARegisteredNodeKeepsSendingWhileItsHubIsAway')],
-  full=[DAEMON],
+  tests=[(KERNEL, 'TestATemporaryFailureAfterRegistrationChangesNothing|TestPJoin$|TestARegisteredNodeKeepsSendingWhileItsHubIsAway')],
+  full=[KERNEL, DAEMON],
  ),
  dict(
   id='m-ad-5', group='AD-1', repo='ANet',
   desc='首次连接失败仍写 config.json 与 hub_join.json',
-  edits=[('module/autoreply/hubjoin_daemon.go', '\tc, jerr := d.contactHub(ctx, req.Hub, true)\n\tif jerr != nil {\n\t\treturn hubRegisterResp{}, jerr\n\t}',
+  edits=[('internal/daemon/hubjoin_daemon.go', '\tc, jerr := d.contactHub(ctx, req.Hub, true)\n\tif jerr != nil {\n\t\treturn hubRegisterResp{}, jerr\n\t}',
           '\tc, jerr := d.contactHub(ctx, req.Hub, true)\n\tif jerr != nil {\n\t\t_, _ = d.adoptJoinTarget(req, "", nil)\n\t\treturn hubRegisterResp{}, jerr\n\t}')],
-  tests=[(DAEMON, 'TestJoinAnUnreachableHubWritesNothing')],
-  full=[DAEMON],
+  tests=[(KERNEL, 'TestJoinAnUnreachableHubWritesNothing')],
+  full=[KERNEL, DAEMON],
  ),
  dict(
   id='m-ad-6a', group='AD-9', repo='ANet',
   desc='unprotected 改变了应答的加入状态码',
-  edits=[('module/autoreply/hubjoin_daemon.go', 'State: v.State, Reason: v.Reason, Message: v.Message,',
+  edits=[('internal/daemon/hubjoin_daemon.go', 'State: v.State, Reason: v.Reason, Message: v.Message,',
           'State: v.State, Reason: map[bool]string{true: "recovery_setup_required", false: v.Reason}[rec.reminderKey(d.identityState().State) != ""], Message: v.Message,')],
-  tests=[(DAEMON, 'TestUnprotectedChangesOnlyTheRecoveryReminder|TestGJoin')],
-  full=[DAEMON],
+  tests=[(KERNEL, 'TestUnprotectedChangesOnlyTheRecoveryReminder|TestGJoin')],
+  full=[KERNEL, DAEMON],
  ),
  dict(
   id='m-ad-6b', group='AD-9', repo='ANet',
@@ -272,26 +355,18 @@ MUTS += [
  dict(
   id='exe13-wake', group='AD-3', repo='ANet',
   desc='hub-register 之后后台循环不知道下一次尝试的时刻(不再按退避重试)',
-  edits=[('module/autoreply/hubjoin_daemon.go', '\t\td.join.rec = &cp\n\t}\n\td.join.mu.Unlock()\n\td.wakeJoin()\n}',
+  edits=[('internal/daemon/hubjoin_daemon.go', '\t\td.join.rec = &cp\n\t}\n\td.join.mu.Unlock()\n\td.wakeJoin()\n}',
           '\t\td.join.rec = &cp\n\t}\n\td.join.mu.Unlock()\n}')],
-  tests=[(DAEMON, 'TestTheLoopRetriesWhenDue')],
-  full=[DAEMON],
+  tests=[(KERNEL, 'TestTheLoopRetriesWhenDue')],
+  full=[KERNEL, DAEMON],
  ),
  dict(
   id='exe13-uxr6', group='HN-4', repo='ANet',
   desc='admission_required 当作暂时失败(不进入 pending_admission)',
-  edits=[('module/autoreply/hubjoin.go', '\tcase "admission_required":\n\t\ta.kind = ansAdmissionRequired',
+  edits=[('internal/daemon/hubjoin.go', '\tcase "admission_required":\n\t\ta.kind = ansAdmissionRequired',
           '\tcase "admission_required":\n\t\ta.kind, a.why = ansTransient, whyInternal')],
-  tests=[(DAEMON, 'TestHubAnswersMapAsUXR6')],
-  full=[DAEMON],
- ),
- dict(
-  id='exe13-mc2', group='MC-2', repo='ANet',
-  desc='MCP 工具错误在原因表的句子后面附加标签',
-  edits=[('internal/mcpserv/mcpserv.go', '\tif e.Message != "" && isReasonCode(e.Reason) {',
-          '\tif false && e.Message != "" && isReasonCode(e.Reason) {')],
-  tests=[('ANet:./internal/mcpserv', 'TestASendRefusalIsTheSentence')],
-  full=['ANet:./internal/mcpserv'],
+  tests=[(KERNEL, 'TestHubAnswersMapAsUXR6')],
+  full=[KERNEL, DAEMON],
  ),
  dict(
   id='exe13-la2', group='LA-2', repo='ANet',
@@ -328,48 +403,48 @@ MUTS += [
  dict(
   id='exe13-skew', group='AD-4', repo='ANet',
   desc='hub 拒绝 rot 的时间(kel_ts_out_of_window)后仍复用旧 KEL,不再请身份区重签(KEL D-36)',
-  edits=[('module/autoreply/hubjoin.go', '\t\t// area signs it again on the next Prepare (KEL D-36).\n\t\te.prepared.drop(key)\n',
+  edits=[('internal/daemon/hubjoin.go', '\t\t// area signs it again on the next Prepare (KEL D-36).\n\t\te.prepared.drop(key)\n',
           '\t\t// area signs it again on the next Prepare (KEL D-36).\n')],
-  tests=[(DAEMON, 'TestARefusedRotTimeIsPreparedAgain')],
-  full=[DAEMON],
+  tests=[(KERNEL, 'TestARefusedRotTimeIsPreparedAgain')],
+  full=[KERNEL, DAEMON],
  ),
  dict(
   id='exe13-adopt', group='AD-4', repo='ANet',
   desc='Adopt 失败被当作成功(丢掉已准备的 rot,不排下一次尝试)',
-  edits=[('module/autoreply/hubjoin.go', '\t\tif err := e.hooks.Adopt(ctx, res); err != nil {',
+  edits=[('internal/daemon/hubjoin.go', '\t\tif err := e.hooks.Adopt(ctx, res); err != nil {',
           '\t\tif err := e.hooks.Adopt(ctx, res); false && err != nil {')],
-  tests=[(DAEMON, 'TestAFailedAdoptIsRetriedWithTheSameRot')],
-  full=[DAEMON],
+  tests=[(KERNEL, 'TestAFailedAdoptIsRetriedWithTheSameRot')],
+  full=[KERNEL, DAEMON],
  ),
  dict(
   id='exe13-gate-followup', group='AD-6', repo='ANet',
   desc='未注册时已有任务上的后续消息照常发送',
-  edits=[('module/autoreply/taskseam.go', '\tif msg.TaskID != "" {\n\t\tif ref := d.sendGate(); ref != nil {',
+  edits=[('internal/daemon/taskseam.go', '\tif msg.TaskID != "" {\n\t\tif ref := d.sendGate(); ref != nil {',
           '\tif msg.TaskID != "" {\n\t\tif ref := d.sendGate(); false && ref != nil {')],
-  tests=[(DAEMON, 'TestTheOtherSendRoutesWaitForTheHub')],
-  full=[DAEMON],
+  tests=[(KERNEL, 'TestTheOtherSendRoutesWaitForTheHub')],
+  full=[KERNEL, DAEMON],
  ),
  dict(
   id='exe13-gate-console', group='AD-6', repo='ANet',
   desc='控制台的 multipart /delegate 不过发送闸门',
-  edits=[('module/autoreply/control_api.go', '\t\tif !d.passSendGate(w) {\n\t\t\treturn\n\t\t}\n\t\tctx, cancel := context.WithTimeout(r.Context(), relayCallTimeout)\n\t\tdefer cancel()\n\t\tid, err := d.DelegateAtts(ctx, provider, goal, atts)',
+  edits=[('internal/daemon/control_api.go', '\t\tif !d.passSendGate(w) {\n\t\t\treturn\n\t\t}\n\t\tctx, cancel := context.WithTimeout(r.Context(), relayCallTimeout)\n\t\tdefer cancel()\n\t\tid, err := d.DelegateAtts(ctx, provider, goal, atts)',
           '\t\tctx, cancel := context.WithTimeout(r.Context(), relayCallTimeout)\n\t\tdefer cancel()\n\t\tid, err := d.DelegateAtts(ctx, provider, goal, atts)')],
-  tests=[(DAEMON, 'TestTheOtherSendRoutesWaitForTheHub')],
-  full=[DAEMON],
+  tests=[(KERNEL, 'TestTheOtherSendRoutesWaitForTheHub')],
+  full=[KERNEL, DAEMON],
  ),
  dict(
   id='exe13-relay', group='AD-2', repo='ANet',
   desc='待准入时中继循环照常轮询(hub 上没有信箱,每秒被拒)',
-  edits=[('module/autoreply/relay.go', '\t\t\tif !d.joinRegistered() {\n\t\t\t\t// Until', '\t\t\tif false && !d.joinRegistered() {\n\t\t\t\t// Until')],
-  tests=[(DAEMON, 'TestTheRelayLoopWaitsForRegistration')],
-  full=[DAEMON],
+  edits=[('internal/daemon/relay.go', '\t\t\tif !d.joinRegistered() {\n\t\t\t\t// Until', '\t\t\tif false && !d.joinRegistered() {\n\t\t\t\t// Until')],
+  tests=[(KERNEL, 'TestTheRelayLoopWaitsForRegistration')],
+  full=[KERNEL, DAEMON],
  ),
  dict(
   id='exe13-dryrun-pin', group='§2.3.2', repo='ANet',
   desc='dry_run 把 hub 的 KEL 写进 peer_identity(dry_run 不得写任何东西)',
-  edits=[('module/autoreply/hubjoin_daemon.go', '\tc, jerr := d.contactHub(ctx, hubURL, false)', '\tc, jerr := d.contactHub(ctx, hubURL, true)')],
-  tests=[(DAEMON, 'TestDryRunActions')],
-  full=[DAEMON],
+  edits=[('internal/daemon/hubjoin_daemon.go', '\tc, jerr := d.contactHub(ctx, hubURL, false)', '\tc, jerr := d.contactHub(ctx, hubURL, true)')],
+  tests=[(KERNEL, 'TestDryRunActions')],
+  full=[KERNEL, DAEMON],
  ),
  # --- EXE-3: the CONNECT allowlist (LEC §4.3.5, CN-1 to CN-8; EG-1, EG-4; SI-55), and the injection route's media by
  # URL and small max_tokens (BP-3, BP-5; SI-57) ---
@@ -465,9 +540,9 @@ MUTS += [
   desc='egress_allow 接受模型上游主机(内置的与 api_base 的)',
   edits=[('module/autoreply/hostname.go', '\t\tif model[h] {\n\t\t\treturn nil, a2ashape.Refuse("egress_allow_model_host"',
           '\t\tif false && model[h] {\n\t\t\treturn nil, a2ashape.Refuse("egress_allow_model_host"')],
-  tests=[(DAEMON, 'TestEgressAllowList|TestAutoReplyEgressAllowRoute|TestEgressAllowIsCheckedAtStart'),
+  tests=[(DAEMON, 'TestEgressAllowList|TestAutoReplyEgressAllowRoute'), (KERNEL, 'TestEgressAllowIsCheckedAtStart'),
          ('ANet:./cmd/anet', 'TestEgressAllowIsCheckedFirst')],
-  full=[DAEMON, 'ANet:./cmd/anet'],
+  full=[KERNEL, DAEMON, 'ANet:./cmd/anet'],
  ),
  dict(
   id='m-cn-8b', group='CN-1', repo='ANet',
@@ -576,9 +651,9 @@ MUTS += [
  dict(
   id='m-cn-key', group='LEC 2.3.4', repo='ANet',
   desc='/autoreply 的应答带出已存的 api_key(只改 sandbox 的请求合并了当前配置)',
-  edits=[('module/autoreply/control_api.go', '\t\tview = autoReplyView(cfg)\n', '\t\tview = cfg\n')],
-  tests=[(DAEMON, 'TestAutoReplyAnswerHasNoKey')],
-  full=[DAEMON],
+  edits=[('module/autoreply/autoreply_control.go', '\t\tview = v\n', '\t\tview = cfg\n')],
+  tests=[(KERNEL, 'TestAutoReplyAnswerHasNoKey')],
+  full=[KERNEL, DAEMON],
  ),
  dict(
   id='m-cn-4b', group='CN-4', repo='ANet',
@@ -683,9 +758,9 @@ MUTS += [
  dict(
   id='m-pc-3b', group='§3.1', repo='ANet',
   desc='只在 modules.anetlink 拒绝 expected_uid(service、a2a 的删除键行去掉)',
-  edits=[('module/autoreply/config.go', '\t{"modules.service.expected_uid", "expected_uid"},\n\t{"modules.a2a.backends[].expected_uid", "expected_uid"},\n', '')],
-  tests=[(DAEMON, 'TestExpectedUIDStopsTheDaemonInEveryModule'), ('ANet:./cmd/anet', 'TestRemovedKeysStopAnetDaemon')],
-  full=[DAEMON],
+  edits=[('internal/daemon/config.go', '\t{"modules.service.expected_uid", "expected_uid"},\n\t{"modules.a2a.backends[].expected_uid", "expected_uid"},\n', '')],
+  tests=[(KERNEL, 'TestExpectedUIDStopsTheDaemonInEveryModule'), ('ANet:./cmd/anet', 'TestRemovedKeysStopAnetDaemon')],
+  full=[KERNEL, DAEMON],
  ),
  dict(
   id='exe10-path-only', group='PC-2', repo='ANet',
@@ -698,15 +773,15 @@ MUTS += [
   id='exe10-numeric-uid', group='§3.2', repo='ANet',
   desc='expected_user 的十进制数字仍按用户名查找(/etc/passwd 里没有的 uid 不合格)',
   edits=[('internal/backendconn/backendconn.go', '\t\tid, numeric, err := decimalID(name)\n\t\tif !numeric {', '\t\tid, numeric, err := decimalID(name)\n\t\tif true || !numeric {')],
-  tests=[(BACKENDCONN, 'TestResolve'), (DAEMON, 'TestBackendPolicyKeysAreCheckedAtStart')],
-  full=[BACKENDCONN],
+  tests=[(BACKENDCONN, 'TestResolve'), (KERNEL, 'TestBackendPolicyKeysAreCheckedAtStart')],
+  full=[KERNEL, BACKENDCONN],
  ),
  dict(
   id='exe10-config-check', group='§3.2', repo='ANet',
   desc='启动时不检查后端的 expected_user/socket_group/peer_check(不报 config_invalid)',
-  edits=[('module/autoreply/backend_policy.go', 'func init() { configChecks = append(configChecks, checkBackendPolicies) }', 'func init() {}')],
-  tests=[(DAEMON, 'TestBackendPolicyKeysAreCheckedAtStart')],
-  full=[DAEMON],
+  edits=[('internal/daemon/backend_policy.go', 'func init() { configChecks = append(configChecks, checkBackendPolicies) }', 'func init() {}')],
+  tests=[(KERNEL, 'TestBackendPolicyKeysAreCheckedAtStart')],
+  full=[KERNEL, DAEMON],
  ),
  dict(
   id='exe10-doctor-path-only', group='§5.5', repo='ANet',
@@ -829,14 +904,14 @@ MUTS += [
  dict(
   id='m-av-1', group='AV-8', repo='ANet',
   desc='/autoreply 与 /status 回显 key',
-  edits=[('module/autoreply/control_api.go', '"api_key_set": ar.APIKey != ""}', '"api_key_set": ar.APIKey != "", "api_key": ar.APIKey}')],
-  tests=[(DAEMON, 'TestAutoReplyNeverShowsTheKey')],
-  full=[DAEMON],
+  edits=[('module/autoreply/autoreply_status.go', '"api_key_set": ar.APIKey != ""}', '"api_key_set": ar.APIKey != "", "api_key": ar.APIKey}')],
+  tests=[(KERNEL, 'TestAutoReplyNeverShowsTheKey')],
+  full=[KERNEL, DAEMON],
  ),
  dict(
   id='m-av-1b', group='AV-1', repo='ANet',
   desc='交互工作目录按交互 id 原文命名(对端写的 id 进 bwrap --bind 与 agent 的 --workspace/-C)',
-  edits=[('module/autoreply/autoreply_exec.go', '\treturn "ix-" + hex.EncodeToString(h[:16])', '\t_ = h\n\treturn safeName(ix)')],
+  edits=[('internal/execwork/execwork.go', '\treturn "ix-" + hex.EncodeToString(h[:16])', '\t_ = hex.EncodeToString(h[:16])\n\treturn ix')],
   tests=[(DAEMON, 'TestWorkDirNamesCarryNoPeerText|TestCmdlineCanary')],
   full=[DAEMON],
  ),
@@ -867,10 +942,10 @@ MUTS += [
  dict(
   id='m-av-3', group='AV-10', repo='ANet',
   desc='rotateLocalTokens 只换控制令牌',
-  edits=[('module/autoreply/control_api.go', '\tif dir := anethome.A2ADir(d.layout.Root); dirExists(dir) {',
+  edits=[('internal/daemon/control_api.go', '\tif dir := anethome.A2ADir(d.layout.Root); dirExists(dir) {',
           '\tif dir := anethome.A2ADir(d.layout.Root); false && dirExists(dir) {')],
-  tests=[(DAEMON, 'TestRotateLocalTokensRefusesBothOldTokens')],
-  full=[DAEMON],
+  tests=[(KERNEL, 'TestRotateLocalTokensRefusesBothOldTokens')],
+  full=[KERNEL, DAEMON],
  ),
  dict(
   id='m-av-3b', group='AV-10', repo='ANet',
@@ -882,9 +957,9 @@ MUTS += [
  dict(
   id='m-av-3c', group='AV-10', repo='ANet',
   desc='控制面只认启动时的令牌(轮换后旧控制令牌仍然有效)',
-  edits=[('module/autoreply/control_api.go', '\ta.mu.Lock()\n\ta.token = tok\n\tcs := a.sessions', '\ta.mu.Lock()\n\t_ = tok\n\tcs := a.sessions')],
-  tests=[(DAEMON, 'TestRotateLocalTokensRefusesBothOldTokens')],
-  full=[DAEMON],
+  edits=[('internal/daemon/control_api.go', '\ta.mu.Lock()\n\ta.token = tok\n\tcs := a.sessions', '\ta.mu.Lock()\n\t_ = tok\n\tcs := a.sessions')],
+  tests=[(KERNEL, 'TestRotateLocalTokensRefusesBothOldTokens')],
+  full=[KERNEL, DAEMON],
  ),
  dict(
   id='m-av-4', group='AV-8', repo='ANet',
@@ -905,25 +980,25 @@ MUTS += [
  dict(
   id='m-av-8', group='AV-8', repo='ANet',
   desc='/autoreply 接受空 key(清掉已设的 key)',
-  edits=[('module/autoreply/control_api.go', '\t\tif strings.TrimSpace(key) == "" {\n\t\t\treturn nil, a2ashape.Refuse("api_key_empty", nil)\n\t\t}',
+  edits=[('module/autoreply/autoreply_config.go', '\t\tif strings.TrimSpace(key) == "" {\n\t\t\treturn nil, a2ashape.Refuse("api_key_empty", nil)\n\t\t}',
           '\t\tif false && strings.TrimSpace(key) == "" {\n\t\t\treturn nil, a2ashape.Refuse("api_key_empty", nil)\n\t\t}')],
-  tests=[(DAEMON, 'TestAutoReplyRefusesAnEmptyKey')],
-  full=[DAEMON],
+  tests=[(KERNEL, 'TestAutoReplyRefusesAnEmptyKey')],
+  full=[KERNEL, DAEMON],
  ),
  dict(
   id='m-av-8b', group='AV-8', repo='ANet',
   desc='/autoreply 不合并:请求里没给的成员被清空',
-  edits=[('module/autoreply/control_api.go', '\tbase := map[string]json.RawMessage{}\n\tif cur != nil {',
+  edits=[('module/autoreply/autoreply_config.go', '\tbase := map[string]json.RawMessage{}\n\tif cur != nil {',
           '\tbase := map[string]json.RawMessage{}\n\tif false && cur != nil {')],
-  tests=[(DAEMON, 'TestAutoReplyMergesWhatItNames')],
-  full=[DAEMON],
+  tests=[(KERNEL, 'TestAutoReplyMergesWhatItNames')],
+  full=[KERNEL, DAEMON],
  ),
  dict(
   id='m-av-8c', group='§2.3.4', repo='ANet',
   desc='/autoreply 接受大小写不同的成员名(JSON 解码不分大小写)',
-  edits=[('module/autoreply/control_api.go', '\t\tft, ok := fields[k]\n', '\t\tft, ok := fields[strings.ToLower(k)]\n')],
-  tests=[(DAEMON, 'TestAutoReplyRefusesWhatCannotRun')],
-  full=[DAEMON],
+  edits=[('module/autoreply/autoreply_config.go', '\t\tft, ok := fields[k]\n', '\t\tft, ok := fields[strings.ToLower(k)]\n')],
+  tests=[(KERNEL, 'TestAutoReplyRefusesWhatCannotRun')],
+  full=[KERNEL, DAEMON],
  ),
  dict(
   id='m-av-9', group='AV-9', repo='ANet',
@@ -946,25 +1021,20 @@ MUTS += [
   tests=[(DAEMON, 'TestBoundConversation')],
   full=[DAEMON],
  ),
- dict(
-  id='m-av-8d', group='§2.3.4', repo='ANet',
-  desc='/autoreply 的读取、合并与保存不串行(同时发出的两项设置互相覆盖)',
-  edits=[('module/autoreply/control_api.go', '\td.autoReplyWrite.Lock()\n\tdefer d.autoReplyWrite.Unlock()\n', '')],
-  tests=[(DAEMON, 'TestAutoReplySettingsSentAtOnceAllLand')],
-  full=[DAEMON],
- ),
+# m-av-8d (the module's own write lock around read, merge and save) was dropped in T-1: UpdateModuleConfig holds the
+# kernel's configuration lock across fn, so the module's lock adds nothing observable to the serialisation.
  dict(
   id='m-av-8e', group='§2.3.4', repo='ANet',
   desc='/autoreply 的 off 不是布尔值时当作 false(自动回复仍在运行)',
-  edits=[('module/autoreply/control_api.go', 'if raw, ok := members["off"]; ok && string(raw) != "null" && json.Unmarshal(raw, &off) != nil {',
+  edits=[('module/autoreply/autoreply_control.go', 'if raw, ok := members["off"]; ok && string(raw) != "null" && json.Unmarshal(raw, &off) != nil {',
           'if raw, ok := members["off"]; ok && false && json.Unmarshal(raw, &off) != nil {')],
-  tests=[(DAEMON, 'TestAutoReplyOffIsABoolean')],
-  full=[DAEMON],
+  tests=[(KERNEL, 'TestAutoReplyOffIsABoolean')],
+  full=[KERNEL, DAEMON],
  ),
  dict(
   id='m-av-8f', group='§2.3.4', repo='ANet',
   desc='/autoreply 只在顶层核对成员名(设置块里大小写不同的成员被已存的值静默覆盖)',
-  edits=[('module/autoreply/control_api.go', '\t\t\tif bad := inexactMember(ft, sub); bad != "" {', '\t\t\tif bad := inexactMember(ft, sub); false && bad != "" {')],
+  edits=[('module/autoreply/autoreply_config.go', '\t\t\tif bad := inexactMember(ft, sub); bad != "" {', '\t\t\tif bad := inexactMember(ft, sub); false && bad != "" {')],
   tests=[(DAEMON, 'TestAutoReplyMemberNamesAreExactAtEveryDepth')],
   full=[DAEMON],
  ),
@@ -992,16 +1062,16 @@ MUTS += [
  dict(
   id='m-av-1c', group='AV-8', repo='ANet',
   desc='anet.policy.changed 的 auto_reply 摘要带上 key(证据链里出现 key)',
-  edits=[('module/autoreply/autoreply.go', '"api_key_set": c.APIKey != ""}', '"api_key_set": c.APIKey != "", "api_key": c.APIKey}')],
-  tests=[(DAEMON, 'TestAutoReplyNeverShowsTheKey')],
-  full=[DAEMON],
+  edits=[('module/autoreply/autoreply_config.go', '"api_key_set": c.APIKey != ""}', '"api_key_set": c.APIKey != "", "api_key": c.APIKey}')],
+  tests=[(KERNEL, 'TestAutoReplyNeverShowsTheKey')],
+  full=[KERNEL, DAEMON],
  ),
  dict(
   id='m-av-3d', group='AV-10', repo='ANet',
   desc='rotateLocalTokens 换不掉本机 A2A 令牌时仍回 nil(调用方以为两个令牌都已换掉)',
-  edits=[('module/autoreply/control_api.go', '\treturn errors.Join(errs...)\n}\n\n// dirExists', '\t_ = errs\n\treturn nil\n}\n\n// dirExists')],
-  tests=[(DAEMON, 'TestRotateLocalTokensReportsWhatItCouldNotReplace')],
-  full=[DAEMON],
+  edits=[('internal/daemon/control_api.go', '\treturn errors.Join(errs...)\n}\n\n// dirExists', '\t_ = errs\n\treturn nil\n}\n\n// dirExists')],
+  tests=[(KERNEL, 'TestRotateLocalTokensReportsWhatItCouldNotReplace')],
+  full=[KERNEL, DAEMON],
  ),
  dict(
   id='m-av-3e', group='AV-10', repo='ANet',
@@ -1013,9 +1083,9 @@ MUTS += [
  dict(
   id='m-av-3f', group='AV-10', repo='ANet',
   desc='轮换后 /ping 仍以启动时的控制令牌作证明(读不到套接字表的系统上 CLI 不再信任 daemon)',
-  edits=[('module/autoreply/ctlsec.go', '\ttop.HandleFunc("GET /ping", d.pingHandler(auth))', '\ttop.HandleFunc("GET /ping", d.pingHandler(&ctlAuth{token: auth.bearer()}))')],
-  tests=[(DAEMON, 'TestRotateLocalTokensRefusesBothOldTokens')],
-  full=[DAEMON],
+  edits=[('internal/daemon/ctlsec.go', '\ttop.HandleFunc("GET /ping", d.pingHandler(auth))', '\ttop.HandleFunc("GET /ping", d.pingHandler(&ctlAuth{token: auth.bearer()}))')],
+  tests=[(KERNEL, 'TestRotateLocalTokensRefusesBothOldTokens')],
+  full=[KERNEL, DAEMON],
  ),
 ]
 
@@ -1042,7 +1112,7 @@ MUTS += [
  dict(
   id='m-bu-3', group='BU-4', repo='ANet',
   desc='超限仍启动 agent / 调用模型',
-  edits=[('module/autoreply/autoreply.go', '\tcase budgetSpent:\n\t\treturn d.refuseTurn(', '\tcase budgetSpent + 100:\n\t\treturn d.refuseTurn(')],
+  edits=[('module/autoreply/autoreply.go', '\tcase budgetSpent:\n\t\treturn m.refuseTurn(', '\tcase budgetSpent + 100:\n\t\treturn m.refuseTurn(')],
   tests=[(DAEMON, 'TestUntrustedRunsAreBudgeted|TestTheDailyBudgetSpansPeers|TestAnOutboundTurnOverTheBudgetStaysInTheInbox')],
   full=[DAEMON],
  ),
@@ -1056,14 +1126,14 @@ MUTS += [
  dict(
   id='m-bu-5', group='BU-2', repo='ANet',
   desc='预算按固定 24 小时窗口(UTC 日)而不是 localDayBounds',
-  edits=[('module/autoreply/sandbox_budget.go', '\tb.loadLocked(now, runs)\n\tstart, end := localDayBounds(now)', '\tb.loadLocked(now, runs)\n\tstart, end := now.Truncate(24*time.Hour), now.Truncate(24*time.Hour).Add(24*time.Hour)')],
+  edits=[('module/autoreply/sandbox_budget.go', '\tstart, end := localday.Bounds(now)\n\tkey := start.UnixMilli()', '\tstart, end := now.Truncate(24*time.Hour), now.Truncate(24*time.Hour).Add(24*time.Hour)\n\tkey := start.UnixMilli()')],
   tests=[(DAEMON, 'TestRunBudgetProperty|TestRunBudgetCountsTheLocalDay|TestTheBudgetAndTheSpendingLimitsShareTheLocalDay')],
   full=[DAEMON],
  ),
  dict(
   id='m-ld-1', group='BU-2', repo='ANet',
   desc='localDayBounds 的结束取 time.Date(日+1) 并按 24 小时推开始(夏令时与跨零点的日子算错)',
-  edits=[('module/autoreply/localday.go', '\tend, ok = firstOnOrAfterDate(y, m, d+1, now, now.Add(50*time.Hour))', '\tend, ok = time.Date(y, m, d+1, 0, 0, 0, 0, now.Location()), true\n\tstart = end.Add(-24 * time.Hour)')],
+  edits=[('internal/localday/localday.go', '\tend, ok = firstOnOrAfterDate(y, m, d+1, now, now.Add(50*time.Hour))', '\tend, ok = time.Date(y, m, d+1, 0, 0, 0, 0, now.Location()), true\n\tstart = end.Add(-24 * time.Hour)')],
   tests=[(DAEMON, 'TestLocalDayBounds|TestRunBudgetProperty')],
   full=[DAEMON],
  ),
@@ -1091,7 +1161,7 @@ MUTS += [
  dict(
   id='m-sb-5', group='SB-8', repo='ANet',
   desc='沙箱与 direct 共用工作根',
-  edits=[('module/autoreply/autoreply_exec.go', '\tif root := execWorkRoot(); root != "" {\n\t\treturn root + "-sandbox"', '\tif root := execWorkRoot(); root != "" {\n\t\treturn root')],
+  edits=[('internal/execwork/execwork.go', '\tif root := WorkRoot(); root != "" {\n\t\treturn root + "-sandbox"', '\tif root := WorkRoot(); root != "" {\n\t\treturn root')],
   tests=[(DAEMON, 'TestTrustChangeUsesFreshWorkDir|TestSandboxTrustChangeUsesFreshWorkDir')],
   full=[DAEMON],
  ),
@@ -1120,7 +1190,7 @@ MUTS += [
  dict(
   id='m-sb-9', group='SB-9', repo='ANet',
   desc='启动后不清理上一个进程留下的运行目录',
-  edits=[('module/autoreply/autoreply_exec.go', '\td.sandboxSwept.Do(func() { removeSandboxLeftovers(d.AID()) })', '\td.sandboxSwept.Do(func() {})')],
+  edits=[('module/autoreply/autoreply_exec.go', '\tm.swept.Do(func() { removeSandboxLeftovers(m.env.AID) })', '\tm.swept.Do(func() {})')],
   tests=[(DAEMON, 'TestSandboxLeftoversAreSweptBeforeTheFirstRun')],
   full=[DAEMON],
  ),
@@ -1134,23 +1204,23 @@ MUTS += [
  dict(
   id='m-gt-2b', group='GT-2', repo='ANet',
   desc='拒绝的状态消息带正文(UX-R1:只带 anet.reason)',
-  edits=[('module/autoreply/autoreply.go', 'interactions.StateRejected, "", meta)', 'interactions.StateRejected, "turned away: "+reason, meta)')],
-  tests=[(DAEMON, 'TestUntrustedRunsAreBudgeted|TestTrustedPeersRunAsTrustedSays')],
-  full=[DAEMON],
+  edits=[('internal/daemon/turnhost.go', 'return d.SendStatus(sctx, ix, state, "", meta)', 'return d.SendStatus(sctx, ix, state, "turned away: "+kernelReason, meta)')],
+  tests=[(KERNEL, 'TestRefuseTurnReasonAllowlist')],
+  full=[KERNEL],
  ),
  dict(
   id='m-gt-2c', group='GT-2', repo='ANet',
   desc='同一交互同一原因的拒绝每次都记日志与证据',
-  edits=[('module/autoreply/autoreply.go', '\tif d.sbRefused.first(th.InteractionID, run.Exit) {', '\tif d.sbRefused.first(th.InteractionID, run.Exit) || true {')],
+  edits=[('module/autoreply/autoreply.go', '\tif m.sbRefused.first(th.Ix, run.Exit) {', '\tif m.sbRefused.first(th.Ix, run.Exit) || true {')],
   tests=[(DAEMON, 'TestAnOutboundTurnOverTheBudgetStaysInTheInbox')],
   full=[DAEMON],
  ),
  dict(
   id='m-gt-5', group='GT-5', repo='ANet',
   desc='恢复 policy open 与 exec untrusted=sandbox 的互斥',
-  edits=[('module/autoreply/inbound.go', '\tif in.Policy != PolicyOpen {\n\t\treturn nil\n\t}\n\tif untrustedBackend {', '\tif in.Policy != PolicyOpen {\n\t\treturn nil\n\t}\n\tif ar := c.AutoReply; ar != nil && ar.Backend == "exec" && ar.UntrustedMode() != UntrustedOff {\n\t\treturn ErrPolicyConflict\n\t}\n\tif untrustedBackend {')],
-  tests=[(DAEMON, 'TestOpenWithTheSandboxForUntrustedPeers')],
-  full=[DAEMON],
+  edits=[('internal/daemon/inbound.go', '\tif in.Policy != PolicyOpen {\n\t\treturn nil\n\t}\n\tif untrustedBackend {', '\tif in.Policy != PolicyOpen {\n\t\treturn nil\n\t}\n\tif strings.Contains(string(c.AutoReply), `"untrusted":"sandbox"`) {\n\t\treturn ErrPolicyConflict\n\t}\n\tif untrustedBackend {')],
+  tests=[(KERNEL, 'TestOpenWithTheSandboxForUntrustedPeers')],
+  full=[KERNEL, DAEMON],
  ),
  dict(
   id='m-eg-7-invoked', group='EG-7', repo='ANet',
@@ -1172,7 +1242,7 @@ MUTS += [
   id='m-sb-8b', group='BU-8', repo='ANet',
   desc='磁盘看门狗只统计工作目录,不统计每次运行目录(沙箱内 /tmp、$HOME)',
   edits=[('module/autoreply/autoreply_exec.go', 'return append(plan.liveRunDirs(), workDir)', 'return []string{workDir}')],
-  tests=[(DAEMON, 'TestSandboxDiskWatchCountsTheRunDirectory')],
+  tests=[(DAEMON, 'TestSandboxDiskWatchKillsTheRun/run-tmp')],
   full=[DAEMON],
  ),
  dict(
@@ -1182,13 +1252,8 @@ MUTS += [
   tests=[(DAEMON, 'TestDirsSizeCountsAllocatedBlocks')],
   full=[DAEMON],
  ),
- dict(
-  id='m-sb-8d', group='SB-8', repo='ANet',
-  desc='删除工作目录时按路径 chmod(可被仍在运行的 agent 换成指向树外的链接)',
-  edits=[('module/autoreply/autoreply_exec.go', '\t\t\t\t\t_ = r.Chmod(p, 0o700)', '\t\t\t\t\t_ = os.Chmod(filepath.Join(dir, p), 0o700)')],
-  tests=[(DAEMON, 'TestRemoveWorkTreeStaysInTheTree')],
-  full=[DAEMON],
- ),
+# m-sb-8d (chmod by path in RemoveTree) was dropped in T-1: the walk lists only directories of the tree, never a link,
+# so without a concurrent swap of a directory for a link the change is not observable; the os.Root form stays as the guard.
  dict(
   id='m-bu-9', group='BU-1', repo='ANet',
   desc='openai 后端把信任对端的轮次也计入预算',
@@ -1206,7 +1271,7 @@ MUTS += [
  dict(
   id='m-sb-9c', group='SB-9', repo='ANet',
   desc='开启 exec 自动回复时不清理残留(推迟到第一次沙箱运行)',
-  edits=[('module/autoreply/autoreply.go', '\tif cfg.Backend == "exec" {\n\t\td.sweepSandboxLeftovers()\n\t}\n', '')],
+  edits=[('module/autoreply/autoreply.go', '\tif cfg.Backend == "exec" {\n\t\tm.sweepSandboxLeftovers()\n\t}\n', '')],
   tests=[(DAEMON, 'TestSandboxLeftoversAreSweptWhenAutoReplyStarts')],
   full=[DAEMON],
  ),
@@ -1239,7 +1304,7 @@ MUTS += [
  dict(
   id='m-sb-8g', group='SB-8', repo='ANet',
   desc='删除工作目录时不先恢复顶层目录的权限(agent 把工作目录设为 000 后删不掉)',
-  edits=[('module/autoreply/autoreply_exec.go', '\t\tif fi.Mode().Perm()&0o700 != 0o700 {\n\t\t\tif pr, err := os.OpenRoot(filepath.Dir(dir)); err == nil {', '\t\tif false && fi.Mode().Perm()&0o700 != 0o700 {\n\t\t\tif pr, err := os.OpenRoot(filepath.Dir(dir)); err == nil {')],
+  edits=[('internal/execwork/execwork.go', '\t\tif fi.Mode().Perm()&0o700 != 0o700 {\n\t\t\tif pr, err := os.OpenRoot(filepath.Dir(dir)); err == nil {', '\t\tif false && fi.Mode().Perm()&0o700 != 0o700 {\n\t\t\tif pr, err := os.OpenRoot(filepath.Dir(dir)); err == nil {')],
   tests=[(DAEMON, 'TestRemoveWorkTreeTakesAnUnreadableTop')],
   full=[DAEMON],
  ),
@@ -1248,7 +1313,7 @@ MUTS += [
  dict(
   id='m-sb-11', group='SB-8', repo='ANet',
   desc='codex 的回复文件按路径读取(沙箱内把它换成指向运营者文件的链接,文件内容作为回复发给对端)',
-  edits=[('module/autoreply/agents.go', 'readWorkFile(dir, filepath.Base(outFile), maxAttachmentBytes)', 'os.ReadFile(outFile)')],
+  edits=[('module/autoreply/agents.go', 'readWorkFile(dir, filepath.Base(outFile), pathsafe.MaxAttachmentBytes)', 'func() ([]byte, error) { _ = pathsafe.MaxAttachmentBytes; return os.ReadFile(outFile) }()')],
   tests=[(DAEMON, 'TestCodexReplyFileIsNotReadThroughALink')],
   full=[DAEMON],
  ),
@@ -1329,23 +1394,23 @@ MUTS += [
  dict(
   id='exe12-refusal-outcome', group='CC-4', repo='ANet',
   desc='daemon 不按 provider 的拒绝原因结束任务(按普通错误记 FAILED)',
-  edits=[('module/autoreply/capability.go', '\tcase errors.As(err, &refused):', '\tcase false && errors.As(err, &refused):')],
-  tests=[(DAEMON, 'TestAProviderRefusalEndsTheTaskWithItsReason')],
-  full=[DAEMON],
+  edits=[('internal/daemon/capability.go', '\tcase errors.As(err, &refused):', '\tcase false && errors.As(err, &refused):')],
+  tests=[(KERNEL, 'TestAProviderRefusalEndsTheTaskWithItsReason')],
+  full=[KERNEL, DAEMON],
  ),
  dict(
   id='exe12-publish', group='CC-5', repo='ANet',
   desc='hub 注册的 caps 不过滤不接受远端调用的公开能力',
-  edits=[('module/autoreply/published_caps.go', 'public[id] && !remote.refused(id) {', 'public[id] && (!remote.refused(id) || true) {')],
-  tests=[(DAEMON, 'TestOnlyCapabilitiesRemoteCallersMayUseArePublished')],
-  full=[DAEMON],
+  edits=[('internal/daemon/published_caps.go', 'public[id] && !remote.refused(id) {', 'public[id] && (!remote.refused(id) || true) {')],
+  tests=[(KERNEL, 'TestOnlyCapabilitiesRemoteCallersMayUseArePublished')],
+  full=[KERNEL, DAEMON],
  ),
  dict(
   id='exe12-card', group='CC-5', repo='ANet',
   desc='卡片的 skills 不过滤不接受远端调用的公开能力',
-  edits=[('module/autoreply/a2a_card.go', '\t\tif remote.refused(id) {', '\t\tif false && remote.refused(id) {')],
-  tests=[(DAEMON, 'TestOnlyCapabilitiesRemoteCallersMayUseArePublished')],
-  full=[DAEMON],
+  edits=[('internal/daemon/a2a_card.go', '\t\tif remote.refused(id) {', '\t\tif false && remote.refused(id) {')],
+  tests=[(KERNEL, 'TestOnlyCapabilitiesRemoteCallersMayUseArePublished')],
+  full=[KERNEL, DAEMON],
  ),
  dict(
   id='exe12-remote-flag', group='CC-5', repo='ANet',
@@ -1372,9 +1437,9 @@ MUTS += [
  dict(
   id='exe12-allow-tcp', group='§3.2', repo='ANet',
   desc='启动时不检查 modules.anetlink(allow_tcp: true 与缺 socket 都不报 config_invalid)',
-  edits=[('module/autoreply/anetlink_config.go', 'func init() { configChecks = append(configChecks, checkANetLinkConfig) }', 'func init() {}')],
-  tests=[(DAEMON, 'TestTheANetLinkBlockIsCheckedAtStart')],
-  full=[DAEMON],
+  edits=[('internal/daemon/anetlink_config.go', 'func init() { configChecks = append(configChecks, checkANetLinkConfig) }', 'func init() {}')],
+  tests=[(KERNEL, 'TestTheANetLinkBlockIsCheckedAtStart')],
+  full=[KERNEL, DAEMON],
  ),
  dict(
   id='exe12-doctor-version', group='§5.5', repo='ANet',
@@ -1394,8 +1459,8 @@ MUTS += [
   id='exe12-registry', group='CORE-S3', repo='ANet',
   desc='C1 结构体的 caller 用退役的键 4(登记表扫描应报错,金标也变红)',
   edits=[('provider/anetlink/wire.go', '\tCaller     *caller        `cbor:"5,keyasint,omitempty"`', '\tCaller     *caller        `cbor:"4,keyasint,omitempty"`')],
-  tests=[(DAEMON, 'TestWireRegistry')],
-  full=[ANETLINK],
+  tests=[(KERNEL, 'TestWireRegistry')],
+  full=[KERNEL, ANETLINK],
  ),
  # EXE-12 review: what the client reads of an answer (LEC §2.1.2: at most 1 MiB, application/cbor only), and doctor's
  # anetlink.socket on a /v0 or /v1 health answer of the wrong kind (LEC §5.5).
@@ -1830,7 +1895,7 @@ MUTS += [
  dict(
   id='m-op-1', group='OP-1', repo='ANet',
   desc='doctor 在沙箱模式下不显示 sandbox 项',
-  edits=[('cmd/anet/doctor.go', '\tsandboxCheck(say, rep, env, layout, cfg.AutoReply)', '\t_ = sandboxCheck')],
+  edits=[('cmd/anet/doctor_sandbox.go', '\tsandboxCheck(say, rep, env, layout, arCfg)', '\t_ = sandboxCheck')],
   tests=[('ANet:./cmd/anet', 'TestDoctorSandbox')],
   full=['ANet:./cmd/anet'],
  ),

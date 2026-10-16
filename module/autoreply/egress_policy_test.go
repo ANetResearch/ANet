@@ -689,3 +689,35 @@ func TestInjectCorpusNamesAreUnique(t *testing.T) {
 		seen[c.name] = true
 	}
 }
+
+// BP-5 (T-1 EXE F-5): a key that equals a policy member only after case or Unicode folding is refused
+// (a server that reads keys case-insensitively would let it override the pinned value).
+func TestInjectRefusesFoldedAliases(t *testing.T) {
+	ant := testUpstreamAt(t, egressUpstreamAnthropic, "https://model.invalid")
+	oai := testUpstreamAt(t, egressUpstreamOpenAI, "https://model.invalid")
+	for _, tc := range []struct {
+		up   *egressUpstream
+		kind egressRouteKind
+		in   string
+		want string // the refused field
+	}{
+		{oai, routeResponses, `{"input":"hi","ſtore":true}`, "ſtore"},
+		{oai, routeResponses, `{"input":"hi","Store":true}`, "Store"},
+		{oai, routeResponses, `{"input":"hi","Previous_Response_Id":"r"}`, "Previous_Response_Id"},
+		{oai, routeChat, `{"messages":[],"MAX_COMPLETION_TOKENS":999999999}`, "MAX_COMPLETION_TOKENS"},
+		{ant, routeAnthropicMessages, `{"messages":[],"Model":"x"}`, "Model"},
+		{ant, routeAnthropicMessages, `{"messages":[],"mcp_Servers":[{}]}`, "mcp_Servers"},
+		{ant, routeAnthropicMessages, `{"messages":[],"MAX_TOKENS":9}`, "MAX_TOKENS"},
+	} {
+		_, ref := rewriteInjectBody(tc.up, tc.kind, []byte(tc.in))
+		if ref == nil || ref.Code != "policy_field" || fmt.Sprint(ref.Args["field"]) != tc.want {
+			t.Errorf("%s: refusal %+v, want policy_field %q", tc.in, ref, tc.want)
+		}
+	}
+	// What is not an alias passes: the members as written, and a key unrelated to any member.
+	for _, in := range []string{`{"input":"hi","store":true}`, `{"input":"hi","metadata":{"Store":"x"}}`, `{"input":"hi","user":"u"}`} {
+		if _, ref := rewriteInjectBody(oai, routeResponses, []byte(in)); ref != nil {
+			t.Errorf("%s was refused: %+v", in, ref)
+		}
+	}
+}
