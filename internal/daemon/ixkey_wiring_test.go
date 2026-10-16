@@ -21,6 +21,7 @@ import (
 	"github.com/ANetResearch/ANetCore/seal"
 
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
+	"github.com/ANetResearch/ANet/internal/transcript"
 )
 
 // ixKeyRows is how many interaction keys d's store holds, read from the
@@ -734,6 +735,14 @@ func TestEveryTerminalPathSettlesIXKey(t *testing.T) {
 					t.Fatal(err)
 				}
 			}},
+		// UX-3's completion: the reply folded into the result is one
+		// terminal write of its own (completeWithReply).
+		{name: "provider completes with a reply", side: onProv, cause: interactions.CauseProviderEnd, fate: "deleted",
+			run: func(t *testing.T, _ string, _, prov *Daemon, id string) {
+				if err := prov.completeWithReply(ctx, id, "done", nil); err != nil {
+					t.Fatal(err)
+				}
+			}},
 		{name: "provider fails it with a status", side: onProv, cause: interactions.CauseProviderEnd, fate: "deleted",
 			run: func(t *testing.T, _ string, _, prov *Daemon, id string) {
 				if err := prov.SendStatus(ctx, id, interactions.StateFailed, "cannot", nil); err != nil {
@@ -765,6 +774,18 @@ func TestEveryTerminalPathSettlesIXKey(t *testing.T) {
 		{name: "requester stores a terminal status", side: onReq, cause: interactions.CausePeerEnded, fate: "deleted",
 			run: func(t *testing.T, _ string, req, prov *Daemon, id string) {
 				take(t, req, failedStatus(t, prov, req, id))
+			}},
+		// CUX-R7: a result refused for its reply fails the task in a
+		// transaction of its own (resultRefused). The provider holds the
+		// task ended and answers nothing more: the peer's end (X7b).
+		{name: "requester refuses the provider's result", side: onReq, cause: interactions.CausePeerEnded, fate: "deleted",
+			run: func(t *testing.T, _ string, req, prov *Daemon, id string) {
+				entries := []transcript.Message{{From: transcriptRequester, Body: "the goal"}, {From: transcriptProvider, Body: "four"}}
+				env, _ := craftWith(t, senderOf(prov), req, seal.TypeResult, id,
+					providerResult(t, prov, id, entries, textReply("five", "m-forged")), craftOpt{})
+				if r := receive(t, req, env); r.class != rxDropped || r.reason != dropReplyMismatch {
+					t.Fatalf("a reply that is not the transcript's: %+v, want %s", r, dropReplyMismatch)
+				}
 			}},
 		{name: "requester cancels after the delegation left", side: onReq, cause: interactions.CauseLocalEnded, fate: "close_after",
 			run: func(t *testing.T, _ string, req, _ *Daemon, id string) { cancel(t, req, id) }},
