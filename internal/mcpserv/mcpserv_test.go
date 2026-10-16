@@ -232,10 +232,13 @@ func TestTheToolSurfaceIsWhatWePromise(t *testing.T) {
 	// The short rules go to every client on connect.
 	ins := sess.InitializeResult().Instructions
 	for _, want := range []string{"anet.effect_status=UNVERIFIED is not success", "wait_task", "submit_payment", "untrusted",
-		"do not resend it as if it had not run", "no tool shows them", "do not tell the user what they are"} {
+		"do not resend it as if it had not run", "get_balance (limits)", "node_status (payments)"} {
 		if !strings.Contains(ins, want) {
 			t.Errorf("server instructions must mention %q; got %q", want, ins)
 		}
+	}
+	if strings.Contains(ins, "no tool shows them") {
+		t.Error("the limits are shown by get_balance and node_status; the instructions must not say no tool shows them")
 	}
 	// The limits' default is not this node's value (an internal note).
 	if strings.Contains(ins, "which are 0 until the operator raises them") {

@@ -730,7 +730,7 @@ func TestGuideTextIsCurrent(t *testing.T) {
 		"agent_max", "agent_daily_max", "auto_max", "payees.allow", "closed", "anet peers trust",
 		"anet inbound policy approve", "llms.txt",
 		// an internal note: message ids that collided across sessions; limits stated as fact.
-		"fresh random id", "no tool shows their current", "needs_operator_approval"} {
+		"fresh random id", "get_balance (limits)", "needs_operator_approval"} {
 		if !strings.Contains(skillMarkdown, want) {
 			t.Errorf("SKILL.md does not mention %q", want)
 		}
