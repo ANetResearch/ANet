@@ -205,12 +205,13 @@ func TestRegistrationPublishesTheKeySet(t *testing.T) {
 	fake.mu.Lock()
 	stored := append([]byte(nil), fake.agents[prov.AID()].keyset...)
 	status := fake.registerKeys[prov.AID()]
+	why := fake.registerKeysErr[prov.AID()]
 	fake.mu.Unlock()
 	if !bytes.Equal(stored, prov.enc.SignedSet()) {
 		t.Fatal("the hub does not hold the key set the provider registered")
 	}
 	if status != hubapi.KeysStatusOK && status != hubapi.KeysStatusUnchanged {
-		t.Fatalf("the registration itself carried no accepted key set (keys_status %q)", status)
+		t.Fatalf("the registration itself carried no accepted key set (keys_status %q: %s)", status, why)
 	}
 	if got := prov.publishedKeySeq.Load(); got != prov.enc.Seq() {
 		t.Fatalf("published seq = %d, want %d", got, prov.enc.Seq())

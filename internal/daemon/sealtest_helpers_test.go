@@ -414,6 +414,9 @@ func registeredPair(t testing.TB) (*httptest.Server, *Daemon, *Daemon) {
 	ctx := context.Background()
 	req := newTestDaemon(t, srv.URL, false)
 	prov := newTestDaemon(t, srv.URL, true)
+	// A new identity's keys take effect at the millisecond of its first events; registering in that same
+	// millisecond (a fast machine) would find no key in force yet.
+	time.Sleep(2 * time.Millisecond)
 	if err := req.RegisterWithHub(ctx, srv.URL, "Req", nil); err != nil {
 		t.Fatal(err)
 	}

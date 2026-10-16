@@ -300,6 +300,8 @@ type fakeHub struct {
 	authFailures int
 	// registerKeys is the keys_status of each agent's last registration.
 	registerKeys map[string]string
+	// registerKeysErr is the reason the hub gave with it, for a test that fails on the status.
+	registerKeysErr map[string]string
 	// a2aCards holds each agent's admitted A2A network card (raw bytes) and
 	// a2aMarks its params.seq high water, the admission hub brief H1
 	// describes: a2acard.Verify, then CheckHighWater. registerCards is the
@@ -997,6 +999,10 @@ func (h *fakeHub) hRegister(w http.ResponseWriter, r *http.Request) {
 		out.KeysStatus, out.KeysError, _ = h.admitKeysLocked(a, encKeys, *req.PrevSeq, kelEvents)
 	}
 	h.registerKeys[req.AID] = out.KeysStatus
+	if h.registerKeysErr == nil {
+		h.registerKeysErr = map[string]string{}
+	}
+	h.registerKeysErr[req.AID] = out.KeysError
 	switch {
 	case string(bytes.TrimSpace(req.A2ACard)) == hubapi.WithdrawCard:
 		// an internal note item: null withdraws the card (and, as on the real hub, its

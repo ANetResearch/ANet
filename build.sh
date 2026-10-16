@@ -73,15 +73,19 @@ while [ $# -gt 0 ]; do
   shift
 done
 
+# in_list <lines> <word>: whether word is one of the lines. No pipe, so a reader that
+# stops early cannot turn a match into a failure under pipefail.
+in_list() { case $'\n'"$1"$'\n' in *$'\n'"$2"$'\n'*) return 0 ;; esac; return 1; }
+
 # Names to tags. The lists live in scripts/tagcheck.sh (one source); a name
 # that is in neither is not a module of this tree.
 if [ -n "$WITHOUT" ] || [ -n "$WITH" ]; then
   SUBTAGS="$(bash "$ROOT/scripts/tagcheck.sh" list)"
   PENDING="$(bash "$ROOT/scripts/tagcheck.sh" pending)"
   for m in $(printf '%s' "$WITHOUT" | tr ',' ' '); do
-    if printf '%s\n' "$SUBTAGS" | grep -qx "no_$m"; then
+    if in_list "$SUBTAGS" "no_$m"; then
       case ",$TAGS," in *",no_$m,"*) ;; *) TAGS="${TAGS:+$TAGS,}no_$m" ;; esac
-    elif printf '%s\n' "$PENDING" | grep -qx "$m"; then
+    elif in_list "$PENDING" "$m"; then
       case "$m" in
         autoreply) build_tag_pending autoreply 自动回复 auto-reply ;;
         preview)   build_tag_pending preview 预览 preview ;;
@@ -96,7 +100,7 @@ if [ -n "$WITHOUT" ] || [ -n "$WITH" ]; then
     fi
   done
   for m in $(printf '%s' "$WITH" | tr ',' ' '); do
-    if [ "$m" = shell ] && printf '%s\n' "$SUBTAGS" | grep -qx shell; then
+    if [ "$m" = shell ] && in_list "$SUBTAGS" shell; then
       case ",$TAGS," in *",shell,"*) ;; *) TAGS="${TAGS:+$TAGS,}shell" ;; esac
     else
       echo "build.sh: --with $m: only shell can be added (--with shell)" >&2
