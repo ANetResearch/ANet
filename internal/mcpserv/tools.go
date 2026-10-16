@@ -233,7 +233,9 @@ func addTaskTools(s *mcp.Server, c Control) {
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "get_task",
 		Description: "One task, as it is now, by its id — a task this node sent or one sent to it " +
-			"(metadata anet.role says which). history_length bounds the messages returned. " + readBound + honesty,
+			"(metadata anet.role says which). history_length bounds the messages returned. A task that has " +
+			"ended carries anet.content_expires_at, when this node deletes its content; after that the " +
+			"task is no longer on this node. " + readBound + honesty,
 		Annotations: readLocal(),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in getTaskIn) (*mcp.CallToolResult, any, error) {
 		if in.TaskID == "" {

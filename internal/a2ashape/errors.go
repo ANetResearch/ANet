@@ -162,6 +162,19 @@ func (r *Refusal) ControlBody(lang Language) any {
 // Refuse returns a refusal with key and args.
 func Refuse(key string, args Args) *Refusal { return &Refusal{Key: key, Args: args} }
 
+// Is matches an A2A Error of the name the refusal's row maps to, so that
+// errors.Is(no_local_task, ErrTaskNotFound) holds for the callers that ask
+// for a task that is not there.
+func (r *Refusal) Is(target error) bool {
+	t, ok := target.(*Error)
+	if !ok {
+		return false
+	}
+	shown, _ := shownKey(r.Key, nil)
+	row, _ := Lookup(shown)
+	return row.Class&ClassE != 0 && row.A2A.Err != A2ANone && a2aErrorOf(row.A2A.Err).Name == t.Name
+}
+
 // Error is the English sentence, for logs.
 func (r *Refusal) Error() string { return Sentence(r.Key, English, r.Args) }
 

@@ -93,6 +93,11 @@ const (
 	// one answer only and is never stored (core §2.13), and the sentence
 	// that goes with it is the reason table's "deduplicated".
 	KeyDeduplicated = "anet.deduplicated"
+	// KeyContentExpiresAt is when the content of an ended task is deleted
+	// under the retention in force, RFC 3339 UTC (FS-U4, core §2.13). It is
+	// in this node's projection only, on the control plane, MCP and the
+	// local A2A interface alike, and never on the wire (CORE-K17).
+	KeyContentExpiresAt = "anet.content_expires_at"
 )
 
 // Deduplicated is t as the answer to a retry (KeyDeduplicated).

@@ -85,6 +85,10 @@ func writeTaskError(w http.ResponseWriter, err error) {
 	case errors.Is(err, context.DeadlineExceeded), errors.Is(err, context.Canceled):
 		code = http.StatusGatewayTimeout
 	}
+	if code == http.StatusInternalServerError {
+		writeLocalWriteFailed(w, err)
+		return
+	}
 	writeJSON(w, code, map[string]string{"error": err.Error(), "code": a2ashape.ErrorName(err)})
 }
 
@@ -94,7 +98,7 @@ func writeTaskError(w http.ResponseWriter, err error) {
 // not verify).
 func refusalStatus(ref *a2ashape.Refusal) int {
 	switch ref.Code() {
-	case reasonRecipientUnknown, reasonRecipientUnverifiable:
+	case reasonRecipientUnknown, reasonRecipientUnverifiable, "no_local_task":
 		return ref.A2A(a2ashape.Lang()).HTTPStatus
 	}
 	return http.StatusConflict

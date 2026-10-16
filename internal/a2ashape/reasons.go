@@ -1220,8 +1220,11 @@ type StatusInput struct {
 	Payments      Said
 	// The privacy line: the first of LocalStateRepeated,
 	// LocalStateDetected, Clock (only when HubRegistered) and Retention.
-	Retention          Said
-	Clock              *Said
+	Retention Said
+	Clock     *Said
+	// Keys is the sentence of FS-U7 rows 3 and 4: keys.kept_long, else
+	// keys.unknown_drops, or nil.
+	Keys               *Said
 	LocalStateRepeated *Said
 	LocalStateDetected *Said
 	Preview            *Said
@@ -1257,6 +1260,25 @@ const (
 	identityDeactivated = "deactivated"
 	recoveryUnprotected = "unprotected"
 )
+
+// PrivacyLine is the sentence of the privacy line (FS-U7): the first that
+// holds of a repeated rollback, a rollback, a clock the hub could not
+// confirm for a while (only while the node is registered: the hub line says
+// why otherwise), expired keys kept long or messages sealed to deleted keys,
+// and, when none does, the retention.
+func PrivacyLine(in StatusInput) Said {
+	switch {
+	case in.LocalStateRepeated != nil && in.LocalStateRepeated.Key != "":
+		return *in.LocalStateRepeated
+	case in.LocalStateDetected != nil && in.LocalStateDetected.Key != "":
+		return *in.LocalStateDetected
+	case in.HubRegistered && in.Clock != nil && in.Clock.Key != "":
+		return *in.Clock
+	case in.Keys != nil && in.Keys.Key != "":
+		return *in.Keys
+	}
+	return in.Retention
+}
 
 // StatusSummary is the status summary (ux §4.7): one line per topic that has
 // something to say, in the order of the table there. The identity line is
@@ -1300,16 +1322,8 @@ func StatusSummary(in StatusInput, lang Language) []SummaryLine {
 	add(TopicInbound, &in.Inbound, nil)
 	add(TopicSandbox, in.Sandbox, in.SandboxBudget)
 	add(TopicPayments, &in.Payments, nil)
-	privacy := &in.Retention
-	switch {
-	case in.LocalStateRepeated != nil && in.LocalStateRepeated.Key != "":
-		privacy = in.LocalStateRepeated
-	case in.LocalStateDetected != nil && in.LocalStateDetected.Key != "":
-		privacy = in.LocalStateDetected
-	case in.HubRegistered && in.Clock != nil && in.Clock.Key != "":
-		privacy = in.Clock
-	}
-	add(TopicPrivacy, privacy, nil)
+	privacy := PrivacyLine(in)
+	add(TopicPrivacy, &privacy, nil)
 	add(TopicPreview, in.Preview, nil)
 	return out
 }
@@ -2063,6 +2077,10 @@ var reasonTable = []Row{
 		Zh:       "anet 正在运行（数据目录 {path}），但 {dur} 内没有应答，什么都没有改；请稍后再试。",
 		En:       "anet is running (data directory {path}) but did not answer within {dur}, so nothing was changed; try again later.",
 		NextKind: NextRetryLater},
+	{Code: "local_write_failed", Class: ClassC,
+		Zh:       "本节点没能把这次改动写进数据目录（{error}）；请检查磁盘空间与数据目录的权限后重试。",
+		En:       "This node could not write the change to its data directory ({error}); check the disk space and the data directory's permissions and try again.",
+		NextKind: NextChangeInput},
 	{Code: "aid_invalid", Class: ClassC,
 		Zh:       "{value} 不是完整的 AID；请从 anet find 或 anet peers list 的 AID 列复制完整 AID 后重试。",
 		En:       "{value} is not a full AID; copy the full AID from the AID column of anet find or anet peers list and try again.",

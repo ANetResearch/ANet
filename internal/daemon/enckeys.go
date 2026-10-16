@@ -1133,7 +1133,9 @@ func (d *Daemon) maintainRing() (clockLevel, error) {
 	prev := d.clk.prev
 	d.clk.prev = &cycleMark{wall: wall, mono: mono}
 	d.clk.mu.Unlock()
-	run := nextUnverifiedRun(d.enc.unverifiedRun(), hubGateOpen(obs, wall, mono), prev, wall, mono)
+	open := hubGateOpen(obs, wall, mono)
+	d.noteGate(open, mono)
+	run := nextUnverifiedRun(d.enc.unverifiedRun(), open, prev, wall, mono)
 	level, _ := clockGate(obs, run, wall, mono)
 	in := d.ringInputsAt(wall)
 	in.gate, in.run, in.hold = level, &run, d.keysHeld()
@@ -1266,6 +1268,9 @@ type clockState struct {
 	// hub says nothing about this one.
 	hub string
 	obs clockObs
+	// closedSince is when the hub gate was first seen closed, on the boot
+	// clock; 0 while it is open (noteGate).
+	closedSince uint64
 	// prev is the clocks at the previous maintenance period; nil before the
 	// first.
 	prev *cycleMark
