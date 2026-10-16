@@ -51,7 +51,7 @@ func (d *Daemon) taskView(ix *interactions.Interaction, o viewOpts) (a2ashape.Ta
 		return a2ashape.Task{}, err
 	}
 	opt := a2ashape.Options{HistoryLength: o.historyLen, Artifacts: o.artifacts, InlineFiles: o.inline, SafeName: safeName,
-		IdentityNote: d.identityNote(a2ashape.Lang()), ForBackend: o.backend}
+		IdentityNote: d.identityNote(a2ashape.Lang()), ForBackend: o.backend, SelfAID: d.AID()}
 	if o.inline {
 		opt.LoadFile = func(cid string) ([]byte, error) {
 			a, err := d.ix.AttachmentData(ix.ID, cid)

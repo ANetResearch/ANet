@@ -20,8 +20,10 @@ package a2ashape
 // characters before it becomes text a model may read.
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
@@ -62,6 +64,53 @@ func clean(s string, max int) string {
 // Hermes and the CLI show) and the reason.
 func reasonText(st interactions.State, reason string) string {
 	return string(st) + ": " + clean(reason, maxReasonRunes)
+}
+
+// endText is the text of an ended task that has a reason and nothing else
+// to say. A task the other side refused (TASK_STATE_REJECTED) under a code
+// of the reason table that means "not run" (class R: ux §1.4 A, the codes
+// of a delivery-confirmation note, and B) says that code's sentence, with
+// the wait the refusal gave and the two AIDs put in (CUX-Q4a, ENG-C6): the
+// one text the control plane, the local A2A interface, MCP and the CLI all
+// show (UX-T1). Anything else is "<state>: <reason>" (P4).
+func (p *projector) endText(reason string, retryMS any) string {
+	st := p.ix.State
+	r, ok := Lookup(reason)
+	if st != interactions.StateRejected || !ok || r.Code != reason || r.Class&ClassR == 0 || r.NoSentence {
+		return reasonText(st, reason)
+	}
+	args := Args{}
+	if p.ix.PeerAID != "" {
+		args["peer"] = p.ix.PeerAID
+	}
+	if p.opt.SelfAID != "" {
+		args["aid"] = p.opt.SelfAID
+	}
+	if ms := wholeMS(retryMS); ms > 0 {
+		args["retry"] = time.Duration(ms) * time.Millisecond
+	}
+	return Sentence(reason, Lang(), args)
+}
+
+// wholeMS is a stored anet.retry_after_ms as a count of milliseconds: the
+// whole number the stored metadata decodes to (json.Number), or one put
+// there in memory; 0 for anything else.
+func wholeMS(v any) int64 {
+	switch x := v.(type) {
+	case json.Number:
+		if n, err := x.Int64(); err == nil && n > 0 {
+			return n
+		}
+	case float64:
+		if x >= 1 && x <= 1<<53 {
+			return int64(x)
+		}
+	case int64:
+		return max(x, 0)
+	case int:
+		return int64(max(x, 0))
+	}
+	return 0
 }
 
 // placeholder is the text of stored message i when it has neither a body
