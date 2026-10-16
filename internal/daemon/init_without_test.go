@@ -160,7 +160,7 @@ func TestInitWithoutRefusesBadNames(t *testing.T) {
 		"twice":        {[]string{"x402", "x402"}, nil},
 		"unknown with": {nil, []string{"nosuch"}},
 		"both":         {[]string{"x402"}, []string{"x402"}},
-		"not ready":    {[]string{"console"}, nil},
+		"not ready":    {[]string{"autoreply"}, nil},
 	} {
 		_, _, err := InitWithout(l, c.add, c.remove)
 		if errRefusalKey(t, err) != "config_invalid" {
