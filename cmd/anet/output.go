@@ -171,11 +171,10 @@ func answerLines(out []byte, task bool, lang a2ashape.Language, now time.Time) [
 // the projection carries anet.delivery.
 var deliveryLine = func(t a2ashape.Task, lang a2ashape.Language, now time.Time) (string, bool) { return "", false }
 
-// keptLine is line 4 of UX-C2, task.kept_until of an ended task.
-//
-// v030-todo(FS-11): the projection's anet.content_expires_at and the
-// retention, task.kept_until.
-var keptLine = func(t a2ashape.Task, lang a2ashape.Language, now time.Time) (string, bool) { return "", false }
+// keptLine is line 4 of UX-C2, task.kept_until of an ended task: the
+// projection's anet.content_expires_at and the retention it implies
+// (a2ashape.KeptLine).
+var keptLine = a2ashape.KeptLine
 
 // reasonNext is the next step of a task's reason line or payment line: the
 // projection's anet.next, the command of the row its sentence came from,
