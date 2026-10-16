@@ -13,8 +13,8 @@ loopback, and a new node accepts tasks from nobody. It ships together with **hub
 daemon refuses a wire-1 hub. The official hubs (`hub.agentnetwork.org.cn`, `hub2.agentnetwork.org.cn`) run
 wire 2 since 2026-09-28: upgrade your nodes to 0.2.0 (see "Breaking changes and migration").
 
-Design and trade-offs: [A2A-DESIGN-zh.md](A2A-DESIGN-zh.md) (Chinese). Usage: [GUIDE-zh.md](GUIDE-zh.md)
-(Chinese). What this release still does not protect: [KNOWN-LIMITATIONS.md](KNOWN-LIMITATIONS.md).
+Documentation of the current release: https://docs.agentnetwork.org.cn/docs/en/latest/. What the current release
+still does not protect: [known limitations](https://docs.agentnetwork.org.cn/docs/en/latest/reference/known-limitations.html).
 
 ---
 
@@ -327,7 +327,7 @@ pinned by a regression test:
 
 ## 4. Known limitations
 
-The full list is [KNOWN-LIMITATIONS.md](KNOWN-LIMITATIONS.md) (numbered one to one with design §21). The
+The limitations of the current release are listed at [known limitations](https://docs.agentnetwork.org.cn/docs/en/latest/reference/known-limitations.html). The
 ones to know first:
 
 1. The hub knows who sends to whom, when and how much, and the source IP; hiding the sender from the hub

@@ -12,6 +12,7 @@ import (
 	"github.com/ANetResearch/ANetCore/aobj"
 	"github.com/ANetResearch/ANetCore/coredet"
 	"github.com/ANetResearch/ANetCore/identity"
+	"github.com/ANetResearch/ANetCore/relayauth"
 	"github.com/ANetResearch/ANetCore/seal"
 	"github.com/ANetResearch/ANetCore/tsir"
 
@@ -28,10 +29,16 @@ import (
 // which reads tasks via the CLI (`inbox`/`thread`) and drives the conversation with `anet message` /
 // `anet end`.
 type Daemon struct {
+	// dataLock is the data directory lock, held until Close (datalock.go).
+	dataLock *DataLock
 	// enc is this node's encryption key ring (enckeys.go); publishedKeySeq
 	// is the seq of the key set the hub last confirmed holding.
 	enc             *encKeyRing
 	publishedKeySeq atomic.Uint64
+	// listFullRotatedAt is when revocationListFull last replaced the mailbox
+	// key (unix ms), so a hub that keeps answering list-full does not make
+	// this node replace it again and again (RT-SSRC-14).
+	listFullRotatedAt atomic.Uint64
 	// clk is what the clock gate knows besides the ring: the latest check
 	// against the hub and the previous maintenance period (enckeys.go).
 	clk clockState
@@ -68,9 +75,12 @@ type Daemon struct {
 	// anonymous transports and the first-contact sessions (hub_client.go,
 	// session_client.go).
 	hubc hubClient
-	// lastSignTS is the time of the last relayauth v2 signature, kept
-	// strictly increasing (hubSigned).
-	lastSignTS atomic.Uint64
+	// hubClock hands out the time of every relayauth v2 signature to a hub,
+	// strictly increasing per hub, for the daemon and the payment module
+	// alike (RC1, PAY-R10); tsRetries counts the signatures a hub found
+	// behind its floor (hub_sign.go).
+	hubClock  relayauth.MonoClock
+	tsRetries tsRetryLog
 
 	// Receive pipeline state (receive.go): the per-message lock, the
 	// refused-envelope list, outcome counters, the limit on notices after
@@ -88,8 +98,10 @@ type Daemon struct {
 	unknownKeyDrops hourCounts
 	// peers is the resolver's state: where this node learns another
 	// agent's material without naming it to a hub (peer_resolve.go).
-	peers       peerResolver
-	running     sync.Map // interaction id -> *runningCall
+	peers   peerResolver
+	running sync.Map // interaction id -> *runningCall
+	// callFiles are the files of the calls running, in memory only (files_admit.go).
+	callFiles   sync.Map // interaction id -> []provider.File
 	logOnceMu   sync.Mutex
 	logOnceSeen map[string]bool
 	// join is the hub join loop's state (hubjoin_daemon.go).
@@ -142,22 +154,23 @@ type Daemon struct {
 	outboxKick  chan struct{}
 	outboxLocks keyedLocks
 	outboxMem   outboxMem
+	// deliveryNotes is what noteDelivery last published per task (RC-5).
+	deliveryNotes deliveryNotes
 	// outboxHold, set by a test (setOutboxHold), skips the passes of the
 	// outbox loop and of the no-response sweep.
 	outboxHold atomic.Bool
-	// previewer is the stream_preview coalescer and preview cache
-	// (preview.go, set with setPreviewer); none leaves previews
-	// unavailable (previewsUnavailable).
-	previewer atomic.Pointer[previewCoalescer]
-	// sbRefused remembers outbound auto-reply turns that failed closed
-	// because the sandbox was unavailable (autoreply.go).
-	sbRefused sandboxRefused
-	// budget counts the auto-reply runs for untrusted peers per local day
-	// and holds their slots (sandbox_budget.go, LEC BU); sandboxSwept is
-	// the sweep of what an earlier process's sandboxed runs left (SB-9).
-	budget       runBudget
-	sandboxSwept sync.Once
-
+	// reviewsGivenUp counts the reviews this daemon gave up uploading since it started (review.go).
+	reviewsGivenUp atomic.Int64
+	// previewer is the stream_preview implementation (module/preview, set with
+	// setPreviewer); none leaves previews unavailable (previewsUnavailable).
+	// previewRounds is the kernel's table of the rounds a requester asked
+	// previews for (previewseam.go).
+	previewer     atomic.Pointer[module.Previewer]
+	previewRounds previewRoundTable
+	// streamPreviewFn is this node's stream_preview setting ("off", "on"
+	// or "with_reasoning"); nil reads as "off" (preview_card.go).
+	// v030-todo(UX-9): the config key reads through here.
+	streamPreviewFn func() string
 	// spend holds the payments signed in the last 24 hours, for the
 	// spending policy (spend.go); settling tracks the task payments whose
 	// settlement is being retried (x402task.go).
@@ -176,14 +189,16 @@ type Daemon struct {
 	quietPeers map[string]bool
 	// transportState carries the optional delivery paths modules add.
 	transportState
-	// modules are the optional subsystems this build carries.
+	// modules are the optional subsystems this node started.
 	modules []module.Module
+	// avail says which optional modules are available on this node: compiled
+	// in, and not in the configuration's `without` (K-1). One per daemon,
+	// built in New and unchanged for its life; nothing else in the process
+	// holds the state.
+	avail module.Availability
 	// ctlAuth is the control plane's credential in force (control_api.go); rotateLocalTokens replaces
 	// it.
 	ctlAuth atomic.Pointer[ctlAuth]
-	// autoReplyWrite makes POST /autoreply's read of the configuration, its merge and its save one step,
-	// so that two settings sent at once both land (control_api.go hAutoReply).
-	autoReplyWrite sync.Mutex
 	// lastCardSeq is the highest sequence this process has minted for its
 	// own AgentCard. See cardSeq — the clock alone cannot keep the number
 	// strictly increasing, and the hub refuses a card that does not.
@@ -218,7 +233,7 @@ type Daemon struct {
 	self   *identity.Controller
 	ix     *interactions.Store
 
-	// providers is the C1 capability registry (docs/CONTRACTS-zh.md): the only doorway
+	// providers is the C1 capability registry (the C1 contract): the only doorway
 	// through which this daemon acquires callable capabilities.
 	providers *provider.Registry
 
@@ -241,14 +256,14 @@ type Daemon struct {
 	// disk; and two writes at once can neither leave memory and disk
 	// disagreeing — one saving a copy read before the other took effect —
 	// nor lose one of the two (redteam F9).
-	cfgWrite      sync.Mutex
-	relayStop     context.CancelFunc // cancels the currently-running relay poll loop, if any
-	autoReplyStop context.CancelFunc // cancels the currently-running auto-reply loop, if any
+	cfgWrite  sync.Mutex
+	relayStop context.CancelFunc // cancels the currently-running relay poll loop, if any
 
-	// autoReplyKick wakes the auto-reply loop the instant an inbound delegate/message lands (via the
-	// relay poll), instead of waiting up to a full poll interval. Buffered (cap 1) so bursts coalesce
-	// and a send never blocks the relay loop. Created in New; safe to signal even when auto-reply is off.
-	autoReplyKick chan struct{}
+	// turnWake wakes whatever answers owed turns (TurnHost.Wake) the instant an inbound delegate/message
+	// lands (via the relay poll), instead of waiting for its next scan. Buffered (cap 1) so bursts
+	// coalesce and a send never blocks the relay loop. Created in New; safe to signal when no module
+	// listens.
+	turnWake chan struct{}
 
 	// pollMu serializes mailbox polls so the background loop (generous timeout, does the heavy inbound
 	// transfers) and a read command's best-effort freshness poll never run concurrently — otherwise two
@@ -281,6 +296,12 @@ type Daemon struct {
 // New builds the daemon: load config + identity, open the interactions store, and (if a Hub is
 // configured) start the relay poll loop. It does not block; call Close to stop.
 func New(layout Layout) (*Daemon, error) {
+	useReplayCache()
+	// A directory a running daemon holds is in use: say so before reading
+	// its store, which is changing (KEL-10). The check creates nothing.
+	if DataLockHeld(layout) {
+		return nil, ErrDataLockHeld
+	}
 	// A data directory an earlier or a newer anet wrote is refused before
 	// anything is written to it (FS-S1, core CORE-V4).
 	if err := CheckDataDirForStart(layout); err != nil {
@@ -289,7 +310,28 @@ func New(layout Layout) (*Daemon, error) {
 	if err := layout.EnsureRoot(); err != nil {
 		return nil, err
 	}
+	// One daemon per data directory (KEL-10): the lock lives as long as the
+	// process, and the CLI's offline branches look at it.
+	lock, err := AcquireDataLock(layout)
+	if err != nil {
+		return nil, err
+	}
+	lockOwned := false
+	defer func() {
+		if !lockOwned {
+			lock.Release()
+		}
+	}()
+	// A config.json holding a removed key or a value that is not a setting
+	// does not start (ux UX-D3, §2.3), whoever starts the daemon.
+	if err := CheckConfigForStart(layout); err != nil {
+		return nil, err
+	}
 	cfg, err := LoadConfig(layout)
+	if err != nil {
+		return nil, err
+	}
+	avail, err := module.NewAvailability(cfg.Without)
 	if err != nil {
 		return nil, err
 	}
@@ -308,9 +350,10 @@ func New(layout Layout) (*Daemon, error) {
 		return nil, fmt.Errorf("anet: open interactions store: %w", err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	d := &Daemon{layout: layout, cfg: cfg, self: self, ix: ix, ctx: ctx, cancel: cancel, started: time.Now(),
-		stop: make(chan struct{}), autoReplyKick: make(chan struct{}, 1), outboxKick: make(chan struct{}, 1),
+	d := &Daemon{layout: layout, cfg: cfg, avail: avail, self: self, ix: ix, ctx: ctx, cancel: cancel, started: time.Now(), dataLock: lock,
+		stop: make(chan struct{}), turnWake: make(chan struct{}, 1), outboxKick: make(chan struct{}, 1),
 		longCalls: make(chan struct{}, maxConcurrentLongCalls), ready: make(chan struct{})}
+	lockOwned = true
 	d.caps.push.kick = make(chan struct{}, 1)
 	d.loadOfficials()
 	// This node's latest witness notice, checked again, so the outbound gate
@@ -343,7 +386,6 @@ func New(layout Layout) (*Daemon, error) {
 	// finished first (KEL D-35), by the identity loop started below.
 	d.initIdentityOps()
 	d.purgeReplay()
-	d.startPreviews(ctx) // before anything can arrive (preview.go)
 	d.goBackground(func() { d.receiveMaintenance(ctx) })
 	d.goBackground(func() { d.keyMaintenanceLoop(ctx) })
 	d.goBackground(func() { d.mboxLoop(ctx) }) // mbox.go
@@ -382,6 +424,7 @@ func New(layout Layout) (*Daemon, error) {
 	d.startPayments(ctx)
 	d.goBackground(func() { d.outboxLoop(ctx) })
 	d.goBackground(func() { d.noResponseLoop(ctx) }) // no_response.go
+	d.goBackground(func() { d.reviewLoop(ctx) })     // review.go
 	// The join loop registers again at every start (hubjoin_daemon.go,
 	// LEC AD-5); the relay loop polls once the hub has registered this
 	// node.
@@ -395,9 +438,6 @@ func New(layout Layout) (*Daemon, error) {
 	}
 	d.startJoinLoop()
 	d.startIdentityLoop()
-	if cfg.AutoReply != nil {
-		d.startAutoReply(*cfg.AutoReply)
-	}
 	d.inFeed.open() // modules' A2A backends get tasks from here on (inbound_tasks.go)
 	// Deliveries a transport module received during start-up are processed
 	// from here on, after recovery has classified what the previous process
@@ -505,6 +545,7 @@ func (d *Daemon) Close() error {
 		if ix != nil {
 			err = ix.Close()
 		}
+		d.dataLock.Release()
 	})
 	return err
 }
@@ -516,13 +557,11 @@ func (d *Daemon) config() Config {
 	return d.cfg
 }
 
-// signTaskDoc builds a minimal signed TaskDoc for a goal (the delegation request object). nonce is
-// the task nonce (A2A-DESIGN §2 X4), carried as a private context inside the signed preimage.
-func (d *Daemon) signTaskDoc(goal, nonce string) ([]byte, *aobj.Envelope, error) {
-	task := tsir.Task{Intent: tsir.Intent{Summary: goal, Body: goal}}
-	if nonce != "" {
-		task.Contexts = []tsir.Context{nonceContext(nonce)}
-	}
+// signTaskDoc builds a minimal signed TaskDoc for a goal (the delegation request object). The
+// task binding (the nonce, the requester commitment and the review key; core §2.4.3) is carried as
+// three private contexts inside the signed preimage.
+func (d *Daemon) signTaskDoc(goal string, b *taskBinding) ([]byte, *aobj.Envelope, error) {
+	task := tsir.Task{Intent: tsir.Intent{Summary: goal, Body: goal}, Contexts: b.contexts}
 	td := &tsir.TaskDoc{Version: tsir.VersionPair{Major: 1}, Tasks: []tsir.Task{task}}
 	if err := td.Sign(d.self); err != nil {
 		return nil, nil, err

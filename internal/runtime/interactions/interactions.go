@@ -34,6 +34,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ANetResearch/ANet/internal/ixstate"
+
 	_ "modernc.org/sqlite" // pure-Go driver (A3: no cgo in distributed runtime)
 )
 
@@ -58,43 +60,24 @@ const (
 )
 
 // State is an interaction's task state (A2A-DESIGN §4.1). The strings are
-// the A2A TaskState names in lowercase-hyphen form.
-type State string
+// the A2A TaskState names in lowercase-hyphen form. The type and its
+// methods live in internal/ixstate, a leaf with no store dependency.
+type State = ixstate.State
 
 const (
-	StateSubmitted     State = "submitted"
-	StateWorking       State = "working"
-	StateInputRequired State = "input-required"
-	StateCompleted     State = "completed"
-	StateFailed        State = "failed"
-	StateCanceled      State = "canceled"
-	StateRejected      State = "rejected"
+	StateSubmitted     = ixstate.Submitted
+	StateWorking       = ixstate.Working
+	StateInputRequired = ixstate.InputRequired
+	StateCompleted     = ixstate.Completed
+	StateFailed        = ixstate.Failed
+	StateCanceled      = ixstate.Canceled
+	StateRejected      = ixstate.Rejected
 )
 
 // terminalSQL is the SQL list of terminal states. It is the only place the
 // guarded writes name them; IsTerminal is its Go counterpart and a test
 // keeps the two equal.
 const terminalSQL = `('completed','failed','canceled','rejected')`
-
-// IsTerminal reports whether s is one of the four terminal states. Every
-// "has this task ended" check in the daemon goes through it.
-func (s State) IsTerminal() bool {
-	switch s {
-	case StateCompleted, StateFailed, StateCanceled, StateRejected:
-		return true
-	}
-	return false
-}
-
-// Valid reports whether s is one of the seven defined states.
-func (s State) Valid() bool {
-	switch s {
-	case StateSubmitted, StateWorking, StateInputRequired,
-		StateCompleted, StateFailed, StateCanceled, StateRejected:
-		return true
-	}
-	return false
-}
 
 // Trust is how an inbound interaction was admitted (A2A-DESIGN §5.2). It is
 // empty for an outbound interaction.
@@ -105,15 +88,14 @@ const (
 	TrustApproved  = "approved"   // held in the pending queue and approved by the operator
 )
 
-// Values of the pay_state column (A2A-DESIGN §4.1). Written by the payment
-// flow; listed here so the value domain is defined next to the column.
+// Values of the pay_state column (A2A-DESIGN §4.1), defined in ixstate.
 const (
-	PayNone      = ""          // no quote
-	PayRequired  = "required"  // quoted (provider) or quote received (requester)
-	PaySubmitted = "submitted" // provider: payload persisted, awaiting settlement; requester: payment-submitted sent
-	PayCompleted = "completed" // settled
-	PayFailed    = "failed"    // settlement definitely failed
-	PayRejected  = "rejected"  // the requester declined to pay
+	PayNone      = ixstate.PayNone
+	PayRequired  = ixstate.PayRequired
+	PaySubmitted = ixstate.PaySubmitted
+	PayCompleted = ixstate.PayCompleted
+	PayFailed    = ixstate.PayFailed
+	PayRejected  = ixstate.PayRejected
 )
 
 // Message kinds carried in the per-interaction conversation log.
@@ -195,6 +177,16 @@ type Interaction struct {
 	// JSON of an a2ashape.PayNote, nil before the first decision. Every
 	// surface renders it as it is; nothing is computed again (PAY-U6).
 	PayNote []byte
+	// ReviewSeed and ReviewRSalt (32 bytes each) are the one-time inputs of
+	// the review of an outbound delegation: the seed of the key whose public
+	// half the TaskDoc carried, and the salt of requester_commit. Nil once
+	// spent (HPP PAY-V6, PAY-V9).
+	ReviewSeed, ReviewRSalt []byte
+	// ReasonVariant and ReasonArg are the variant of the reason a delivery
+	// abandonment failed the task with, and its sentence's arguments as a
+	// JSON object (DLV-S-35); both empty otherwise.
+	ReasonVariant string
+	ReasonArg     string
 	// PeerKEL and PeerKeys hold the requester's KEL and SignedEncKeySet for
 	// a public or public_cap interaction, whose peer is not recorded in
 	// peer_identity (A2A-DESIGN §3.8). They are deleted when the
@@ -397,6 +389,7 @@ var schema = [][]string{
 	capsSchema,
 	outboxSchema,
 	extCardSchema,
+	reviewOutboxSchema,
 }
 
 // createSchema gives a file with no schema the whole of schema and user_version SchemaVersion, in
@@ -480,7 +473,17 @@ var interactionSchema = []string{
 	   peer_rk BLOB,
 	   -- The payment decision as it was taken (HPP PAY-U5, §3.5): JSON, or
 	   -- NULL before the first one.
-	   pay_note BLOB
+	   pay_note BLOB,
+	   -- The one-time inputs of this task's review (HPP §3.5, PAY-V6): the
+	   -- seed of the review key and the salt of requester_commit. NULL on a
+	   -- task that is not an outbound delegation and once they are spent.
+	   review_seed BLOB,
+	   review_rsalt BLOB,
+	   -- Why a task a delivery abandonment failed says what it says (DLV-S-35):
+	   -- the variant of delivery_unconfirmed and the arguments of its sentence
+	   -- (JSON), written in the abandonment's transaction; '' for every other task.
+	   reason_variant TEXT NOT NULL DEFAULT '',
+	   reason_arg TEXT NOT NULL DEFAULT ''
 	 )`,
 	// The per-interaction conversation log.
 	`CREATE TABLE message (
@@ -568,8 +571,10 @@ type New struct {
 	Trust        string
 	IsCapability bool
 	TaskNonce    string
-	PeerKEL      []byte // public / public_cap only
-	PeerKeys     []byte // public / public_cap only
+	// ReviewSeed and ReviewRSalt are set on an outbound delegation (PAY-V6).
+	ReviewSeed, ReviewRSalt []byte
+	PeerKEL                 []byte // public / public_cap only
+	PeerKeys                []byte // public / public_cap only
 	// PeerRK is the rk the delegation carried (coredet(RK)), or nil: the provider records it with the task,
 	// and an approved held delegation brings it from pending.peer_rk (FS-R4).
 	PeerRK []byte
@@ -613,10 +618,11 @@ func create(e execer, n New, nowMS int64) error {
 	}
 	_, err = e.Exec(
 		`INSERT OR IGNORE INTO interaction(id,role,peer_aid,goal,state,state_at,state_seq,request_cid,request_doc,
-		   context_id,trust,is_capability,task_nonce,peer_kel,peer_keys,peer_rk,created_at,updated_at)
-		 VALUES(?,?,?,?,?,?,1,?,?,?,?,?,?,?,?,?,?,?)`,
+		   context_id,trust,is_capability,task_nonce,peer_kel,peer_keys,peer_rk,review_seed,review_rsalt,created_at,updated_at)
+		 VALUES(?,?,?,?,?,?,1,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		n.ID, string(n.Role), n.PeerAID, goal, string(StateSubmitted), nowMS, n.RequestCID, doc,
-		n.ContextID, n.Trust, capFlag, n.TaskNonce, n.PeerKEL, n.PeerKeys, nilIfEmpty(n.PeerRK), now, now)
+		n.ContextID, n.Trust, capFlag, n.TaskNonce, n.PeerKEL, n.PeerKeys, nilIfEmpty(n.PeerRK),
+		nilIfEmpty(n.ReviewSeed), nilIfEmpty(n.ReviewRSalt), now, now)
 	return err
 }
 
@@ -688,6 +694,10 @@ type Finish struct {
 	Verified Verification
 	// Meta is the result's metadata object (JSON), or nil.
 	Meta []byte
+	// Scrub, with a terminal State, clears the request document and the
+	// result in the same write (CUX-F13 item 3): what stays is the request
+	// CID, the result CID, the state and the metadata.
+	Scrub bool
 }
 
 // Finish stores a result and moves the interaction to f.State in one guarded
@@ -734,6 +744,10 @@ func finish(e execer, id string, f Finish, cause Cause, nowMS int64) error {
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	q := `UPDATE interaction SET state=?, state_at=?, state_seq=state_seq+1, result=?, result_cid=?, receipt=?,
 	        receipt_verified=?, result_meta=?, updated_at=?`
+	if f.Scrub && f.State.IsTerminal() {
+		result = nil
+		q += `, request_doc=NULL`
+	}
 	if f.State.IsTerminal() {
 		q += peerMaterialCleared
 	}
@@ -907,7 +921,7 @@ func (s *Store) SetReview(id string, review []byte) error {
 // ixColumns is the shared SELECT column list for scanning an Interaction (keep in sync with scanRows).
 const ixColumns = `seq,id,role,peer_aid,goal,state,state_at,state_seq,request_cid,request_doc,result_cid,result,receipt,review,
 receipt_verified,end_req_by,end_acc_by,context_id,trust,is_capability,task_nonce,pay_state,pay_required,pay_auth_ids,
-pay_payload,pay_receipts,quote_expires_at,peer_kel,peer_keys,result_meta,peer_rk,pay_note,created_at,updated_at`
+pay_payload,pay_receipts,quote_expires_at,peer_kel,peer_keys,result_meta,peer_rk,pay_note,review_seed,review_rsalt,reason_variant,reason_arg,created_at,updated_at`
 
 // Get returns one interaction by id.
 func (s *Store) Get(id string) (*Interaction, error) {
@@ -1616,7 +1630,7 @@ func scanRows(sc scanner) (*Interaction, error) {
 		&ix.RequestCID, &ix.RequestDoc, &ix.ResultCID, &ix.Result, &ix.Receipt, &ix.Review,
 		&verified, &ix.EndReqBy, &ix.EndAccBy, &ix.ContextID, &ix.Trust, &capFlag, &ix.TaskNonce,
 		&ix.PayState, &ix.PayRequired, &authIDs, &ix.PayPayload, &ix.PayReceipts, &ix.QuoteExpiresAt,
-		&ix.PeerKEL, &ix.PeerKeys, &ix.ResultMeta, &ix.PeerRK, &ix.PayNote, &ix.CreatedAt, &ix.UpdatedAt); err != nil {
+		&ix.PeerKEL, &ix.PeerKeys, &ix.ResultMeta, &ix.PeerRK, &ix.PayNote, &ix.ReviewSeed, &ix.ReviewRSalt, &ix.ReasonVariant, &ix.ReasonArg, &ix.CreatedAt, &ix.UpdatedAt); err != nil {
 		return nil, err
 	}
 	ix.Role = Role(role)

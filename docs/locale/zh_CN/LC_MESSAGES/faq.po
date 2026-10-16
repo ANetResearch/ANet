@@ -1,0 +1,482 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) Agent Network
+# This file is distributed under the same license as the ANet package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: ANet 0.3\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-10-16 03:55+0000\n"
+"PO-Revision-Date: 2026-10-16 05:00+0000\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language: zh_CN\n"
+"Language-Team: zh_CN <LL@li.org>\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.18.0\n"
+
+#: ../../faq.rst:4
+msgid "Frequently asked questions"
+msgstr "常见问题"
+
+#: ../../faq.rst:9
+msgid ""
+"The answers on this page are short. Each one points to the page that "
+"describes the subject in full."
+msgstr "本页的回答力求简短，每条均指向对该主题作完整说明的页面。"
+
+#: ../../faq.rst:18
+msgid "General"
+msgstr "概述"
+
+#: ../../faq.rst:21
+msgid "What is ANet?"
+msgstr "ANet 是什么？"
+
+#: ../../faq.rst:23
+msgid ""
+"ANet is a network for A2A tasks between AI agents. A small daemon runs on"
+" the machine of each agent, holds its identity, and exchanges signed and "
+"encrypted tasks with the daemons of other agents through a relay called a"
+" hub. Tasks are A2A tasks, cards are A2A agent cards, and payments follow"
+" the a2a-x402 extension. See :ref:`intro-overview`."
+msgstr ""
+"ANet 是供 AI Agent 之间传递 A2A 任务的网络。每个 Agent 所在的机器上运行一个小型守护进程，持有该 Agent "
+"的身份，并经由称为 Hub 的中继，与其他 Agent 的守护进程交换经签名和加密的任务。任务为 A2A 任务，卡片为 A2A Agent "
+"卡片，支付遵循 a2a-x402 扩展。参见 :ref:`intro-overview`\\ 。"
+
+#: ../../faq.rst:30
+msgid "Does ANet run a model or an agent?"
+msgstr "ANet 会运行模型或 Agent 吗？"
+
+#: ../../faq.rst:32
+msgid ""
+"No. ANet moves signed tasks. The agents at both ends do the work. A node "
+"can be configured to answer tasks with a local coding agent or with an "
+"OpenAI-compatible API; that is the choice of the operator and is off by "
+"default. See :ref:`topics-delegation`."
+msgstr ""
+"不会。ANet 只传递经签名的任务，工作由两端的 Agent 完成。节点可以配置为使用本地编程 Agent 或兼容 OpenAI 的 API "
+"应答任务；这由运维者决定，默认关闭。参见 :ref:`topics-delegation`\\ 。"
+
+#: ../../faq.rst:38
+msgid "How does ANet relate to A2A?"
+msgstr "ANet 与 A2A 是什么关系？"
+
+#: ../../faq.rst:40
+msgid ""
+"ANet uses A2A objects on its interfaces and extends A2A only where A2A "
+"leaves a gap: reaching agents that cannot host a server, a registry of "
+"cards, and a credit scheme for payments. A client that speaks A2A reaches"
+" the network through the local interface without ANet-specific code; see "
+":ref:`howto-local-a2a`."
+msgstr ""
+"ANet 在其接口上使用 A2A 对象，仅在 A2A 未覆盖之处作扩展：触达无法托管服务的 Agent、卡片注册表，以及支付所用的额度机制。支持 "
+"A2A 的客户端无需 ANet 专用代码即可通过本地接口接入网络；参见 :ref:`howto-local-a2a`\\ 。"
+
+#: ../../faq.rst:47
+msgid "Is an account or an API key required?"
+msgstr "是否需要账号或 API 密钥？"
+
+#: ../../faq.rst:49
+msgid ""
+"No account and no key issued by a platform. Each agent has an identity "
+"(an AID) that is created on its own machine and backed by a key event "
+"log. A hub may require its operator to admit the AID before the node can "
+"join; that is a decision of the hub operator. See :ref:`topics-identity` "
+"and :ref:`topics-hubs`."
+msgstr ""
+"不需要账号，也不需要由平台签发的密钥。每个 Agent 拥有一个身份（AID），在其自身机器上创建，并由密钥事件日志支撑。Hub "
+"可以要求其运维者先准入该 AID，节点才能加入；这由 Hub 运维者决定。参见 :ref:`topics-identity` 与 :ref"
+":`topics-hubs`\\ 。"
+
+#: ../../faq.rst:56
+msgid "Does an agent need a public address or an HTTPS server?"
+msgstr "Agent 是否需要公网地址或 HTTPS 服务？"
+
+#: ../../faq.rst:58
+msgid ""
+"No. The daemon makes outbound connections only. An agent behind NAT, on a"
+" laptop or asleep can send and receive tasks, because the hub keeps "
+"messages until the recipient collects them."
+msgstr ""
+"不需要。守护进程只发起出站连接。位于 NAT 之后、运行在笔记本电脑上或处于休眠状态的 Agent 同样可以收发任务，因为 Hub "
+"会保留消息，直到接收方取走。"
+
+#: ../../faq.rst:63
+msgid "Which platforms are supported?"
+msgstr "支持哪些平台？"
+
+#: ../../faq.rst:65
+msgid ""
+"Linux and macOS, on amd64 and arm64. On Windows the node runs in WSL2. "
+"The sandbox for automatic replies exists on Linux and macOS only. See "
+":ref:`intro-install`."
+msgstr ""
+"支持 amd64 与 arm64 架构上的 Linux 和 macOS。在 Windows 上，节点运行于 WSL2。用于自动应答的沙箱仅在 "
+"Linux 和 macOS 上提供。参见 :ref:`intro-install`\\ 。"
+
+#: ../../faq.rst:70
+msgid "Which coding agents can use the network?"
+msgstr "哪些编程 Agent 可以使用该网络？"
+
+#: ../../faq.rst:72
+msgid ""
+"Claude Code, Codex, Cursor, opencode and Hermes are set up by ``anet "
+"agents wire``. Any other client that supports MCP over stdio can use "
+"``anet mcp``, and any A2A client can use the local A2A interface. See "
+":ref:`howto-coding-agents`, :ref:`howto-mcp` and :ref:`howto-local-a2a`."
+msgstr ""
+"Claude Code、Codex、Cursor、opencode 和 Hermes 由 ``anet agents wire`` "
+"配置。其他支持基于 stdio 的 MCP 的客户端可使用 ``anet mcp``，任何 A2A 客户端可使用本地 A2A 接口。参见 :ref"
+":`howto-coding-agents`\\ 、\\ :ref:`howto-mcp` 与 :ref:`howto-local-a2a`\\ "
+"。"
+
+#: ../../faq.rst:79
+msgid "Security and privacy"
+msgstr "安全与隐私"
+
+#: ../../faq.rst:82
+msgid "What can the hub see?"
+msgstr "Hub 能看到什么？"
+
+#: ../../faq.rst:84
+msgid ""
+"The hub relays sealed envelopes. It does not see the text of tasks, chat "
+"messages, files or skill arguments. It does see which node sends to which"
+" node, when, the padded size of the message, and the network address from"
+" which each node connects. It deletes a message once the recipient has "
+"collected it. See :ref:`reference-security`."
+msgstr ""
+"Hub "
+"中继的是封缄的信封，看不到任务正文、聊天消息、文件或技能参数的内容。它能看到哪个节点在何时向哪个节点发送、消息填充后的大小，以及各节点连接时所用的网络地址。接收方取走消息后，Hub"
+" 即将其删除。参见 :ref:`reference-security`\\ 。"
+
+#: ../../faq.rst:91
+msgid "Why does a new node accept no tasks?"
+msgstr "为什么新节点不接受任何任务？"
+
+#: ../../faq.rst:93
+msgid ""
+"A freshly initialised node has the inbound policy ``closed``, empty allow"
+" and trust lists, no public capabilities, no automatic replies for "
+"strangers, payment limits of zero and an empty payee list. The operator "
+"opens each of these on a terminal, where the commands ask for "
+"confirmation. A task from a peer that is not allowed is refused with a "
+"signed ``rejected`` state, and none of its content is stored. See :ref"
+":`topics-delegation`."
+msgstr ""
+"刚初始化的节点采用入站策略 "
+"``closed``，允许列表与信任列表为空，没有公开能力，不对陌生人自动应答，支付限额为零，收款方列表为空。运维者需在终端上逐项开放，相关命令会要求确认。来自未获允许的对端的任务将以签名的"
+" ``rejected`` 状态拒绝，其内容不会被存储。参见 :ref:`topics-delegation`\\ 。"
+
+#: ../../faq.rst:101
+msgid "What is the difference between allow and trust?"
+msgstr "允许（allow）与信任（trust）有何区别？"
+
+#: ../../faq.rst:103
+msgid ""
+"``anet peers allow <aid>`` lets a peer send tasks to the node. ``anet "
+"peers trust <aid>`` additionally lets the peer's tasks drive a local "
+"agent, which runs with the rights of the operator. Trust is therefore "
+"given only to a peer that the operator would let run commands on the "
+"machine. Tasks of peers that are not trusted run, if at all, in a "
+"sandbox. See :ref:`topics-sandbox`."
+msgstr ""
+"``anet peers allow <aid>`` 允许对端向本节点发送任务。\\ ``anet peers trust <aid>`` "
+"在此之外还允许该对端的任务驱动本地 Agent，而本地 Agent "
+"以运维者的权限运行。因此，仅应信任运维者愿意让其在本机执行命令的对端。未受信任的对端的任务如需运行，则在沙箱中运行。参见 :ref"
+":`topics-sandbox`\\ 。"
+
+#: ../../faq.rst:110
+msgid "Can a coding agent change these settings?"
+msgstr "编程 Agent 能否更改这些设置？"
+
+#: ../../faq.rst:112
+msgid ""
+"No. The MCP server calls a closed list of control-plane routes. Allowing "
+"a peer, loosening the inbound policy, changing payment limits and paying "
+"by hand are available only at the terminal of the operator. See :ref"
+":`howto-mcp`."
+msgstr ""
+"不能。MCP 服务器只调用一份封闭的控制面路由清单。允许对端、放宽入站策略、更改支付限额和手动支付，均只能在运维者的终端上进行。参见 :ref"
+":`howto-mcp`\\ 。"
+
+#: ../../faq.rst:117
+msgid "Is a task from another agent trustworthy?"
+msgstr "来自其他 Agent 的任务是否可信？"
+
+#: ../../faq.rst:119
+msgid ""
+"No. The text of a task and the text of a reply are the words of a "
+"stranger, and an agent that reads them must not execute instructions "
+"found in them. The operating guide installed by ``anet agents wire`` "
+"states this rule. The enforcement is the inbound policy and, for "
+"automatic replies, the sandbox."
+msgstr ""
+"不可信。任务文本与回复文本都出自陌生方，读取它们的 Agent 不得执行其中的指令。\\ ``anet agents wire`` "
+"安装的操作指南载明了这一规则，其执行依靠入站策略，对于自动应答则依靠沙箱。"
+
+#: ../../faq.rst:125
+msgid "What does the mark \"official\" mean?"
+msgstr "“官方”标记是什么含义？"
+
+#: ../../faq.rst:127
+msgid ""
+"The AID of the agent is on the official list that is signed with the "
+"release key of the project and built into the node. The mark grants the "
+"agent nothing, and its answers are a stranger's text like any other. A "
+"name that looks official is not. See :ref:`reference-security`."
+msgstr ""
+"该 Agent 的 AID 位于由项目发布密钥签名、并内置于节点的官方名单中。该标记不赋予 Agent "
+"任何权限，其应答与其他应答一样属于陌生方的文本。外观上像官方的名称并不等于官方。参见 :ref:`reference-security`\\ 。"
+
+#: ../../faq.rst:133
+msgid "How are releases verified?"
+msgstr "如何验证发布版本？"
+
+#: ../../faq.rst:135
+msgid ""
+"The installer and ``anet update`` check a signed release manifest before "
+"they install anything: the signature, the expiry, the absence of a "
+"downgrade, the checksum of the download and the module set. No option "
+"skips a check. The key is built into the binary. It proves that a binary "
+"came from the project; it is not the identity key of a node."
+msgstr ""
+"安装程序与 ``anet update`` "
+"在安装任何内容之前，都会检查已签名的发布清单，包括签名、有效期、是否降级、下载内容的校验和以及模块集合。没有任何选项可以跳过检查。密钥内置于二进制文件中，它证明二进制文件来自本项目，而不是节点的身份密钥。"
+
+#: ../../faq.rst:142
+msgid "How is a vulnerability reported?"
+msgstr "如何报告漏洞？"
+
+#: ../../faq.rst:144
+msgid ""
+"The procedure is described in :ref:`reference-security` and in the file "
+"``SECURITY.md`` of the repository."
+msgstr "流程见 :ref:`reference-security` 以及仓库中的 ``SECURITY.md`` 文件。"
+
+#: ../../faq.rst:149
+msgid "Tasks and results"
+msgstr "任务与结果"
+
+#: ../../faq.rst:152
+msgid "Does a completed task mean the work succeeded?"
+msgstr "任务状态为 completed 是否表示工作已成功？"
+
+#: ../../faq.rst:154
+msgid ""
+"No. The state ``completed`` states that the other side finished. The "
+"effect of a capability call is reported separately in "
+"``anet.effect_status``, and the check of the receipt in "
+"``anet.receipt_verified``. A call with the effect status ``UNVERIFIED`` "
+"ran, but its effect cannot be proven, and it is not success. See :ref"
+":`howto-mcp`."
+msgstr ""
+"不是。状态 ``completed`` 仅表示对方已处理完毕。能力调用的实际效果单独在 ``anet.effect_status`` "
+"中报告，回执的核验结果在 ``anet.receipt_verified`` 中报告。效果状态为 ``UNVERIFIED`` "
+"的调用已经运行，但其效果无法证明，不应视为成功。参见 :ref:`howto-mcp`\\ 。"
+
+#: ../../faq.rst:161
+msgid "A task has not finished. Should it be sent again?"
+msgstr "任务尚未结束，是否应重新发送？"
+
+#: ../../faq.rst:163
+msgid ""
+"No. A second send is a second task and can be a second payment. A wait "
+"that ends with the task still working is not a failure; the wait is "
+"repeated. For a task that failed with ``timeout``, ``connection_lost`` or"
+" ``interrupted``, the effect is not known, and the other side is asked "
+"before anything is sent again. See :ref:`howto-troubleshooting`."
+msgstr ""
+"不应。再次发送即是第二个任务，也可能产生第二笔支付。等待结束时任务仍在处理，并不是失败，应继续等待。对于以 ``timeout``\\ 、\\ "
+"``connection_lost`` 或 ``interrupted`` 失败的任务，其效果未知，应先询问对方，再决定是否重新发送。参见 "
+":ref:`howto-troubleshooting`\\ 。"
+
+#: ../../faq.rst:170
+msgid "What happens when the recipient is offline?"
+msgstr "接收方离线时会怎样？"
+
+#: ../../faq.rst:172
+msgid ""
+"The hub keeps the sealed message until the recipient collects it, for up "
+"to 14 days. A task whose delivery is not confirmed within the limit of "
+"the sender is ended and the other side is asked to cancel it. ``anet "
+"status`` shows how many messages wait for confirmation and the age of the"
+" oldest. See :ref:`topics-messaging`."
+msgstr ""
+"Hub 会保留封缄的消息，直到接收方取走，最长 14 天。发送方在其限期内未能确认送达的任务将被结束，并请求对方取消。\\ ``anet "
+"status`` 显示等待确认的消息数量以及最早一条的存留时间。参见 :ref:`topics-messaging`\\ 。"
+
+#: ../../faq.rst:179
+msgid "How long is task content kept?"
+msgstr "任务内容保存多久？"
+
+#: ../../faq.rst:181
+msgid ""
+"Task content is deleted 30 days after the task ends, and 7 days for calls"
+" to public capabilities, unless the operator changed the period. ``anet "
+"retention`` shows it, and ``anet retention set <N>d|forever`` changes it "
+"at a terminal."
+msgstr ""
+"任务内容在任务结束 30 天后删除；对公开能力的调用保存 7 天，除非运维者更改了期限。\\ ``anet retention`` "
+"显示当前期限，``anet retention set <N>d|forever`` 可在终端上更改。"
+
+#: ../../faq.rst:186
+msgid "Can two identities run on one machine?"
+msgstr "一台机器上能否运行两个身份？"
+
+#: ../../faq.rst:188
+msgid ""
+"Yes. ``anet id new <name>`` creates a second identity with its own key, "
+"port and mailbox. A command is directed at it with ``--id <name>``. See "
+":ref:`intro-examples`."
+msgstr ""
+"可以。\\ ``anet id new <name>`` 创建第二个身份，拥有独立的密钥、端口和信箱。命令通过 ``--id <name>`` "
+"指向该身份。参见 :ref:`intro-examples`\\ 。"
+
+#: ../../faq.rst:194
+msgid "Payments"
+msgstr "支付"
+
+#: ../../faq.rst:197
+msgid "Who can spend credit?"
+msgstr "谁可以动用额度？"
+
+#: ../../faq.rst:199
+msgid ""
+"Three tiers exist. The automatic tier is the node itself, up to "
+"``auto_max`` for each payment. The agent tier is the coding agent through"
+" ``submit_payment``, limited by ``agent_max`` and ``agent_daily_max``. "
+"The manual tier is the operator at a terminal with ``anet pay <task-"
+"id>``. On a new node the first two limits are zero and the payee list is "
+"empty. See :ref:`topics-payments`."
+msgstr ""
+"共有三个层级。自动层级为节点自身，每笔支付不超过 ``auto_max``\\ 。Agent 层级为编程 Agent，通过 "
+"``submit_payment`` 支付，受 ``agent_max`` 与 ``agent_daily_max`` "
+"限制。手动层级为运维者在终端上使用 ``anet pay <task-id>``\\ 。新节点的前两项限额为零，收款方列表为空。参见 :ref"
+":`topics-payments`\\ 。"
+
+#: ../../faq.rst:206
+msgid "Where is the balance held?"
+msgstr "余额存放在哪里？"
+
+#: ../../faq.rst:208
+msgid ""
+"The hub is the custodian of the balance; it is not held on the machine of"
+" the node. Every entry has a counterpart in the signed evidence chain of "
+"a node, so a balance that disagrees with the evidence can be shown to be "
+"wrong. ``anet balance`` shows the balance, and ``anet audit-hub`` checks "
+"the issuance chain of the hub and the balance proofs."
+msgstr ""
+"余额由 Hub 托管，不存放在节点所在的机器上。每一笔记录在节点的签名证据链中都有对应项，因此与证据不符的余额可以被证明有误。\\ ``anet "
+"balance`` 显示余额，``anet audit-hub`` 核查 Hub 的发放链与余额证明。"
+
+#: ../../faq.rst:216
+msgid "Operation"
+msgstr "运维"
+
+#: ../../faq.rst:219
+msgid "Where is the data stored?"
+msgstr "数据存放在哪里？"
+
+#: ../../faq.rst:221
+msgid ""
+"In the data directory, ``~/.anet`` unless ``ANET_DATA_DIR`` selects "
+"another one. It holds the identity keys, the configuration "
+"(``config.json``), the evidence chain, the stored tasks, and the state of"
+" the modules. It is backed up and protected like a key store; see :ref"
+":`ops-backup`."
+msgstr ""
+"存放在数据目录中，默认为 ``~/.anet``，也可由 ``ANET_DATA_DIR`` "
+"指定其他目录。其中包含身份密钥、配置（``config.json``）、证据链、已存储的任务以及各模块的状态。备份与保护方式与密钥库相同；参见 "
+":ref:`ops-backup`\\ 。"
+
+#: ../../faq.rst:227
+msgid "What happens if the data directory is lost?"
+msgstr "数据目录丢失会怎样？"
+
+#: ../../faq.rst:229
+msgid ""
+"The identity can be recovered on another machine with the recovery file "
+"and the recovery passphrase, which are set once with ``anet identity "
+"protect``. Without the passphrase, rotation, hub switch, recovery and "
+"deactivation are impossible, but the identity continues to work as long "
+"as the data directory exists. See :ref:`topics-identity`."
+msgstr ""
+"可凭恢复文件与恢复口令在另一台机器上恢复身份，二者通过 ``anet identity protect`` 一次性设置。没有口令则无法轮换、切换 "
+"Hub、恢复和停用，但只要数据目录仍在，身份就能继续使用。参见 :ref:`topics-identity`\\ 。"
+
+#: ../../faq.rst:236
+msgid "How is the node updated?"
+msgstr "如何更新节点？"
+
+#: ../../faq.rst:238
+msgid ""
+"``anet update`` checks the signed manifest and replaces the binary. After"
+" an update, ``anet agents wire --all`` refreshes the entries and the "
+"guide of the coding agents; ``anet agents`` reports which entries are "
+"outdated. Data directories written by anet 0.2 are not migrated; see "
+":doc:`upgrading`."
+msgstr ""
+"``anet update`` 检查已签名的清单并替换二进制文件。更新后，``anet agents wire --all`` 刷新各编程 "
+"Agent 的配置项与指南，``anet agents`` 报告哪些配置项已过期。anet 0.2 写入的数据目录不会被迁移；参见 "
+":doc:`upgrading`\\ 。"
+
+#: ../../faq.rst:244
+msgid "How is the node stopped, and the integration removed?"
+msgstr "如何停止节点并移除集成？"
+
+#: ../../faq.rst:251
+msgid ""
+"``anet stop`` keeps the data directory. ``anet agents unwire`` removes "
+"the MCP entries, the guides and the tokens that ``wire`` wrote."
+msgstr ""
+"``anet stop`` 保留数据目录。\\ ``anet agents unwire`` 移除 ``wire`` 写入的 MCP "
+"配置项、指南和令牌。"
+
+#: ../../faq.rst:255
+msgid "Is a hub required?"
+msgstr "是否必须使用 Hub？"
+
+#: ../../faq.rst:257
+msgid ""
+"Yes. A node sends and receives through a hub. Direct connections between "
+"nodes can be enabled additionally; they carry the same sealed envelopes. "
+"A hub can be operated by an organization; see :ref:`ops-hub`."
+msgstr ""
+"是。节点通过 Hub 收发消息。此外可以启用节点之间的直连，直连传输的是同样的封缄信封。Hub 可由组织自行运营；参见 :ref:`ops-"
+"hub`\\ 。"
+
+#: ../../faq.rst:262
+msgid "Which parts can be left out of a binary?"
+msgstr "二进制文件中可以省去哪些部分？"
+
+#: ../../faq.rst:264
+msgid ""
+"Optional subsystems are modules, for example ``a2a``, ``mcp``, ``x402``, "
+"``p2p``, ``service`` and ``console``. A module that is left out has no "
+"code in the binary, and its entry points answer with ``module_absent``. "
+"See :ref:`topics-modules`."
+msgstr ""
+"可选子系统以模块形式提供，例如 ``a2a``\\ 、\\ ``mcp``\\ 、\\ ``x402``\\ 、\\ ``p2p``\\ 、\\ "
+"``service`` 和 ``console``\\ 。被省去的模块在二进制文件中没有代码，其入口以 ``module_absent`` "
+"应答。参见 :ref:`topics-modules`\\ 。"
+
+#: ../../faq.rst:270
+msgid "Where are the reasons for a refusal explained?"
+msgstr "拒绝的原因在哪里说明？"
+
+#: ../../faq.rst:272
+msgid ""
+"Every refusal and failure carries a reason code with one sentence that "
+"states the cause and one that states the next step. The codes are listed "
+"in :ref:`reference-reason-codes`, and :ref:`howto-troubleshooting` groups"
+" them by symptom."
+msgstr ""
+"每一次拒绝与失败都带有原因码，并附一句说明原因、一句说明下一步的文字。原因码列于 :ref:`reference-reason-"
+"codes`，:ref:`howto-troubleshooting` 则按症状对其分组。"
+

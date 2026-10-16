@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/ANetResearch/ANetCore/seal"
+
+	"github.com/ANetResearch/ANet/module"
 )
 
 // Test hooks: the wire clock, the boot clock, the receive-transaction fault,
@@ -232,3 +234,33 @@ func (k *knob) get() time.Duration { return time.Duration(k.ns.Load()) }
 
 // set replaces the value and returns the one it replaced.
 func (k *knob) set(d time.Duration) time.Duration { return time.Duration(k.ns.Swap(int64(d))) }
+
+// moduleRowForTest, when set, gives a name that is not in the name table a
+// row, for the fake modules the daemon's own tests register under names of
+// their own. A name that is in the table always has its table row. Set once
+// from a test's init; nothing in a production build sets it.
+var moduleRowForTest atomic.Pointer[func(name string) (module.Info, bool)]
+
+// rowOf is a module's row of the name table.
+func rowOf(name string) (module.Info, bool) {
+	if i, ok := module.Lookup(name); ok {
+		return i, true
+	}
+	if f := moduleRowForTest.Load(); f != nil {
+		return (*f)(name)
+	}
+	return module.Info{}, false
+}
+
+// grantedTo reports whether the module name holds the grant g.
+func grantedTo(name string, g module.Grant) bool {
+	i, ok := rowOf(name)
+	return ok && i.Granted(g)
+}
+
+// setJoinHooks replaces the join hooks of a running daemon. Tests only.
+func (d *Daemon) setJoinHooks(h JoinHooks) {
+	d.join.mu.Lock()
+	d.join.hooks = h
+	d.join.mu.Unlock()
+}

@@ -88,7 +88,7 @@ func (b *fakeA2ABackend) byText(t *testing.T, text string) backendCall {
 // the task's context, and the backend's answer comes back through
 // ReplyTask — a question for a message that starts with "ask", a final
 // answer otherwise. Errors are collected for the test to read.
-func forwardInbound(t testing.TB, ctx context.Context, h moduleHost, tasks <-chan module.Task, b *fakeA2ABackend) *[]error {
+func forwardInbound(t testing.TB, ctx context.Context, h module.InboundTaskHost, tasks <-chan module.Task, b *fakeA2ABackend) *[]error {
 	// The forwarder stops, and is waited for, before the daemons it
 	// replies through close: a reply still on its way would use a store
 	// being closed.
@@ -168,145 +168,6 @@ func lastFromMe(t *testing.T, d *Daemon, id string) string {
 	return ""
 }
 
-// A2A-DESIGN §11.6 and an internal note item, on the daemon's side: only a trusted
-// peer's text task reaches a module's backend — a peer on the allow list
-// alone, and a stranger under policy open, do not; a task the backend has
-// is not also given to the auto-reply agent, while the others still are;
-// the backend sees one context per (peer, context), so two peers naming the
-// same context never share a conversation; and a task comes again with the
-// requester's next message, in the same context.
-func TestInboundTasksReachTheBackendOnlyFromTrustedPeers(t *testing.T) {
-	srv := newFakeHub(t)
-	ctx := context.Background()
-	prov := registered(t, srv.URL, "prov")
-	peerA := registered(t, srv.URL, "a")
-	peerB := registered(t, srv.URL, "b")
-	allowed := registered(t, srv.URL, "allowed")
-	stranger := registered(t, srv.URL, "stranger")
-	trustPeers(t, prov, peerA.AID(), peerB.AID())
-	allowPeers(t, prov, allowed.AID())
-	if err := prov.SetInboundPolicy(PolicyOpen); err != nil {
-		t.Fatal(err)
-	}
-	api := &fakeOpenAI{reply: "an auto-reply"}
-	apiSrv := httptest.NewServer(api.handler())
-	defer apiSrv.Close()
-	arCfg := AutoReplyConfig{Model: "m", APIBase: apiSrv.URL + "/v1"}
-	replier, err := newAutoReplier(arCfg, prov.layout)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	fctx, cancel := context.WithCancel(ctx)
-	t.Cleanup(cancel)
-	host := moduleHost{prov}
-	tasks, err := host.InboundTasks(fctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	delegate := func(from *Daemon, goal, contextID string) string {
-		t.Helper()
-		id, err := from.DelegateIn(ctx, prov.AID(), goal, nil, contextID)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return id
-	}
-	a1 := delegate(peerA, "a first", "shared")
-	a2 := delegate(peerA, "ask a second", "shared")
-	b1 := delegate(peerB, "b first", "shared")
-	al := delegate(allowed, "from an allowed peer", "shared")
-	st := delegate(stranger, "from a stranger", "shared")
-	if err := prov.pollOnce(ctx); err != nil {
-		t.Fatal(err)
-	}
-	for _, id := range []string{a1, a2, b1, al, st} {
-		if _, err := prov.ix.Get(id); err != nil {
-			t.Fatalf("%s was not accepted: %v", id, err)
-		}
-	}
-
-	// The auto-reply agent answers the two tasks no backend is given, and
-	// leaves the three a backend is, although nothing has answered them yet.
-	prov.autoReplyOnce(ctx, arCfg, replier)
-	if n := api.calls.Load(); n != 2 {
-		t.Fatalf("auto-reply called %d times, want 2 (allowed peer, stranger)", n)
-	}
-	for _, id := range []string{al, st} {
-		if got := lastFromMe(t, prov, id); got != "an auto-reply" {
-			t.Fatalf("%s: last answer %q", id, got)
-		}
-	}
-	for _, id := range []string{a1, a2, b1} {
-		if got := lastFromMe(t, prov, id); got != "" {
-			t.Fatalf("auto-reply answered %s, a task the backend has: %q", id, got)
-		}
-	}
-
-	backend := newFakeA2ABackend(t)
-	errs := forwardInbound(t, fctx, host, tasks, backend)
-	waitUntil(t, "the three trusted tasks to be answered", func() bool {
-		return stateOf(t, prov, a1) == interactions.StateCompleted && stateOf(t, prov, b1) == interactions.StateCompleted &&
-			stateOf(t, prov, a2) == interactions.StateInputRequired
-	})
-	if len(*errs) != 0 {
-		t.Fatalf("forwarding: %v", *errs)
-	}
-	if got := lastFromMe(t, prov, a1); got != "backend: a first" {
-		t.Fatalf("a1 answered %q", got)
-	}
-	calls := backend.snapshot()
-	if len(calls) != 3 {
-		t.Fatalf("the backend received %d tasks: %+v", len(calls), calls)
-	}
-	for _, c := range calls {
-		if strings.Contains(c.text, "allowed") || strings.Contains(c.text, "stranger") {
-			t.Fatalf("an untrusted peer's task reached the backend: %q", c.text)
-		}
-		if c.meta[a2ashape.KeyTrusted] != true {
-			t.Fatalf("%q: anet.trusted = %v", c.text, c.meta[a2ashape.KeyTrusted])
-		}
-	}
-	ca1, ca2, cb1 := backend.byText(t, "a first"), backend.byText(t, "ask a second"), backend.byText(t, "b first")
-	if ca1.meta[a2ashape.KeyPeerAID] != peerA.AID() || cb1.meta[a2ashape.KeyPeerAID] != peerB.AID() {
-		t.Fatalf("anet.peer_aid: %v, %v", ca1.meta[a2ashape.KeyPeerAID], cb1.meta[a2ashape.KeyPeerAID])
-	}
-	if ca1.contextID != ca2.contextID || ca1.contextID == cb1.contextID || ca1.contextID == "shared" || cb1.contextID == "shared" {
-		t.Fatalf("backend contexts: a %s, %s; b %s — want one per peer, not the requester's", ca1.contextID, ca2.contextID, cb1.contextID)
-	}
-
-	// The requester reads the question and answers it: the task comes
-	// again, in the same context, and the auto-reply agent still leaves it
-	// alone.
-	if err := peerA.pollOnce(ctx); err != nil {
-		t.Fatal(err)
-	}
-	if err := peerA.SendMessage(ctx, a2, "ask no more: the red one", nil); err != nil {
-		t.Fatal(err)
-	}
-	if err := prov.pollOnce(ctx); err != nil {
-		t.Fatal(err)
-	}
-	prov.autoReplyOnce(ctx, arCfg, replier)
-	if n := api.calls.Load(); n != 2 {
-		t.Fatalf("auto-reply called for a follow-up the backend has (%d calls)", n)
-	}
-	waitUntil(t, "the follow-up to reach the backend", func() bool { return len(backend.snapshot()) == 4 })
-	if c := backend.byText(t, "ask no more: the red one"); c.contextID != ca1.contextID {
-		t.Fatalf("the follow-up came in context %s, not %s", c.contextID, ca1.contextID)
-	}
-	waitUntil(t, "the follow-up to be answered", func() bool { return lastFromMe(t, prov, a2) == "backend: ask no more: the red one" })
-
-	// Only the tasks a module was given can be answered through the seam.
-	answer := a2ashape.Message{Role: a2ashape.RoleAgent, Parts: []a2ashape.Part{a2ashape.TextPart("no")}}
-	for _, id := range []string{al, st, "ix_nope"} {
-		if _, err := host.ReplyTask(ctx, id, answer, a2ashape.TaskStateCompleted); !errors.Is(err, a2ashape.ErrTaskNotFound) {
-			t.Fatalf("ReplyTask on %s: %v", id, err)
-		}
-	}
-}
-
 // A backend that accepts untrusted peers (declared through
 // DeclareUntrustedBackend): an allowed peer's task is delivered, marked
 // untrusted, and can be answered, while a stranger's task accepted under an
@@ -334,7 +195,7 @@ func TestInboundTasksWithAnUntrustedBackend(t *testing.T) {
 	if err := prov.SetInboundPolicy(PolicyApprove); err != nil {
 		t.Fatal(err)
 	}
-	host := moduleHost{prov}
+	host := a2aHost(prov)
 	host.DeclareUntrustedBackend()
 	if err := prov.SetInboundPolicy(PolicyOpen); !errors.Is(err, ErrPolicyConflict) {
 		t.Fatalf("policy open with an untrusted backend declared: %v", err)
@@ -492,7 +353,7 @@ func TestInboundFeedStartSettleAndFiles(t *testing.T) {
 	prov.inFeed.mu.Unlock()
 	fctx, cancel := context.WithCancel(ctx)
 	t.Cleanup(cancel)
-	tasks, err := moduleHost{prov}.InboundTasks(fctx)
+	tasks, err := a2aHost(prov).InboundTasks(fctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -550,7 +411,7 @@ func TestInboundTaskIsDecidedAfresh(t *testing.T) {
 	allowed := registered(t, srv.URL, "allowed")
 	trustPeers(t, prov, peer.AID())
 	allowPeers(t, prov, allowed.AID())
-	host := moduleHost{prov}
+	host := a2aHost(prov)
 	answered, err := peer.DelegateIn(ctx, prov.AID(), "answer me", nil, "c1")
 	if err != nil {
 		t.Fatal(err)
@@ -602,7 +463,7 @@ func TestAModuleTellsTheRequesterItsBackendIsWorking(t *testing.T) {
 	prov := registered(t, srv.URL, "prov")
 	peer := registered(t, srv.URL, "peer")
 	trustPeers(t, prov, peer.AID())
-	host := moduleHost{prov}
+	host := a2aHost(prov)
 	id, err := peer.DelegateIn(ctx, prov.AID(), "a long one", nil, "c1")
 	if err != nil {
 		t.Fatal(err)

@@ -33,7 +33,7 @@ compromised download host (today the same machine as the official hub)
 cannot hand you a binary of its own. Its private half is in no repository
 and not on the download host or any public hub.
 
-If the key ever changes, this section, the README, `docs/GUIDE-zh.md`,
+If the key ever changes, this section, the README, `docs/intro/install.rst`,
 `deploy/release/install.sh` and `internal/release/` change in the same
 commit, and a test fails if any of them disagrees. A planned rotation goes
 to the pre-committed next key named below: binaries already installed accept

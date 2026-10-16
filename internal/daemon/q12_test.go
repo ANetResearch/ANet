@@ -92,7 +92,8 @@ func TestTheA2AInterfaceHoldsToTheQ12InlineLimit(t *testing.T) {
 	})
 
 	// GetTask: the history is metadata only; the question the task waits
-	// on (status.message) has its file inline, within the limit.
+	// on has its file inline, within the limit — in status.message and,
+	// as the same message, in anet.reply (CUX-A1), each counted against it.
 	got, err := seam.Get(ctx, prov.AID(), task.ID, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -101,8 +102,8 @@ func TestTheA2AInterfaceHoldsToTheQ12InlineLimit(t *testing.T) {
 	if history != 0 {
 		t.Fatalf("GetTask history carries %d bytes inline; Q12: metadata only", history)
 	}
-	if rest != each || rest > a2ashape.MaxInlineBytes {
-		t.Fatalf("GetTask inlines %d bytes beyond the history, want the question's %d (limit %d)", rest, each, a2ashape.MaxInlineBytes)
+	if rest != 2*each || rest > a2ashape.MaxInlineBytes {
+		t.Fatalf("GetTask inlines %d bytes beyond the history, want the question's %d twice (limit %d)", rest, each, a2ashape.MaxInlineBytes)
 	}
 	var placeholders int
 	for i := range got.History {
@@ -128,7 +129,7 @@ func TestTheA2AInterfaceHoldsToTheQ12InlineLimit(t *testing.T) {
 	// message (a 9 MiB file) carry metadata only.
 	wctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	snap, events, err := seam.Watch(wctx, prov.AID(), task.ID)
+	snap, events, err := seam.Watch(wctx, prov.AID(), task.ID, module.WatchOpts{})
 	if err != nil {
 		t.Fatal(err)
 	}

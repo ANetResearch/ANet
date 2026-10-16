@@ -33,7 +33,7 @@ func TestSignProxyCard(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := moduleHost{&Daemon{self: c}}
+	h := proxySignerPart{&Daemon{self: c}}
 	signed, err := h.SignProxyCard(proxyCardJSON("http://127.0.0.1:41811/a2a/v1/agents/x/jsonrpc", "JSONRPC", "https://agentnetwork.org.cn/a2a/ext/anet-origin/v1"))
 	if err != nil {
 		t.Fatalf("sign: %v", err)

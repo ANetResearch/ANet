@@ -22,13 +22,15 @@ func TestSeamsAreGrantedBeforeAnyHubIsConfigured(t *testing.T) {
 	h := newFakeHub(t)
 	defer h.Close()
 	d := newTestDaemon(t, "", true) // no hub at start, as on a fresh install
-	host := moduleHost{d}
+	host, _ := newModuleHost(d, "x402")
 
 	if _, ok := host.PaymentSeam(); !ok {
 		t.Fatal("the payment seam was withheld from a node with no hub yet")
 	}
-	if _, ok := host.HubSeam(); !ok {
-		t.Fatal("the hub seam was withheld from a node with no hub yet")
+	// No module holds the hub seam (the name table grants it to none), so
+	// the Host of every module withholds it, hub or no hub.
+	if _, ok := host.HubSeam(); ok {
+		t.Fatal("the hub seam was granted to a module")
 	}
 
 	// And the address is answered live, so joining a hub is enough.
@@ -166,7 +168,7 @@ func TestACapabilityDelegationIsOnTheRequestersChain(t *testing.T) {
 // fixture produces.
 func TestANodeResolvesItsOwnKeyHistory(t *testing.T) {
 	d := newTestDaemon(t, "", true)
-	host := moduleHost{d}
+	host, _ := newModuleHost(d, "org")
 	kel, ok := host.ResolveKEL(d.AID())
 	if !ok || len(kel) == 0 {
 		t.Fatal("a node could not resolve its own key history")
@@ -208,6 +210,8 @@ func TestStartupRepublishesTheCurrentCapabilities(t *testing.T) {
 	fake.mu.Unlock()
 
 	// A fresh Daemon over the same data dir is what a restart is.
+	// The first process has ended: a data directory has one daemon (KEL-10).
+	d.Close()
 	d2, err := New(d.layout)
 	if err != nil {
 		t.Fatal(err)

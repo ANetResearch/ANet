@@ -34,7 +34,7 @@ const Identity = "anet-release@agentnetwork.org.cn"
 // allowedSigners is the release public key in the allowed_signers format
 // `ssh-keygen -Y verify -f` reads. The same line is embedded in
 // deploy/release/install.sh and printed in SECURITY.md, README.md and
-// docs/GUIDE-zh.md; keys_test.go fails when any of them drifts from this
+// docs/intro/install.rst; keys_test.go fails when any of them drifts from this
 // file.
 //
 // This is the project's release key, the one v0.2.0 is signed with. Its
@@ -46,7 +46,7 @@ const Identity = "anet-release@agentnetwork.org.cn"
 // came from the project.
 //
 // Replacing it means replacing this file, NextKeyFingerprint, the line in
-// install.sh, SECURITY.md, README.md and docs/GUIDE-zh.md, in one commit —
+// install.sh, SECURITY.md, README.md and docs/intro/install.rst, in one commit —
 // and re-signing the official manifest with the new key
 // (build-release.sh --official): the one committed is signed by this key,
 // and a binary whose manifest its own key does not verify marks no agent

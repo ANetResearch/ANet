@@ -17,6 +17,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -25,6 +26,7 @@ import (
 	"github.com/ANetResearch/ANetCore/identity"
 	"github.com/ANetResearch/ANetCore/identity/identitytest"
 	"github.com/ANetResearch/ANetCore/payment"
+	"github.com/ANetResearch/ANetCore/relayauth"
 	"github.com/ANetResearch/ANetCore/tsir"
 
 	"github.com/ANetResearch/ANet/module"
@@ -42,6 +44,16 @@ type testHost struct {
 
 	mu     sync.Mutex
 	events []hostEvent
+	// clock is the node's time for each hub's requests; stales counts the
+	// ts_stale answers the module reported; registered is RegisteredAt;
+	// stateDir is the module's state directory.
+	clock      relayauth.MonoClock
+	stales     int
+	registered int64
+	stateDir   string
+	ticks      []int64
+	// pinnedKEL, when set, is the hub history the node pinned before the hub rotated.
+	pinnedKEL []identity.SignedEvent
 	// spendRefusal, when set, is what AdmitSpend answers; spends records
 	// the calls.
 	spendRefusal error
@@ -81,13 +93,57 @@ func newHost(t *testing.T) *testHost {
 
 func (h *testHost) AID() string                   { return h.self.AID() }
 func (h *testHost) Providers() *provider.Registry { return h.reg }
+func (h *testHost) StateDir() string        { return h.stateDir }
+
+// RecordEvidence keeps the event with the time it was recorded
+// (module.EvidenceAt), unless the test gave one.
 func (h *testHost) RecordEvidence(kind string, payload any) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	m, _ := payload.(map[string]any)
-	h.events = append(h.events, hostEvent{kind: kind, payload: m})
+	cp := make(map[string]any, len(m)+1)
+	for k, v := range m {
+		cp[k] = v
+	}
+	if _, ok := cp[module.EvidenceAt]; !ok {
+		cp[module.EvidenceAt] = time.Now().UnixMilli()
+	}
+	h.events = append(h.events, hostEvent{kind: kind, payload: cp})
 	return nil
 }
+
+// SignHubRequest signs as the node does: this node's clock for the hub, the
+// action, both AIDs, the method, the target and the body.
+func (h *testHost) SignHubRequest(req *http.Request, action string, body []byte) error {
+	ts := uint64(h.clock.Next(h.hub.AID(), time.Now().UnixMilli()))
+	sig, seq := h.self.Sign(relayauth.PreimageV2(action, h.self.AID(), h.hub.AID(), ts, req.Method, req.URL.RequestURI(), body))
+	req.Header.Set(relayauth.HeaderAID, h.self.AID())
+	req.Header.Set(relayauth.HeaderTS, strconv.FormatUint(ts, 10))
+	req.Header.Set(relayauth.HeaderSeq, strconv.FormatUint(seq, 10))
+	req.Header.Set(relayauth.HeaderSig, relayauth.EncodeSig(sig))
+	return nil
+}
+
+func (h *testHost) NoteHubStale(floor int64) bool {
+	h.mu.Lock()
+	h.stales++
+	h.mu.Unlock()
+	return h.clock.Raise(h.hub.AID(), floor, time.Now().UnixMilli())
+}
+
+// RefreshHubIdentity re-learns the hub's key history, which a test that
+// rotated the hub has left behind in pinnedKEL.
+func (h *testHost) RefreshHubIdentity() bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.pinnedKEL == nil || len(h.pinnedKEL) == len(h.hub.KEL()) {
+		return false
+	}
+	h.pinnedKEL = nil
+	return true
+}
+
+func (h *testHost) RegisteredAt() (int64, bool)             { return h.registered, h.registered > 0 }
 func (h *testHost) PaymentSeam() (module.PaymentSeam, bool) { return h, true }
 
 func (h *testHost) Sign(pre []byte) ([]byte, uint64) { return h.self.Sign(pre) }
@@ -100,6 +156,11 @@ func (h *testHost) HubDo(r *http.Request) (*http.Response, error) {
 	return http.DefaultClient.Do(r)
 }
 func (h *testHost) HubIdentity() (string, []identity.SignedEvent, bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.pinnedKEL != nil {
+		return h.hub.AID(), h.pinnedKEL, true
+	}
 	return h.hub.AID(), h.hub.KEL(), true
 }
 func (h *testHost) ReadEvidence(kind string, limit int) []map[string]any {
@@ -244,4 +305,14 @@ func withWork(t *testing.T, h *testHost, price uint64) *pricedWork {
 		t.Fatal(err)
 	}
 	return w
+}
+
+// clockTick takes a time from the node's clock for the hub, as another part
+// of the node signing a request would, and fails when it is not above the
+// last one handed out.
+func (h *testHost) clockTick() error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.ticks = append(h.ticks, h.clock.Next(h.hub.AID(), time.Now().UnixMilli()))
+	return nil
 }

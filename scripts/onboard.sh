@@ -10,7 +10,7 @@
 # having done it already.
 #
 # It also runs the path on the trimmed builds, because "this variant can
-# do X" is a claim in docs/DISTRIBUTIONS-zh.md and claims about builds
+# do X" is a claim in docs/topics/modules.rst and claims about builds
 # should be checked against the builds.
 #
 #   bash scripts/onboard.sh              against a local hub
@@ -34,11 +34,9 @@ cd "$(dirname "$0")/.."
 rm -rf "$ROOT"; mkdir -p "$ROOT/bin"
 
 hd "0  按发行版设计构建每一档"
-declare -A PROFILE=(
- [min]="no_x402,no_service,no_mcp,no_cas,no_org,no_blackboard,no_p2p,no_anetlink"
- [standard]="no_x402,no_mcp,no_cas,no_org,no_blackboard,no_p2p,no_anetlink"
- [paid]="no_mcp,no_cas,no_org,no_blackboard,no_p2p,no_anetlink"
-)
+# The recipes are written down once, in scripts/tagcheck.sh.
+declare -A PROFILE=()
+while IFS=$'\t' read -r name tags; do PROFILE[$name]=$tags; done < <(bash scripts/tagcheck.sh recipes)
 # Through build.sh, so the binaries carry a commit stamp. Building with a
 # bare `go build` here would leave every profile reporting "unknown", and
 # the check below asserting that a node can say which build it is would
@@ -163,7 +161,7 @@ done
   && ok "调用成功,证据随结果返回" || no "调用未成功: ${res:0:140}"
 
 hd "6  min 遇到标价的能力"
-# The claim in DISTRIBUTIONS-zh.md is that a build without x402 refuses
+# The claim in docs/topics/modules.rst is that a build without x402 refuses
 # priced work and says why, rather than doing it for free.
 ix=$(ctl min 29710 /delegate "{\"provider\":\"$STD_AID\",\"capability\":\"text.digest.paid\",\"args\":{\"text\":\"x\"}}" \
      | jq_ "print(d.get('interaction_id',''))")
@@ -179,13 +177,13 @@ st=$(echo "$res" | jq_ "print(d.get('status',''))")
 msg=$(echo "$res" | jq_ "print(d.get('message',''))")
 [ "$st" = UNAVAILABLE ] && ok "无付费模块的提供方拒绝标价的活,而不是白干" \
   || no "状态是 $st,期望 UNAVAILABLE"
-case "$msg" in *no_x402*) ok "拒绝时说清了原因(提到 no_x402)";; *) no "没说原因: ${msg:0:100}";; esac
+case "$msg" in *"cannot take payment"*) ok "拒绝时说清了原因(该节点现在收不了款)";; *) no "没说原因: ${msg:0:100}";; esac
 
 hd "7  min 试图付款"
 for c in balance redeem reconcile audit-hub; do
   r=$(ctl min 29710 "/$c" '{"amount":1,"reference":"x"}')
-  case "$(echo "$r" | jq_ "print(d.get('error',''))")" in
-    *no_x402*) ok "/$c 明确回答本构建没有付费支持";;
+  case "$(echo "$r" | jq_ "print(d.get('reason',''))")" in
+    module_absent) ok "/$c 答 module_absent(本构建没有付款模块)";;
     *) no "/$c 的回答不对: ${r:0:100}";;
   esac
 done

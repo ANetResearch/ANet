@@ -166,6 +166,7 @@ func TestExitStatus(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			h := newCLIHome(t, "C")
+			writeTestIdentity(t, h.data)
 			var sc *scriptedControl
 			if tc.answer != nil {
 				sc = newScriptedControl(t, h, tc.answer)
@@ -231,13 +232,4 @@ func TestDeclinedIsExit1(t *testing.T) {
 
 // The statuses this binary does not reach yet, with the package that brings each.
 func TestExitStatusPending(t *testing.T) {
-	t.Run("task watch: 3 at input-required, 1 at failed, rejected or canceled", func(t *testing.T) {
-		t.Skip("v030-todo(UX-10)")
-	})
-	t.Run("rotation_pending: 0 after 60 seconds of identity recover/protect, 1 for a refused new request", func(t *testing.T) {
-		t.Skip("v030-todo(KEL-10)")
-	})
-	t.Run("identity.protect.already: 0", func(t *testing.T) {
-		t.Skip("v030-todo(KEL-10)")
-	})
 }

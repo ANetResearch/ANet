@@ -120,16 +120,22 @@ func (d *Daemon) hPaymentsStatus(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "bad request"})
 		return
 	}
+	st := d.SpendStatus()
+	summary := st.LimitsSummary(a2ashape.Lang())
 	if !req.Hub {
-		writeJSON(w, http.StatusOK, d.SpendStatus())
+		writeJSON(w, http.StatusOK, struct {
+			SpendStatus
+			Summary string `json:"summary"`
+		}{st, summary})
 		return
 	}
 	out := struct {
 		SpendStatus
+		Summary  string `json:"summary"`
 		Hub      string `json:"hub"`
 		HubAID   string `json:"hub_aid"`
 		HubError string `json:"hub_error,omitempty"`
-	}{SpendStatus: d.SpendStatus(), Hub: d.config().HubURL}
+	}{SpendStatus: st, Summary: summary, Hub: d.config().HubURL}
 	if out.Hub != "" {
 		ctx, cancel := context.WithTimeout(r.Context(), hubCallTimeout)
 		defer cancel()

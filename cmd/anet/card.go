@@ -30,11 +30,12 @@ import (
 	"github.com/ANetResearch/ANetCore/identity"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
+	"github.com/ANetResearch/ANet/module"
 )
 
 // previewExtURI is the extension a card declares when its agent sends
 // previews while it writes (CUX-P30).
-const previewExtURI = "https://agentnetwork.org.cn/a2a/ext/anet-preview/v1"
+const previewExtURI = module.ExtPreviewURI
 
 // cardAnswer is what `anet card` reads of /agents/card.
 type cardAnswer struct {
@@ -73,12 +74,15 @@ func cardCommand(c *client, rest []string) error {
 	if err := json.Unmarshal(out, &ra); err != nil {
 		return answerError(code, out)
 	}
-	writeCard(outW(), ra, a2ashape.Lang())
+	// The preview line is a statement about what this node can do with the
+	// agent's previews: none while the preview module is not available
+	// (11-modularity §5.4).
+	writeCard(outW(), ra, a2ashape.Lang(), previewHere(c))
 	return nil
 }
 
 // writeCard writes text C for ra.
-func writeCard(w io.Writer, ra cardAnswer, lang a2ashape.Language) {
+func writeCard(w io.Writer, ra cardAnswer, lang a2ashape.Language, preview bool) {
 	verified := ra.Verification == "VERIFIED"
 	header := a2ashape.Args{"state": "unverified"}
 	if identity.ValidAID(ra.AID) {
@@ -149,7 +153,7 @@ func writeCard(w io.Writer, ra cardAnswer, lang a2ashape.Language) {
 		fmt.Fprintln(w, "  "+a2ashape.Sentence(l.key, lang, a2ashape.Args{"skill": skill, "price": l.price}))
 	}
 	for _, e := range card.Capabilities.Extensions {
-		if e.URI == previewExtURI {
+		if preview && e.URI == previewExtURI {
 			fmt.Fprintln(w, a2ashape.Sentence("card.preview", lang, nil))
 			break
 		}

@@ -52,8 +52,14 @@ func IsPaymentRefusal(t Task) bool {
 	return false
 }
 
-// PaymentRefusalDetail is the sentence PaymentRefusal gives for a reason.
+// PaymentRefusalDetail is the sentence PaymentRefusal gives for a reason:
+// the reason's row of the table in the node's language, the same sentence
+// the CLI and the task's status line give (ux §1.4); a reason with no row
+// gets the English text below.
 func PaymentRefusalDetail(reason string) string {
+	if _, ok := Lookup(reason); ok {
+		return Sentence(reason, Lang(), nil)
+	}
 	switch reason {
 	case x402a2a.ReasonClientPayloadUnsupported:
 		return "this node signs payments itself; a payload made by the client is not forwarded"

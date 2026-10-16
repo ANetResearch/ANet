@@ -1,0 +1,44 @@
+{
+  "name": "Image Describer",
+  "caps": [
+    "image.describe"
+  ],
+  "summary": "Reports the format and dimensions of one image. The input is not stored.",
+  "inbound": {
+    "policy": "closed",
+    "public_capabilities": [
+      {
+        "id": "image.describe",
+        "per_caller_per_min": 30,
+        "per_caller_per_day": 1000,
+        "global_per_min": 300,
+        "max_inflight": 4,
+        "per_caller_inflight": 1,
+        "max_args_bytes": 2048,
+        "files": {
+          "count": 1,
+          "max_bytes": 4194304,
+          "types": [
+            "image/jpeg",
+            "image/png",
+            "image/webp"
+          ]
+        },
+        "discard": true
+      }
+    ]
+  },
+  "modules": {
+    "service": {
+      "token_file": "/var/lib/anet-service/svc.token",
+      "capabilities": [
+        {
+          "id": "image.describe",
+          "url": "unix:///run/anet-service-adapter/backend.sock:/describe",
+          "timeout_ms": 10000,
+          "description": "Report the format, width and height of one image. The image is not stored."
+        }
+      ]
+    }
+  }
+}

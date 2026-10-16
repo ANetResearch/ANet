@@ -2,11 +2,13 @@ package netcard
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"reflect"
 	"strconv"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/ANetResearch/ANetCore/a2acard"
 
@@ -203,5 +205,29 @@ func TestRelayURLAndJKU(t *testing.T) {
 	}
 	if !strings.HasPrefix(DefaultName("bafyreiabcdefghijklmn"), "anet agent bafyreiabcde") {
 		t.Fatalf("DefaultName = %q", DefaultName("bafyreiabcdefghijklmn"))
+	}
+}
+
+// CUX-F31: the limits sentence is kept whole when the description is long;
+// the description gives way.
+func TestLimitsSentenceSurvivesALongDescription(t *testing.T) {
+	const sentence = "Limits per caller: 60/min, 2000/day, 1 at a time."
+	in := goldenInput()
+	in.Skills = []Skill{{ID: "a.do", Description: strings.Repeat("é", 3000), Limits: sentence}}
+	card, err := Build(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var c struct {
+		Skills []struct {
+			Description string `json:"description"`
+		} `json:"skills"`
+	}
+	if err := json.Unmarshal(card, &c); err != nil {
+		t.Fatal(err)
+	}
+	d := c.Skills[0].Description
+	if len(d) > 4096 || !strings.HasSuffix(d, " "+sentence) || !utf8.ValidString(d) {
+		t.Fatalf("description of %d bytes: ...%q", len(d), d[max(0, len(d)-70):])
 	}
 }

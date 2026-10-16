@@ -34,7 +34,7 @@ func joinDaemon(t *testing.T) (*Daemon, *fakeJoinHooks) {
 		t.Fatal(err)
 	}
 	hooks := newFakeJoinHooks(kel)
-	d.join.hooks = hooks
+	d.setJoinHooks(hooks)
 	return d, hooks
 }
 
@@ -555,7 +555,7 @@ func TestTheRelayLoopWaitsForRegistration(t *testing.T) {
 	// The join designates the hub the witness, whose notice then confirms
 	// the identity: polling is what the gate lets through first (KEL D-1).
 	d.regMu.Lock()
-	d.join.hooks = witnessJoinHooks{d}
+	d.setJoinHooks(witnessJoinHooks{d})
 	d.regMu.Unlock()
 	// The gate is held open: what keeps the loop from polling while the
 	// node waits for admission must be the loop's own wait, not a gate
@@ -711,5 +711,84 @@ func TestTheOtherSendRoutesWaitForTheHub(t *testing.T) {
 	}
 	if n, _ := d.ix.OutboxLen(); n != 0 {
 		t.Fatalf("a refused send queued %d rows", n)
+	}
+}
+
+// doctor reads the hub item from the data directory when no daemon answers: ReadHubView says what
+// /status.hub says, from hub_join.json alone, and no record is no hub.
+func TestReadHubViewIsTheStatusViewFromTheFile(t *testing.T) {
+	l := NewLayout(t.TempDir())
+	v, err := ReadHubView(l, a2ashape.English)
+	if err != nil || v.State != JoinNone || v.Reason != "no_hub_yet" || v.Message != a2ashape.Sentence("no_hub_yet", a2ashape.English, nil) {
+		t.Fatalf("no record: %+v %v", v, err)
+	}
+	rec := joinRecord{V: joinRecordVersion, Hub: "https://hub.example", State: JoinPendingAdmission, Reason: reasonPending,
+		Since: time.Now().UnixMilli()}
+	if err := saveJoinRecord(l, &rec); err != nil {
+		t.Fatal(err)
+	}
+	v, err = ReadHubView(l, a2ashape.English)
+	if err != nil || v.State != JoinPendingAdmission || v.Reason != reasonPending || v.URL != "https://hub.example" ||
+		!strings.Contains(v.Message, "https://hub.example") {
+		t.Fatalf("pending admission: %+v %v", v, err)
+	}
+	if err := os.WriteFile(l.hubJoinPath(), []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ReadHubView(l, a2ashape.English); err == nil {
+		t.Fatal("a record that cannot be read is an error, not no hub")
+	}
+}
+
+// An operator who admits the account at the hub ends its probation there;
+// the join record holds the end the hub named at registration, so status
+// would keep saying "on probation" until that time. While the record shows
+// a probation, the hub is asked, and a probation it no longer reports is
+// taken out of the record (and out of hub_join.json).
+func TestAdmitEndsTheProbationInTheRecord(t *testing.T) {
+	srv := newFakeHub(t)
+	d := registered(t, srv.URL, "newcomer")
+	fh := fakeHubAt(t, srv.URL)
+	until := uint64(time.Now().Add(48 * time.Hour).UnixMilli())
+	hubSays := func(extra map[string]any) {
+		fh.mu.Lock()
+		defer fh.mu.Unlock()
+		fh.acctExtra = map[string]map[string]any{d.AID(): extra}
+	}
+	// The record as the registration at an open hub left it.
+	rec := *d.joinSnapshot()
+	rec.ProbationUntil = until
+	rec.Reason = "registered.probation"
+	d.keepJoinRecord(srv.URL, rec)
+	if v := d.HubView(); v.Reason != "registered.probation" {
+		t.Fatalf("setup: the hub view says %s", v.Reason)
+	}
+
+	// The hub still reports the probation: the record stays as it is.
+	hubSays(map[string]any{"probation_until": until})
+	d.refreshProbation(context.Background())
+	if r := d.joinSnapshot(); r.Reason != "registered.probation" || r.ProbationUntil != until {
+		t.Fatalf("hub still on probation: record %+v", r)
+	}
+
+	// The hub is asked at most once in probationRecheck.
+	hubSays(nil)
+	d.refreshProbation(context.Background())
+	if r := d.joinSnapshot(); r.Reason != "registered.probation" {
+		t.Fatalf("a second question within the recheck time changed the record: %+v", r)
+	}
+
+	// Admitted: the account has no probation any more.
+	d.join.probeAt.Store(0)
+	d.refreshProbation(context.Background())
+	r := d.joinSnapshot()
+	if r.State != JoinRegistered || r.Reason != "registered" || r.ProbationUntil != 0 {
+		t.Fatalf("after the admit: record %+v", r)
+	}
+	if v := d.HubView(); v.Reason != "registered" || strings.Contains(v.Message, "probation") {
+		t.Fatalf("after the admit the hub view says %q (%s)", v.Message, v.Reason)
+	}
+	if b, err := os.ReadFile(d.layout.hubJoinPath()); err != nil || strings.Contains(string(b), "probation") {
+		t.Fatalf("hub_join.json after the admit: %s %v", b, err)
 	}
 }

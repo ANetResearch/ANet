@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 
-	"github.com/ANetResearch/ANet/internal/runtime/interactions"
+	"github.com/ANetResearch/ANet/internal/ixstate"
 	"github.com/ANetResearch/ANet/internal/x402a2a"
 )
 
@@ -54,7 +54,7 @@ func SplitReceipts(list []json.RawMessage, outbound bool, payState string) (own,
 		case x402a2a.VerdictVerified:
 			own = append(own, r)
 		case nil:
-			if payState == interactions.PayCompleted {
+			if payState == ixstate.PayCompleted {
 				own = append(own, r)
 			} else {
 				unverified = append(unverified, r)

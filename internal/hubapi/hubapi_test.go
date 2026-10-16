@@ -38,11 +38,10 @@ func TestTheWireFieldNamesArePinned(t *testing.T) {
 		// No goal, no deliverable: the hub holds no task content (A2A-DESIGN
 		// §9). Mirrors ANetHub internal/aghub/wirecontract_test.go.
 		{"ReviewView", hubapi.ReviewView{}, []string{
-			"comment", "completed_at", "content_binding", "created_at",
-			"interaction_id", "rating", "receipt_cid", "request_cid",
-			"result_cid", "reviewer_aid", "subject_aid",
+			"comment", "completed_day", "created_day", "rating", "receipt_cid", "subject_aid",
 		}},
-		{"UploadReviewRequest", hubapi.UploadReviewRequest{}, []string{"receipt", "review"}},
+		{"UploadReviewRequest", hubapi.UploadReviewRequest{}, []string{"receipt", "review", "rsalt"}},
+		{"UploadReviewResponse", hubapi.UploadReviewResponse{}, []string{"attestation", "status"}},
 		// Relay v3 (core §2.12.2). No sender, kind or interaction id
 		// appears in any of these: a send's body is the envelope itself,
 		// the hub routes by its outer to, and the rest is sealed.

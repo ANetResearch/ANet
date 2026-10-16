@@ -1012,7 +1012,7 @@ for n in "${NODES[@]}"; do
     scan "agent-$n${sub//\//-}" "$HUB_URL/agents/${AID_OF[$n]}$sub"
   done
 done
-scan fed-reviews "$HUB_URL/fed/v1/reviews"; scan fed-cards "$HUB_URL/fed/v1/cards"
+scan fed-reviews "$HUB_URL/fed/v3/reviews"; scan fed-cards "$HUB_URL/fed/v3/cards"
 scan stats "$HUB_URL/stats"; scan graph "$HUB_URL/graph"; scan research "$HUB_URL/research"
 scan x402-issuance "$HUB_URL/x402/issuance"
 if [ "$ADMIN" = 1 ]; then

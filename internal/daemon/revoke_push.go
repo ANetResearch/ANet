@@ -207,6 +207,10 @@ func hubReplyReason(rep hubReply) string {
 	return body.Reason
 }
 
+// listFullMinGapMS is the least time between two key replacements made
+// because a hub's revocation list is full.
+const listFullMinGapMS = 10 * 60 * 1000
+
 // revocationListFull is SS §4.3.8 item 4: the hub keeps no more of this
 // node's withdrawals. A new mailbox signing key (epoch + 1) replaces the
 // old one in a transaction that also empties caps_issued, and the key set
@@ -215,6 +219,13 @@ func hubReplyReason(rep hubReply) string {
 // peers that still talk to this node get new credentials with its next
 // messages; until then they write by first contact. Logged, not shown.
 func (d *Daemon) revocationListFull(ctx context.Context, hub string) error {
+	// A new key every time the hub says full would send every contact back
+	// to first contact each time; once per listFullMinGapMS is enough, as the
+	// hub drops the revocations of a lower epoch when the new key arrives.
+	now := d.nowMS()
+	if last := d.listFullRotatedAt.Load(); last != 0 && now >= last && now-last < listFullMinGapMS {
+		return fmt.Errorf("the hub keeps no more withdrawals; anet replaced the mailbox signing key a short while ago and waits before it does so again")
+	}
 	var m seal.Mbox
 	err := d.ix.Update(func(tx *interactions.Tx) error {
 		var err error
@@ -224,6 +235,7 @@ func (d *Daemon) revocationListFull(ctx context.Context, hub string) error {
 	if err != nil {
 		return fmt.Errorf("the hub keeps no more withdrawals and the mailbox signing key could not be replaced: %w", err)
 	}
+	d.listFullRotatedAt.Store(now)
 	log.Printf("anet: %s keeps no more withdrawn delivery credentials of this node; anet made a new mailbox signing key (number %d), "+
 		"which withdraws them all at once", hub, m.Epoch)
 	if err := d.republishKeys(ctx, hub); err != nil {

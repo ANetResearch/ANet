@@ -357,6 +357,10 @@ func render(r Row, key string, lang Language, args Args) string {
 			t = strings.ReplaceAll(t, "in {retry}", "later")
 		}
 	}
+	if r.Code == "sandbox_start_failed" && !present(args, "error") {
+		// bubblewrap said nothing: no brackets, no placeholder (ux §1.4 H).
+		t = strings.ReplaceAll(strings.ReplaceAll(t, "（{error}）", ""), " ({error})", "")
+	}
 	_, variant, _ := strings.Cut(strings.TrimPrefix(key, r.Code), ".")
 	if variant == "" {
 		variant = r.Variant
@@ -465,6 +469,9 @@ func present(args Args, name string) bool {
 
 // value is the text of placeholder name, and whether it has one.
 func value(code, variant, name string, lang Language, args Args, now time.Time) (string, bool) {
+	if v, ok := moduleValue(code, variant, name, lang, args); ok {
+		return v, true
+	}
 	switch name {
 	case "aid8", "peer8", "file_aid8":
 		if present(args, name) {
@@ -523,8 +530,12 @@ func value(code, variant, name string, lang Language, args Args, now time.Time) 
 	case "name":
 		s = clean(s, maxNameRunes)
 		return s, s != ""
-	case "value", "error":
+	case "value":
 		s = clean(s, maxShortRunes)
+		return s, s != ""
+	case "error":
+		// bwrap's first line (sandbox_start_failed) is cut at 120 characters (ux §1.4 H).
+		s = clean(s, maxErrorRunes)
 		return s, s != ""
 	case "code":
 		// A code is shown only in a code's form (CORE-K19): a hub's or a
@@ -542,6 +553,7 @@ func value(code, variant, name string, lang Language, args Args, now time.Time) 
 // Bounds on a placeholder value (ux UX-G8 and the notes under §1.4 C4, G).
 const (
 	maxNameRunes  = 64
+	maxErrorRunes = 120
 	maxValueRunes = 512
 )
 
@@ -715,6 +727,15 @@ func phraseSetOf(code, variant, name string) string {
 			return "hub_why"
 		case "egress_allow_invalid":
 			return "egress_why"
+		case "agent_unsupported":
+			return "combo_why"
+		case "module_absent":
+			return "module_why" // value: moduleValue; here only so that a sentence begins with a capital
+		}
+	case "fix":
+		switch code {
+		case "module_absent", "payments.unchargeable", "capabilities.files_not_service.absent":
+			return "module_fix"
 		}
 	case "instead":
 		switch code {
@@ -785,6 +806,12 @@ var phraseSets = map[string]map[string]phrasePair{
 		// name cannot have); ux §1.4 G names no phrase for it.
 		"not_host": {"不是完整的主机名", "is not a whole host name"},
 	},
+	// ux §1.4 H: why an agent cannot use the model service address (agent_unsupported.combo).
+	"combo_why": {
+		"openai_only":    {"codex 只能用 api.openai.com", "codex works only with api.openai.com"},
+		"anthropic_only": {"claude 只能用 api.anthropic.com", "claude works only with api.anthropic.com"},
+		"no_chat":        {"api.anthropic.com 不提供它用的 chat completions 接口", "api.anthropic.com does not offer the chat completions interface it uses"},
+	},
 	// ux §1.4 D1: the payment tier, and its form in .off.
 	"tier": {
 		"auto":  {"自动付款", "your automatic payment limit"},
@@ -851,6 +878,8 @@ var phraseSets = map[string]map[string]phrasePair{
 		"accept_end": {"请改用 anet end <编号>", "use anet end <id>"},
 		"install":    {"请改用 anet agents wire <工具>", "use anet agents wire <tool>"},
 		"evidence":   {"请改用 anet audit（加 --type 按事件类型筛选）", "use anet audit (add --type to filter by event type)"},
+		"require_image": {"视觉服务已改为带文件的公开能力；请删掉这个参数，改用 public_capabilities 的 files",
+			"the vision service is now a public capability that takes files; remove this flag and use files in public_capabilities"},
 		"payments_payees_file": {"付款名单固定在数据目录的 payees.allow，请改用 anet payees 管理",
 			"the payee list lives in payees.allow in the data directory; use anet payees to manage it"},
 	},
@@ -888,7 +917,7 @@ var phraseSets = map[string]map[string]phrasePair{
 		"taskboard": {"hub 共享看板已删除，请删掉 config.json 里的这一块；要把任务交给别人，请改用 anet delegate",
 			"the hub task board was removed; delete this block from config.json, and use anet delegate to hand a task to someone"},
 		"invite_env": {"hub 已不再使用邀请码，已忽略；请删掉这个环境变量，直接运行 anet hub-register",
-			"hubs no longer use invites, so it is ignored; remove it and just run anet hub-register"},
+			"hubs no longer use invites, so it is ignored; remove it and run anet hub-register"},
 	},
 }
 
@@ -924,7 +953,7 @@ func C1Reason(c1 string) string {
 // (ux §4.7), the human lines of a task command (UX-C2), `anet identity
 // status` (ux §1.4 M2), the columns of `anet find` (ux §3.1 text B) and of
 // `anet peers list` (sealed-sender §5.2). Keys: "status.<topic>",
-// "task.<line>", "identity_status.<line>", "find.<column>",
+// "task.<line>", "watch.<tag>", "identity_status.<line>", "find.<column>",
 // "peers_list.<column>".
 // "" for a key it does not know.
 func Label(key string, lang Language) string {
@@ -942,11 +971,32 @@ var labels = map[string]phrasePair{
 	"status.privacy":  {"隐私", "privacy"},
 	"status.preview":  {"预览", "preview"},
 
+	// LEC §5.2: the rows of `anet autoreply show`, and the line of `anet autoreply set` that says
+	// where the sandbox stands.
+	"autoreply.backend":   {"自动回复", "auto-reply"},
+	"autoreply.trusted":   {"信任对端", "trusted"},
+	"autoreply.untrusted": {"未信任", "untrusted"},
+	"autoreply.key":       {"API key", "API key"},
+	"autoreply.budget":    {"预算", "budget"},
+
 	"task.reason":   {"原因", "reason"},
 	"task.delivery": {"送达", "delivery"},
 	"task.payment":  {"付款", "payment"},
 	"task.kept":     {"保存", "kept"},
 	"task.note":     {"提示", "note"},
+
+	// `anet task watch` (CUX §4.5): the state tags of its status lines, and
+	// the headings of a preview. {time} is HH:MM:SS, {n} a byte count.
+	"watch.submitted":      {"已提交", "submitted"},
+	"watch.working":        {"处理中", "working"},
+	"watch.input_required": {"等待输入", "input required"},
+	"watch.completed":      {"已完成", "completed"},
+	"watch.failed":         {"已失败", "failed"},
+	"watch.rejected":       {"已拒绝", "rejected"},
+	"watch.canceled":       {"已取消", "canceled"},
+	"watch.delivered":      {"已送达", "delivered"},
+	"watch.preview":        {"预览（{time}，前略 {n} 字节）", "preview ({time}, first {n} bytes left out)"},
+	"watch.reasoning":      {"推理（{time}，前略 {n} 字节）", "reasoning ({time}, first {n} bytes left out)"},
 
 	"identity_status.identity": {"身份", "identity"},
 	"identity_status.key":      {"密钥", "key"},
@@ -1178,9 +1228,7 @@ func PaymentNote(n PayNote, lang Language) string {
 	if n.Code == "" {
 		return ""
 	}
-	args := Args{"amount": n.Amount, "price": n.Price, "tier": n.Tier, "single": n.Single, "left": n.Left,
-		"key": n.Key, "value": n.Value, "why": n.Why, "peer": n.Peer, "task": n.Task}
-	return Sentence(n.Code, lang, args)
+	return Sentence(n.Code, lang, PayNoteArgs(n))
 }
 
 // --- status ---
@@ -1189,6 +1237,12 @@ func PaymentNote(n PayNote, lang Language) string {
 type Said struct {
 	Key  string
 	Args Args
+	// Text, NextText and Lvl, when Text is set, are the sentence another
+	// area already rendered in this process's language (the sandbox state,
+	// the outbox message); the summary shows them as they are. Key then
+	// only names the sentence.
+	Text, NextText string
+	Lvl            Level
 }
 
 // StatusInput is what the status summary is made of (ux §4.7): for each
@@ -1220,8 +1274,11 @@ type StatusInput struct {
 	Payments      Said
 	// The privacy line: the first of LocalStateRepeated,
 	// LocalStateDetected, Clock (only when HubRegistered) and Retention.
-	Retention          Said
-	Clock              *Said
+	Retention Said
+	Clock     *Said
+	// Keys is the sentence of FS-U7 rows 3 and 4: keys.kept_long, else
+	// keys.unknown_drops, or nil.
+	Keys               *Said
 	LocalStateRepeated *Said
 	LocalStateDetected *Said
 	Preview            *Said
@@ -1249,6 +1306,31 @@ const (
 	TopicPreview  = "preview"
 )
 
+// SummaryLabel is the label of a summary topic in lang (ux §4.7): the
+// first column of an `anet status` line. "" for an unknown topic.
+func SummaryLabel(topic string, lang Language) string {
+	l, ok := summaryLabels[topic]
+	if !ok {
+		return ""
+	}
+	if lang == Chinese {
+		return l[0]
+	}
+	return l[1]
+}
+
+var summaryLabels = map[string][2]string{
+	TopicIdentity: {"身份", "identity"},
+	TopicRecovery: {"恢复", "recovery"},
+	TopicHub:      {"hub", "hub"},
+	TopicDelivery: {"送达", "delivery"},
+	TopicInbound:  {"接单", "inbound"},
+	TopicSandbox:  {"沙箱", "sandbox"},
+	TopicPayments: {"付款", "payments"},
+	TopicPrivacy:  {"隐私", "privacy"},
+	TopicPreview:  {"预览", "preview"},
+}
+
 // Identity states that StatusSummary reads (/identity/status.state, KEL
 // §4.3.1) and the recovery state that adds the recovery line (ux §4.7, line 1a).
 const (
@@ -1257,6 +1339,25 @@ const (
 	identityDeactivated = "deactivated"
 	recoveryUnprotected = "unprotected"
 )
+
+// PrivacyLine is the sentence of the privacy line (FS-U7): the first that
+// holds of a repeated rollback, a rollback, a clock the hub could not
+// confirm for a while (only while the node is registered: the hub line says
+// why otherwise), expired keys kept long or messages sealed to deleted keys,
+// and, when none does, the retention.
+func PrivacyLine(in StatusInput) Said {
+	switch {
+	case in.LocalStateRepeated != nil && in.LocalStateRepeated.Key != "":
+		return *in.LocalStateRepeated
+	case in.LocalStateDetected != nil && in.LocalStateDetected.Key != "":
+		return *in.LocalStateDetected
+	case in.HubRegistered && in.Clock != nil && in.Clock.Key != "":
+		return *in.Clock
+	case in.Keys != nil && in.Keys.Key != "":
+		return *in.Keys
+	}
+	return in.Retention
+}
 
 // StatusSummary is the status summary (ux §4.7): one line per topic that has
 // something to say, in the order of the table there. The identity line is
@@ -1272,6 +1373,12 @@ func StatusSummary(in StatusInput, lang Language) []SummaryLine {
 		l := SummaryLine{Topic: topic, Text: Sentence(s.Key, lang, s.Args), Next: Next(s.Key, lang, s.Args)}
 		if r, ok := Lookup(s.Key); ok {
 			l.Level = r.Level
+		}
+		if s.Text != "" {
+			l.Text, l.Next = s.Text, s.NextText
+			if s.Lvl != "" {
+				l.Level = s.Lvl
+			}
 		}
 		if l.Level == "" {
 			l.Level = LevelOK
@@ -1300,16 +1407,8 @@ func StatusSummary(in StatusInput, lang Language) []SummaryLine {
 	add(TopicInbound, &in.Inbound, nil)
 	add(TopicSandbox, in.Sandbox, in.SandboxBudget)
 	add(TopicPayments, &in.Payments, nil)
-	privacy := &in.Retention
-	switch {
-	case in.LocalStateRepeated != nil && in.LocalStateRepeated.Key != "":
-		privacy = in.LocalStateRepeated
-	case in.LocalStateDetected != nil && in.LocalStateDetected.Key != "":
-		privacy = in.LocalStateDetected
-	case in.HubRegistered && in.Clock != nil && in.Clock.Key != "":
-		privacy = in.Clock
-	}
-	add(TopicPrivacy, privacy, nil)
+	privacy := PrivacyLine(in)
+	add(TopicPrivacy, &privacy, nil)
 	add(TopicPreview, in.Preview, nil)
 	return out
 }
@@ -1792,6 +1891,10 @@ var reasonTable = []Row{
 		Zh:       "口令至少要 12 个字符；请换一个更长的口令，例如 4 个以上的随机词。",
 		En:       "The passphrase needs at least 12 characters; use a longer one, such as four or more random words.",
 		NextKind: NextChangeInput},
+	{Code: "passphrase_not_utf8", Class: ClassC,
+		Zh:       "口令里有无法识别的字符（终端不是 UTF-8 编码）；请把终端切换为 UTF-8（例如 LANG=C.UTF-8）后重试。",
+		En:       "The passphrase has characters that cannot be read (the terminal is not using UTF-8); switch the terminal to UTF-8 (for example LANG=C.UTF-8) and try again.",
+		NextKind: NextChangeInput},
 	{Code: "no_hub_yet", Class: ClassE | ClassC | ClassS, Level: LevelInfo, A2A: A2A{Err: A2AFailedPrecondition},
 		Zh:       "还没有接入 hub，暂时不能收发；请运行 anet hub-register {official_hub} 接入官方公共 hub，或把地址换成你所在组织的 hub。",
 		En:       "Not joined to a hub yet, so nothing can be sent or received; run anet hub-register {official_hub} to join the official public hub, or use your organization's hub URL instead.",
@@ -1805,8 +1908,8 @@ var reasonTable = []Row{
 		En:       "The last key rotation is still being published, so sending and receiving are paused (nothing is lost); anet retries on its own, see anet identity status.",
 		NextKind: NextCommand, Next: "anet identity status"},
 	{Code: "hub_switch_requires_rotation", Class: ClassC,
-		Zh:       "换 hub 需要一次密钥轮换，要输入恢复口令；请在终端运行 anet hub-register {hub}。",
-		En:       "Switching hubs needs a key rotation with your recovery passphrase; run anet hub-register {hub} in a terminal.",
+		Zh:       "加入这个 hub（首次加入或从别的 hub 换过来）需要一次密钥轮换，要输入恢复口令；请在终端运行 anet hub-register {hub}。",
+		En:       "Joining this hub (for the first time, or coming from another hub) needs a key rotation with your recovery passphrase; run anet hub-register {hub} in a terminal.",
 		NextKind: NextCommand, Next: "anet hub-register {hub}"},
 	{Code: "hub_switch_pending_admission", Class: ClassC,
 		Zh:       "新 hub {hub} 还没有准入你的 AID；请把这一行发给它的运营者：anet-hub admit {aid}，批准后再运行 anet hub-register {hub}。",
@@ -1838,6 +1941,10 @@ var reasonTable = []Row{
 		Zh:       "这个数据目录由更新版本的 anet 写入，本版本打不开；请运行 anet update 升级后再启动（不要删除这个目录）。",
 		En:       "This data directory was written by a newer anet, which this version cannot open; run anet update and start again (do not delete the directory).",
 		NextKind: NextCommand, Next: "anet update"},
+	{Code: "identity_file_invalid", Class: ClassC,
+		Zh:       "身份文件 {path} 已损坏，读不出来，anet 没有启动；请从备份恢复这个文件后重试，或在终端运行 anet identity recover 用恢复文件找回身份。",
+		En:       "The identity file {path} is damaged and cannot be read, so anet did not start; restore it from a backup and try again, or run anet identity recover in a terminal to get the identity back from its recovery file.",
+		NextKind: NextChangeInput},
 	{Code: "rotation_emergency_done", Class: ClassI,
 		Zh:       "紧急轮换已完成；请检查 peers 名单与 config.json 是否被改过，到各服务商更换模型 API key，重启已接入的编码工具，A2A 客户端请重新运行 anet agents wire --all。",
 		En:       "The emergency rotation is done; check your peer lists and config.json for changes, replace model API keys with each provider, restart wired coding tools, and run anet agents wire --all again for A2A clients.",
@@ -1886,8 +1993,8 @@ var reasonTable = []Row{
 
 	// ux §1.4 E4: local data, the clock and retention.
 	{Code: "no_local_task", Class: ClassE | ClassC, A2A: A2A{Err: A2ATaskNotFound},
-		Zh:       "本机没有任务 {task}：任务结束后按保存期删除（现在是 {retention}，公开调用 7 天）；留下的证据可用 anet audit --interaction {task} 查看。",
-		En:       "No task {task} on this node: tasks are deleted after the retention period (now {retention}, public calls 7 days); see what the evidence log kept with anet audit --interaction {task}.",
+		Zh:       "本机没有任务 {task}：任务结束后按保存期删除（现在是 {retention}，公开调用 7 天），也可能是本机的数据比这个任务旧；留下的证据可用 anet audit --interaction {task} 查看。",
+		En:       "No task {task} on this node: tasks are deleted after the retention period (now {retention}, public calls 7 days), or this node's data may be older than the task; see what the evidence log kept with anet audit --interaction {task}.",
 		NextKind: NextCommand, Next: "anet audit --interaction {task}"},
 	{Code: "clock.skewed", Class: ClassS, Level: LevelWarn,
 		Zh: "本机时钟与 hub 相差 {dur}，为防误删已放慢删除过期密钥和内容（本机累计运行满 1 天后改按本机时钟删除），前向保密窗口因此变长；请校准系统时间（例如启用 NTP）。",
@@ -1916,8 +2023,8 @@ var reasonTable = []Row{
 		En:       "This node's data went back to an older state more than once in 7 days, so this identity is running somewhere else; if that is your own other copy, stop it; otherwise the data directory has leaked: run {next}.",
 		NextKind: NextCommand, Next: "anet identity rotate --emergency"},
 	{Code: "retention.summary", Class: ClassS, Level: LevelInfo,
-		Zh: "任务内容在任务结束 {retention} 后删除（公开调用 7 天）。",
-		En: "Task content is deleted {retention} after a task ends (public calls: 7 days)."},
+		Zh: "任务内容的保存期是 {retention}，从任务结束起算（公开调用 7 天）。",
+		En: "Task content retention is {retention}, counted from when a task ends (public calls: 7 days)."},
 	{Code: "retention.cow", Class: ClassS, Level: LevelInfo,
 		Zh: "数据目录在写时复制文件系统上，删除的数据可能仍留在快照里。",
 		En: "The data directory is on a copy-on-write filesystem; deleted data may remain in snapshots."},
@@ -1926,8 +2033,8 @@ var reasonTable = []Row{
 		En:       "Write the retention as a number of days from 1 to 3650 followed by d, or forever; for example: anet retention set 30d.",
 		NextKind: NextCommand, Next: "anet retention set 30d"},
 	{Code: "retention.set", Class: ClassI,
-		Zh: "任务内容现在在任务结束 {retention} 后删除。",
-		En: "Task content will now be kept for {retention} after a task ends."},
+		Zh: "任务内容的保存期现在是 {retention}，从任务结束起算。",
+		En: "Task content retention is now {retention}, counted from when a task ends."},
 	{Code: "retention.confirm", Class: ClassT,
 		Zh: "改为 {retention} 会立即删除 {n} 个已结束超过 {retention} 的任务及其内容，无法恢复；输入 yes 确认：",
 		En: "Setting {retention} deletes {n} tasks that ended more than {retention} ago, with their content, and this cannot be undone; type yes to confirm:"},
@@ -1995,8 +2102,8 @@ var reasonTable = []Row{
 		En:       "Only this interaction's requester can review it; retrying will not help.",
 		NextKind: NextFutile},
 	{Code: "receipt_not_reviewable", Class: ClassC,
-		Zh:       "这张回执不能用于评价（缺少评价承诺），只能评价用 anet 0.3.0 发起的任务；重试无用。",
-		En:       "This receipt cannot be used for a review (it has no review commitment), and only tasks started with anet 0.3.0 can be reviewed; retrying will not help.",
+		Zh:       "这张回执不能用于评价：它缺少评价承诺，或签名与评价对不上；只能评价用 anet 0.3.0 发起的任务，重试无用。",
+		En:       "This receipt cannot be used for a review: it has no review commitment, or its signatures do not match the review; only tasks started with anet 0.3.0 can be reviewed, and retrying will not help.",
 		NextKind: NextFutile},
 	{Code: "review_window_closed", Class: ClassC,
 		Zh:       "交互结束已超过 30 天，不能再评价；重试无用。",
@@ -2051,6 +2158,14 @@ var reasonTable = []Row{
 		Zh:       "anet 没有在运行（数据目录 {path}）；请运行 anet up。",
 		En:       "anet is not running (data directory {path}); run anet up.",
 		NextKind: NextCommand, Next: "anet up"},
+	{Code: "daemon_not_answering", Class: ClassC,
+		Zh:       "anet 正在运行（数据目录 {path}），但 {dur} 内没有应答，什么都没有改；请稍后再试。",
+		En:       "anet is running (data directory {path}) but did not answer within {dur}, so nothing was changed; try again later.",
+		NextKind: NextRetryLater},
+	{Code: "local_write_failed", Class: ClassC,
+		Zh:       "本节点没能把这次改动写进数据目录（{error}）；请检查磁盘空间与数据目录的权限后重试。",
+		En:       "This node could not write the change to its data directory ({error}); check the disk space and the data directory's permissions and try again.",
+		NextKind: NextChangeInput},
 	{Code: "aid_invalid", Class: ClassC,
 		Zh:       "{value} 不是完整的 AID；请从 anet find 或 anet peers list 的 AID 列复制完整 AID 后重试。",
 		En:       "{value} is not a full AID; copy the full AID from the AID column of anet find or anet peers list and try again.",
@@ -2066,6 +2181,38 @@ var reasonTable = []Row{
 	{Code: "config_invalid", Class: ClassC, Level: LevelFail,
 		Zh:       "配置项 {key} 的值不合法：{rule}；请改正后重试。",
 		En:       "The setting {key} is not valid: {rule}; fix it and try again.",
+		NextKind: NextChangeInput},
+	{Code: "module_absent", Class: ClassC | ClassE, A2A: A2A{Err: A2AUnsupportedOperation},
+		Zh:       "{why}，什么都没有做；{fix}。",
+		En:       "{why}, so nothing was done; {fix}.",
+		NextKind: NextChangeInput},
+	{Code: "module_absent", Variant: "configured", Class: ClassC | ClassS, Level: LevelFail,
+		Zh:       "配置里有 {key}，但{why}，anet 没有启动；请删掉 {key}，或{fix}。",
+		En:       "The configuration has {key}, but {why}, so anet did not start; remove {key}, or {fix}.",
+		NextKind: NextChangeInput},
+	{Code: "module_absent", Variant: "payment", Class: ClassIP,
+		Zh:       "这个任务要付 {amount} credits，但{why}，什么都没有签；要付款请{fix}后运行 anet pay {task}，不需要了就运行 anet task cancel {task}。",
+		En:       "This task asks for {amount} credits, but {why}, so nothing was signed; to pay, {fix} and run anet pay {task}; otherwise run anet task cancel {task}.",
+		NextKind: NextCommand, Next: "anet task cancel {task}"},
+	{Code: "daemon_running", Class: ClassC,
+		Zh:       "anet 正在运行（数据目录 {path}），这项改动要在它停止后做，什么都没有改；请先运行 anet down，再重试。",
+		En:       "anet is running (data directory {path}); this change can only be made while it is stopped, so nothing was changed; run anet down first, then try again.",
+		NextKind: NextCommand, Next: "anet down"},
+	{Code: "without_configured", Class: ClassC,
+		Zh:       "配置里有 {key}，先删掉它再关闭{name}模块（{m}）；什么都没有改。",
+		En:       "The configuration has {key}; remove it before turning off the {name} module ({m}). Nothing was changed.",
+		NextKind: NextChangeInput},
+	{Code: "update_variant_unknown", Class: ClassC,
+		Zh:       "这个 anet 是自建的，anet update 只更新发布版本，什么都没有下载；请按原来的方式重新构建，或用 install.sh 改装发布版本。",
+		En:       "This anet was built locally, and anet update only updates released builds, so nothing was downloaded; rebuild it the way you built it, or install a released build with install.sh.",
+		NextKind: NextChangeInput},
+	{Code: "update_variant_unknown", Variant: "mismatch", Class: ClassC,
+		Zh:       "这个 anet 标为 {variant} 版本，但它的模块组合（{modules}）与发布的 {variant} 版本不同，anet update 不会换成别的组合，什么都没有下载；请用 install.sh 改装发布版本。",
+		En:       "This anet is marked as the {variant} build, but its set of modules ({modules}) differs from the released {variant} build, and anet update will not swap it for a different set, so nothing was downloaded; install a released build with install.sh.",
+		NextKind: NextChangeInput},
+	{Code: "build_tag_pending", Class: ClassC,
+		Zh:       "这个版本还不能在构建时去掉{name}模块（{m}），随 v0.3.x 提供；现在可以用 --without {m} 在配置里关闭它，什么都没有构建。",
+		En:       "This version cannot leave the {name} module ({m}) out at build time yet; that comes in v0.3.x. For now you can turn it off in the configuration with --without {m}; nothing was built.",
 		NextKind: NextChangeInput},
 	{Code: "api_key_on_argv", Class: ClassC,
 		Zh:       "API key 不接受命令行参数；这把 key 已出现在命令行里（本机其他用户与 shell 历史可能看到），没有保存；请到服务商更换它、清理 shell 历史，再改用 {next} 读入新 key。",
@@ -2092,8 +2239,8 @@ var reasonTable = []Row{
 		En:       "An http --api-base must point at this machine's loopback (127.0.0.1, ::1, localhost); use https for anything else.",
 		NextKind: NextChangeInput},
 	{Code: "work_dir_invalid", Class: ClassC,
-		Zh:       "auto_reply.work_dir 不能位于数据目录或沙箱工作目录之内；请换一个目录。",
-		En:       "auto_reply.work_dir cannot be inside the data directory or the sandbox work directory; use another directory.",
+		Zh:       "auto_reply.work_dir 不能位于数据目录或沙箱工作目录之内，也不能包含它们；请换一个目录。",
+		En:       "auto_reply.work_dir cannot be inside the data directory or the sandbox work directory, or contain either of them; use another directory.",
 		NextKind: NextChangeInput},
 	{Code: "budget_invalid", Class: ClassC,
 		Zh:       "预算必须是 0 到 1000 的整数，且每个对端的上限不能大于全局上限；请改正后重试。",
@@ -2108,8 +2255,8 @@ var reasonTable = []Row{
 		Zh: "未信任对端的任务在沙箱中运行：只能经本节点访问模型；可联网访问 {n} 个主机（{hosts}），每个都可能被用来外发数据。",
 		En: "Tasks from untrusted peers run in the sandbox: they reach models only through this node, and may reach {n} hosts ({hosts}), each of which could be used to send data out."},
 	{Code: "sandbox.off", Class: ClassS, Level: LevelInfo,
-		Zh: "不为未信任对端运行本机 agent（untrusted=off）。",
-		En: "Local agents are not run for untrusted peers (untrusted=off)."},
+		Zh: "不为未信任对端运行本机 agent（untrusted=off，或预算设为 0）。",
+		En: "Local agents are not run for untrusted peers (untrusted=off, or a budget of 0)."},
 	{Code: "sandbox.trusted_direct", Class: ClassS, Level: LevelInfo,
 		Zh: "信任的对端直接以你的用户身份运行本机 agent，等同授予你的用户权限。",
 		En: "Trusted peers run local agents directly as your user, which is the same as giving them your user's rights."},
@@ -2139,9 +2286,28 @@ var reasonTable = []Row{
 		Zh:       "沙箱自检失败（文件与进程隔离）；请运行 anet doctor 查看详情。",
 		En:       "The sandbox self-check failed (file and process isolation); run anet doctor for details.",
 		NextKind: NextCommand, Next: "anet doctor"},
+	{Code: "netns_failed", Variant: "doctor", Class: ClassS, Level: LevelFail,
+		Zh:       "沙箱自检失败（网络隔离：{detail}），沙箱不可用，未信任对端的任务不会运行；请运行 anet doctor --json 并提交问题报告，或设 --untrusted off。",
+		En:       "The sandbox self-check failed (network isolation: {detail}), so the sandbox is unavailable and tasks from untrusted peers will not run; run anet doctor --json and file a report, or set --untrusted off.",
+		NextKind: NextCommand, Next: "anet doctor --json"},
+	{Code: "seccomp_failed", Variant: "doctor", Class: ClassS, Level: LevelFail,
+		Zh:       "沙箱自检失败（系统调用过滤：{detail}），沙箱不可用，未信任对端的任务不会运行；请运行 anet doctor --json 并提交问题报告，或设 --untrusted off。",
+		En:       "The sandbox self-check failed (system call filter: {detail}), so the sandbox is unavailable and tasks from untrusted peers will not run; run anet doctor --json and file a report, or set --untrusted off.",
+		NextKind: NextCommand, Next: "anet doctor --json"},
+	{Code: "fs_isolation_failed", Variant: "doctor", Class: ClassS, Level: LevelFail,
+		Zh:       "沙箱自检失败（文件与进程隔离：{detail}），沙箱不可用，未信任对端的任务不会运行；请运行 anet doctor --json 并提交问题报告，或设 --untrusted off。",
+		En:       "The sandbox self-check failed (file and process isolation: {detail}), so the sandbox is unavailable and tasks from untrusted peers will not run; run anet doctor --json and file a report, or set --untrusted off.",
+		NextKind: NextCommand, Next: "anet doctor --json"},
+	{Code: "sandbox_start_failed", Class: ClassS, Level: LevelFail,
+		Zh:       "bubblewrap 没能建立沙箱（{error}），沙箱不可用；请运行 anet doctor --json 并提交问题报告，或设 --untrusted off。",
+		En:       "bubblewrap could not set up the sandbox ({error}), so the sandbox is unavailable; run anet doctor --json and file a report, or set --untrusted off.",
+		NextKind: NextCommand, Next: "anet doctor --json"},
 	{Code: "agent_unsupported", Class: ClassS, Level: LevelFail,
 		Zh: "{name} 不能在沙箱里运行（它不能把模型请求交给本节点代发）；请换用 {agents}，或设 --untrusted off。",
 		En: "{name} cannot run in the sandbox (it cannot send its model requests through this node); use {agents} instead, or set --untrusted off."},
+	{Code: "agent_unsupported", Variant: "combo", Class: ClassS, Level: LevelFail,
+		Zh: "{name} 在沙箱里不能用这个模型服务地址（{why}）；请改或去掉 --api-base，或设 --untrusted off。",
+		En: "{name} cannot use this model service address in the sandbox ({why}); change or remove --api-base, or set --untrusted off."},
 	{Code: "no_api_key", Class: ClassS, Level: LevelFail,
 		Zh:       "沙箱里的 agent 由本节点代为调用模型，需要 API key；请执行 anet autoreply set --api-key-stdin < 存放 key 的文件。",
 		En:       "In the sandbox this node calls the model for the agent and needs an API key; run anet autoreply set --api-key-stdin < file-with-the-key.",
@@ -2155,6 +2321,10 @@ var reasonTable = []Row{
 	{Code: "platform_unsupported", Class: ClassS, Level: LevelFail,
 		Zh: "本平台没有沙箱（只支持 Linux 与 macOS）；Windows 请在 WSL2 中运行 anet。",
 		En: "There is no sandbox on this platform (only Linux and macOS); on Windows, run anet in WSL2."},
+	{Code: "platform_unsupported.pending", Class: ClassS, Level: LevelFail,
+		Zh:       "macOS 沙箱随 v0.3.x 提供，本版本在 macOS 上没有沙箱，未信任对端的任务不会运行；可设 --untrusted off，或在 Linux 上运行 anet。",
+		En:       "The macOS sandbox comes in v0.3.x; this version has no sandbox on macOS, so tasks from untrusted peers will not run; set --untrusted off, or run anet on Linux.",
+		NextKind: NextCommand, Next: "anet autoreply set --untrusted off"},
 	{Code: "no_sandbox_exec", Class: ClassS, Level: LevelFail,
 		Zh:       "本机找不到 /usr/bin/sandbox-exec，沙箱不可用；请设 --untrusted off。",
 		En:       "/usr/bin/sandbox-exec is missing, so the sandbox is unavailable; set --untrusted off.",
@@ -2192,6 +2362,9 @@ var reasonTable = []Row{
 	{Code: "egress_upstream_unreachable", Class: ClassModel,
 		Zh: "anet: 本节点暂时连不上模型服务；请稍后再试，或根据已有结果作答。",
 		En: "anet: this node cannot reach the model service right now; try again later, or answer with what you have."},
+	{Code: "egress_host_unresolved", Class: ClassModel,
+		Zh: "anet: 放行的主机 {host} 现在解析不到地址；请稍后再试，或在回复里说明做不到。",
+		En: "anet: the allowed host {host} does not resolve right now; try again later, or say in your reply that you cannot do it."},
 	{Code: "policy_server_tool", Class: ClassModel,
 		Zh: "anet: 沙箱里不允许模型服务端工具 {type}（它会绕过本节点的网络限制）；请改用本机工具。",
 		En: "anet: the server-side model tool {type} is not allowed in the sandbox (it would bypass this node's network limits); use a local tool instead."},
@@ -2360,7 +2533,7 @@ var reasonTable = []Row{
 		Zh: "紧急轮换 {name}（{aid8}）：用于私钥或数据目录可能已经泄露的情况。将会：",
 		En: "Emergency rotation of {name} ({aid8}): for when the private key or the data directory may have leaked. It will:"},
 	{Code: "identity.rotate.emergency_summary.2", Class: ClassT,
-		Zh: "· 立即停用旧密钥：已知道你新密钥的对方马上拒收旧密钥签的消息，其余对方最迟 6 小时后拒收",
+		Zh: "· 立即停用旧密钥：已知道你新密钥的对方立即拒收旧密钥签的消息，其余对方最迟 6 小时后拒收",
 		En: "· stop the old key at once: peers that know your new key refuse messages signed with the old one right away, the rest within 6 hours"},
 	{Code: "identity.rotate.emergency_summary.3", Class: ClassT,
 		Zh: "· 更换加密钥，作废你发出的全部投递凭据",
@@ -2448,12 +2621,18 @@ var reasonTable = []Row{
 	{Code: "trust_confirm.sandbox", Class: ClassT,
 		Zh: "信任 {name}（{peer}）：它的任务会在沙箱中运行本机 agent，不计入预算。",
 		En: "Trust {name} ({peer}): its tasks will run local agents in the sandbox, outside the run budget."},
+	{Code: "trust_confirm.no_agent", Class: ClassT,
+		Zh: "信任 {name}（{peer}）：本节点没有自动回复，不会为它运行本机 agent；信任只决定本机后端是否接收它的任务。",
+		En: "Trust {name} ({peer}): this node has no auto-reply and will not run a local agent for it; trust only decides whether local backends take its tasks."},
 	{Code: "egress_confirm", Class: ClassT,
 		Zh: "放行出网主机 {hosts}：未信任对端的任务可以经这些主机向外发送数据，anet 只核对主机名，不检查内容。",
 		En: "Allow network hosts {hosts}: tasks from untrusted peers could send data out through them; anet checks the host name only, not the content."},
 	{Code: "trusted_direct_confirm", Class: ClassT,
 		Zh: "改回直接运行：信任的对端将以你的用户身份运行本机 agent，等同授予你的用户权限。",
 		En: "Switch back to direct runs: trusted peers will run local agents as your user, which is the same as giving them your user's rights."},
+	{Code: "autoreply.prompt.api_key", Class: ClassT,
+		Zh: "API key：",
+		En: "API key:"},
 
 	// ux §1.4 M4: cards, payments, audit and balance.
 	{Code: "card.header", Class: ClassI,
@@ -2629,6 +2808,12 @@ var reasonTable = []Row{
 	{Code: "capabilities.files_not_service", Class: ClassS, Level: LevelFail,
 		Zh: "能力 {name} 声明了 files，但不是由 service 模块提供；请改由 service 模块提供，或去掉 files。",
 		En: "The capability {name} declares files but is not served by the service module; serve it through the service module, or remove files."},
+	{Code: "payments.unchargeable", Class: ClassS, Level: LevelWarn,
+		Zh: "本节点有标了价的能力（{n} 个），但{why}，这些能力的调用都会被拒绝；请{fix}，或去掉价格。",
+		En: "This node has priced capabilities ({n}), but {why}, so calls to them will be refused; {fix}, or remove the prices."},
+	{Code: "capabilities.files_not_service.absent", Class: ClassS, Level: LevelFail,
+		Zh: "能力 {name} 声明了 files，但{why}，没有能接收文件的服务；请{fix}，或去掉 files。",
+		En: "The capability {name} declares files, but {why}, so nothing can receive the files; {fix}, or remove files."},
 	{Code: "capabilities.inflight_low", Class: ClassS, Level: LevelWarn,
 		Zh: "能力 {name} 的超时超过 60 秒而 max_inflight 小于 2，一个调用就能占满；请调大 max_inflight。",
 		En: "The capability {name} has a timeout over 60 seconds and max_inflight below 2, so one call fills it; raise max_inflight."},
@@ -2676,4 +2861,136 @@ var reasonTable = []Row{
 	{Code: "anetlink.not_remote", Class: ClassS, Level: LevelWarn,
 		Zh: "公开能力 {name} 在 ANetLink 里不接受远端调用（c1.remote 没有匹配），别人调用会得到 provider_policy；请在 ANetLink 配置 c1.remote 放行，或不公开它。",
 		En: "The public capability {name} does not take remote calls in ANetLink (no c1.remote match), so callers get provider_policy; allow it with c1.remote in the ANetLink config, or stop publishing it."},
+}
+
+// --- modules (MOD-1) ---
+
+// moduleNames are the names of the optional modules in a sentence ("付款" /
+// "payment"). module.Known() carries the same two columns; a test in
+// package module holds the two together.
+var moduleNames = map[string]phrasePair{
+	"a2a":        {"本机 A2A 接口", "local A2A interface"},
+	"anetlink":   {"设备能力", "device capability"},
+	"autoreply":  {"自动回复", "auto-reply"},
+	"blackboard": {"共享黑板", "shared blackboard"},
+	"cas":        {"内容存储", "content store"},
+	"console":    {"控制台", "console"},
+	"mcp":        {"MCP", "MCP"},
+	"org":        {"组织", "organisation"},
+	"p2p":        {"直连", "direct delivery"},
+	"preview":    {"预览", "preview"},
+	"service":    {"服务", "service"},
+	"shell":      {"远程命令", "remote command"},
+	"x402":       {"付款", "payment"},
+}
+
+// ModuleName is a module's name as a sentence shows it, in a language; the
+// module's own name when the table has none.
+func ModuleName(m string, lang Language) string {
+	if p, ok := moduleNames[m]; ok {
+		return p.in(lang)
+	}
+	return m
+}
+
+// moduleWhy and moduleFix are {why} and {fix} of module_absent and its
+// relatives, by reason (module.Absent* constants). {name} and {m} inside
+// them are the module's name and its tag-form name.
+var moduleWhy = map[string]phrasePair{
+	"not_compiled": {"这个 anet 不含{name}模块（{m}）", "this anet does not include the {name} module ({m})"},
+	"not_compiled_add": {"这个 anet 不含{name}模块（{m}），它只在 --shell 版本里",
+		"this anet does not include the {name} module ({m}), which comes only in the --shell build"},
+	"without": {"本节点关闭了{name}模块（{m}；config.json 的 without）",
+		"this node has turned off the {name} module ({m}; without in config.json)"},
+}
+
+var moduleFix = map[string]phrasePair{
+	"not_compiled":     {"改装缺省版本（install.sh）", "install the default build (install.sh)"},
+	"not_compiled_add": {"用 install.sh --shell 安装", "install with install.sh --shell"},
+	"without":          {"运行 anet down、anet init --with {m}、anet up", "run anet down, anet init --with {m}, anet up"},
+}
+
+func init() {
+	// The same phrases as phrase sets, for the lint that checks every
+	// sentence carries its next step (reasons_lint_test.go).
+	phraseSets["module_why"], phraseSets["module_fix"] = moduleWhy, moduleFix
+}
+
+// configRules are the phrases of config_invalid's {rule} that name a module.
+var configRules = map[string]phrasePair{
+	"without_not_ready": {"这个构建还不能关闭{name}模块（{m}）", "this build cannot turn off the {name} module ({m}) yet"},
+	"top_level_key":     {"请写顶层 auto_reply / stream_preview", "write the top-level auto_reply / stream_preview"},
+}
+
+// moduleCodes are the codes whose {why} and {fix} (and, for the first
+// group, {name}) are about the module in Args["m"].
+func moduleCode(code, variant string) (nameIsModule, ok bool) {
+	switch code {
+	case "module_absent", "without_configured", "build_tag_pending":
+		return true, true
+	case "payments.unchargeable":
+		return false, true
+	case "capabilities.files_not_service.absent":
+		return false, true
+	}
+	return false, false
+}
+
+// moduleValue is the value of a placeholder of the codes above and of
+// config_invalid's module rules.
+func moduleValue(code, variant, name string, lang Language, args Args) (string, bool) {
+	m := ""
+	if present(args, "m") {
+		m = fmt.Sprint(args["m"])
+	}
+	fill := func(t string) string {
+		t = strings.ReplaceAll(t, "{name}", ModuleName(m, lang))
+		return strings.ReplaceAll(t, "{m}", m)
+	}
+	if code == "config_invalid" && name == "rule" && present(args, "rule") {
+		if p, ok := configRules[fmt.Sprint(args["rule"])]; ok {
+			return fill(p.in(lang)), true
+		}
+		return "", false
+	}
+	nameIsModule, ok := moduleCode(code, variant)
+	if !ok {
+		return "", false
+	}
+	switch name {
+	case "name":
+		if nameIsModule && m != "" {
+			return ModuleName(m, lang), true
+		}
+	case "m":
+		if m != "" {
+			return clean(m, maxNameRunes), true
+		}
+	case "why", "fix":
+		set := moduleWhy
+		if name == "fix" {
+			set = moduleFix
+		}
+		if p, ok := set[fmt.Sprint(args["reason"])]; ok && m != "" {
+			return fill(p.in(lang)), true
+		}
+		return "", false
+	}
+	return "", false
+}
+
+// OutboxDeadline is one outbound row of a task as DeliveryEndsAt reads it
+// (the projection in package stored fills it).
+type OutboxDeadline struct {
+	Delegation, Handed, Frozen bool
+	HandedAt, Exp              time.Time
+}
+
+// DeliveryEndsAt is deliveryEndsAt for a caller outside this package.
+func DeliveryEndsAt(rows []OutboxDeadline, noResponseAfter time.Duration, terminal bool) time.Time {
+	in := make([]outboxDeadline, 0, len(rows))
+	for _, r := range rows {
+		in = append(in, outboxDeadline{delegation: r.Delegation, handed: r.Handed, handedAt: r.HandedAt, exp: r.Exp, frozen: r.Frozen})
+	}
+	return deliveryEndsAt(in, noResponseAfter, terminal)
 }

@@ -182,7 +182,7 @@ func TestTheNetworkCardGolden(t *testing.T) {
 		`"pushNotifications":false,"streaming":false},` +
 		`"defaultInputModes":["application/json"],"defaultOutputModes":["application/json"],` +
 		`"description":"Turns the lamp on and off.","name":"Lamp Agent","signatures":"<sig>",` +
-		`"skills":[{"description":"anet capability light.onoff@sim/lamp-1 (no description published by its provider)",` +
+		`"skills":[{"description":"anet capability light.onoff@sim/lamp-1 (no description published by its provider) Limits per caller: 60/min, 2000/day, 1 at a time.",` +
 		`"id":"light.onoff@sim/lamp-1","name":"light.onoff@sim/lamp-1","tags":["light","onoff"]}],` +
 		`"supportedInterfaces":[{"protocolBinding":"https://agentnetwork.org.cn/a2a/bindings/anet-relay/v1",` +
 		`"protocolVersion":"1.0","tenant":"<aid>","url":"<hub>/relay"}],"version":"<version>"}`
@@ -278,6 +278,8 @@ func TestRegistrationPublishesTheCardAndRepeatsItUnchanged(t *testing.T) {
 	}
 
 	// A restart keeps the issued card, so it too is unchanged.
+	// The first process has ended: a data directory has one daemon (KEL-10).
+	d.Close()
 	d2, err := New(d.layout)
 	if err != nil {
 		t.Fatal(err)

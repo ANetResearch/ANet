@@ -152,7 +152,7 @@ MUTS = [
   id='c6-3', group='C6/C29', repo='ANet',
   desc='自动回复循环不再跳过能力调用与 public_cap 交互',
   edits=[
-   ('internal/daemon/autoreply.go', '\t\tif interactions.State(th.State).IsTerminal() || th.IsCapability || th.Trust == interactions.TrustPublicCap {', '\t\tif interactions.State(th.State).IsTerminal() {'),
+   ('module/autoreply/autoreply.go', '\t\tif interactions.State(th.State).IsTerminal() || th.IsCapability || th.Trust == interactions.TrustPublicCap {', '\t\tif interactions.State(th.State).IsTerminal() {'),
   ],
   tests=[('ANet:./internal/daemon', 'TestExecAutoReplyOnBothSidesStaysOutOfAPaidCall|TestAutoReplyCapProposesEnd')],
   full=['ANet:./internal/daemon'],
@@ -162,7 +162,7 @@ MUTS = [
   desc='自动回复两层过滤都去掉: ActiveThreads 与循环都不排除能力调用/public_cap',
   edits=[
    ('internal/daemon/delegation.go', 'ListFilter{Active: true, ExcludeCapability: true,\n\t\tExcludeTrust: []string{interactions.TrustPublicCap}})', 'ListFilter{Active: true})'),
-   ('internal/daemon/autoreply.go', '\t\tif interactions.State(th.State).IsTerminal() || th.IsCapability || th.Trust == interactions.TrustPublicCap {', '\t\tif interactions.State(th.State).IsTerminal() {'),
+   ('module/autoreply/autoreply.go', '\t\tif interactions.State(th.State).IsTerminal() || th.IsCapability || th.Trust == interactions.TrustPublicCap {', '\t\tif interactions.State(th.State).IsTerminal() {'),
   ],
   tests=[('ANet:./internal/daemon', 'TestExecAutoReplyOnBothSidesStaysOutOfAPaidCall|TestAutoReplyCapProposesEnd|TestAPublicCapabilityCallTakesNoText')],
   full=['ANet:./internal/daemon'],
@@ -184,7 +184,7 @@ MUTS = [
   id='c9-2', group='C8/C9', repo='ANet',
   desc='exec 自动回复: untrusted=off 时仍为非信任对端运行',
   edits=[
-   ('internal/daemon/autoreply.go', '\tcase trusted:\n\t\tg.mode = modeDirect\n\tcase cfg.UntrustedMode() == UntrustedSandbox:', '\tcase trusted || cfg.UntrustedMode() == UntrustedOff:\n\t\tg.mode = modeDirect\n\tcase cfg.UntrustedMode() == UntrustedSandbox:'),
+   ('module/autoreply/autoreply.go', '\tcase trusted:\n\t\tg.mode = modeDirect\n\tcase cfg.UntrustedMode() == UntrustedSandbox:', '\tcase trusted || cfg.UntrustedMode() == UntrustedOff:\n\t\tg.mode = modeDirect\n\tcase cfg.UntrustedMode() == UntrustedSandbox:'),
   ],
   tests=[('ANet:./internal/daemon', 'TestExecRunsOnlyForTrustedPeers|TestInboundTasksReachTheBackendOnlyFromTrustedPeers')],
   full=['ANet:./internal/daemon'],
@@ -302,7 +302,7 @@ MUTS = [
   id='c35-4', group='C35', repo='ANet',
   desc='自动回复循环不跳过终态(canceled/rejected)交互',
   edits=[
-   ('internal/daemon/autoreply.go', '\t\tif interactions.State(th.State).IsTerminal() || th.IsCapability || th.Trust == interactions.TrustPublicCap {', '\t\tif th.IsCapability || th.Trust == interactions.TrustPublicCap {'),
+   ('module/autoreply/autoreply.go', '\t\tif interactions.State(th.State).IsTerminal() || th.IsCapability || th.Trust == interactions.TrustPublicCap {', '\t\tif th.IsCapability || th.Trust == interactions.TrustPublicCap {'),
   ],
   tests=[('ANet:./internal/daemon', 'TestAutoReply|TestInputAfterTheEndIsRefused')],
   full=['ANet:./internal/daemon'],
@@ -312,7 +312,7 @@ MUTS = [
   desc='自动回复两层过滤都去掉: ActiveThreads 与循环都不排除终态交互',
   edits=[
    ('internal/daemon/delegation.go', 'ListFilter{Active: true, ExcludeCapability: true,', 'ListFilter{ExcludeCapability: true,'),
-   ('internal/daemon/autoreply.go', '\t\tif interactions.State(th.State).IsTerminal() || th.IsCapability || th.Trust == interactions.TrustPublicCap {', '\t\tif th.IsCapability || th.Trust == interactions.TrustPublicCap {'),
+   ('module/autoreply/autoreply.go', '\t\tif interactions.State(th.State).IsTerminal() || th.IsCapability || th.Trust == interactions.TrustPublicCap {', '\t\tif th.IsCapability || th.Trust == interactions.TrustPublicCap {'),
   ],
   tests=[('ANet:./internal/daemon', 'TestAutoReply|TestInputAfterTheEndIsRefused|TestACanceledTaskGetsNoReceipt')],
   full=['ANet:./internal/daemon'],
@@ -375,7 +375,7 @@ MUTS = [
   id='m-deny-3', group='m(deny)', repo='ANet',
   desc='自动回复不再每轮读 deny 名单',
   edits=[
-   ('internal/daemon/autoreply.go', '\tps := d.readPeers()\n\tif ps.denied(th.Peer) {\n\t\treturn nil\n\t}\n\t// How this turn runs', '\tps := d.readPeers()\n\t// How this turn runs'),
+   ('module/autoreply/autoreply.go', '\tps := d.readPeers()\n\tif ps.denied(th.Peer) {\n\t\treturn nil\n\t}\n\t// How this turn runs', '\tps := d.readPeers()\n\t// How this turn runs'),
   ],
   tests=[('ANet:./internal/daemon', 'TestDenyingAPeerCancelsItsInteractions|TestTheOpenAIBackendReadsTheDenyListEveryTurn|TestAReplyIsNotSentToAPeerDeniedWhileTheBackendWorked')],
   full=['ANet:./internal/daemon'],

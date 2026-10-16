@@ -15,7 +15,7 @@
 # TAGS carries both kinds of tag: `no_<name>` removes a module that is in
 # by default, `shell` adds the one that is not
 # (`bash scripts/tagcheck.sh list` prints them all). A release builds this
-# script more than once — see the variant list in docs/DISTRIBUTIONS-zh.md
+# script more than once — see the recipes in docs/topics/modules.rst
 # — and the tag string is what distinguishes the artifacts, so it is
 # stamped into the binary alongside the commit. A build that cannot say
 # which variant it is turns "does this machine accept remote commands"

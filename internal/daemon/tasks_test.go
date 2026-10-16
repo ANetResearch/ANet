@@ -591,9 +591,10 @@ func TestRetryBackoffIsBounded(t *testing.T) {
 func TestAnInterruptedLongCallIsReportedAtStart(t *testing.T) {
 	srv, req, prov := registeredPair(t)
 	const id = "ix_interrupted"
+	doc, _ := capabilityDocSigned(t, req.self, gateCap)
 	if err := prov.ix.Create(interactions.New{ID: id, Role: interactions.RoleInbound, PeerAID: req.AID(),
 		Goal: "invoke capability " + gateCap, IsCapability: true, Trust: interactions.TrustPeer,
-		TaskNonce: "bm9uY2U"}); err != nil {
+		RequestDoc: doc, TaskNonce: "bm9uY2U"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := prov.ix.SetState(id, interactions.StateWorking, interactions.CauseNotTerminal); err != nil {

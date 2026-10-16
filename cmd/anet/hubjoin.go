@@ -8,8 +8,6 @@ package main
 // the join state, each followed by its command on a "  → " line.
 
 import (
-	"crypto/rand"
-	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -115,25 +113,6 @@ func (h hubCLI) refusedBy(code int, body []byte) error {
 	return errExit1
 }
 
-// joinRecovery is the next_digest a first join commits to, and whether it
-// comes from the recovery file without a passphrase in the data directory
-// (KEL D-10 with a terminal, D-11 without one).
-//
-// v030-todo(KEL-10): recovery_local.go and the passphrase flow of KEL L-2
-// replace this: with a terminal the user sets the recovery passphrase and
-// the digest commits to the key the recovery seed derives; without one the
-// seed is kept under the local recovery key (KEL C-36) and the join is
-// unprotected. Until then the digest commits to a key nobody keeps, and the
-// identity is reported as having no recovery passphrase, which it has not.
-var joinRecovery = func(dataDir string, terminal bool, flags map[string]string) (digest []byte, unprotected bool, err error) {
-	var k [32]byte
-	if _, err := rand.Read(k[:]); err != nil {
-		return nil, false, err
-	}
-	sum := sha256.Sum256(k[:])
-	return sum[:], true, nil
-}
-
 // runHubRegister is `anet hub-register <url> [--name N] [--caps a,b]
 // [--recovery-file F] [--new-recovery]` (LEC CL-4):
 //
@@ -178,14 +157,18 @@ func (h hubCLI) hubRegister(c *client, rest []string) error {
 	if v := flags["caps"]; v != "" {
 		body["caps"] = strings.Split(v, ",")
 	}
-	// v030-todo(KEL-10): action switch is KEL L-4 (the passphrase, then
-	// /identity/rotate with hub_url); until then the daemon answers it
-	// with hub_switch_requires_rotation.
+	// Switching hubs is a key rotation (KEL L-4); without a terminal the daemon answers it with
+	// hub_switch_requires_rotation, and nothing here is asked.
+	if dry.Action == "switch" && h.terminal() {
+		return h.switchHub(c, hub, flags)
+	}
+	var afterJoin func()
 	if dry.Action == "join" && dry.RecoveryNeeded {
-		digest, unprotected, err := joinRecovery(c.dataDir, h.terminal(), flags)
+		digest, unprotected, done, err := joinRecovery(h, c.dataDir, hub, flags)
 		if err != nil {
 			return err
 		}
+		afterJoin = done
 		body["next_digest"] = base64.StdEncoding.EncodeToString(digest)
 		if unprotected {
 			body["unprotected"] = true
@@ -201,6 +184,9 @@ func (h hubCLI) hubRegister(c *client, rest []string) error {
 	var out hubRegisterAnswer
 	if err := json.Unmarshal(b, &out); err != nil {
 		return fmt.Errorf("hub-register: the daemon's answer does not read: %v", err)
+	}
+	if afterJoin != nil {
+		afterJoin()
 	}
 	if r := out.Recovery; r != nil && r.Message != "" {
 		say(h.stdout, r.Message, r.Next)

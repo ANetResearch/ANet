@@ -82,6 +82,13 @@ func originKeyState(ra module.RemoteAgent) string {
 // cardBuilder builds proxy cards for one listener.
 type cardBuilder struct {
 	host, port string
+	// canPay says whether this node can pay now (TaskSeam.CanPay). The
+	// proxy card declares a2a-x402 only when it does; nil is no (MOD-P7).
+	canPay func() bool
+	// preview is whether this node has previews (TaskSeam.PreviewAvailable):
+	// the proxy card declares the preview extension only for a remote
+	// agent that declares it and only when it is true.
+	preview bool
 }
 
 // build makes the proxy card for a remote agent, and lists the extension
@@ -183,13 +190,27 @@ func (b cardBuilder) buildFrom(ra module.RemoteAgent, ext []byte) (map[string]an
 		copyVerified(card, remote)
 		// A public card carries no price (0.3.0): nothing of a remote
 		// card's extensions is passed on but whether it takes payment.
-		x402 := false
+		x402, preview := false, false
 		for _, e := range remote.Capabilities.Extensions {
-			if e.URI == a2ashape.X402ExtensionURI {
+			switch e.URI {
+			case a2ashape.X402ExtensionURI:
 				x402 = true
+			case module.ExtPreviewURI:
+				preview = true
 			}
 		}
-		if x402 {
+		if preview && b.preview {
+			// The verified remote card says the agent sends previews
+			// (CUX-P30): the same declaration, not required. A card that is
+			// not verified, or does not say so, leaves it out; a client may
+			// activate the extension all the same.
+			exts = append(exts, map[string]any{
+				"uri":         module.ExtPreviewURI,
+				"description": "This agent sends a preview of its reply while it is written; activate the extension to receive it as updates of the anet.reply artifact.",
+			})
+			uris = append(uris, module.ExtPreviewURI)
+		}
+		if x402 && b.canPay != nil && b.canPay() {
 			// This node is the signing service (a2a-x402 §5.1, A2A-DESIGN
 			// §8.7): the client says payment-submitted and the daemon
 			// signs. Not required — "required" is omitted rather than
@@ -366,6 +387,11 @@ type cardEntry struct {
 	body  []byte
 	exts  []string
 	until time.Time
+	// canPay is what CanPay answered when the card was made: a card is
+	// made again as soon as the answer differs, so a node that registers
+	// at its hub after start declares a2a-x402 without waiting for the
+	// cache or a restart (K-11).
+	canPay bool
 }
 
 // How long a card is kept: a verified one five minutes, and the
@@ -399,10 +425,11 @@ func (c *cardCache) extensions(ctx context.Context, aid string) []string {
 
 func (c *cardCache) get(ctx context.Context, aid string) (cardEntry, error) {
 	now := c.now()
+	canPay := c.seam.CanPay()
 	c.mu.Lock()
 	e, ok := c.entries[aid]
 	c.mu.Unlock()
-	if ok && now.Before(e.until) {
+	if ok && now.Before(e.until) && e.canPay == canPay {
 		return e, nil
 	}
 	ttl := cardTTL
@@ -416,7 +443,9 @@ func (c *cardCache) get(ctx context.Context, aid string) (cardEntry, error) {
 	if ra.Verification != verified {
 		ttl = cardRetryTTL
 	}
-	card, exts := c.builder.build(ra)
+	b := c.builder
+	b.canPay = func() bool { return canPay }
+	card, exts := b.build(ra)
 	body, err := json.Marshal(card)
 	if err != nil {
 		return cardEntry{}, err
@@ -426,7 +455,7 @@ func (c *cardCache) get(ctx context.Context, aid string) (cardEntry, error) {
 			return cardEntry{}, fmt.Errorf("sign: %w", err)
 		}
 	}
-	e = cardEntry{body: body, exts: exts, until: now.Add(ttl)}
+	e = cardEntry{body: body, exts: exts, until: now.Add(ttl), canPay: canPay}
 	c.mu.Lock()
 	if len(c.entries) >= maxCardsCache {
 		for k, old := range c.entries {

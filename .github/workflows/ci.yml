@@ -141,24 +141,24 @@ jobs:
           - "no_service"
           - "no_mcp"
           - "no_x402"
+          - "no_preview"
+          - "no_autoreply"
           # Alone, so MCP stays in: the build an A2A-less agent tool uses.
           # The symbol pattern is the special case in scripts/tagcheck.sh
           # (module/a2a|a2aproject/a2a-go); until module/a2a is in the tree
           # only "nothing of it in the lean build" is checked.
           - "no_a2a"
-          - "no_a2a,no_x402,no_service,no_mcp,no_cas,no_org,no_blackboard,no_p2p,no_anetlink"
-          # The tag sets docs/DISTRIBUTIONS-zh.md proposes as shipping
-          # variants. A design naming combinations nobody builds is a
-          # design that will stop compiling without anyone noticing.
-          # Whether they take no_a2a is open there (待决问题 五).
-          #
-          # min, first, on its own row: it used to be the all-out row
-          # above, and stopped being that when no_a2a joined it.
-          - "no_x402,no_service,no_mcp,no_cas,no_org,no_blackboard,no_p2p,no_anetlink"
-          - "no_x402,no_mcp,no_cas,no_org,no_blackboard,no_p2p,no_anetlink"
-          - "no_mcp,no_cas,no_org,no_blackboard,no_p2p,no_anetlink"
-          - "no_x402,no_cas,no_org,no_blackboard,no_p2p,no_anetlink"
-          - "no_x402,no_mcp,no_cas,no_org,no_blackboard,no_anetlink"
+          - "no_a2a,no_x402,no_service,no_mcp,no_cas,no_org,no_blackboard,no_p2p,no_anetlink,no_preview,no_autoreply"
+          # The self-build recipes, as `bash scripts/tagcheck.sh recipes`
+          # prints them; TestRecipesMatchCI compares these five rows with
+          # that output (full is the default build and takes no tags).
+          # A design naming combinations nobody builds is a design that
+          # will stop compiling without anyone noticing.
+          - "no_a2a,no_anetlink,no_autoreply,no_blackboard,no_cas,no_mcp,no_org,no_p2p,no_preview,no_service,no_x402"
+          - "no_anetlink,no_autoreply,no_blackboard,no_cas,no_mcp,no_org,no_p2p,no_preview,no_x402"
+          - "no_anetlink,no_autoreply,no_blackboard,no_cas,no_mcp,no_org,no_p2p,no_preview"
+          - "no_anetlink,no_autoreply,no_blackboard,no_cas,no_org,no_p2p,no_preview,no_x402"
+          - "no_anetlink,no_autoreply,no_blackboard,no_cas,no_mcp,no_org,no_preview,no_x402"
           # Reserved for the anet3 subsystems as they land. Each name is
           # claimed here first so the seam is enforced from the module's
           # first commit rather than retrofitted after it has spread:
@@ -177,6 +177,11 @@ jobs:
           go vet -tags "${{ matrix.tags }}" ./...
       - name: test without the module
         run: go test -tags "${{ matrix.tags }}" ./...
+      # Without the service module no provider takes files (CUX-F15): the
+      # file admission, discard and allow_only tests run on their own here.
+      - name: files without the service module
+        if: matrix.tags == 'no_service'
+        run: go test -tags no_service ./internal/daemon -run 'Files|Discard|AllowOnly|NoteReason' -timeout 30m
       - name: the binary must still start
         run: |
           go build -tags "${{ matrix.tags }}" -o /tmp/anet ./cmd/anet
@@ -189,6 +194,12 @@ jobs:
       # eight.
       - name: every module the row names is out of the binary
         run: bash scripts/tagcheck.sh check "${{ matrix.tags }}"
+      # Without the preview module the previews of a reply are absent, not
+      # merely off: the kernel's own tests run with the tag (frames dropped
+      # and counted, nothing declared, nothing requested).
+      - name: previews without the preview module
+        if: matrix.tags == 'no_preview'
+        run: go test -tags no_preview ./internal/daemon ./module/a2a ./cmd/anet -timeout 60m
 
   # The sandbox the exec auto-reply runs agents in (bubblewrap). Its
   # integration test skips when bwrap is missing or cannot create
@@ -252,6 +263,8 @@ jobs:
     env:
       CGO_ENABLED: "0"
       TMPDIR: /tmp
+      # The packages the sandbox tests live in, twice (see the `sandbox` job).
+      SANDBOX_PKGS: ./module/autoreply/... ./internal/daemon/
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -270,7 +283,7 @@ jobs:
       - name: the Seatbelt sandbox on this Mac, none skipped
         shell: bash
         run: |
-          go test -count=1 -v -timeout 30m -run 'Seatbelt|Darwin' ./internal/daemon/ | tee /tmp/seatbelt.out
+          go test -count=1 -v -timeout 30m -run 'Seatbelt|Darwin' $SANDBOX_PKGS | tee /tmp/seatbelt.out
           if grep -- '--- SKIP' /tmp/seatbelt.out; then
             echo "a Seatbelt test skipped; here that is a failure" >&2
             exit 1
@@ -286,9 +299,9 @@ jobs:
             grep -q -- "--- PASS: $t" /tmp/seatbelt.out || { echo "$t did not run" >&2; exit 1; }
           done
       - name: init, the keyed egress endpoint and doctor on macOS
-        run: go test -count=1 -run 'SandboxInit|SandboxSpec|EgressKeyed|EgressUnkeyed|SandboxEgressEnv|Doctor' ./internal/daemon/ ./cmd/anet/
+        run: go test -count=1 -run 'SandboxInit|SandboxSpec|EgressKeyed|EgressUnkeyed|SandboxEgressEnv|Doctor' ./module/autoreply/ ./internal/daemon/ ./cmd/anet/
       - name: the agents' configurations and command lines on macOS
-        run: go test -count=1 -run 'UpstreamCombinationsFailClosed|SystemPromptStartingWithADash|AgentSandbox|AgentCommandLines|EgressUpstream|UnsupportedAgentsFailClosed' ./internal/daemon/
+        run: go test -count=1 -run 'UpstreamCombinationsFailClosed|SystemPromptStartingWithADash|AgentSandbox|AgentCommandLines|EgressUpstream|UnsupportedAgentsFailClosed' ./module/autoreply/ ./internal/daemon/
 
   # The platforms the release builds for, and one it does not: peercred is
   # read on Linux, macOS and FreeBSD, and on OpenBSD everything builds and
@@ -310,8 +323,9 @@ jobs:
             GOOS=$os go vet ./internal/peercred/... ./internal/backendconn/ ./tools/anetpeer/ ./module/p2p/
             GOOS=$os go test -c -o /dev/null ./internal/peercred
             GOOS=$os go test -c -o /dev/null ./internal/backendconn
-            GOOS=$os go vet ./internal/daemon/ ./cmd/anet/
+            GOOS=$os go vet ./module/autoreply/ ./internal/daemon/ ./cmd/anet/
             GOOS=$os go test -c -o /dev/null ./internal/daemon
+            GOOS=$os go test -c -o /dev/null ./module/autoreply
           done
 
   # C1-1 across the two repositories: the C1 v1 golden vectors in
@@ -358,12 +372,108 @@ jobs:
           fi
           grep -q -- '--- PASS: TestC1GoldenIsANetLinks' /tmp/c1golden.out || { echo "TestC1GoldenIsANetLinks did not run" >&2; exit 1; }
 
-  # continue-on-error until it has run green on the hosted runners once:
-  # whether their kernel lets bwrap make namespaces after the sysctl is a
-  # property of the runner image, not of this tree.
+  # The Linux sandbox (LEC §4.3.2 SB-1 to SB-6). A release gate: a skip is a failure, and each
+  # listed test's PASS line is required, so a -run pattern that matched nothing cannot pass.
+  #
+  # It runs twice. On the hosted runner (Ubuntu with AppArmor's restriction on user namespaces left as it
+  # is: the profile anet ships, `anet doctor --apparmor-profile`, is what lets bubblewrap work, and no
+  # sysctl is changed), and in a Debian 12 container (bubblewrap 0.8, a non-root user), which is the oldest
+  # host anet supports.
+  #
+  # SANDBOX_PKGS names the packages the sandbox tests live in, twice: the auto-reply module and the kernel,
+  # which run the same -run filter, because tests that stay in internal/daemon still hold Sandbox cases.
+  # The Debian 12 leg runs the module's test binary only.
   sandbox:
+    strategy:
+      fail-fast: false
+      matrix:
+        where: [host, debian12]
     runs-on: ubuntu-latest
-    continue-on-error: true
+    env:
+      CGO_ENABLED: "0"
+      SANDBOX_PKGS: ./module/autoreply/... ./internal/daemon/
+      SANDBOX_RUN: Sandbox|Bwrap|Seccomp
+      SANDBOX_MUST_PASS: >-
+        TestSandboxIntegrationConfinesTheAgent TestSandboxIntegrationConfiguresEachAgent
+        TestSandboxProbeSixItems TestSandboxProbeSeccompAloneRefusesUserNamespaces
+        TestSandboxDiskWatchKillsTheRun TestSeccompFilterInKernel TestSandboxOutboxLinkSendsNothing
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      # The host: bubblewrap, the profile from this tree, and a user systemd for the resource-limit tests
+      # (TestTheUserScopeOnThisHost skips without one).
+      - name: bubblewrap, and the profile that lets it make user namespaces
+        if: matrix.where == 'host'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq bubblewrap
+          go run ./cmd/anet doctor --apparmor-profile | sudo tee /etc/apparmor.d/anet-bwrap >/dev/null
+          sudo apparmor_parser -r /etc/apparmor.d/anet-bwrap
+          sudo loginctl enable-linger "$USER"
+          sudo systemctl start "user@$(id -u).service"
+          echo "XDG_RUNTIME_DIR=/run/user/$(id -u)" >> "$GITHUB_ENV"
+          echo "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u)/bus" >> "$GITHUB_ENV"
+      # `shell: bash` for pipefail. A step with no shell runs `bash -e`, where a pipeline's status is tee's,
+      # so a failing sandbox test would pass here as long as it did not skip. The SKIP test is an explicit
+      # exit because errexit ignores a `! cmd` that fails anywhere but last.
+      - name: the sandbox tests run on the host, none skipped
+        if: matrix.where == 'host'
+        shell: bash
+        run: |
+          go test -count=1 -v -timeout 30m -run "$SANDBOX_RUN|TheUserScopeOnThisHost|RunsGetAUserScope" $SANDBOX_PKGS | tee /tmp/sandbox.out
+          if grep -- '--- SKIP' /tmp/sandbox.out; then
+            echo "a sandbox test skipped; here that is a failure" >&2
+            exit 1
+          fi
+          for t in $SANDBOX_MUST_PASS TestTheUserScopeOnThisHost; do
+            grep -q -- "--- PASS: $t" /tmp/sandbox.out || { echo "$t did not run" >&2; exit 1; }
+          done
+      # The test binary is built here (static, CGO_ENABLED=0) and run in the container as a user that is
+      # not root, with the host's seccomp and /proc left unrestricted for the container (bubblewrap makes
+      # its own namespaces) and an AppArmor profile that allows user namespaces (the container's processes
+      # fall under the same restriction as the host's).
+      - name: the sandbox tests run in Debian 12 as a non-root user, none skipped
+        if: matrix.where == 'debian12'
+        shell: bash
+        run: |
+          mkdir -p /tmp/sbtest
+          go test -c -o /tmp/sbtest/autoreply.test ./module/autoreply/
+          sudo tee /etc/apparmor.d/anet-ci-userns >/dev/null <<'PROFILE'
+          abi <abi/4.0>,
+          include <tunables/global>
+          profile anet-ci-userns flags=(unconfined) {
+            userns,
+          }
+          PROFILE
+          sudo apparmor_parser -r /etc/apparmor.d/anet-ci-userns
+          docker run --rm \
+            --security-opt seccomp=unconfined --security-opt systempaths=unconfined --security-opt apparmor=anet-ci-userns \
+            -v "$PWD":/src:ro -v /tmp/sbtest:/sbtest:ro \
+            -e SANDBOX_RUN -e SANDBOX_MUST_PASS \
+            debian:12 sh -ec '
+              apt-get update -qq
+              apt-get install -y -qq bubblewrap >/dev/null
+              bwrap --version
+              useradd -m -u 1001 tester
+              cd /src/module/autoreply
+              su tester -c "/sbtest/autoreply.test -test.count=1 -test.v -test.timeout 30m -test.run \"$SANDBOX_RUN\"" > /tmp/sandbox.out 2>&1 || { cat /tmp/sandbox.out; exit 1; }
+              cat /tmp/sandbox.out
+              if grep -- "--- SKIP" /tmp/sandbox.out; then echo "a sandbox test skipped; here that is a failure" >&2; exit 1; fi
+              for t in $SANDBOX_MUST_PASS; do
+                grep -q -- "--- PASS: $t" /tmp/sandbox.out || { echo "$t did not run" >&2; exit 1; }
+              done
+            '
+
+  # The tests whose premise is the machine (a user that is not root, an interpreter with the reference SDK,
+  # a build without a feature): every one of them runs here, and a skip is a failure. The premises
+  # that other jobs meet: a second account and passwordless sudo are `peercred`'s; the macOS-only ones are
+  # `seatbelt`'s; user systemd is `sandbox`'s on the host; the 3 tests that skip under the no_x402 build
+  # run in `test`, which builds without it; ANetHub's identity_ops_test.go runs as a non-root user in its
+  # own repository's `test` job, which is this runner's user too.
+  premises:
+    runs-on: ubuntu-latest
     env:
       CGO_ENABLED: "0"
     steps:
@@ -371,27 +481,29 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - name: bubblewrap, and user namespaces it can use
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: the reference A2A SDK
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq bubblewrap
-          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
-      # `shell: bash` for pipefail. A step with no shell runs `bash -e`,
-      # where a pipeline's status is tee's, so a failing sandbox test would
-      # pass here as long as it did not skip. The SKIP test is an explicit
-      # exit because errexit ignores a `! cmd` that fails anywhere but last.
-      # And a -run pattern that matched nothing would pass too, which is
-      # why the integration test's PASS line is required as well.
-      - name: the sandbox tests run, none skipped
+          python -m venv /tmp/a2avenv
+          /tmp/a2avenv/bin/pip install --quiet "a2a-sdk[signing]"
+          echo "ANET_A2A_PYTHON=/tmp/a2avenv/bin/python" >> "$GITHUB_ENV"
+      - name: tests that need a user that is not root, or the reference SDK, none skipped
         shell: bash
         run: |
-          go test -count=1 -v -run 'Sandbox|Bwrap' ./internal/daemon/ | tee /tmp/sandbox.out
-          if grep -- '--- SKIP' /tmp/sandbox.out; then
-            echo "a sandbox test skipped; here that is a failure" >&2
+          [ "$(id -u)" != 0 ] || { echo "this job must run as a user that is not root" >&2; exit 1; }
+          go test -count=1 -v -run 'TestRemoveWorkTreeTakesAnUnreadableTop|TestTheDiskWatchCannotBeHiddenFrom' ./module/autoreply/ | tee /tmp/premises.out
+          go test -count=1 -v -run 'TestAPolicyWriteThatFailedToSaveIsNotInForce|TestPublicCapabilitiesAndAutoReplyWritesThatFailedToSaveAreNotInForce' ./internal/daemon/ | tee -a /tmp/premises.out
+          go test -count=1 -v -run 'TestExtCard1VerifiesInA2APython' ./internal/netcard/ | tee -a /tmp/premises.out
+          if grep -- '--- SKIP' /tmp/premises.out; then
+            echo "a test skipped for its premise; here that is a failure" >&2
             exit 1
           fi
-          grep -q -- '--- PASS: TestSandboxIntegrationConfinesTheAgent' /tmp/sandbox.out \
-            || { echo "the sandbox integration test did not run" >&2; exit 1; }
+          for t in TestRemoveWorkTreeTakesAnUnreadableTop TestTheDiskWatchCannotBeHiddenFrom TestAPolicyWriteThatFailedToSaveIsNotInForce \
+                   TestPublicCapabilitiesAndAutoReplyWritesThatFailedToSaveAreNotInForce TestExtCard1VerifiesInA2APython; do
+            grep -q -- "--- PASS: $t" /tmp/premises.out || { echo "$t did not run" >&2; exit 1; }
+          done
 
   # A hub that knows nobody, and three nodes that join it.
   #

@@ -13,7 +13,6 @@ import (
 	"testing"
 	"time"
 
-	evidence "github.com/ANetResearch/ANet/internal/evidencev1" // v030-todo(PAY-14): evidence v2
 	"github.com/ANetResearch/ANetCore/delegation"
 	"github.com/ANetResearch/ANetCore/effect"
 	"github.com/ANetResearch/ANetCore/seal"
@@ -141,7 +140,7 @@ func TestCapabilityUnresolvableIsAnsweredWithAutoReplyConfigured(t *testing.T) {
 		t.Fatal(err)
 	}
 	prov.mu.Lock()
-	prov.cfg.AutoReply = &AutoReplyConfig{Backend: "exec", Agent: "cursor"}
+	prov.cfg.AutoReply = rawAR(&AutoReplyConfig{Backend: "exec", Agent: "cursor"})
 	prov.mu.Unlock()
 
 	id, err := req.DelegateCapability(ctx, prov.AID(), "ghost.capability", nil)
@@ -294,8 +293,8 @@ func TestEvidenceProvenanceReachesTheChain(t *testing.T) {
 	if ev["quirk"] != "aqara.temp.scale100" {
 		t.Errorf("the correction must be named on the chain, got %v", ev["quirk"])
 	}
-	if ev["observed_state"] != "2212.93" {
-		t.Errorf("what the device actually reported must survive, got %v", ev["observed_state"])
+	if ev["observed_state"] != nil || ev["observed_state_cid"] == nil {
+		t.Errorf("the reading is kept as its CID only, got %v / %v", ev["observed_state"], ev["observed_state_cid"])
 	}
 	if ev["protocol"] != "zigbee" {
 		t.Errorf("protocol = %v, want zigbee", ev["protocol"])
@@ -378,6 +377,12 @@ func TestAReadReturnsWhatItRead(t *testing.T) {
 		t.Fatal("no provenance on the provider chain")
 	}
 	for k, v := range got.Evidence {
+		if k == "observed_state" {
+			if onChain["observed_state_cid"] == nil {
+				t.Errorf("the chain lost the reading's CID")
+			}
+			continue
+		}
 		if fmt.Sprint(onChain[k]) != fmt.Sprint(v) {
 			t.Errorf("evidence disagrees on %q: chain=%v requester=%v", k, onChain[k], v)
 		}
@@ -569,17 +574,7 @@ func TestAResultForDifferentContentIsRefused(t *testing.T) {
 	}
 
 	// A provider signing a real receipt, then delivering other bytes.
-	rc := &evidence.Receipt{
-		InteractionID: id, RequesterAID: req.AID(), ProviderAID: prov.AID(),
-		RequestCID: "bafyrequest", ResultCID: "bafynotwhatwesend", CompletedAt: uint64(nowMillis()),
-	}
-	if err := rc.Sign(prov.self); err != nil {
-		t.Fatal(err)
-	}
-	receipt, err := rc.Marshal()
-	if err != nil {
-		t.Fatal(err)
-	}
+	receipt := receiptOver(t, prov.self, mustIX(t, req, id), mustIX(t, req, id).RequestCID, "bafynotwhatwesend")
 	payload, err := (&delegation.ResultResp{
 		Status: delegation.StatusDone, Deliverable: []byte(`{"status":"OK"}`),
 		Receipt: receipt,

@@ -5,6 +5,9 @@
 #   bash scripts/tagcheck.sh deps [<tags>]  SI-8: the kernel never reaches a2a-go
 #   bash scripts/tagcheck.sh all            everything below (build.sh --check)
 #   bash scripts/tagcheck.sh list           the two tag lists, one per line
+#   bash scripts/tagcheck.sh pending        the modules that have no tag yet, one per line
+#   bash scripts/tagcheck.sh recipes        the self-build recipes, one per line: <name> TAB <tags>
+#   bash scripts/tagcheck.sh pattern <m>    what a module's code is called in `go tool nm`
 #
 # A tag set is comma separated, as `go build -tags` takes it. EVERY tag in
 # it is checked, in its own direction:
@@ -31,11 +34,16 @@ cd "$(dirname "$0")/.."
 export CGO_ENABLED=0
 
 # In by default, removed with -tags no_<m>.
-SUBTRACTIVE="anetlink p2p blackboard org cas service mcp x402 a2a"
+SUBTRACTIVE="anetlink p2p blackboard org cas service mcp x402 a2a preview autoreply"
 # Absent by default, added with -tags <m>. shell executes commands on the
 # host (A2A-DESIGN §16): the build nobody asked about is the one that must
 # lack it.
 ADDITIVE="shell"
+# In the name table (module/known.go) with no tag: build.sh --without says
+# build_tag_pending for these. console gets a tag in v0.3.x and then moves from
+# here to SUBTRACTIVE (preview did, with MOD-6, autoreply with MOD-4). A test
+# keeps both lists equal to the table.
+PENDING="console"
 
 # pattern <m> — what the module's code is called in `go tool nm` output.
 #
@@ -45,7 +53,7 @@ ADDITIVE="shell"
 # the derived pattern would not see the SDK, and an a2a-go that stays
 # linked after module/a2a is gone is the half of the claim that matters.
 # The MCP SDK is named for the same reason: it is 85% of what no_mcp saves
-# (docs/DISTRIBUTIONS-zh.md), and a no_mcp build that still linked it
+# (docs/topics/modules.rst), and a no_mcp build that still linked it
 # through some other import would pass a check that looked only at ours.
 # Only the in-tree parts are required in the full build (see intree).
 pattern() {
@@ -67,6 +75,30 @@ intree() {
     compgen -G "$part/*.go" >/dev/null && out+=("$part")
   done
   echo "${out[*]:-}"
+}
+
+# recipes — the self-build recipes (min, standard, paid, agent, p2p, full), the
+# one place they are written down. Each is "the modules it keeps"; its tag
+# set is every other subtractive module as no_<m>, in the alphabetical order
+# of the names, so that a module added to SUBTRACTIVE (no_autoreply
+# once it has a tag) is removed by every recipe that does not
+# name it. min keeps nothing, full keeps everything (an empty tag set). They
+# are examples for `build.sh --without`, not release variants.
+# docs/topics/modules.rst, scripts/onboard.sh and the pluggable job of
+# .github/workflows/ci.yml are generated from this output or compared with it
+# (TestRecipesMatchCI).
+RECIPES="min: standard:a2a,service paid:a2a,service,x402 agent:a2a,service,mcp p2p:a2a,service,p2p full:*"
+recipes() {
+  local r name keep m tags
+  for r in $RECIPES; do
+    name=${r%%:*}; keep=${r#*:}; tags=""
+    if [ "$keep" != "*" ]; then
+      for m in $(printf '%s\n' $SUBTRACTIVE | sort); do
+        case ",$keep," in *",$m,"*) ;; *) tags="${tags:+$tags,}no_$m" ;; esac
+      done
+    fi
+    printf '%s\t%s\n' "$name" "$tags"
+  done
 }
 
 is_in() { local w; for w in $2; do [ "$w" = "$1" ] && return 0; done; return 1; }
@@ -164,6 +196,9 @@ all() {
   # still be what keeps another one linked.
   check "$every" || fail=1
   for m in $ADDITIVE; do check "$m" || fail=1; done
+  # And every removal together with every addition: the build that is the
+  # kernel plus shell and nothing else.
+  check "$every,${ADDITIVE// /,}" || fail=1
   echo "dependency closure"
   deps "" || fail=1
   deps "no_a2a" || fail=1
@@ -174,6 +209,9 @@ case "${1:-}" in
   check) check "${2:-}" ;;
   deps)  deps "${2:-}" ;;
   all)   all ;;
+  pending) for m in $PENDING; do echo "$m"; done ;;
+  recipes) recipes ;;
   list)  for m in $SUBTRACTIVE; do echo "no_$m"; done; for m in $ADDITIVE; do echo "$m"; done ;;
+  pattern) pattern "${2:?tagcheck: pattern needs a module name}" ;;
   *) sed -n '2,6p' "$0" >&2; exit 2 ;;
 esac

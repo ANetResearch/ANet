@@ -13,7 +13,6 @@ import (
 	"encoding/json"
 	"testing"
 
-	evidence "github.com/ANetResearch/ANet/internal/evidencev1" // v030-todo(PAY-14): evidence v2
 	"github.com/ANetResearch/ANetCore/anetcid"
 	"github.com/ANetResearch/ANetCore/delegation"
 	"github.com/ANetResearch/ANetCore/seal"
@@ -30,15 +29,7 @@ func receiptFor(t *testing.T, req, prov *Daemon, id string, deliverable []byte, 
 	if err != nil {
 		t.Fatal(err)
 	}
-	rc := &evidence.Receipt{InteractionID: id, RequesterAID: req.AID(), ProviderAID: prov.AID(),
-		RequestCID: requestCID, ResultCID: cid, CompletedAt: uint64(nowMillis())}
-	if err := rc.Sign(prov.self); err != nil {
-		t.Fatal(err)
-	}
-	receipt, err := rc.Marshal()
-	if err != nil {
-		t.Fatal(err)
-	}
+	receipt := receiptOver(t, prov.self, mustIX(t, req, id), requestCID, cid)
 	meta, _ := json.Marshal(map[string]any{"anet.state": "completed"})
 	payload := mustMarshal(t, &delegation.ResultResp{Status: delegation.StatusDone, Deliverable: deliverable,
 		Receipt: receipt, Metadata: meta})
@@ -134,15 +125,8 @@ func TestAReviewIsNotAnchoredToAReceiptForAnotherRequest(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		rc := &evidence.Receipt{InteractionID: id, RequesterAID: req.AID(), ProviderAID: prov.AID(),
-			RequestCID: requestCID(mustIX(t, req, id).RequestCID), ResultCID: resultCID, CompletedAt: uint64(nowMillis())}
-		if err := rc.Sign(prov.self); err != nil {
-			t.Fatal(err)
-		}
-		receipt, err := rc.Marshal()
-		if err != nil {
-			t.Fatal(err)
-		}
+		ixr := mustIX(t, req, id)
+		receipt := receiptOver(t, prov.self, ixr, requestCID(ixr.RequestCID), resultCID)
 		if err := req.ix.Finish(id, interactions.Finish{State: interactions.StateCompleted, Result: deliverable,
 			ResultCID: resultCID, Receipt: receipt, Verified: interactions.VerificationVerified}, interactions.CausePeerEnded); err != nil {
 			t.Fatal(err)

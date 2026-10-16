@@ -1,7 +1,7 @@
 package daemon
 
 // taskview.go reads an interaction into its A2A projection. The mapping
-// itself is a2ashape.Project (A2A-DESIGN §11.5, SI-6); this file supplies
+// itself is a2astored.Project (A2A-DESIGN §11.5, SI-6); this file supplies
 // what only the daemon has: attachment bytes, safe file names and the key
 // history a receipt was checked against, the payment flow's reading of
 // the task's payment columns (PaymentStatusMeta), and the reminder that the
@@ -12,7 +12,11 @@ package daemon
 // seen (C35).
 
 import (
+	"errors"
+	a2astored "github.com/ANetResearch/ANet/internal/a2ashape/stored"
+
 	"github.com/ANetResearch/ANet/internal/a2ashape"
+	"github.com/ANetResearch/ANet/internal/pathsafe"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 )
 
@@ -36,22 +40,33 @@ type viewOpts struct {
 	// backend: the view is for a local backend that answers the task for
 	// this node (modules.a2a.backends[], inbound_tasks.go), not for the
 	// operator's clients. It carries no anet.identity_note
-	// (a2ashape.Options.ForBackend).
+	// (a2astored.Options.ForBackend).
 	backend bool
 }
 
 // taskView renders ix as an A2A task.
 func (d *Daemon) taskView(ix *interactions.Interaction, o viewOpts) (a2ashape.Task, error) {
+	// A retention sweep may delete the task between the read that found it
+	// and these: the same answer as for a task that is not there (FS-L4).
 	msgs, err := d.ix.Messages(ix.ID)
+	if errors.Is(err, interactions.ErrNotFound) {
+		return a2ashape.Task{}, d.noLocalTask(ix.ID)
+	}
 	if err != nil {
 		return a2ashape.Task{}, err
 	}
 	atts, err := d.ix.Attachments(ix.ID)
+	if errors.Is(err, interactions.ErrNotFound) {
+		return a2ashape.Task{}, d.noLocalTask(ix.ID)
+	}
 	if err != nil {
 		return a2ashape.Task{}, err
 	}
-	opt := a2ashape.Options{HistoryLength: o.historyLen, Artifacts: o.artifacts, InlineFiles: o.inline, SafeName: safeName,
-		IdentityNote: d.identityNote(a2ashape.Lang()), ForBackend: o.backend, SelfAID: d.AID()}
+	opt := a2astored.Options{HistoryLength: o.historyLen, Artifacts: o.artifacts, InlineFiles: o.inline, SafeName: pathsafe.SafeName,
+		IdentityNote: d.identityNote(a2ashape.Lang()), ForBackend: o.backend, SelfAID: d.AID(), Retention: d.ContentRetention()}
+	if !o.backend {
+		opt.SpendCheck = d.spendCheckFor(ix)
+	}
 	if o.inline {
 		opt.LoadFile = func(cid string) ([]byte, error) {
 			a, err := d.ix.AttachmentData(ix.ID, cid)
@@ -68,8 +83,9 @@ func (d *Daemon) taskView(ix *interactions.Interaction, o viewOpts) (a2ashape.Ta
 	}
 	// The x402 part of the status as the payment flow derives it from its
 	// own columns (A2A-DESIGN §8.2, §11.5); the projection places it.
-	t := a2ashape.Project(a2ashape.Source{Interaction: ix, Messages: msgs, Attachments: atts,
-		Payment: d.PaymentStatusMeta(ix)}, opt)
+	opt.NoResponseAfter, _ = d.config().noResponseAfter()
+	t := a2astored.Project(a2astored.Source{Interaction: ix, Messages: msgs, Attachments: atts,
+		Payment: d.PaymentStatusMeta(ix), Outbox: d.outboxMsgs(ix.ID)}, opt)
 	if t.Metadata == nil {
 		// Project always sets it; callers add keys (anet.wait) to it.
 		t.Metadata = map[string]any{}

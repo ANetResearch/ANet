@@ -1,3 +1,5 @@
+//go:build !no_autoreply
+
 package main
 
 import (
@@ -13,7 +15,7 @@ import (
 	"time"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
-	"github.com/ANetResearch/ANet/internal/daemon"
+	"github.com/ANetResearch/ANet/module/autoreply"
 )
 
 // egressDaemon is a control plane whose auto-reply allows current, and that records what it is sent.
@@ -128,7 +130,7 @@ func TestEgressAllowIsCheckedFirst(t *testing.T) {
 		c, sent := egressDaemon(t, nil)
 		tty := withTTY(t, "yes")
 		err, out := runEgress(t, c, "--egress-allow", tc.value)
-		_, ref := daemon.CheckEgressAllow(strings.Split(tc.value, ","), "")
+		_, ref := autoreply.CheckEgressAllow(strings.Split(tc.value, ","), "")
 		if !errors.Is(err, errExit1) || ref == nil || ref.Key != tc.key || out != a2ashape.Sentence(ref.Key, a2ashape.Lang(), ref.Args)+"\n" {
 			t.Errorf("%s: %v %q", tc.value, err, out)
 		}

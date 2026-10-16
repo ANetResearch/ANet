@@ -6,10 +6,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/ANetResearch/ANetCore/identity"
@@ -25,26 +23,12 @@ func init() { module.Register("x402", New) }
 //
 //	"modules": {"x402": {}}
 //
-// Empty is the ordinary case: a node pays and charges through its hub with
+// Empty is the only case: a node pays and charges through its hub with
 // nothing to configure. The module opens no listener of its own; work is
 // paid for inside the task (a2a-x402), on the same end-to-end encrypted
-// interaction as the work itself.
-type Config struct {
-	// WitnessHub makes this node pin its hub's issuance head
-	// periodically, recording it on its own evidence chain and offering
-	// a signed attestation back to the hub.
-	//
-	// Off by default. A node may be a trimmed build that serves nothing
-	// and only talks to its hub; making such a node do work for the
-	// network is not something it asked for. A node that turns this on
-	// gains the most direct benefit — independent evidence about the
-	// ledger its own balance lives on.
-	WitnessHub bool `json:"witness_hub,omitempty"`
-	// WitnessEverySeconds is the interval. Default one hour: what an
-	// auditor needs is a head from an hour ago, not from ninety seconds
-	// ago, and pinning faster multiplies stored attestations for nothing.
-	WitnessEverySeconds int `json:"witness_every_seconds,omitempty"`
-}
+// interaction as the work itself. The check of the hub's books runs on its
+// own (audit.go); the keys that used to switch a witness loop on are gone.
+type Config struct{}
 
 // Module is the payment subsystem.
 type Module struct {
@@ -70,9 +54,16 @@ type Module struct {
 	clearHub  string
 	clearNets []string
 
-	// lastSignTS is the time of the last signed account read (signedGet),
-	// kept strictly increasing.
-	lastSignTS atomic.Uint64
+	// liab is this node's chain of balance proofs (liabproof.go), and
+	// auditMu keeps the checks of the books one at a time.
+	liab    *liabStore
+	auditMu sync.Mutex
+
+	// auditErrs counts the passes in a row the hub answered with an error,
+	// and auditErrAt is when the last did (auditMu2 guards both).
+	auditMu2   sync.Mutex
+	auditErrs  int
+	auditErrAt int64
 }
 
 // New builds the module. Returning (nil, nil) means compiled in and not
@@ -80,7 +71,7 @@ type Module struct {
 // pay for things without configuring anything, so an absent block still
 // yields a module. Only an unparseable one is an error.
 func New(raw []byte) (module.Module, error) {
-	m := &Module{}
+	m := &Module{liab: newLiabStore("")}
 	if len(raw) > 0 {
 		if err := json.Unmarshal(raw, &m.cfg); err != nil {
 			return nil, fmt.Errorf("x402: config: %w", err)
@@ -94,6 +85,9 @@ func (m *Module) Name() string { return "x402" }
 // Start wires the module to the node.
 func (m *Module) Start(_ context.Context, h module.Host) error {
 	m.host = h
+	// The proof chain lives in the module's own state directory; without
+	// one it is kept for this run only.
+	m.liab = newLiabStore(h.StateDir())
 	seam, ok := h.PaymentSeam()
 	if !ok {
 		// No hub means no ledger. The module stays loaded and answers
@@ -108,38 +102,11 @@ func (m *Module) Start(_ context.Context, h module.Host) error {
 
 func (m *Module) Stop(context.Context) error { return nil }
 
-// Serve starts the witness loop, if it is configured. The module serves
-// nothing to the network: there is no public door of its own.
+// Serve starts the check of the hub's books. The module serves nothing to
+// the network: there is no public door of its own.
 func (m *Module) Serve(ctx context.Context) error {
-	if m.cfg.WitnessHub {
-		go m.witnessLoop(ctx)
-	}
+	go m.auditLoop(ctx)
 	return nil
-}
-
-// witnessLoop pins the hub's issuance head on a slow cadence.
-func (m *Module) witnessLoop(ctx context.Context) {
-	every := time.Duration(m.cfg.WitnessEverySeconds) * time.Second
-	if every <= 0 {
-		every = time.Hour
-	}
-	// One pass shortly after start, so a node restarted after a long
-	// absence does not leave a gap before its first pin.
-	t := time.NewTimer(30 * time.Second)
-	defer t.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-t.C:
-		}
-		if seq, id, err := m.WitnessHub(ctx); err != nil {
-			log.Printf("anet: witnessing the hub: %v", err)
-		} else if id != "" {
-			log.Printf("anet: pinned hub issuance head seq=%d", seq)
-		}
-		t.Reset(every)
-	}
 }
 
 // Price reports what a capability costs, asking the provider that serves

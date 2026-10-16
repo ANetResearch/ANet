@@ -289,7 +289,7 @@ func (d *Daemon) cardInput(hubURL, name string) (netcard.Input, error) {
 	in := netcard.Input{AID: d.AID(), Name: name, Description: cfg.Summary, Version: Version, HubURL: hubURL}
 	for _, id := range caps {
 		p, _ := d.providers.Resolve(id)
-		in.Skills = append(in.Skills, netcard.SkillFor(p, id))
+		in.Skills = append(in.Skills, d.publicSkillFor(p, id))
 	}
 	if chat {
 		if len(in.Skills) == a2acard.MaxSkills {
@@ -304,7 +304,7 @@ func (d *Daemon) cardInput(hubURL, name string) (netcard.Input, error) {
 	// does not list them (netcard.Build reads only Skills).
 	for _, id := range d.listOnlySkillIDs(cc.Skills) {
 		p, _ := d.providers.Resolve(id)
-		in.ListOnly = append(in.ListOnly, netcard.SkillFor(p, id))
+		in.ListOnly = append(in.ListOnly, d.publicSkillFor(p, id))
 	}
 	return in, nil
 }

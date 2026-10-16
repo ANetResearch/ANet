@@ -596,6 +596,13 @@ type cardMarkCache struct {
 
 var cardMarks cardMarkCache
 
+// forget drops the mark held for aid's card at node self.
+func (c *cardMarkCache) forget(self, aid string) {
+	c.mu.Lock()
+	delete(c.m, self+"\x00"+aid)
+	c.mu.Unlock()
+}
+
 // admit applies a2acard.CheckHighWater to a verified card and records its
 // mark when it advances. A rolled-back or forked card is an error.
 func (c *cardMarkCache) admit(self string, v *a2acard.Verified) error {

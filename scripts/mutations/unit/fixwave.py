@@ -362,9 +362,9 @@ MUTS = [
  ),
  dict(
   id='fx15-2', group='F15', repo='ANet',
-  desc='requester 收结果时不传 request CID',
+  desc='requester 收结果时不采纳对回执(含 request CID)的核对结论',
   edits=[
-   ('internal/daemon/delegation.go', 'evidence.VerifyResultForRequest(rr, m.kel, m.ix, d.AID(), ix.PeerAID, ix.RequestCID, m.ts)', 'evidence.VerifyResultForRequest(rr, m.kel, m.ix, d.AID(), ix.PeerAID, "", m.ts)'),
+   ('internal/daemon/delegation.go', '\tswitch _, verr := delegation.VerifyResultForRequest(rr, m.kel, check, m.ts); {\n\tcase verr == nil:', '\tswitch _, verr := delegation.VerifyResultForRequest(rr, m.kel, check, m.ts); {\n\tcase true:'),
   ],
   tests=[('ANet:./internal/daemon', 'TestAReceiptForAnotherRequestIsRefused')],
   full=['ANet:./internal/daemon'],
@@ -373,7 +373,7 @@ MUTS = [
   id='fx15-3', group='F15', repo='ANet',
   desc='签评价前不核对回执的 request CID',
   edits=[
-   ('internal/daemon/delegation.go', '\tcase ix.RequestCID != "" && rc.RequestCID != ix.RequestCID:', '\tcase false && ix.RequestCID != "" && rc.RequestCID != ix.RequestCID:'),
+   ('internal/daemon/review.go', '\tcase ix.RequestCID != "" && rc.RequestCID != ix.RequestCID:', '\tcase false && ix.RequestCID != "" && rc.RequestCID != ix.RequestCID:'),
   ],
   tests=[('ANet:./internal/daemon', 'TestAReviewIsNotAnchoredToAReceiptForAnotherRequest')],
   full=['ANet:./internal/daemon'],

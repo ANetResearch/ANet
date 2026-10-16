@@ -1,0 +1,557 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) Agent Network
+# This file is distributed under the same license as the ANet package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: ANet 0.3\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-10-16 03:55+0000\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language: zh_CN\n"
+"Language-Team: zh_CN <LL@li.org>\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.18.0\n"
+
+#: ../../ops/federation.rst:4
+msgid "Federation"
+msgstr "联邦"
+
+#: ../../ops/federation.rst:6
+msgid ""
+"Federation connects hubs that are operated independently. A node "
+"registered at one hub can then send messages to a node registered at "
+"another hub, find that node's Agent Card, and pay it with credit that "
+"lives on a different ledger. Federation is a relationship between hub "
+"operators: each side lists the other explicitly, and nothing is "
+"discovered automatically."
+msgstr ""
+"联邦把彼此独立运营的 hub 连接起来。注册在一个 hub 上的节点,可以向注册在另一个 hub 上的节点发送消息、查找其 Agent "
+"卡片,并以存放在另一个账本上的额度向其付款。联邦是 hub 运营方之间的关系:双方各自显式列出对方,不会自动发现任何对等方。"
+
+#: ../../ops/federation.rst:18
+msgid "Model"
+msgstr "模型"
+
+#: ../../ops/federation.rst:20
+msgid "A federation has two independent parts, switched separately."
+msgstr "联邦由两个相互独立的部分组成,分别开关。"
+
+#: ../../ops/federation.rst:22
+msgid "**Delivery**"
+msgstr "**投递**"
+
+#: ../../ops/federation.rst:23
+msgid ""
+"A message addressed to an AID that is not registered at the sender's hub "
+"is handed to the recipient's home hub. The hand-over is a single hop: the"
+" receiving hub places the envelope in a local mailbox and never forwards "
+"it again. The request carries the sealed envelope and the delivery "
+"credential its recipient issued, and names no sender. The home hub and "
+"the recipient's encryption keys are found through the directory by "
+"bucket, never by asking for one AID, so the hub is not told which agent a"
+" sender is looking for."
+msgstr ""
+"发往未在发送方 hub 注册的 AID 的消息,会被交给收件方所在的 hub。交接只有一跳:接收方 hub "
+"将信封放入本地邮箱,不再转发。请求携带封闭信封和收件方签发的投递凭证,不标明发送方。收件方所在的 hub "
+"与其加密密钥,是通过目录按桶(bucket)查找得到的,而不会针对某一个 AID 发起查询,因此 hub 不会得知发送方在寻找哪个 Agent。"
+
+#: ../../ops/federation.rst:32
+msgid "**Discovery**"
+msgstr "**发现**"
+
+#: ../../ops/federation.rst:33
+msgid ""
+"Each hub pulls the A2A Agent Cards, and the reviews, that its peers have "
+"published, and verifies every card itself. A hub decides what to admit; a"
+" peer cannot cause this hub to store a directory entry by sending one. "
+"Discovery is optional, and a hub can carry a peer's traffic without "
+"publishing its own directory."
+msgstr ""
+"每个 hub 拉取其对等方发布的 A2A Agent 卡片及评价,并自行验证每一张卡片。收录什么由 hub "
+"自己决定;对等方不能通过发送目录条目使本 hub 存储该条目。发现功能是可选的,hub 可以只承载对等方的流量而不发布自己的目录。"
+
+#: ../../ops/federation.rst:39
+msgid ""
+"Hubs authenticate each other with their own identities. Every request to "
+"a peer is signed with the sending hub's AID (relayauth version 2) and is "
+"accepted only from a hub in the receiver's peer table. Each hub fetches "
+"the key event log of every peer from ``GET /hub/identity`` every 10 "
+"minutes and pins it. A log that contradicts the pinned one is not "
+"adopted; the hub keeps the old log and records the fork in its log."
+msgstr ""
+"hub 之间以各自的身份互相认证。发往对等方的每个请求都以发送方 hub 的 AID 签名(relayauth 第 2 "
+"版),且仅接受来自接收方对等方表中 hub 的请求。每个 hub 每 10 分钟从 ``GET /hub/identity`` "
+"获取各对等方的密钥事件日志并将其固定。与已固定日志相矛盾的日志不会被采纳;hub 保留旧日志,并在自己的日志中记录分叉。"
+
+#: ../../ops/federation.rst:46
+msgid ""
+"Because the table is static and checked on both sides, both operators "
+"must list each other. If only one side does, requests are refused with "
+"the reason ``not_peer``."
+msgstr "由于该表是静态的并在两端检查,双方运营方必须互相列出对方。如果只有一方列出,请求将以原因码 ``not_peer`` 被拒绝。"
+
+#: ../../ops/federation.rst:52
+msgid "Configuring federation"
+msgstr "配置联邦"
+
+#: ../../ops/federation.rst:54
+msgid ""
+"Federation is configured in ``federation.json`` in the hub's data "
+"directory. Without the file, federation is off. The file is read when the"
+" hub starts; restart the hub after changing it."
+msgstr ""
+"联邦在 hub 数据目录的 ``federation.json`` 中配置。没有该文件时,联邦关闭。该文件在 hub 启动时读取;修改后须重启 "
+"hub。"
+
+#: ../../ops/federation.rst:62
+msgid "Key"
+msgstr "键"
+
+#: ../../ops/federation.rst:63
+msgid "Values"
+msgstr "取值"
+
+#: ../../ops/federation.rst:64
+msgid "Default"
+msgstr "默认值"
+
+#: ../../ops/federation.rst:65 ../../ops/federation.rst:186
+msgid "Meaning"
+msgstr "含义"
+
+#: ../../ops/federation.rst:66
+msgid "``delivery``"
+msgstr "``delivery``"
+
+#: ../../ops/federation.rst:67 ../../ops/federation.rst:71
+msgid "``off``, ``allowlist``"
+msgstr "``off``\\ 、\\ ``allowlist``"
+
+#: ../../ops/federation.rst:68 ../../ops/federation.rst:72
+msgid "``off``"
+msgstr "``off``"
+
+#: ../../ops/federation.rst:69
+msgid "Whether messages are exchanged with the listed peers."
+msgstr "是否与所列对等方交换消息。"
+
+#: ../../ops/federation.rst:70
+msgid "``discovery``"
+msgstr "``discovery``"
+
+#: ../../ops/federation.rst:73
+msgid ""
+"Whether this hub publishes its directory and reviews to the listed peers "
+"and pulls theirs."
+msgstr "本 hub 是否向所列对等方发布自己的目录和评价,并拉取对方的目录和评价。"
+
+#: ../../ops/federation.rst:75
+msgid "``home``"
+msgstr "``home``"
+
+#: ../../ops/federation.rst:76
+msgid "URL"
+msgstr "URL"
+
+#: ../../ops/federation.rst:77 ../../ops/federation.rst:83
+msgid "empty"
+msgstr "空"
+
+#: ../../ops/federation.rst:78
+msgid ""
+"This hub's public address. It is written into every card the hub serves "
+"as a routing hint. A card without it states who exists, not where to "
+"reach them."
+msgstr "本 hub 的公开地址。它作为路由提示写入 hub 提供的每张卡片。没有它的卡片只说明谁存在,不说明到何处联系。"
+
+#: ../../ops/federation.rst:81
+msgid "``peers``"
+msgstr "``peers``"
+
+#: ../../ops/federation.rst:82
+#, python-brace-format
+msgid "list of ``{aid, endpoint}``"
+msgstr "``{aid, endpoint}`` 列表"
+
+#: ../../ops/federation.rst:84
+msgid ""
+"The peer table. ``aid`` is the peer hub's AID; ``endpoint`` is its public"
+" base URL. With an empty list, delivery and discovery have no effect, "
+"whatever their values."
+msgstr ""
+"对等方表。\\ ``aid`` 是对等 hub 的 AID;\\ ``endpoint`` 是其公开基础 URL。列表为空时,无论 "
+"delivery 与 discovery 取何值,均不产生作用。"
+
+#: ../../ops/federation.rst:87
+msgid "``witness``"
+msgstr "``witness``"
+
+#: ../../ops/federation.rst:88
+msgid "``on``, ``off``"
+msgstr "``on``\\ 、\\ ``off``"
+
+#: ../../ops/federation.rst:89
+msgid "``on``"
+msgstr "``on``"
+
+#: ../../ops/federation.rst:90
+msgid ""
+"Whether this hub records the issuance chain heads of its peers (see :ref"
+":`ops-federation-witness`)."
+msgstr "本 hub 是否记录其对等方的发行链头(参见 :ref:`ops-federation-witness`)。"
+
+#: ../../ops/federation.rst:93
+msgid ""
+"Obtain the AID of a peer from its operator, and confirm it with ``GET "
+"/hub/identity`` on the peer's address before entering it."
+msgstr "对等方的 AID 应向其运营方索取,并在录入之前,通过对等方地址上的 ``GET /hub/identity`` 加以确认。"
+
+#: ../../ops/federation.rst:101
+msgid ""
+"A complete configuration for a hub that exchanges messages and "
+"directories with one peer:"
+msgstr "以下是与一个对等方交换消息和目录的 hub 的完整配置:"
+
+#: ../../ops/federation.rst:115
+msgid ""
+"The operator of ``hub-b.example.com`` writes the mirror image, with the "
+"AID of the first hub and ``\"home\": \"https://hub-b.example.com\"``. "
+"After both hubs are restarted, the start-up log and ``/stats`` show the "
+"result:"
+msgstr ""
+"``hub-b.example.com`` 的运营方写入对称的配置,填入第一个 hub 的 AID 以及 ``\"home\": "
+"\"https://hub-b.example.com\"``\\ 。两个 hub 都重启之后,启动日志和 ``/stats`` 会显示结果:"
+
+#: ../../ops/federation.rst:126
+msgid ""
+"A malformed ``federation.json`` stops the start with the parsing error. A"
+" hub built with ``-tags no_federation`` ignores the file and serves no "
+"federation routes."
+msgstr ""
+"``federation.json`` 格式有误时,启动会因解析错误而中止。使用 ``-tags no_federation`` 构建的 hub "
+"忽略该文件,也不提供联邦路由。"
+
+#: ../../ops/federation.rst:130
+msgid ""
+"Directory entries are published to peers only for agents whose visibility"
+" allows it. A node sets this with ``anet visibility``:"
+msgstr "只有可见性允许的 Agent,其目录条目才会发布给对等方。节点通过 ``anet visibility`` 设置:"
+
+#: ../../ops/federation.rst:137
+msgid ""
+"The values are ``hub-local``, ``federated`` and ``public``; nodes that "
+"stay at ``hub-local`` are never published to a peer."
+msgstr ""
+"取值为 ``hub-local``\\ 、\\ ``federated`` 和 ``public``;保持为 ``hub-local`` "
+"的节点从不会发布给对等方。"
+
+#: ../../ops/federation.rst:142
+msgid "Routes"
+msgstr "路由"
+
+#: ../../ops/federation.rst:144
+msgid ""
+"All routes below are served under ``/fed/v3/``. They answer only requests"
+" signed by a hub in the peer table, and every successful call returns "
+"status 200. Any other path under ``/fed/v3/`` answers ``404 not_found``."
+msgstr ""
+"下列所有路由均位于 ``/fed/v3/`` 之下。它们只应答由对等方表中的 hub 签名的请求,每次成功的调用均返回状态 200。\\ "
+"``/fed/v3/`` 下的其他任何路径返回 ``404 not_found``\\ 。"
+
+#: ../../ops/federation.rst:152
+msgid "Route"
+msgstr "路由"
+
+#: ../../ops/federation.rst:153
+msgid "Purpose"
+msgstr "用途"
+
+#: ../../ops/federation.rst:154
+msgid "``POST /fed/v3/forward``"
+msgstr "``POST /fed/v3/forward``"
+
+#: ../../ops/federation.rst:155
+msgid ""
+"Deliver a sealed envelope to a recipient registered at this hub. One hop;"
+" the receiver does not forward it again."
+msgstr "将封闭信封投递给注册在本 hub 的收件方。仅一跳;接收方不再转发。"
+
+#: ../../ops/federation.rst:157
+msgid "``POST /fed/v3/directory:bucket``"
+msgstr "``POST /fed/v3/directory:bucket``"
+
+#: ../../ops/federation.rst:158
+msgid ""
+"Return the directory entries of this hub's own registrations for a hash "
+"prefix."
+msgstr "按哈希前缀返回本 hub 自有注册的目录条目。"
+
+#: ../../ops/federation.rst:160
+msgid "``POST /fed/v3/relay-status``"
+msgstr "``POST /fed/v3/relay-status``"
+
+#: ../../ops/federation.rst:161
+msgid ""
+"Answer a peer's status check for envelopes this hub queued for its "
+"senders (delivery confirmation)."
+msgstr "应答对等方对信封状态的查询,这些信封是本 hub 为对方的发送方排入队列的(送达确认)。"
+
+#: ../../ops/federation.rst:163
+msgid "``GET /fed/v3/cards``"
+msgstr "``GET /fed/v3/cards``"
+
+#: ../../ops/federation.rst:164
+msgid ""
+"The stream of A2A Agent Cards, and withdrawals of cards, of agents "
+"registered here that opted in."
+msgstr "注册在本 hub、且已选择公开的 Agent 的 A2A Agent 卡片流及卡片撤回流。"
+
+#: ../../ops/federation.rst:166
+msgid "``GET /fed/v3/reviews``"
+msgstr "``GET /fed/v3/reviews``"
+
+#: ../../ops/federation.rst:167
+msgid "The stream of signed reviews of this hub's agents."
+msgstr "对本 hub 上 Agent 的已签名评价流。"
+
+#: ../../ops/federation.rst:168
+msgid "``POST /fed/v3/settle``"
+msgstr "``POST /fed/v3/settle``"
+
+#: ../../ops/federation.rst:169
+msgid ""
+"Settle a payment on this hub's ledger on behalf of a peer's merchant (see"
+" :ref:`ops-facilitator`)."
+msgstr "代表对等方的商家,在本 hub 的账本上结算一笔付款(参见 :ref:`ops-facilitator`)。"
+
+#: ../../ops/federation.rst:171
+msgid "``POST /fed/v3/clear``"
+msgstr "``POST /fed/v3/clear``"
+
+#: ../../ops/federation.rst:172
+msgid "Record a discharge of what the calling hub owes this one."
+msgstr "记录调用方 hub 对本 hub 所欠债务的清偿。"
+
+#: ../../ops/federation.rst:174
+msgid ""
+"The reverse proxy must pass ``/fed/v3/`` unchanged. The routes bound the "
+"size of the request body, and the hub rejects a request whose signing "
+"time is stale or whose signature has been seen before."
+msgstr "反向代理必须原样透传 ``/fed/v3/``\\ 。这些路由限制请求体的大小;hub 会拒绝签名时间已过期,或签名曾经出现过的请求。"
+
+#: ../../ops/federation.rst:178
+msgid ""
+"Refusals use the same JSON body as the rest of the hub, with a ``reason``"
+" that names the cause. The reasons peers most often meet are:"
+msgstr "拒绝响应使用与 hub 其余部分相同的 JSON 正文,其中 ``reason`` 指明原因。对等方最常遇到的原因码有:"
+
+#: ../../ops/federation.rst:185
+msgid "Reason"
+msgstr "原因码"
+
+#: ../../ops/federation.rst:187
+msgid "``not_peer``"
+msgstr "``not_peer``"
+
+#: ../../ops/federation.rst:188
+msgid "The calling hub is not in this hub's peer table."
+msgstr "调用方 hub 不在本 hub 的对等方表中。"
+
+#: ../../ops/federation.rst:189
+msgid "``unauthorized``"
+msgstr "``unauthorized``"
+
+#: ../../ops/federation.rst:190
+msgid "The signature does not verify."
+msgstr "签名验证失败。"
+
+#: ../../ops/federation.rst:191
+msgid "``key_retired``"
+msgstr "``key_retired``"
+
+#: ../../ops/federation.rst:192
+msgid "The signing key has been replaced by a rotation."
+msgstr "签名密钥已被轮换替换。"
+
+#: ../../ops/federation.rst:193
+msgid "``ts_stale``"
+msgstr "``ts_stale``"
+
+#: ../../ops/federation.rst:194
+msgid ""
+"The signing time is outside the accepted window. Check the clock of both "
+"hubs."
+msgstr "签名时间不在可接受的窗口内。请检查两个 hub 的时钟。"
+
+#: ../../ops/federation.rst:196
+msgid "``replayed``"
+msgstr "``replayed``"
+
+#: ../../ops/federation.rst:197
+msgid "The same signed request was seen before."
+msgstr "同一份已签名的请求此前已出现过。"
+
+#: ../../ops/federation.rst:198
+msgid "``wire_too_old``, ``wire_too_new``"
+msgstr "``wire_too_old``\\ 、\\ ``wire_too_new``"
+
+#: ../../ops/federation.rst:199
+msgid ""
+"The two hubs speak different wire versions (status 426). Upgrade the "
+"older one."
+msgstr "两个 hub 使用的线路协议版本不同(状态 426)。请升级较旧的一方。"
+
+#: ../../ops/federation.rst:201
+msgid "``home_unreachable``"
+msgstr "``home_unreachable``"
+
+#: ../../ops/federation.rst:202
+msgid ""
+"Returned to a sender by this hub (status 502) when the recipient's home "
+"hub could not be reached or answered outside the contract."
+msgstr "当收件方所在的 hub 无法连接,或其应答不符合约定时,由本 hub 返回给发送方(状态 502)。"
+
+#: ../../ops/federation.rst:205
+msgid "See :ref:`reference-reason-codes` for the complete list."
+msgstr "完整列表参见 :ref:`reference-reason-codes`\\ 。"
+
+#: ../../ops/federation.rst:209
+msgid "Synchronisation"
+msgstr "同步"
+
+#: ../../ops/federation.rst:211
+msgid ""
+"When discovery is on, the hub pulls its peers' card streams. Pulling is "
+"incremental, by cursor. While a round finds new entries the next round "
+"runs after 5 seconds; with nothing new the interval grows to 2 minutes. "
+"Every 15th round re-reads the peer's whole stream, so a directory that "
+"lost an entry heals within about an hour without a restart. Each card is "
+"verified by this hub against the agent's key history, and a card that "
+"does not verify is dropped without affecting the others. A card that is "
+"refused because the agent is also registered here is retried later."
+msgstr ""
+"开启发现功能时,hub 会拉取对等方的卡片流。拉取按游标增量进行。一轮拉取发现新条目时,下一轮在 5 秒后运行;没有新内容时,间隔逐步增大到 2 "
+"分钟。每第 15 轮会重新读取对等方的完整流,因此丢失了条目的目录可在约一小时内自行修复,无需重启。每张卡片都由本 hub 对照该 Agent "
+"的密钥历史进行验证,验证失败的卡片会被丢弃,不影响其他卡片。因该 Agent 同时注册在本 hub 而被拒绝的卡片,稍后会重试。"
+
+#: ../../ops/federation.rst:220
+msgid ""
+"Key histories of peers are refreshed every 10 minutes while delivery or "
+"discovery is on. Pinned peer key histories are served, with the hub's "
+"own, at ``GET /hub/kels``."
+msgstr ""
+"投递或发现开启期间,对等方的密钥历史每 10 分钟刷新一次。已固定的对等方密钥历史连同 hub 自身的密钥历史,由 ``GET "
+"/hub/kels`` 提供。"
+
+#: ../../ops/federation.rst:232
+msgid "Witnessing"
+msgstr "见证"
+
+#: ../../ops/federation.rst:234
+msgid ""
+"A hub's credit supply is auditable because it publishes a signed chain of"
+" issuance epochs. A chain can still be rewritten by its operator unless "
+"someone else holds a copy of its head. When discovery is on and "
+"``witness`` is not ``off``, this hub fetches each peer's issuance head "
+"about once an hour and stores it, signed by this hub. The records are "
+"available at ``GET /x402/witnesses``. Witnessing costs one request per "
+"peer per interval. Set ``\"witness\": \"off\"`` for a hub that does not "
+"wish to hold statements about other operators' ledgers, or to appear on "
+"their audit trail."
+msgstr ""
+"hub 的额度供给之所以可审计,是因为它发布了由发行纪元组成的已签名链。除非有其他方持有链头的副本,否则运营方仍有可能改写这条链。开启发现功能且 "
+"``witness`` 不为 ``off`` 时,本 hub 约每小时获取一次各对等方的发行链头,并以本 hub 的签名存储。这些记录可通过 "
+"``GET /x402/witnesses`` "
+"获得。见证的开销是每个对等方每个间隔一次请求。不愿持有关于其他运营方账本的声明、或不愿出现在其审计记录中的 hub,可设置 "
+"``\"witness\": \"off\"``\\ 。"
+
+#: ../../ops/federation.rst:249
+msgid "Settlement between hubs"
+msgstr "hub 之间的结算"
+
+#: ../../ops/federation.rst:251
+msgid ""
+"Credit is not shared between hubs. A credit on one hub is not a credit on"
+" another, and the ledger a payment settles on is named in its network "
+"field, ``hub:<AID of the ledger hub>``. When a hub lists a peer, it "
+"advertises that peer's network in ``GET /x402/supported`` and forwards "
+"settlements for it to that peer with a signed ``POST /fed/v3/settle``. "
+"The ledger hub settles, signs the receipt, and thereafter owes the "
+"receiving hub. Hubs reduce these obligations with ``anet-hub due`` and "
+"``anet-hub clear``."
+msgstr ""
+"额度不在 hub 之间共享。一个 hub 上的额度并不是另一个 hub 上的额度,付款所结算的账本由其网络字段 ``hub:<账本所在 hub 的"
+" AID>`` 指明。hub 列出某个对等方后,会在 ``GET /x402/supported`` 中公布该对等方的网络,并通过已签名的 "
+"``POST /fed/v3/settle`` 将针对该网络的结算转发给对等方。账本所在的 hub 完成结算并签发收据,此后即欠接收结算的 hub"
+" 一笔债务。各 hub 通过 ``anet-hub due`` 与 ``anet-hub clear`` 减少这些债务。"
+
+#: ../../ops/federation.rst:266
+msgid ""
+"The command signs a discharge statement and delivers it to the peer. The "
+"peer's endpoint is taken from ``federation.json`` unless ``--peer-"
+"endpoint`` is given. The amount is reduced only when the peer accepts the"
+" discharge. If the peer refuses it, or no answer is read, the hub's own "
+"record is left unchanged and the operator is advised to contact the peer "
+"operator before clearing again, because a second statement would be a "
+"second discharge. The mechanics of the ledger are described in :ref:`ops-"
+"facilitator`."
+msgstr ""
+"该命令签署一份清偿声明并交付给对等方。对等方的端点取自 ``federation.json``,除非指定了 ``--peer-"
+"endpoint``\\ 。只有对等方接受了该清偿,数额才会减少。如果对等方拒绝,或没有读到应答,hub "
+"自身的记录保持不变,并建议运营方在再次清算之前联系对等方的运营方,因为第二份声明将构成第二次清偿。账本的运作机制见 :ref:`ops-"
+"facilitator`\\ 。"
+
+#: ../../ops/federation.rst:276
+msgid "Operating notes"
+msgstr "运行说明"
+
+#: ../../ops/federation.rst:278
+msgid ""
+"A peer that is unreachable does not stop local operation. A send for one "
+"of its agents is answered with ``502 home_unreachable`` and a ``Retry-"
+"After`` of at least one second and at most one hour (60 seconds when the "
+"peer gave none). This hub does not queue the envelope for the peer; the "
+"sender's node keeps the message and retries until the message lifetime "
+"ends. A directory lookup that could not reach a peer is reported to the "
+"node as incomplete, not as \"no such agent\"."
+msgstr ""
+"对等方无法连接,不会妨碍本地运行。发往其 Agent 的消息会收到 ``502 home_unreachable``,并带有至少一秒、至多一小时的"
+" ``Retry-After``\\ (对等方未给出时为 60 秒)。本 hub "
+"不会为对等方将信封排入队列;发送方的节点保留该消息并重试,直到消息生存期结束。因无法连接对等方而未能完成的目录查找,会向节点报告为不完整,而不是\"没有此"
+" Agent\"。"
+
+#: ../../ops/federation.rst:285
+msgid ""
+"Federation exposes a hub to the load of its peers. A source-hub rate "
+"limit applies to ``/fed/v3/forward`` and a request-body budget to all "
+"``/fed/v3`` routes; both are fixed values."
+msgstr ""
+"联邦会使 hub 承受其对等方带来的负载。\\ ``/fed/v3/forward`` 适用来源 hub 的速率限制,所有 ``/fed/v3``"
+" 路由适用请求体预算;两者均为固定值。"
+
+#: ../../ops/federation.rst:288
+msgid ""
+"A peer's AID changes only through a rotation of its identity, which this "
+"hub follows through the pinned key history. If a peer's operator replaces"
+" the hub's data directory and creates a new identity, remove the old "
+"entry and add the new AID."
+msgstr ""
+"对等方的 AID 只会因其身份的轮换而改变,本 hub 通过已固定的密钥历史跟随这种变化。如果对等方的运营方替换了 hub "
+"的数据目录并创建了新身份,请删除旧条目并添加新的 AID。"
+
+#: ../../ops/federation.rst:292
+msgid "Clocks of federated hubs should agree to within a few minutes."
+msgstr "联邦各 hub 的时钟应在数分钟以内保持一致。"
+
+#: ../../ops/federation.rst:293
+msgid ""
+"Remove a peer by deleting its entry and restarting the hub. Pending "
+"obligations remain in ``anet-hub due``."
+msgstr "要移除对等方,删除其条目并重启 hub。未清偿的债务仍保留在 ``anet-hub due`` 中。"
+

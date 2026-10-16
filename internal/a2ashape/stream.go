@@ -194,7 +194,7 @@ const maxKeptMetaValue = 512
 // keptFirst are the keys a cut keeps before any other (fitMetadata): the
 // effect status and why the task is in its state (SI-6), then who and what
 // it is. A reader of a cut task still learns whether its effect happened.
-var keptFirst = []string{KeyEffectStatus, KeyReason, KeyRole, KeyReceiptVerified, KeyPeerAID, KeyTrust,
+var keptFirst = []string{KeyEffectStatus, KeyReason, KeyDelivery, KeyDeliveryDetail, KeyDeliveryWait, KeyRole, KeyReceiptVerified, KeyPeerAID, KeyTrust,
 	KeyStateSeq, KeySkill, KeyState, KeyRetryAfterMS, KeyCancelRequested, KeyX402Status, KeyInbound}
 
 // fitMetadata is meta if it fits in budget; otherwise the truncation mark

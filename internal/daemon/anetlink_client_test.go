@@ -18,7 +18,6 @@ import (
 	"github.com/ANetResearch/ANet/internal/a2ashape"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 	"github.com/ANetResearch/ANet/provider"
-	linkprov "github.com/ANetResearch/ANet/provider/anetlink"
 )
 
 // refusingProvider answers every call with a refusal for reason, its log detail naming what the
@@ -200,38 +199,6 @@ func TestOnlyCapabilitiesRemoteCallersMayUseArePublished(t *testing.T) {
 	}
 	if got := d.publicOnly(caps); !slices.Equal(got, []string{"text.echo"}) {
 		t.Fatalf("with the provider unable to answer, the registration lists %v", got)
-	}
-}
-
-// CC-6: the socket the sandbox is kept from is modules.anetlink.socket, or the default where the
-// block leaves it out; providers.anetlink is not read (Config has no field for it).
-func TestTheSandboxIsKeptFromTheModulesSocket(t *testing.T) {
-	t.Setenv("XDG_RUNTIME_DIR", "/run/user/4242")
-	cfg := Config{Modules: ModulesConfig{"anetlink": json.RawMessage(`{"socket":"/srv/link/c1.sock"}`)}}
-	if got := anetlinkSockets(cfg); !slices.Equal(got, []string{"/srv/link/c1.sock"}) {
-		t.Fatalf("configured socket: %v", got)
-	}
-	cfg.Modules["anetlink"] = json.RawMessage(`{}`)
-	if got := anetlinkSockets(cfg); !slices.Equal(got, []string{"/run/user/4242/anetlink/c1.sock"}) {
-		t.Fatalf("default socket: %v", got)
-	}
-	t.Setenv("XDG_RUNTIME_DIR", "")
-	if got := anetlinkSockets(Config{}); got != nil {
-		t.Fatalf("no XDG_RUNTIME_DIR, no block: %v", got)
-	}
-}
-
-// The daemon's default socket is the client's, which is anetlinkd's: neither side needs configuring
-// for the two to meet. (The daemon cannot import the client: -tags no_anetlink leaves it out.)
-func TestTheDaemonKnowsANetLinksDefaultSocket(t *testing.T) {
-	t.Setenv("XDG_RUNTIME_DIR", "/run/user/4242")
-	want, err := linkprov.DefaultSocket()
-	if err != nil || anetlinkDefaultSocket() != want {
-		t.Fatalf("daemon %q, client %q (%v)", anetlinkDefaultSocket(), want, err)
-	}
-	t.Setenv("XDG_RUNTIME_DIR", "")
-	if _, err := linkprov.DefaultSocket(); err == nil || anetlinkDefaultSocket() != "" {
-		t.Fatal("without XDG_RUNTIME_DIR neither has a default")
 	}
 }
 

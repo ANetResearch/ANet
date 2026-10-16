@@ -1,0 +1,397 @@
+[
+ {
+  "name": "fresh install",
+  "amount": 3,
+  "limits": {
+   "auto_max": 0,
+   "agent_max": 0,
+   "agent_daily_max": 0,
+   "explicit_max": 10,
+   "daily_max": 50
+  },
+  "spent_today": 0,
+  "agent_spent_today": 0,
+  "payee_listed": false,
+  "payees_readable": true,
+  "capability": "translate",
+  "price_have": true,
+  "price": 3,
+  "expired": false,
+  "not_payable": false,
+  "want": {
+   "who": "operator",
+   "amount": "3",
+   "reason": "over_single_limit",
+   "reason_tier": "agent",
+   "reason_limit": "0"
+  }
+ },
+ {
+  "name": "agent signs, automatic tier off",
+  "amount": 3,
+  "limits": {
+   "auto_max": 0,
+   "agent_max": 10,
+   "agent_daily_max": 50,
+   "explicit_max": 10,
+   "daily_max": 50
+  },
+  "spent_today": 0,
+  "agent_spent_today": 0,
+  "payee_listed": true,
+  "payees_readable": true,
+  "capability": "translate",
+  "price_have": true,
+  "price": 3,
+  "expired": false,
+  "not_payable": false,
+  "want": {
+   "who": "agent",
+   "amount": "3",
+   "reason": "over_single_limit",
+   "reason_tier": "auto",
+   "reason_limit": "0"
+  }
+ },
+ {
+  "name": "agent signs, automatic tier over its limit",
+  "amount": 7,
+  "limits": {
+   "auto_max": 5,
+   "agent_max": 10,
+   "agent_daily_max": 50,
+   "explicit_max": 10,
+   "daily_max": 50
+  },
+  "spent_today": 0,
+  "agent_spent_today": 0,
+  "payee_listed": true,
+  "payees_readable": true,
+  "capability": "translate",
+  "price_have": true,
+  "price": 7,
+  "expired": false,
+  "not_payable": false,
+  "want": {
+   "who": "agent",
+   "amount": "7",
+   "reason": "over_single_limit",
+   "reason_tier": "auto",
+   "reason_limit": "5"
+  }
+ },
+ {
+  "name": "automatic tier would sign too",
+  "amount": 3,
+  "limits": {
+   "auto_max": 5,
+   "agent_max": 10,
+   "agent_daily_max": 50,
+   "explicit_max": 10,
+   "daily_max": 50
+  },
+  "spent_today": 0,
+  "agent_spent_today": 0,
+  "payee_listed": true,
+  "payees_readable": true,
+  "capability": "translate",
+  "price_have": true,
+  "price": 3,
+  "expired": false,
+  "not_payable": false,
+  "want": {
+   "who": "agent",
+   "amount": "3",
+   "reason": "auto_failed",
+   "reason_tier": "auto"
+  }
+ },
+ {
+  "name": "agent daily limit",
+  "amount": 3,
+  "limits": {
+   "auto_max": 0,
+   "agent_max": 10,
+   "agent_daily_max": 5,
+   "explicit_max": 10,
+   "daily_max": 50
+  },
+  "spent_today": 4,
+  "agent_spent_today": 4,
+  "payee_listed": true,
+  "payees_readable": true,
+  "capability": "translate",
+  "price_have": true,
+  "price": 3,
+  "expired": false,
+  "not_payable": false,
+  "want": {
+   "who": "operator",
+   "amount": "3",
+   "reason": "over_agent_daily_limit",
+   "reason_tier": "agent",
+   "reason_limit": "1"
+  }
+ },
+ {
+  "name": "daily limit stops the agent, a person may still pay",
+  "amount": 10,
+  "limits": {
+   "auto_max": 0,
+   "agent_max": 10,
+   "agent_daily_max": 100,
+   "explicit_max": 10,
+   "daily_max": 50
+  },
+  "spent_today": 45,
+  "agent_spent_today": 0,
+  "payee_listed": true,
+  "payees_readable": true,
+  "capability": "translate",
+  "price_have": true,
+  "price": 10,
+  "expired": false,
+  "not_payable": false,
+  "want": {
+   "who": "nobody",
+   "amount": "10",
+   "reason": "over_daily_limit",
+   "reason_tier": "manual",
+   "reason_limit": "5"
+  }
+ },
+ {
+  "name": "payee not on the list",
+  "amount": 3,
+  "limits": {
+   "auto_max": 0,
+   "agent_max": 10,
+   "agent_daily_max": 50,
+   "explicit_max": 10,
+   "daily_max": 50
+  },
+  "spent_today": 0,
+  "agent_spent_today": 0,
+  "payee_listed": false,
+  "payees_readable": true,
+  "capability": "translate",
+  "price_have": true,
+  "price": 3,
+  "expired": false,
+  "not_payable": false,
+  "want": {
+   "who": "operator",
+   "amount": "3",
+   "reason": "payee_not_allowed",
+   "reason_tier": "agent"
+  }
+ },
+ {
+  "name": "payee list unreadable",
+  "amount": 3,
+  "limits": {
+   "auto_max": 0,
+   "agent_max": 10,
+   "agent_daily_max": 50,
+   "explicit_max": 10,
+   "daily_max": 50
+  },
+  "spent_today": 0,
+  "agent_spent_today": 0,
+  "payee_listed": false,
+  "payees_readable": false,
+  "capability": "translate",
+  "price_have": true,
+  "price": 3,
+  "expired": false,
+  "not_payable": false,
+  "want": {
+   "who": "operator",
+   "amount": "3",
+   "reason": "payees_unreadable",
+   "reason_tier": "agent"
+  }
+ },
+ {
+  "name": "quote above the signed price",
+  "amount": 3,
+  "limits": {
+   "auto_max": 0,
+   "agent_max": 10,
+   "agent_daily_max": 50,
+   "explicit_max": 10,
+   "daily_max": 50
+  },
+  "spent_today": 0,
+  "agent_spent_today": 0,
+  "payee_listed": true,
+  "payees_readable": true,
+  "capability": "translate",
+  "price_have": true,
+  "price": 2,
+  "expired": false,
+  "not_payable": false,
+  "want": {
+   "who": "operator",
+   "amount": "3",
+   "reason": "quote_above_card_price",
+   "reason_tier": "agent"
+  }
+ },
+ {
+  "name": "no signed price known",
+  "amount": 3,
+  "limits": {
+   "auto_max": 0,
+   "agent_max": 10,
+   "agent_daily_max": 50,
+   "explicit_max": 10,
+   "daily_max": 50
+  },
+  "spent_today": 0,
+  "agent_spent_today": 0,
+  "payee_listed": true,
+  "payees_readable": true,
+  "capability": "translate",
+  "price_have": false,
+  "price": 3,
+  "expired": false,
+  "not_payable": false,
+  "want": {
+   "who": "operator",
+   "amount": "3",
+   "reason": "card_price_unavailable",
+   "reason_tier": "agent"
+  }
+ },
+ {
+  "name": "text task has no signed price",
+  "amount": 3,
+  "limits": {
+   "auto_max": 0,
+   "agent_max": 10,
+   "agent_daily_max": 50,
+   "explicit_max": 10,
+   "daily_max": 50
+  },
+  "spent_today": 0,
+  "agent_spent_today": 0,
+  "payee_listed": true,
+  "payees_readable": true,
+  "capability": "",
+  "price_have": true,
+  "price": 3,
+  "expired": false,
+  "not_payable": false,
+  "want": {
+   "who": "operator",
+   "amount": "3",
+   "reason": "card_price_unavailable",
+   "reason_tier": "agent"
+  }
+ },
+ {
+  "name": "quote above every limit",
+  "amount": 30,
+  "limits": {
+   "auto_max": 0,
+   "agent_max": 10,
+   "agent_daily_max": 50,
+   "explicit_max": 10,
+   "daily_max": 50
+  },
+  "spent_today": 0,
+  "agent_spent_today": 0,
+  "payee_listed": true,
+  "payees_readable": true,
+  "capability": "translate",
+  "price_have": true,
+  "price": 30,
+  "expired": false,
+  "not_payable": false,
+  "want": {
+   "who": "nobody",
+   "amount": "30",
+   "reason": "over_single_limit",
+   "reason_tier": "manual",
+   "reason_limit": "10"
+  }
+ },
+ {
+  "name": "manual single limit zero",
+  "amount": 1,
+  "limits": {
+   "auto_max": 0,
+   "agent_max": 0,
+   "agent_daily_max": 0,
+   "explicit_max": 0,
+   "daily_max": 50
+  },
+  "spent_today": 0,
+  "agent_spent_today": 0,
+  "payee_listed": true,
+  "payees_readable": true,
+  "capability": "translate",
+  "price_have": true,
+  "price": 1,
+  "expired": false,
+  "not_payable": false,
+  "want": {
+   "who": "nobody",
+   "amount": "1",
+   "reason": "over_single_limit",
+   "reason_tier": "manual",
+   "reason_limit": "0"
+  }
+ },
+ {
+  "name": "quote expired",
+  "amount": 3,
+  "limits": {
+   "auto_max": 0,
+   "agent_max": 10,
+   "agent_daily_max": 50,
+   "explicit_max": 10,
+   "daily_max": 50
+  },
+  "spent_today": 0,
+  "agent_spent_today": 0,
+  "payee_listed": true,
+  "payees_readable": true,
+  "capability": "translate",
+  "price_have": true,
+  "price": 3,
+  "expired": true,
+  "not_payable": false,
+  "want": {
+   "who": "nobody",
+   "amount": "3",
+   "reason": "quote_expired"
+  }
+ },
+ {
+  "name": "option on another ledger",
+  "amount": 3,
+  "limits": {
+   "auto_max": 0,
+   "agent_max": 10,
+   "agent_daily_max": 50,
+   "explicit_max": 10,
+   "daily_max": 50
+  },
+  "spent_today": 0,
+  "agent_spent_today": 0,
+  "payee_listed": true,
+  "payees_readable": true,
+  "capability": "translate",
+  "price_have": true,
+  "price": 3,
+  "expired": false,
+  "not_payable": true,
+  "want": {
+   "who": "nobody",
+   "amount": "3",
+   "reason": "rail_not_payable"
+  }
+ }
+]

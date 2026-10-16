@@ -25,8 +25,9 @@ const moduleStateDir = anethome.ModulesDir
 // written through. A directory that cannot be made private is logged and
 // gets "" — the path alone would let the module write its token wherever
 // the link points.
-func (h moduleHost) StateDir(name string) string {
-	if name == "" || name == "." || name == ".." || filepath.Base(name) != name || filepath.IsAbs(name) {
+func (h moduleHost) StateDir() string {
+	name := h.name
+	if !h.grants(module.GrantStateDir) || name == "" || name == "." || name == ".." || filepath.Base(name) != name || filepath.IsAbs(name) {
 		return ""
 	}
 	parent := filepath.Join(h.d.layout.Root, moduleStateDir)
@@ -44,4 +45,9 @@ func (h moduleHost) StateDir(name string) string {
 // remote agent. It is offered whether or not a hub is configured: a node
 // may register with one after start, and until then a send answers
 // UnavailableError rather than the interface not existing.
-func (h moduleHost) TaskSeam() (module.TaskSeam, bool) { return h.d.TaskSeam(), true }
+func (h moduleHost) TaskSeam() (module.TaskSeam, bool) {
+	if !h.grants(module.GrantTaskSeam) {
+		return nil, false
+	}
+	return h.d.TaskSeam(), true
+}

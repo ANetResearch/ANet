@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -18,7 +17,7 @@ import (
 	"time"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
-	evidence "github.com/ANetResearch/ANet/internal/evidencev1" // v030-todo(PAY-14): evidence v2
+	"github.com/ANetResearch/ANetCore/evidence"
 	"github.com/ANetResearch/ANetCore/identity"
 	"github.com/ANetResearch/ANetCore/identity/identitytest"
 	"github.com/ANetResearch/ANetCore/seal"
@@ -450,11 +449,37 @@ func TestRelayDelegationRoundTrip(t *testing.T) {
 	}
 
 	// 6. requester reviews + uploads to the Hub.
-	if _, err := req.SubmitReview(id, 5, "fast and delightful"); err != nil {
+	rr, err := req.SubmitReview(id, 5, "fast and delightful")
+	if err != nil {
 		t.Fatalf("review: %v", err)
 	}
-	if err := req.UploadReview(ctx, srv.URL, id); err != nil {
-		t.Fatalf("upload review: %v", err)
+	if rr.DueAt <= 0 || rr.DueAt > time.Now().Add(reviewMaxDelay+time.Minute).UnixMilli() {
+		t.Fatalf("the review is due at %d, want within %s", rr.DueAt, reviewMaxDelay)
+	}
+	if rows, _ := req.ix.PendingReviews(); len(rows) != 1 || rows[0].IX != id {
+		t.Fatalf("outbox = %+v, want the review of %s", rows, id)
+	}
+	// Nothing goes before its time; at its time the review is uploaded.
+	if n := req.uploadDueReviews(ctx); n != 0 {
+		t.Fatalf("%d reviews uploaded before they were due", n)
+	}
+	if err := req.ix.RetryReview(id, 0); err != nil {
+		t.Fatal(err)
+	}
+	if n := req.uploadDueReviews(ctx); n != 1 {
+		t.Fatalf("uploaded %d reviews, want 1", n)
+	}
+	if rows, _ := req.ix.PendingReviews(); len(rows) != 0 {
+		t.Fatalf("outbox = %+v after the upload", rows)
+	}
+	if ix := mustIX(t, req, id); len(ix.ReviewSeed) != 0 || len(ix.ReviewRSalt) != 0 {
+		t.Fatal("the one-time review inputs outlived the upload")
+	}
+	if !ledgerHasIX(t, req, EvReviewUploaded, "ix", id) {
+		t.Error("the upload is not on the evidence chain")
+	}
+	if _, err := req.SubmitReview(id, 1, "again"); err == nil {
+		t.Fatal("a task was reviewed twice")
 	}
 
 	// 7. the Hub shows the rating; it received no task content and says the content binding is
@@ -472,40 +497,31 @@ func TestRelayDelegationRoundTrip(t *testing.T) {
 	if got.Agent.ReviewCount != 1 || got.Agent.AvgRating != 5 {
 		t.Fatalf("aggregate = %d/%v, want 1/5", got.Agent.ReviewCount, got.Agent.AvgRating)
 	}
-	if len(got.Reviews) != 1 || got.Reviews[0].ContentBinding != hubapi.ContentBindingUnverified {
-		t.Fatalf("stored review = %+v, want one with content_binding UNVERIFIED", got.Reviews)
+	if len(got.Reviews) != 1 || got.Reviews[0].SubjectAID != prov.AID() || got.Reviews[0].ReceiptCID == "" {
+		t.Fatalf("stored review = %+v, want one of the provider with its receipt", got.Reviews)
 	}
 }
 
-// The review upload body carries the receipt and the review and nothing else: no request TaskDoc, no
-// deliverable (A2A-DESIGN §9, row 评价).
+// The review upload body carries the receipt, the review and the salt of requester_commit and nothing
+// else: no request TaskDoc, no deliverable (A2A-DESIGN §9, HPP §2.5).
 func TestTheReviewUploadCarriesNoContent(t *testing.T) {
+	srvURL, req, _, id := reviewableTaskFor(t, "a secret goal")
+	ctx := context.Background()
+	if _, err := req.SubmitReview(id, 4, "ok"); err != nil {
+		t.Fatal(err)
+	}
+	if err := req.ix.RetryReview(id, 0); err != nil {
+		t.Fatal(err)
+	}
+	if n := req.uploadDueReviews(ctx); n != 1 {
+		t.Fatalf("uploaded %d reviews, want 1", n)
+	}
+	fh := fakeHubAt(t, srvURL)
+	fh.mu.Lock()
+	raw := append([]byte(nil), fh.lastReviewBody...)
+	fh.mu.Unlock()
 	var body map[string]any
-	hub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewDecoder(r.Body).Decode(&body)
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"status":"accepted"}`))
-	}))
-	defer hub.Close()
-	d := newTestDaemon(t, "", false)
-	const id = "ix_review_body"
-	if err := d.ix.Create(interactions.New{ID: id, Role: interactions.RoleOutbound, PeerAID: "did:anet:bprovider",
-		Goal: "a secret goal", RequestDoc: []byte("SECRET-REQUEST")}); err != nil {
-		t.Fatal(err)
-	}
-	rc := &evidence.Receipt{InteractionID: id, RequesterAID: d.AID(), ProviderAID: "did:anet:bprovider",
-		RequestCID: "req", ResultCID: "res", CompletedAt: 1}
-	if err := rc.Sign(d.self); err != nil {
-		t.Fatal(err)
-	}
-	rcb, _ := rc.Marshal()
-	if err := d.ix.SetResult(id, []byte("SECRET-DELIVERABLE"), "res", rcb, interactions.VerificationVerified, interactions.CausePeerEnded); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := d.SubmitReview(id, 4, "ok"); err != nil {
-		t.Fatal(err)
-	}
-	if err := d.UploadReview(context.Background(), hub.URL, id); err != nil {
+	if err := json.Unmarshal(raw, &body); err != nil {
 		t.Fatal(err)
 	}
 	keys := make([]string, 0, len(body))
@@ -513,11 +529,10 @@ func TestTheReviewUploadCarriesNoContent(t *testing.T) {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
-	if strings.Join(keys, ",") != "receipt,review" {
-		t.Fatalf("review upload fields = %v, want receipt and review only", keys)
+	if strings.Join(keys, ",") != "receipt,review,rsalt" {
+		t.Fatalf("review upload fields = %v, want receipt, review and rsalt only", keys)
 	}
-	raw, _ := json.Marshal(body)
-	for _, secret := range []string{"SECRET", base64.StdEncoding.EncodeToString([]byte("SECRET-REQUEST"))} {
+	for _, secret := range []string{"secret goal", "SECRET", base64.StdEncoding.EncodeToString([]byte("a secret goal"))} {
 		if strings.Contains(string(raw), secret) {
 			t.Fatalf("review upload carries task content %q", secret)
 		}
@@ -537,17 +552,7 @@ func TestResultsPaginatesBeyondStoreDefaultLimit(t *testing.T) {
 		); err != nil {
 			t.Fatal(err)
 		}
-		receipt := &evidence.Receipt{
-			InteractionID: id, RequesterAID: req.AID(), ProviderAID: req.AID(),
-			RequestCID: requestCID, ResultCID: resultCID, CompletedAt: uint64(index + 1),
-		}
-		if err := receipt.Sign(req.self); err != nil {
-			t.Fatal(err)
-		}
-		receiptBytes, err := receipt.Marshal()
-		if err != nil {
-			t.Fatal(err)
-		}
+		receiptBytes := receiptBody(t, req.self, evidence.ReceiptBody{RequestCID: requestCID, ResultCID: resultCID})
 		if err := req.ix.SetResult(id, []byte("result"), resultCID, receiptBytes, interactions.VerificationVerified, interactions.CausePeerEnded); err != nil {
 			t.Fatal(err)
 		}

@@ -8,11 +8,13 @@ import (
 	"net"
 	"os"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
+	"github.com/ANetResearch/ANet/module"
 )
 
 // Config is the daemon's persisted configuration (config.json). v0.1 is centralized: the daemon is a
@@ -39,6 +41,14 @@ type Config struct {
 	Readme  string `json:"readme,omitempty"`  // longer markdown description
 	// Modules configures optional subsystems by name (see module.Module).
 	Modules ModulesConfig `json:"modules,omitempty"`
+	// Without names the optional modules this node turns off (MOD-P5): a
+	// module in the list is not built, not registered and not started, and
+	// everything that depends on it answers module_absent. Empty is the
+	// default. Only an offline command writes it (`anet init --without`,
+	// `--with`): no control route, MCP tool or local A2A method does, and a
+	// write the daemon makes of this file takes the value from the disk, not
+	// from memory (updateConfig).
+	Without []string `json:"without,omitempty"`
 	// Inbound is the inbound policy (A2A-DESIGN §5.1): who may delegate to
 	// this node, who may drive its local agents, and which capabilities are
 	// public. A config without the block is given the defaults of
@@ -48,13 +58,11 @@ type Config struct {
 	// payments block; New saves the config with the block written out, so
 	// the file states the defaults explicitly (SI-5).
 	rewriteConfig bool
-	// AutoReply, when set, turns this daemon into a SELF-DRIVING provider: a background loop watches
-	// inbound conversations and answers them by calling the operator's own service (e.g. a self-hosted
-	// small model behind an OpenAI-compatible REST API). This keeps anet's core promise — anet itself
-	// still runs no model — while removing the need for an external harness process: the "poll inbox →
-	// call my API → message back" loop lives in the daemon, driven purely by this config block.
-	// Requires a daemon restart to take effect. See autoreply.go.
-	AutoReply *AutoReplyConfig `json:"auto_reply,omitempty"`
+	// AutoReply is the auto_reply block, kept raw: the kernel neither parses nor interprets it. The
+	// auto-reply module (autoreply_config.go) reads it, checks it through the ConfigSpec it registers
+	// and writes it only through ModuleConfigHost.UpdateModuleConfig (K-6); the kernel carries it
+	// byte for byte through every other write of config.json (carryDiskConfig).
+	AutoReply json.RawMessage `json:"auto_reply,omitempty"`
 	// Payments is the spending policy (A2A-DESIGN §8.6; spend.go). A key
 	// left out gets its default (PaymentsConfig.limits); a config without
 	// the block is given defaultPayments at load and rewritten, so the file
@@ -78,109 +86,13 @@ type Config struct {
 	// neither a number of days nor forever stops the daemon from starting
 	// (retention_invalid).
 	ContentRetention RetentionValue `json:"content_retention,omitempty"`
-}
-
-// AutoReplyConfig configures the daemon's built-in auto-reply loop (see autoreply.go). Backend selects
-// HOW a reply is produced; "openai" (the default and only v0.1 backend) posts the conversation to any
-// OpenAI-compatible /chat/completions endpoint (ollama / vLLM / llama.cpp server / a cloud API). Future
-// backends (e.g. "exec" — spawn a local coding agent like cursor/claude to compose the reply) plug into
-// the same autoReplier seam without changing this loop.
-type AutoReplyConfig struct {
-	Backend string `json:"backend,omitempty"` // reply engine: "openai" (default) or "exec"
-	// Untrusted says what the exec backend does for a peer that is not on
-	// the inbound trust list (A2A-DESIGN §6): "off" (the default; the local
-	// agent is not run for that peer) or "sandbox" (run it in the sandbox,
-	// which fails closed when the sandbox is unavailable). The openai
-	// backend runs no local program and is not gated by it.
-	Untrusted string `json:"untrusted,omitempty"`
-	// Trusted says how the exec backend runs for a peer on the trust list
-	// (LEC GT-1): "direct" (the default; as the operator's user) or
-	// "sandbox" (in the sandbox, outside the run budget).
-	Trusted string `json:"trusted,omitempty"`
-	// --- "openai" backend ---
-	APIBase      string `json:"api_base,omitempty"` // e.g. http://127.0.0.1:11434/v1
-	APIKey       string `json:"api_key,omitempty"`  // bearer key, if the endpoint needs one
-	Model        string `json:"model,omitempty"`    // openai: model name; exec: optional agent model override
-	SystemPrompt string `json:"system_prompt,omitempty"`
-	// --- "exec" backend (spawn local coding agent) ---
-	Agent         string   `json:"agent,omitempty"`          // one of daemon.SupportedExecAgents()
-	WorkDir       string   `json:"work_dir,omitempty"`       // agent workspace (default: identity data dir)
-	Command       string   `json:"command,omitempty"`        // override agent binary path
-	ExtraArgs     []string `json:"extra_args,omitempty"`     // extra CLI args passed to the agent
-	OpenClawAgent string   `json:"openclaw_agent,omitempty"` // openclaw --agent value (default main)
-	// --- input contract ---
-	RequireImage bool   `json:"require_image,omitempty"` // vision-only service: no image ⇒ reply UsageHint, skip the API
-	UsageHint    string `json:"usage_hint,omitempty"`    // reply when the input does not fit the contract
-	ErrorReply   string `json:"error_reply,omitempty"`   // reply when the backend call fails
-	// --- tuning (0 ⇒ default) ---
-	PollIntervalSeconds int `json:"poll_interval_seconds,omitempty"` // scan cadence (default 5)
-	MaxHistory          int `json:"max_history,omitempty"`           // max conversation turns sent to the backend (default 20)
-	APITimeoutSeconds   int `json:"api_timeout_seconds,omitempty"`   // one backend call (default 180)
-	MaxAutoReplies      int `json:"max_auto_replies,omitempty"`      // runaway guard: max messages we auto-send per interaction before proposing end (default 30)
-	// Sandbox configures the sandbox's network and its run budget (LEC §3.2, ux §2.2); absent, the
-	// defaults apply: no network beyond the model route, and the default budget.
-	Sandbox *AutoReplySandboxConfig `json:"sandbox,omitempty"`
-}
-
-// AutoReplySandboxConfig is auto_reply.sandbox.
-type AutoReplySandboxConfig struct {
-	// EgressAllow is the CONNECT allowlist (LEC CN-1): the hosts, each by its exact name, that a
-	// sandboxed agent may reach on port 443. Empty, the default: none. Each one is a way for the
-	// untrusted peer's task to send data out, so adding one is confirmed on a terminal (UX-C12);
-	// removing one is not.
-	EgressAllow []string `json:"egress_allow,omitempty"`
-	// RunsPerDay and RunsPerPeerPerDay are the run budget for untrusted
-	// peers per local calendar day (LEC BU-3): 20 and 5 when unset, 0 for
-	// no runs (sandbox_budget.go).
-	RunsPerDay        *BudgetValue `json:"runs_per_day,omitempty"`
-	RunsPerPeerPerDay *BudgetValue `json:"runs_per_peer_per_day,omitempty"`
-}
-
-// empty reports a sandbox block that sets nothing.
-func (s *AutoReplySandboxConfig) empty() bool {
-	return s == nil || (len(s.EgressAllow) == 0 && s.RunsPerDay == nil && s.RunsPerPeerPerDay == nil)
-}
-
-// The egress allowlist is checked when the daemon starts (CN-1, LEC §3.2): a config.json edited by hand
-// to hold an address, a wildcard or a model host does not start.
-func init() { configChecks = append(configChecks, checkEgressAllowConfig) }
-
-func checkEgressAllowConfig(c Config, _ map[string]any) *a2ashape.Refusal {
-	if c.AutoReply == nil || c.AutoReply.Sandbox == nil {
-		return nil
-	}
-	_, ref := checkEgressAllow(c.AutoReply.Sandbox.EgressAllow, c.AutoReply.APIBase)
-	return ref
-}
-
-// Values of AutoReplyConfig.Untrusted.
-const (
-	UntrustedOff     = "off"
-	UntrustedSandbox = "sandbox"
-)
-
-// UntrustedMode is the effective auto_reply.untrusted value: "off" unless
-// the operator set "sandbox".
-func (c AutoReplyConfig) UntrustedMode() string {
-	if c.Untrusted == UntrustedSandbox {
-		return UntrustedSandbox
-	}
-	return UntrustedOff
-}
-
-// Values of AutoReplyConfig.Trusted.
-const (
-	TrustedDirect  = "direct"
-	TrustedSandbox = "sandbox"
-)
-
-// TrustedMode is the effective auto_reply.trusted value: "direct" unless
-// the operator set "sandbox".
-func (c AutoReplyConfig) TrustedMode() string {
-	if c.Trusted == TrustedSandbox {
-		return TrustedSandbox
-	}
-	return TrustedDirect
+	// StreamPreview is whether this node, as a provider, sends the requester
+	// a snapshot of its reply while it writes it (CUX §2.10, CUX-P4): "off"
+	// (the default), "on", or "with_reasoning", which also sends the
+	// reasoning to a requester that asks for it. A fresh config.json says
+	// "off"; a config without the key gets it. `anet preview` changes it;
+	// any other value stops the daemon from starting (config_invalid).
+	StreamPreview string `json:"stream_preview,omitempty"`
 }
 
 // DefaultConfig is the out-of-the-box daemon config. The inbound block is
@@ -196,7 +108,8 @@ func DefaultConfig() Config {
 	in := defaultInbound()
 	pay := defaultPayments()
 	return Config{ControlAddr: "127.0.0.1:39811", Inbound: &in, Payments: &pay, NoResponseAfter: defaultNoResponseAfterText,
-		ContentRetention: RetentionValue(interactions.DefaultRetention().String())}
+		ContentRetention: RetentionValue(interactions.DefaultRetention().String()),
+		StreamPreview:    streamPreviewOff}
 }
 
 // freshConfig is the config a data dir with no config.json is created with: DefaultConfig, but with a
@@ -253,6 +166,9 @@ func LoadConfig(l Layout) (Config, error) {
 	if err != nil {
 		return Config{}, fmt.Errorf("anet: read config: %w", err)
 	}
+	if ref := withoutTypeRefusal(b); ref != nil {
+		return Config{}, &ConfigRefusal{Refusals: []*a2ashape.Refusal{ref}}
+	}
 	var c Config
 	if err := json.Unmarshal(b, &c); err != nil {
 		return Config{}, fmt.Errorf("anet: parse config %s: %w", l.ConfigPath(), err)
@@ -307,6 +223,16 @@ func (d *Daemon) updateConfig(change func(*Config) error, apply func(*Config)) (
 	d.cfgWrite.Lock()
 	defer d.cfgWrite.Unlock()
 	next := d.config()
+	// K-2: what the kernel does not own comes from the disk. `without` and
+	// the blocks the kernel does not parse (modules.*, auto_reply) are
+	// whatever config.json says now, not what this process read at start; a
+	// kernel write changes its own keys and carries the rest through, so
+	// that a hand edit made while the daemon runs is not undone by the next
+	// peers or policy write. An unreadable file refuses the write rather
+	// than overwrite what could not be read.
+	if err := d.carryDiskConfig(&next); err != nil {
+		return Config{}, err
+	}
 	if err := change(&next); err != nil {
 		return Config{}, err
 	}
@@ -317,6 +243,142 @@ func (d *Daemon) updateConfig(change func(*Config) error, apply func(*Config)) (
 	apply(&d.cfg)
 	d.mu.Unlock()
 	return next, nil
+}
+
+// carryDiskConfig sets what the kernel does not own in next — `without` and
+// the blocks it does not parse — to what config.json says now (K-2). The
+// caller holds cfgWrite and calls it before it changes its own keys; every
+// write of config.json the daemon makes does (updateConfig, and the policy,
+// limit and hub writes beside it).
+func (d *Daemon) carryDiskConfig(next *Config) error {
+	disk, err := readConfigFile(d.layout)
+	if err != nil {
+		return err
+	}
+	if disk != nil {
+		next.Without, next.Modules, next.AutoReply = disk.Without, disk.Modules, disk.AutoReply
+	}
+	return nil
+}
+
+// readConfigFile is config.json as it is on disk now; nil when there is none.
+// It does not create the file (LoadConfig does).
+func readConfigFile(l Layout) (*Config, error) {
+	b, err := os.ReadFile(l.ConfigPath())
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("anet: read config: %w", err)
+	}
+	var c Config
+	if err := json.Unmarshal(b, &c); err != nil {
+		return nil, fmt.Errorf("anet: parse config %s: %w", l.ConfigPath(), err)
+	}
+	return &c, nil
+}
+
+// WithoutInFile is the `without` list of config.json as it is on disk now,
+// without creating the file. The CLI asks it before it contacts the daemon
+// (MOD-F3); an absent file has none. A list that does not decode is an
+// error: a CLI that cannot tell what is turned off does not guess.
+func WithoutInFile(l Layout) ([]string, error) {
+	c, err := readConfigFile(l)
+	if err != nil || c == nil {
+		return nil, err
+	}
+	return c.Without, nil
+}
+
+// AvailabilityOf is the Availability value of a configuration: its `without`
+// list over what this binary contains. A list that does not validate gives
+// the value with nothing turned off; the start check says why it is invalid.
+func AvailabilityOf(c Config) module.Availability {
+	av, err := module.NewAvailability(c.Without)
+	if err != nil {
+		return module.Availability{}
+	}
+	return av
+}
+
+// ModuleRefusals are the problems of a configuration that concern the
+// optional modules, one refusal each: an invalid `without`, a block for a
+// module that does not exist or whose block is not under modules, and a
+// block for a module that is not available (MOD-F1). The same list is what
+// the daemon refuses to start with, what `anet up` and the daemon log say,
+// and what doctor's modules row says.
+func ModuleRefusals(c Config) []*a2ashape.Refusal {
+	var out []*a2ashape.Refusal
+	av, err := module.NewAvailability(c.Without)
+	if err != nil {
+		if r, ok := err.(*a2ashape.Refusal); ok {
+			out = append(out, r)
+		}
+		av = module.Availability{}
+	}
+	names := make([]string, 0, len(c.Modules))
+	for n := range c.Modules {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	for _, n := range names {
+		info, ok := module.Lookup(n)
+		if _, test := rowOf(n); test && !ok {
+			continue // a fake module of this package's tests (moduleRowForTest)
+		}
+		switch {
+		case !ok && removedModuleBlock(n):
+			// A block of a module that no longer exists is config_key_removed,
+			// said once by the removed-settings check.
+		case !ok:
+			out = append(out, a2ashape.Refuse("config_invalid", a2ashape.Args{"key": "modules." + cleanKey(n),
+				"rule": ruleText("没有这个模块", "there is no such module")}))
+		case info.ConfigKey == "":
+			out = append(out, a2ashape.Refuse("config_invalid", a2ashape.Args{"key": "modules." + n,
+				"rule": ruleText("这个模块没有配置块", "this module takes no configuration block")}))
+		case info.ConfigKey != "modules."+n:
+			out = append(out, a2ashape.Refuse("config_invalid", a2ashape.Args{"key": "modules." + n,
+				"rule": "top_level_key", "m": n}))
+		default:
+			if r := av.Absent(n, "configured"); r != nil {
+				r.Args["key"] = info.ConfigKey
+				out = append(out, r)
+			}
+		}
+	}
+	if blockOrNil(c.AutoReply) != nil {
+		if r := av.Absent("autoreply", "configured"); r != nil {
+			r.Args["key"] = "auto_reply"
+			out = append(out, r)
+		}
+	}
+	if c.streamPreview() != streamPreviewOff {
+		// stream_preview on or with_reasoning is the preview module's
+		// configuration (MOD-F1): off is the default and needs nothing.
+		if r := av.Absent("preview", "configured"); r != nil {
+			r.Args["key"] = "stream_preview"
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// removedModuleBlock reports a modules.<name> block that ux §2.3 removed.
+func removedModuleBlock(name string) bool {
+	for _, r := range removedSettings {
+		if r.key == "modules."+name {
+			return true
+		}
+	}
+	return false
+}
+
+// cleanKey shortens a name found in a file for a sentence.
+func cleanKey(s string) string {
+	if r := []rune(s); len(r) > 32 {
+		return string(r[:32]) + "…"
+	}
+	return s
 }
 
 // --- What the daemon refuses to start with (ux UX-D3, §2.3) ---
@@ -333,10 +395,6 @@ type RemovedSetting struct {
 	// "inbound.public_capabilities[].evidence".
 	Key     string
 	Instead string
-	// Pending is the work item that still writes this key itself, as the
-	// marker of an open work item (wire.TodoMarker); until it deletes its code,
-	// the key does not stop the daemon. Empty: the key is refused.
-	Pending string
 }
 
 // removedSettings is ux §2.3: each removed key, where it sits in config.json
@@ -377,21 +435,6 @@ var removedSettings = []struct{ key, instead string }{
 // ignored); doctor's config.removed warns about it (ux §2.3).
 const InviteEnv = "ANET_INVITE"
 
-// removedStillWritten are the removed keys this binary still writes itself
-// (the defaults of a fresh config.json, or a command that is still there), or
-// whose replacement does not work yet. A daemon refusing them would refuse
-// its own files, so each waits for the work item that deletes its code,
-// which also deletes its line here (R-5).
-var removedStillWritten = map[string]string{
-	// `anet autoreply set --require-image|--usage-hint|--error-reply|
-	// --poll-interval|--max-auto-replies` still write these.
-	"auto_reply.require_image":         "v030-todo(UX-9)",
-	"auto_reply.usage_hint":            "v030-todo(UX-9)",
-	"auto_reply.error_reply":           "v030-todo(UX-9)",
-	"auto_reply.poll_interval_seconds": "v030-todo(UX-9)",
-	"auto_reply.max_auto_replies":      "v030-todo(UX-9)",
-}
-
 // FindRemovedSettings lists the removed keys a config.json holds, in the
 // order of ux §2.3; a key that is there with any value counts, null too. A
 // file that is not a JSON object is an error.
@@ -408,7 +451,7 @@ func FindRemovedSettings(raw []byte) ([]RemovedSetting, error) {
 	var out []RemovedSetting
 	for _, rs := range removedSettings {
 		for _, path := range findKey(top, strings.Split(rs.key, "."), "") {
-			out = append(out, RemovedSetting{Path: path, Key: rs.key, Instead: rs.instead, Pending: removedStillWritten[rs.key]})
+			out = append(out, RemovedSetting{Path: path, Key: rs.key, Instead: rs.instead})
 		}
 	}
 	return out, nil
@@ -495,6 +538,15 @@ func (e *ConfigRefusal) Sentences(lang a2ashape.Language) []string {
 	return out
 }
 
+// Unwrap lists the refusals, so that errors.As finds the first of them.
+func (e *ConfigRefusal) Unwrap() []error {
+	out := make([]error, len(e.Refusals))
+	for i, r := range e.Refusals {
+		out[i] = r
+	}
+	return out
+}
+
 // Error is the refusals' sentences in this process's language, one a line.
 func (e *ConfigRefusal) Error() string {
 	return strings.Join(e.Sentences(a2ashape.Lang()), "\n")
@@ -518,19 +570,22 @@ func CheckConfigForStart(l Layout) error {
 	}
 	var refusals []*a2ashape.Refusal
 	for _, f := range found {
-		if f.Pending == "" {
-			refusals = append(refusals, RemovedSettingRefusal(f))
-		}
+		refusals = append(refusals, RemovedSettingRefusal(f))
 	}
-	if len(configChecks) > 0 {
+	{
 		var c Config
 		var m map[string]any
+		if ref := withoutTypeRefusal(raw); ref != nil {
+			return &ConfigRefusal{Refusals: append(refusals, ref)}
+		}
 		if err := json.Unmarshal(raw, &c); err != nil {
 			return fmt.Errorf("anet: parse config %s: %w", l.ConfigPath(), err)
 		}
 		if err := json.Unmarshal(raw, &m); err != nil {
 			return fmt.Errorf("anet: parse config %s: %w", l.ConfigPath(), err)
 		}
+		refusals = append(refusals, ModuleRefusals(c)...)           // MOD-F1, K-2
+		refusals = append(refusals, moduleConfigRefusals(c, "")...) // the modules' own ConfigSpec.Check (K-6)
 		for _, check := range configChecks {
 			if r := check(c, m); r != nil {
 				refusals = append(refusals, r)
@@ -668,4 +723,71 @@ func SetContentRetentionInFile(l Layout, r interactions.Retention) error {
 		return err
 	}
 	return writeFileAtomic(l.ConfigPath(), out, 0o600)
+}
+
+// --- stream_preview (CUX §2.10) ---
+
+// The settings of stream_preview.
+const (
+	streamPreviewOff = "off"
+	streamPreviewOn  = previewModeOn
+	streamPreviewWR  = previewModeWithReasoning
+)
+
+// validStreamPreview reports whether v is a setting of stream_preview.
+func validStreamPreview(v string) bool {
+	switch v {
+	case streamPreviewOff, streamPreviewOn, streamPreviewWR:
+		return true
+	}
+	return false
+}
+
+// streamPreview is the setting in force: the configured one, off when
+// config.json has none or a running daemon holds a value that is not a
+// setting (the start check refuses one).
+func (c Config) streamPreview() string {
+	if validStreamPreview(c.StreamPreview) {
+		return c.StreamPreview
+	}
+	return streamPreviewOff
+}
+
+// StreamPreviewModes are the values `anet preview` accepts.
+func StreamPreviewModes() []string {
+	return []string{streamPreviewOff, streamPreviewOn, streamPreviewWR}
+}
+
+// The setting is checked when the daemon starts (CUX §2.10): a value that
+// is not off, on or with_reasoning does not start, and says so
+// (config_invalid). An absent key, or null, is off.
+func init() { configChecks = append(configChecks, checkStreamPreview) }
+
+func checkStreamPreview(_ Config, raw map[string]any) *a2ashape.Refusal {
+	v, ok := raw["stream_preview"]
+	if !ok || v == nil {
+		return nil
+	}
+	if s, isText := v.(string); isText && validStreamPreview(s) {
+		return nil
+	}
+	return a2ashape.Refuse("config_invalid", a2ashape.Args{"key": "stream_preview", "rule": "off, on or with_reasoning"})
+}
+
+// withoutTypeRefusal is config_invalid for a "without" that is not a list of
+// module names, in the reason table's words rather than the decoder's ("json:
+// cannot unmarshal string into Go struct field Config.without of type
+// []string"). nil when the file has no such mistake or is not an object.
+func withoutTypeRefusal(raw []byte) *a2ashape.Refusal {
+	var m map[string]any
+	if json.Unmarshal(raw, &m) != nil {
+		return nil
+	}
+	if _, err := withoutOf(m); err != nil {
+		var ref *a2ashape.Refusal
+		if errors.As(err, &ref) {
+			return ref
+		}
+	}
+	return nil
 }

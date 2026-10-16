@@ -698,17 +698,6 @@ func TestLegacyOpenClawPersonaIsRemoved(t *testing.T) {
 	if last := rs[len(rs)-1]; last.Tool != LegacyOpenClaw || last.Status != Removed || h.read(".openclaw/AGENTS.md") != mine {
 		t.Fatalf("unwire --all: %+v\n%s", last, h.read(".openclaw/AGENTS.md"))
 	}
-
-	// The old command: a file that held only the block is removed.
-	h = newHost(t)
-	h.write(".openclaw/AGENTS.md", legacy, 0o644)
-	r, err := RemoveLegacyOpenClaw(h.opts())
-	if err != nil || r.Status != Removed || h.exists(".openclaw/AGENTS.md") {
-		t.Fatalf("RemoveLegacyOpenClaw: %+v, %v", r, err)
-	}
-	if r, err := RemoveLegacyOpenClaw(h.opts()); err != nil || r.Status != NotWired {
-		t.Fatalf("second RemoveLegacyOpenClaw: %+v, %v", r, err)
-	}
 }
 
 // The guide says what this release does, with the §12 tool names, and
@@ -741,7 +730,7 @@ func TestGuideTextIsCurrent(t *testing.T) {
 		"agent_max", "agent_daily_max", "auto_max", "payees.allow", "closed", "anet peers trust",
 		"anet inbound policy approve", "llms.txt",
 		// an internal note: message ids that collided across sessions; limits stated as fact.
-		"fresh random id", "no tool shows their current", "needs_operator_approval"} {
+		"fresh random id", "get_balance (limits)", "needs_operator_approval"} {
 		if !strings.Contains(skillMarkdown, want) {
 			t.Errorf("SKILL.md does not mention %q", want)
 		}

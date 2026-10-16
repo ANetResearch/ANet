@@ -4,10 +4,13 @@ package daemon
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
 	"github.com/ANetResearch/ANetCore/effect"
+
+	"github.com/ANetResearch/ANet/internal/a2ashape"
 )
 
 // A build that cannot charge must not do paid work for free.
@@ -55,7 +58,9 @@ func TestPricedWorkIsRefusedWhenThisBuildCannotCharge(t *testing.T) {
 	if res.Status != string(effect.Unavailable) {
 		t.Fatalf("status = %s, want UNAVAILABLE", res.Status)
 	}
-	if !strings.Contains(res.Message, "no_x402") {
+	// The caller is told the node cannot take payment, and nothing of how
+	// this node is built.
+	if !strings.Contains(res.Message, "cannot take payment") || strings.Contains(res.Message, "x402") {
 		t.Errorf("the caller is not told why: %q", res.Message)
 	}
 }
@@ -78,7 +83,8 @@ func TestThePayingSurfacesSayWhenThereIsNoPaymentSupport(t *testing.T) {
 			if err == nil {
 				t.Fatal("this must fail — there is nothing to pay with")
 			}
-			if !strings.Contains(err.Error(), "no_x402") {
+			var ref *a2ashape.Refusal
+			if !errors.As(err, &ref) || ref.Code() != "module_absent" || !strings.Contains(err.Error(), "payment module (x402)") {
 				t.Errorf("the error does not name the cause: %v", err)
 			}
 		})

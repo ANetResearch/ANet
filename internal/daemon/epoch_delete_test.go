@@ -406,7 +406,7 @@ func TestClockGateAfterAStepWaitsADay(t *testing.T) {
 }
 
 // TestEpochKeyDeletableHardBranch is P-2 for the branches FS-4 has (the
-// early one comes with FS-5): closed never deletes; local and full delete at
+// early one is FS-5's): closed never deletes; local and full delete at
 // not_after + L and never before it; the reason says why a key waits.
 func TestEpochKeyDeletableHardBranch(t *testing.T) {
 	const na = uint64(1_800_000_000_000)
@@ -436,7 +436,7 @@ func TestEpochKeyDeletableHardBranch(t *testing.T) {
 		{"full before A(k) + M", key(0), na + D + M - 1, clockFull, math.MaxUint64, nil, false, keyNotYet},
 		{"full, mailbox not drained", key(0), na + D + M, clockFull, na + D + M - 1, nil, false, keyMailboxNotDrained},
 		{"full, a held envelope", key(0), na + D + M, clockFull, math.MaxUint64, held, false, keyHeldMessages},
-		{"full, drained: waits for FS-5's early branch", key(0), na + D + M, clockFull, math.MaxUint64, nil, false, keyNotYet},
+		{"full, drained: the early branch deletes", key(0), na + D + M, clockFull, math.MaxUint64, nil, true, keyDeletable},
 		{"removed early: A(k) is removed_at", key(na - hourMS), na - hourMS + M, clockLocal, math.MaxUint64, nil, false, keyClock},
 		{"removed after not_after + D: A(k) is not_after + D", key(na + 5*hourMS), na + D + M, clockLocal, math.MaxUint64, nil, false, keyClock},
 		{"no overflow", &ringKey{Pair: seal.KeyPair{Public: seal.EncKey{NotAfter: math.MaxUint64 - 1}}}, math.MaxUint64 - 1, clockFull, math.MaxUint64, nil, false, keyNotYet},
@@ -462,8 +462,8 @@ func TestEpochKeyDeletableHardBranch(t *testing.T) {
 		switch {
 		case gate == clockClosed && ok:
 			t.Fatalf("closed deleted a key")
-		case !hard && ok:
-			t.Fatalf("deleted %d ms before the hard bound at level %v (no early branch yet)", na+L-now, gate)
+		case !hard && ok && (gate != clockFull || now < satAdd(lastAcceptance(k), drainMarginMS) || drain < satAdd(lastAcceptance(k), drainMarginMS)):
+			t.Fatalf("deleted %d ms before the hard bound at level %v, now %d, drain %d", na+L-now, gate, now, drain)
 		case hard && gate != clockClosed && !ok:
 			t.Fatalf("level %v kept a key past its hard bound", gate)
 		}

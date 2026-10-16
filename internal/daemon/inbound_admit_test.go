@@ -38,6 +38,7 @@ func delegateBodyArgs(t testing.TB, c *identity.Controller, ix, capID, argsJSON 
 	if !absent {
 		task.Contexts = []tsir.Context{{Key: "args", Value: argsJSON, Format: "json"}}
 	}
+	task.Contexts = append(task.Contexts, bindingContexts(t, c.AID())...)
 	td := &tsir.TaskDoc{Version: tsir.VersionPair{Major: 1}, Tasks: []tsir.Task{task}}
 	if err := td.Sign(c); err != nil {
 		t.Fatal(err)
@@ -330,9 +331,17 @@ func TestOneCallerCannotHoldEveryCallSlot(t *testing.T) {
 func TestAllowOnlyIndistinguishable(t *testing.T) {
 	_, _, prov := registeredPair(t)
 	roomyRxBuckets(prov)
-	stranger, denied, listed := newStranger(t), newStranger(t), newStranger(t)
+	stranger, denied := newStranger(t), newStranger(t)
 	denyPeers(t, prov, denied.aid)
-	allowPeers(t, prov, listed.aid)
+	// One listed caller per subtest: a call that is taken keeps running, and
+	// a second call of the same caller meets the in-flight bound
+	// (caller_busy) when the machine is loaded.
+	var listedCallers []sender
+	for i := 0; i < 4; i++ {
+		listedCallers = append(listedCallers, newStranger(t))
+		allowPeers(t, prov, listedCallers[i].aid)
+	}
+	next := 0
 	n := 0
 	type answer struct {
 		class   rxClass
@@ -366,6 +375,8 @@ func TestAllowOnlyIndistinguishable(t *testing.T) {
 			name string
 			call func(sender, string) answer
 		}{{"hub", hubCall}, {"p2p", directCall}} {
+			listed := listedCallers[next]
+			next++
 			t.Run(policy+"/"+path.name, func(t *testing.T) {
 				absent := path.call(stranger, "face.absent")
 				allowOnly := path.call(stranger, "face.compare")
@@ -380,6 +391,10 @@ func TestAllowOnlyIndistinguishable(t *testing.T) {
 						t.Fatalf("a denied peer %+v, a stranger %+v", deniedAns, absent)
 					}
 				}
+				// The listed caller's earlier call (the other policy, the other path) may still be running,
+				// and holds the caller's one in-flight slot until it ends; the answer under test is the
+				// admission's, not that race's.
+				waitNoCallerInflight(t, prov)
 				if got := path.call(listed, "face.compare"); got.outcome != seal.OutcomeProcessed {
 					t.Fatalf("a listed caller's call of the allow_only capability: %+v, want taken", got)
 				}
@@ -457,7 +472,7 @@ func TestTheRequestsFormIsStepTwo(t *testing.T) {
 		{"args not JSON", "c", "{", false, seal.NoteBadRequest},
 		{"an undefined $ key", "c", `{"$x":1}`, false, seal.NoteBadRequest},
 		{"a $ key not at the top is the capability's", "c", `{"a":{"$x":1}}`, false, ""},
-		{"$files is anet's", "c", `{"$files":[]}`, false, ""},
+		{"$files is anet's, and c takes no files", "c", `{"$files":[]}`, false, seal.NoteFilesCount},
 		{"not public: the policy first", "private", `{"$x":1}`, false, seal.NoteNotAccepting},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -505,9 +520,6 @@ func TestPendingLimitsAreConstants(t *testing.T) {
 	}
 	for _, k := range []string{"inbound.pending", "inbound.reject_notice", "inbound.allow_file", "inbound.deny_file",
 		"inbound.trust_file", "accept_delegations"} {
-		if p := removedStillWritten[k]; p != "" {
-			t.Errorf("%s is still exempted from refusal (%s)", k, p)
-		}
 		l := NewLayout(t.TempDir())
 		m := freshConfigFile(t)
 		withKey(m, k, removedValue(k))
@@ -775,6 +787,7 @@ func FuzzReadDelegateForm(f *testing.F) {
 			t.Fatalf("args %q (absent %v, twice %v): bad %v, want %v", args, absent, twice, form.bad, want)
 		}
 		if !form.bad {
+			delete(m, argsFilesKey)
 			b, _ := json.Marshal(m)
 			if form.argsLen != len(b) {
 				t.Fatalf("args %q: size %d, want %d", args, form.argsLen, len(b))
@@ -787,10 +800,10 @@ func FuzzReadDelegateForm(f *testing.F) {
 // args'.
 func TestATextTaskHasNoArgsToRead(t *testing.T) {
 	td := &tsir.TaskDoc{Tasks: []tsir.Task{{Contexts: []tsir.Context{{Key: "args", Value: "{"}}}}}
-	if f := readDelegateForm(td); f != (delegateForm{}) {
+	if f := readDelegateForm(td); f.capID != "" || f.bad || f.argsLen != 0 {
 		t.Fatalf("%+v", f)
 	}
-	if f := readDelegateForm(nil); f != (delegateForm{}) {
+	if f := readDelegateForm(nil); f.capID != "" || f.bad || f.argsLen != 0 {
 		t.Fatalf("%+v", f)
 	}
 }
@@ -962,5 +975,27 @@ func TestAdmissionRefusalsSayOneSentence(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// waitNoCallerInflight waits for every admitted call of d to end (its per-caller in-flight slots are
+// free again).
+func waitNoCallerInflight(t *testing.T, d *Daemon) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		d.admission.mu.Lock()
+		busy := 0
+		for _, n := range d.admission.callerInflight {
+			busy += n
+		}
+		d.admission.mu.Unlock()
+		if busy == 0 {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("%d admitted calls still running after 10 s", busy)
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 }

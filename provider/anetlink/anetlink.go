@@ -28,14 +28,13 @@ import (
 	"math"
 	"mime"
 	"net/http"
-	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/ANetResearch/ANetCore/effect"
 	"github.com/ANetResearch/ANetCore/tsir"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
+	"github.com/ANetResearch/ANet/internal/anethome"
 	"github.com/ANetResearch/ANet/internal/backendconn"
 	"github.com/ANetResearch/ANet/provider"
 )
@@ -58,12 +57,11 @@ const (
 // modules.anetlink.socket defaults to: neither side needs configuring for the two to meet. It is an
 // error when XDG_RUNTIME_DIR is not set, as it is for anetlinkd.
 func DefaultSocket() (string, error) {
-	rd := os.Getenv("XDG_RUNTIME_DIR")
-	if rd == "" {
-		return "", errors.New("XDG_RUNTIME_DIR is not set, so there is no default C1 socket; " +
-			"set modules.anetlink.socket to the path anetlinkd serves (its --c1-socket)")
+	if sock := anethome.DefaultC1Socket(); sock != "" {
+		return sock, nil
 	}
-	return filepath.Join(rd, "anetlink", "c1.sock"), nil
+	return "", errors.New("XDG_RUNTIME_DIR is not set, so there is no default C1 socket; " +
+		"set modules.anetlink.socket to the path anetlinkd serves (its --c1-socket)")
 }
 
 // Provider speaks C1 v1 to one anetlinkd. Create with New.

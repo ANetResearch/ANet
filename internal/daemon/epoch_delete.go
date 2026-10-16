@@ -261,10 +261,11 @@ func epochKeyDeletable(k *ringKey, now uint64, gate clockLevel, drainMark uint64
 	case heldKids.has(k.Pair.Public.KID):
 		return false, keyHeldMessages
 	}
-	// v030-todo(FS-5): the early branch deletes here, (true, keyDeletable);
-	// it is merged after the engine's dlv-tx (engine ENG-E3). Until then the
-	// key waits for its hard bound.
-	return false, keyNotYet
+	// Past A(k) + M with the clocks checked against the hub, the mailbox
+	// read past that moment and nothing sealed to the key held back: no
+	// envelope sealed to it is left that this node could still open (FS-K7;
+	// the argument is FS §4.3.3, the gate engine P-ENG-3).
+	return true, keyDeletable
 }
 
 // EpochSealed is what an outbox version records about the epoch key it is

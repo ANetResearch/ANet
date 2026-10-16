@@ -62,7 +62,7 @@ ANetResearch/ANetLink   物理世界 runtime + 适配器 + AdapterSDK
 
 | # | 合同 | 连接 | 形态（A3 修订后） |
 |---|---|---|---|
-| C1 | **CapabilityProvider** | daemon ↔ 一切能力来源 | Go 接口（进程内，主形态）+ UDS 远程实现（仅用于 daemon↔独立部署的 anetlinkd 这一应用间边界） |
+| C1 | **CapabilityProvider** | daemon ↔ 一切能力来源 | Go 接口（进程内，主形态）+ UDS 远程实现（仅用于 daemon↔独立部署的 anetlinkd 这一应用间边界；线上形态为 C1 v1：Unix socket 上的 HTTP，只用 CoreDet-CBOR，见 [C1-PROVIDER-zh.md](C1-PROVIDER-zh.md)） |
 | C2 | **Hub Wire API** | daemon ↔ hub | HTTP + AObj 签名，版本化；v4.0 扩面：taskboard 端点（A4） |
 | C3 | **Federation API** | hub ↔ hub | HTTP + AObj 签名；delivery 与 discovery 两个独立子面；spec = K208 |
 | C4 | **Adapter 接口** | anetlink runtime ↔ 协议适配器 | **Go 接口（AdapterSDK），编译期组合**。原 ADAP/UDS 降格为第三方 out-of-tree 逃生舱（extension，随 v4.0 与否见 D43） |
@@ -94,6 +94,11 @@ type CapabilityProvider interface {
     Health(ctx context.Context) error
 }
 ```
+
+> 现状（anet 0.3.0）：进程外的远程形态是 C1 v1——Unix socket 上的 HTTP/1.1，请求与响应只用
+> CoreDet-CBOR，路径 `/v1/*`，旧的 `/v0/*` 一律答 426 `c1_version`；调用方只有"本机"与"经中继、
+> 由 daemon 核实过的远端 AID"两种；文件不经 C1。对象、键位、拒绝码与金标见
+> [C1-PROVIDER-zh.md](C1-PROVIDER-zh.md)。
 
 ## 4. 模块清单与 build tag
 

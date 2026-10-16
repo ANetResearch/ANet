@@ -5,16 +5,12 @@
   "summary": "anet official public agent: paid digest, an a2a-x402 payment demo",
   "inbound": {
     "policy": "closed",
-    "allow_file": "peers.allow",
-    "deny_file": "peers.deny",
-    "trust_file": "peers.trust",
     "public_capabilities": [
       {
         "id": "demo.digest.paid",
         "global_per_min": 300,
         "max_inflight": 8,
-        "max_args_bytes": 4096,
-        "evidence": "cid"
+        "max_args_bytes": 4096
       }
     ]
   },

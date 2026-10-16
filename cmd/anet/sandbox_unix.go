@@ -1,8 +1,8 @@
-//go:build unix
+//go:build unix && !no_autoreply
 
 package main
 
-import "github.com/ANetResearch/ANet/internal/daemon"
+import "github.com/ANetResearch/ANet/module/autoreply"
 
 // sandboxSubcommand runs the internal commands a sandbox starts this binary as (LEC SB-5, SB-2):
 // `anet __sandbox-init` and `anet __sandbox-probe`. They are dispatched before anything else reads the
@@ -13,9 +13,9 @@ func sandboxSubcommand(args []string) (int, bool) {
 	}
 	switch args[0] {
 	case "__sandbox-init":
-		return daemon.SandboxInitMain(args[1:]), true
+		return autoreply.SandboxInitMain(args[1:]), true
 	case "__sandbox-probe":
-		return daemon.SandboxProbeMain(args[1:]), true
+		return autoreply.SandboxProbeMain(args[1:]), true
 	}
 	return 0, false
 }

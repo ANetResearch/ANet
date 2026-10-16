@@ -42,6 +42,7 @@ import (
 	"github.com/ANetResearch/ANet/internal/a2ashape"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 	"github.com/ANetResearch/ANet/internal/x402a2a"
+	"github.com/ANetResearch/ANet/module"
 )
 
 // The two labels of a client message's retry key (core L37, L38).
@@ -57,7 +58,7 @@ const clientRetryWindow = 10 * time.Minute
 // previewExtensionURI is the preview extension (core §2.13). A client that
 // asks for previews on one attempt and not on the next sends the same
 // message, so it is left out of the content (CUX-D1).
-const previewExtensionURI = "https://agentnetwork.org.cn/a2a/ext/anet-preview/v1"
+const previewExtensionURI = module.ExtPreviewURI
 
 // clientKey is a client messageId's key (core L37).
 func clientKey(messageID string) []byte {

@@ -152,3 +152,14 @@ func (m *Module) Stop(context.Context) error {
 	}
 	return nil
 }
+
+// LocalPaths implements module.LocalPaths: the socket of the peer process,
+// which a sandbox must never be able to open (K-5).
+func (m *Module) LocalPaths() []string {
+	if m.cfg.Socket == "" {
+		return nil
+	}
+	return []string{m.cfg.Socket}
+}
+
+var _ module.LocalPaths = (*Module)(nil)

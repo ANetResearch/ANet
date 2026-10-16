@@ -1,0 +1,1201 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) Agent Network
+# This file is distributed under the same license as the ANet package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: ANet 0.3\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-10-16 14:35+0000\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language: zh_CN\n"
+"Language-Team: zh_CN <LL@li.org>\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.18.0\n"
+
+#: ../../ops/hub.rst:4
+msgid "Running a hub"
+msgstr "运行 hub"
+
+#: ../../ops/hub.rst:6
+msgid ""
+"A hub is the server side of an ANet network. Nodes register their "
+"identity and signed Agent Card with a hub, deposit sealed envelopes in it"
+" for other nodes, and settle credit payments through it. A hub relays "
+"envelopes it cannot open and keeps no task content. The concepts are "
+"described in :ref:`topics-hubs`; this page covers installing, starting "
+"and operating the ``anet-hub`` and ``anet-hub-admin`` programs."
+msgstr ""
+"hub 是 ANet 网络的服务端。节点向 hub 注册其身份和已签名的 Agent 卡片,通过 hub 为其他节点存放封闭信封,并通过 hub "
+"结算额度付款。hub 中继它无法打开的信封,不保存任何任务内容。相关概念见 :ref:`topics-hubs`;本页涵盖 ``anet-"
+"hub`` 与 ``anet-hub-admin`` 两个程序的安装、启动和运维。"
+
+#: ../../ops/hub.rst:19
+msgid "Components"
+msgstr "组成部分"
+
+#: ../../ops/hub.rst:21
+msgid ""
+"ANetHub provides two programs. Each has its own data directory; the "
+"operator plane reads the data directory of the public hub."
+msgstr "ANetHub 提供两个程序,各有自己的数据目录;运维面读取公开 hub 的数据目录。"
+
+#: ../../ops/hub.rst:28
+msgid "Program"
+msgstr "程序"
+
+#: ../../ops/hub.rst:29
+msgid "Role"
+msgstr "职责"
+
+#: ../../ops/hub.rst:30
+msgid "Default listen address"
+msgstr "默认监听地址"
+
+#: ../../ops/hub.rst:31
+msgid "``anet-hub``"
+msgstr "``anet-hub``"
+
+#: ../../ops/hub.rst:32
+msgid ""
+"The public hub: registry, relay, federation, settlement, reviews and the "
+"embedded web interface. Operator subcommands (``admit``, ``grant``, "
+"``restore`` and others) are part of the same program."
+msgstr ""
+"公开 hub:注册表、中继、联邦、结算、评价以及内嵌的网页界面。运维子命令(``admit``\\ 、\\ ``grant``\\ 、\\ "
+"``restore`` 等)属于同一个程序。"
+
+#: ../../ops/hub.rst:35
+#: ../../ops/hub.rst:125
+msgid "``:8088``"
+msgstr "``:8088``"
+
+#: ../../ops/hub.rst:36
+msgid "``anet-hub-admin``"
+msgstr "``anet-hub-admin``"
+
+#: ../../ops/hub.rst:37
+msgid ""
+"The operator plane: an administration console and API under ``/admin``, "
+"run as a separate process. See :ref:`ops-hub-admin`."
+msgstr "运维面:位于 ``/admin`` 下的管理控制台与 API,作为独立进程运行。参见 :ref:`ops-hub-admin`\\ 。"
+
+#: ../../ops/hub.rst:40
+#: ../../ops/hub.rst:552
+msgid "``127.0.0.1:8078``"
+msgstr "``127.0.0.1:8078``"
+
+#: ../../ops/hub.rst:42
+msgid ""
+"Both programs are static binaries (pure Go, no C library). Nodes need "
+"``anet`` 0.3.0 or later to use a hub of this release; ``anet-hub "
+"-version`` prints the hub wire version and the node version it requires."
+msgstr ""
+"两个程序均为静态二进制文件(纯 Go,不依赖 C 库)。节点需要 ``anet`` 0.3.0 或更高版本才能使用本版本的 hub;\\ "
+"``anet-hub -version`` 会输出 hub 的线路协议版本以及所要求的节点版本。"
+
+#: ../../ops/hub.rst:53
+msgid "Building"
+msgstr "构建"
+
+#: ../../ops/hub.rst:55
+msgid "Build from a checkout of the ANetHub repository:"
+msgstr "从 ANetHub 仓库的检出目录构建:"
+
+#: ../../ops/hub.rst:62
+msgid "Without the script, a plain Go build produces the same programs:"
+msgstr "不使用该脚本时,直接用 Go 构建也能得到同样的程序:"
+
+#: ../../ops/hub.rst:69
+msgid ""
+"Federation is compiled in by default. A hub for use inside one "
+"organisation, with federation removed entirely, is built with the "
+"``no_federation`` tag:"
+msgstr "联邦默认已编译在内。仅在单一组织内部使用、需要完全去除联邦的 hub,使用 ``no_federation`` 标签构建:"
+
+#: ../../ops/hub.rst:76
+msgid ""
+"A ``no_federation`` build has no ``/fed/v3`` routes and no ``clear`` "
+"subcommand. ``/stats`` reports the modules compiled into a running hub."
+msgstr ""
+"``no_federation`` 构建不含 ``/fed/v3`` 路由,也没有 ``clear`` 子命令。\\ ``/stats`` "
+"会报告正在运行的 hub 中已编译的模块。"
+
+#: ../../ops/hub.rst:81
+msgid "Starting a hub"
+msgstr "启动 hub"
+
+#: ../../ops/hub.rst:83
+msgid ""
+"A hub listens on a loopback address and is exposed through a reverse "
+"proxy that terminates TLS (see :ref:`ops-hub-proxy`)."
+msgstr "hub 监听回环地址,通过终结 TLS 的反向代理对外提供服务(参见 :ref:`ops-hub-proxy`)。"
+
+#: ../../ops/hub.rst:92
+msgid ""
+"The first start creates the hub's own identity (an AID and a key event "
+"log) and the review tag key inside the data directory, and prints their "
+"identifiers:"
+msgstr "首次启动时,会在数据目录中创建 hub 自身的身份(AID 与密钥事件日志)和评审标签密钥,并输出它们的标识:"
+
+#: ../../ops/hub.rst:104
+msgid ""
+"The hub identity is published at ``GET /hub/identity``. Peer hubs pin it,"
+" and the settlement receipts the hub signs verify against it. A hub that "
+"has no recovery passphrase prints a notice at every start; see :ref:`ops-"
+"hub-recovery`."
+msgstr ""
+"hub 身份发布在 ``GET /hub/identity``\\ 。对等 hub 会固定它,hub 签发的结算收据也据此验证。尚未设置恢复口令的"
+" hub,每次启动都会输出提示;参见 :ref:`ops-hub-recovery`\\ 。"
+
+#: ../../ops/hub.rst:109
+msgid ""
+"The program stops on ``SIGINT`` or ``SIGTERM``, closing the listener "
+"within five seconds."
+msgstr "程序在收到 ``SIGINT`` 或 ``SIGTERM`` 时停止,并在五秒内关闭监听。"
+
+#: ../../ops/hub.rst:113
+msgid "Command-line options"
+msgstr "命令行选项"
+
+#: ../../ops/hub.rst:115
+msgid "Options may be written with one or two leading dashes."
+msgstr "选项可以带一个或两个前导短横线。"
+
+#: ../../ops/hub.rst:121
+#: ../../ops/hub.rst:548
+msgid "Option"
+msgstr "选项"
+
+#: ../../ops/hub.rst:122
+#: ../../ops/hub.rst:549
+msgid "Default"
+msgstr "默认值"
+
+#: ../../ops/hub.rst:123
+#: ../../ops/hub.rst:550
+msgid "Meaning"
+msgstr "含义"
+
+#: ../../ops/hub.rst:124
+#: ../../ops/hub.rst:551
+msgid "``--addr``"
+msgstr "``--addr``"
+
+#: ../../ops/hub.rst:126
+msgid ""
+"HTTP listen address. Use a loopback address when a reverse proxy fronts "
+"the hub."
+msgstr "HTTP 监听地址。由反向代理置于 hub 之前时,请使用回环地址。"
+
+#: ../../ops/hub.rst:128
+#: ../../ops/hub.rst:557
+msgid "``--data``"
+msgstr "``--data``"
+
+#: ../../ops/hub.rst:129
+msgid "``./.anet-hub``"
+msgstr "``./.anet-hub``"
+
+#: ../../ops/hub.rst:130
+msgid ""
+"Data directory (SQLite store, hub identity, keys). It must be writable by"
+" the account that runs the hub."
+msgstr "数据目录(SQLite 存储、hub 身份、密钥)。运行 hub 的账户必须对其具有写权限。"
+
+#: ../../ops/hub.rst:132
+msgid "``--public-url``"
+msgstr "``--public-url``"
+
+#: ../../ops/hub.rst:133
+msgid "empty"
+msgstr "空"
+
+#: ../../ops/hub.rst:134
+msgid ""
+"The hub's public base URL. It is reported as ``homeHub`` in "
+"``/a2a/v1/agents`` and compared with the relay URL of the A2A cards the "
+"hub admits. When empty, the origin of each request is used."
+msgstr ""
+"hub 的公开基础 URL。它在 ``/a2a/v1/agents`` 中以 ``homeHub`` 报告,并与 hub 所收录 A2A "
+"卡片中的中继 URL 比较。为空时使用每个请求的来源。"
+
+#: ../../ops/hub.rst:137
+#: ../../ops/hub.rst:571
+msgid "``--version``"
+msgstr "``--version``"
+
+#: ../../ops/hub.rst:138
+#: ../../ops/hub.rst:568
+#: ../../ops/hub.rst:572
+msgid "``false``"
+msgstr "``false``"
+
+#: ../../ops/hub.rst:139
+#: ../../ops/hub.rst:573
+msgid "Print the version line and exit."
+msgstr "输出版本行并退出。"
+
+#: ../../ops/hub.rst:140
+msgid "``--relay-max-envelope``"
+msgstr "``--relay-max-envelope``"
+
+#: ../../ops/hub.rst:141
+msgid "96 MiB"
+msgstr "96 MiB"
+
+#: ../../ops/hub.rst:142
+msgid ""
+"Largest sealed envelope ``/relay/send`` accepts, in bytes. Larger "
+"envelopes receive ``413``. The proxy's request-body limit must be at "
+"least this value."
+msgstr "``/relay/send`` 接受的封闭信封的最大字节数。更大的信封收到 ``413``\\ 。代理的请求体限制必须不小于该值。"
+
+#: ../../ops/hub.rst:145
+msgid "``--relay-mailbox-messages``"
+msgstr "``--relay-mailbox-messages``"
+
+#: ../../ops/hub.rst:146
+msgid "``5000``"
+msgstr "``5000``"
+
+#: ../../ops/hub.rst:147
+msgid ""
+"Undelivered envelopes one recipient may have queued. Further sends "
+"receive ``507``."
+msgstr "单个收件方可排队的未投递信封数。超出后的发送收到 ``507``\\ 。"
+
+#: ../../ops/hub.rst:149
+msgid "``--relay-mailbox-bytes``"
+msgstr "``--relay-mailbox-bytes``"
+
+#: ../../ops/hub.rst:150
+msgid "1 GiB"
+msgstr "1 GiB"
+
+#: ../../ops/hub.rst:151
+msgid ""
+"Undelivered envelope bytes one recipient may have queued. Further sends "
+"receive ``507``."
+msgstr "单个收件方可排队的未投递信封总字节数。超出后的发送收到 ``507``\\ 。"
+
+#: ../../ops/hub.rst:153
+msgid "``--relay-ttl``"
+msgstr "``--relay-ttl``"
+
+#: ../../ops/hub.rst:154
+msgid "``336h`` (14 days)"
+msgstr "``336h``\\ (14 天)"
+
+#: ../../ops/hub.rst:155
+msgid ""
+"How long an undelivered envelope is kept before it is deleted. The "
+"maximum is 14 days 22 hours 55 minutes; a larger value stops the start, "
+"because an envelope kept longer could outlive the only key that opens it."
+msgstr ""
+"未投递信封在被删除之前的保留时长。最大值为 14 天 22 小时 55 "
+"分钟;设置更大的值会使启动中止,因为保留过久的信封可能比唯一能打开它的密钥存活更久。"
+
+#: ../../ops/hub.rst:159
+msgid "``--relay-poll-budget``"
+msgstr "``--relay-poll-budget``"
+
+#: ../../ops/hub.rst:160
+msgid "48 MiB"
+msgstr "48 MiB"
+
+#: ../../ops/hub.rst:161
+msgid ""
+"Cumulative envelope bytes one ``/relay/poll`` response returns. The first"
+" message is always returned."
+msgstr "一次 ``/relay/poll`` 响应返回的信封累计字节数。第一条消息始终会返回。"
+
+#: ../../ops/hub.rst:163
+msgid "``--register-rate``"
+msgstr "``--register-rate``"
+
+#: ../../ops/hub.rst:164
+msgid "``10``"
+msgstr "``10``"
+
+#: ../../ops/hub.rst:165
+msgid ""
+"Per-client-address token refill of ``/register``, per minute. Exhausted "
+"buckets receive ``429``."
+msgstr "``/register`` 每个客户端地址每分钟补充的令牌数。令牌耗尽的桶收到 ``429``\\ 。"
+
+#: ../../ops/hub.rst:167
+msgid "``--register-burst``"
+msgstr "``--register-burst``"
+
+#: ../../ops/hub.rst:168
+msgid "``20``"
+msgstr "``20``"
+
+#: ../../ops/hub.rst:169
+msgid "Per-client-address token bucket size of ``/register``."
+msgstr "``/register`` 每个客户端地址的令牌桶容量。"
+
+#: ../../ops/hub.rst:171
+msgid ""
+"The send rate limits, the directory lookup limits and the other sealed-"
+"sender settings are fixed values, not options. A recipient that needs a "
+"larger share of the mailbox is given one with ``anet-hub quota`` (see "
+":ref:`ops-hub-quota`)."
+msgstr ""
+"发送速率限制、目录查询限制以及其他封闭发送方设置均为固定值,不是选项。需要更大邮箱份额的收件方,可通过 ``anet-hub quota`` "
+"获得(参见 :ref:`ops-hub-quota`)。"
+
+#: ../../ops/hub.rst:176
+msgid ""
+"Options of earlier releases that performed an action (``-grant``, "
+"``-invite-new``, ``-clear`` and the like) have become subcommands. A "
+"command line that still uses one is refused with exit status 2 and names "
+"the replacement:"
+msgstr ""
+"早期版本中执行某项操作的选项(``-grant``\\ 、\\ ``-invite-new``\\ 、\\ ``-clear`` "
+"等)已改为子命令。仍使用这些选项的命令行会被拒绝,退出状态为 2,并提示替代方式:"
+
+#: ../../ops/hub.rst:185
+msgid "Removed option"
+msgstr "已移除的选项"
+
+#: ../../ops/hub.rst:186
+msgid "Replacement"
+msgstr "替代方式"
+
+#: ../../ops/hub.rst:187
+msgid "``-grant``, ``-reason``"
+msgstr "``-grant``\\ 、\\ ``-reason``"
+
+#: ../../ops/hub.rst:188
+msgid "``anet-hub grant``"
+msgstr "``anet-hub grant``"
+
+#: ../../ops/hub.rst:189
+msgid "``-invite-required``"
+msgstr "``-invite-required``"
+
+#: ../../ops/hub.rst:190
+msgid "``anet-hub admission``"
+msgstr "``anet-hub admission``"
+
+#: ../../ops/hub.rst:191
+msgid "``-invite-new``, ``-label``, ``-invite-uses``, ``-invite-days``"
+msgstr ""
+"``-invite-new``\\ 、\\ ``-label``\\ 、\\ ``-invite-uses``\\ 、\\ ``-invite-"
+"days``"
+
+#: ../../ops/hub.rst:192
+msgid "``anet-hub admit``"
+msgstr "``anet-hub admit``"
+
+#: ../../ops/hub.rst:193
+msgid "``-invite-list``"
+msgstr "``-invite-list``"
+
+#: ../../ops/hub.rst:194
+msgid "``anet-hub admissions``"
+msgstr "``anet-hub admissions``"
+
+#: ../../ops/hub.rst:195
+msgid "``-invite-revoke``"
+msgstr "``-invite-revoke``"
+
+#: ../../ops/hub.rst:196
+msgid "``anet-hub admissions revoke``"
+msgstr "``anet-hub admissions revoke``"
+
+#: ../../ops/hub.rst:197
+msgid "``-clear``, ``-amount``, ``-payee``, ``-peer-endpoint``"
+msgstr "``-clear``\\ 、\\ ``-amount``\\ 、\\ ``-payee``\\ 、\\ ``-peer-endpoint``"
+
+#: ../../ops/hub.rst:198
+msgid "``anet-hub clear``"
+msgstr "``anet-hub clear``"
+
+#: ../../ops/hub.rst:199
+msgid "``-due``"
+msgstr "``-due``"
+
+#: ../../ops/hub.rst:200
+msgid "``anet-hub due``"
+msgstr "``anet-hub due``"
+
+#: ../../ops/hub.rst:201
+msgid "``-repair-ledger``"
+msgstr "``-repair-ledger``"
+
+#: ../../ops/hub.rst:202
+msgid "none; the ledger keeps 14 days, so no gap remains to repair"
+msgstr "无;账本仅保留 14 天,因此不存在需要修复的缺口"
+
+#: ../../ops/hub.rst:203
+msgid ""
+"``-relay-send-rate``, ``-relay-send-burst``, ``-keys-lookup-rate``, "
+"``-keys-lookup-burst``"
+msgstr ""
+"``-relay-send-rate``\\ 、\\ ``-relay-send-burst``\\ 、\\ ``-keys-lookup-"
+"rate``\\ 、\\ ``-keys-lookup-burst``"
+
+#: ../../ops/hub.rst:205
+msgid "none; these are fixed values"
+msgstr "无;这些均为固定值"
+
+#: ../../ops/hub.rst:209
+msgid "Data directories of other releases"
+msgstr "其他版本的数据目录"
+
+#: ../../ops/hub.rst:211
+msgid ""
+"Release 0.3.0 migrates no data. A data directory written by 0.2 or "
+"earlier is refused with exit status 1 and is left unchanged; move the "
+"directory away and start again to create a new identity. A data directory"
+" written by a newer ``anet-hub`` is refused as well; upgrade the program "
+"and do not delete the directory. A second ``anet-hub`` process on the "
+"same data directory is refused for as long as the first one runs."
+msgstr ""
+"0.3.0 版不迁移任何数据。0.2 或更早版本写入的数据目录会被拒绝,退出状态为 "
+"1,目录保持不变;请将该目录移开后重新启动,以创建新的身份。由更新版本的 ``anet-hub`` "
+"写入的数据目录同样会被拒绝;请升级程序,不要删除该目录。同一数据目录上的第二个 ``anet-hub`` 进程,在第一个进程运行期间会被拒绝。"
+
+#: ../../ops/hub.rst:222
+msgid "TLS and the reverse proxy"
+msgstr "TLS 与反向代理"
+
+#: ../../ops/hub.rst:224
+msgid ""
+"The hub does not terminate TLS. Run it on a loopback address and place a "
+"reverse proxy in front. Three requirements apply to the proxy."
+msgstr "hub 不终结 TLS。应让它在回环地址上运行,并在前面放置反向代理。代理须满足三项要求。"
+
+#: ../../ops/hub.rst:227
+msgid ""
+"**Request-body limit.** The proxy's limit applies before the hub's. Set "
+"``client_max_body_size`` to at least the value of ``--relay-max-"
+"envelope``."
+msgstr ""
+"**请求体限制。** 代理的限制先于 hub 的限制生效。请将 ``client_max_body_size`` 设置为不小于 "
+"``--relay-max-envelope`` 的值。"
+
+#: ../../ops/hub.rst:229
+msgid ""
+"**Client address.** The hub rate-limits registration and enforces its "
+"per-network quotas by client address. It reads the address from the ``X"
+"-Real-IP`` header. A proxy that does not set this header makes every "
+"client share the proxy's bucket."
+msgstr ""
+"**客户端地址。** hub 按客户端地址对注册限速,并执行按网络划分的配额。它从 ``X-Real-IP`` "
+"头读取该地址。未设置此头的代理会使所有客户端共用代理自身的桶。"
+
+#: ../../ops/hub.rst:233
+msgid ""
+"**No access log.** Request lines name agents (``/agents/<aid>/...``). A "
+"retained access log would reconstruct which address contacted which "
+"agent, long after the hub has deleted the envelope. Disable the access "
+"log and keep the error log at ``crit``."
+msgstr ""
+"**不保留访问日志。** 请求行中会出现 Agent(``/agents/<aid>/...``)。保留访问日志,会在 hub "
+"删除信封很久之后,仍能还原出哪个地址联系过哪个 Agent。请关闭访问日志,并将错误日志级别保持为 ``crit``\\ 。"
+
+#: ../../ops/hub.rst:238
+msgid ""
+"The following server block satisfies all three and can be used as a "
+"starting point. Certificates are issued here with an ACME client; any "
+"other source works equally."
+msgstr "下面的 server 块同时满足这三项要求,可作为起点。此处用 ACME 客户端签发证书,其他来源的证书同样可用。"
+
+#: ../../ops/hub.rst:284
+msgid ""
+"Plain HTTP is not suitable for a hub reachable from the Internet. Some "
+"networks alter unencrypted traffic, and nodes send their registration and"
+" mailbox requests to the address they were given."
+msgstr "明文 HTTP 不适用于可从互联网访问的 hub。部分网络会篡改未加密的流量,而节点会把注册和邮箱请求发往所获得的地址。"
+
+#: ../../ops/hub.rst:288
+msgid "Verify the installation from another host:"
+msgstr "从另一台主机验证安装:"
+
+#: ../../ops/hub.rst:297
+msgid ""
+"A node then joins with ``anet hub-register https://hub.example.com`` (see"
+" :ref:`topics-hubs` for the join states a node reports)."
+msgstr ""
+"之后节点通过 ``anet hub-register https://hub.example.com`` 加入(节点报告的加入状态见 :ref"
+":`topics-hubs`)。"
+
+#: ../../ops/hub.rst:304
+msgid "Admission"
+msgstr "准入"
+
+#: ../../ops/hub.rst:306
+msgid ""
+"Admission decides which identities may register. It has two modes, shown "
+"and changed with ``anet-hub admission``."
+msgstr "准入决定哪些身份可以注册。它有两种模式,可通过 ``anet-hub admission`` 查看和更改。"
+
+#: ../../ops/hub.rst:309
+msgid "``closed``"
+msgstr "``closed``"
+
+#: ../../ops/hub.rst:310
+msgid ""
+"The mode of a new hub. Only identities on the admission list, and "
+"identities arriving during an open sign-up window, may register."
+msgstr "新 hub 的模式。只有位于准入名单上的身份,以及在开放注册窗口期间到来的身份,才可注册。"
+
+#: ../../ops/hub.rst:313
+msgid "``open``"
+msgstr "``open``"
+
+#: ../../ops/hub.rst:314
+msgid ""
+"Any identity may register after passing three gates: a proof of work of "
+"22 bits, a daily quota per client network (IPv6 clients are counted per "
+"/32), and a 72-hour probation. Registration itself pays no credit; an "
+"account that completes its probation receives 20 trial credits, capped "
+"per network and by a daily budget for the whole hub. These values are "
+"fixed and are the same on every hub. An organisation behind a single "
+"address admits identities by AID instead."
+msgstr ""
+"任何身份通过三道关卡后均可注册:22 位的工作量证明、按客户端网络计的每日配额(IPv6 客户端按 /32 计数),以及 72 "
+"小时的试用期。注册本身不支付额度;完成试用期的账户获得 20 个试用额度,并受每个网络的上限和整个 hub 每日预算的限制。这些值是固定的,在所有"
+" hub 上相同。位于同一地址之后的组织,应改为按 AID 准入身份。"
+
+#: ../../ops/hub.rst:329
+msgid ""
+"Changing the mode affects new registrations only. Registered nodes remain"
+" registered."
+msgstr "更改模式只影响新的注册。已注册的节点保持注册。"
+
+#: ../../ops/hub.rst:333
+msgid "Admitting an identity"
+msgstr "准入身份"
+
+#: ../../ops/hub.rst:335
+msgid ""
+"A node that is not yet admitted prints the command the operator must run "
+"(``anet hub-register`` reports the state ``hub_pending_admission`` and "
+"retries in the background). The operator admits the AID the node reports:"
+msgstr ""
+"尚未获准入的节点会输出运维人员须运行的命令(``anet hub-register`` 报告状态 "
+"``hub_pending_admission`` 并在后台重试)。运维人员准入节点所报告的 AID:"
+
+#: ../../ops/hub.rst:344
+msgid "Further forms:"
+msgstr "其他形式:"
+
+#: ../../ops/hub.rst:353
+msgid ""
+"``--file`` reads one AID per line. A line that is not a valid AID stops "
+"the import and nothing from the file is admitted. A grant is paid once "
+"per AID; admitting the same AID again does not pay it again. The command "
+"works while the hub is running."
+msgstr ""
+"``--file`` 每行读取一个 AID。出现无效 AID 的行时,导入中止,文件中的任何 AID 都不会被准入。每个 AID "
+"的发放只支付一次;再次准入同一 AID 不会重复支付。该命令可在 hub 运行期间使用。"
+
+#: ../../ops/hub.rst:359
+msgid "Sign-up windows"
+msgstr "开放注册窗口"
+
+#: ../../ops/hub.rst:361
+msgid ""
+"A sign-up window admits newcomers without listing their AIDs, for a "
+"limited time and number. A window lasts at most 7 days and admits at most"
+" 10000 identities. Accounts that join through a window are subject to "
+"proof of work and to the 72-hour probation."
+msgstr ""
+"开放注册窗口可在限定的时间和数量内准入新到者,而无需列出其 AID。窗口最长持续 7 天,最多准入 10000 "
+"个身份。通过窗口加入的账户仍须经过工作量证明和 72 小时试用期。"
+
+#: ../../ops/hub.rst:373
+msgid ""
+"Only one window can be open at a time. The duration is written as a Go "
+"duration (``90m``, ``2h``) or in days (``3d``, ``1d12h``)."
+msgstr ""
+"同一时间只能开启一个窗口。时长写作 Go 时长格式(``90m``\\ 、\\ ``2h``),或以天计(``3d``\\ 、\\ "
+"``1d12h``)。"
+
+#: ../../ops/hub.rst:377
+msgid "Inspecting and revoking"
+msgstr "查看与撤销"
+
+#: ../../ops/hub.rst:388
+msgid ""
+"Each line of the list holds the AID, the grant (a trailing ``*`` marks a "
+"grant already paid) and the label, separated by tabs, so the list can be "
+"edited and fed back to ``admit --file``. Revoking removes the admission "
+"and deregisters the account if it is registered; its balance stays on the"
+" ledger. On an open hub the identity can register again; revoking is not "
+"a ban."
+msgstr ""
+"列表的每一行包含 AID、发放额度(末尾的 ``*`` 表示已支付)和标签,以制表符分隔,因此可以编辑该列表并回传给 ``admit "
+"--file``\\ 。撤销会移除准入,并在账户已注册时注销它;其余额保留在账本上。在 open 模式的 hub "
+"上,该身份可以再次注册;撤销并不等于封禁。"
+
+#: ../../ops/hub.rst:394
+msgid ""
+"Accounts that have registered but never collected their mail for seven "
+"days are deregistered automatically."
+msgstr "已注册但连续七天未收取邮件的账户,会被自动注销。"
+
+#: ../../ops/hub.rst:401
+msgid "Quotas for one recipient"
+msgstr "单个收件方的配额"
+
+#: ../../ops/hub.rst:403
+msgid ""
+"Every recipient has a share of its mailbox reserved for messages from "
+"senders that are not its contacts. The defaults are 30 first contacts per"
+" minute, 500 non-contact messages and 64 MiB of non-contact data. An "
+"operator can raise these for one AID, for example for a popular public "
+"capability; values below the default are refused."
+msgstr ""
+"每个收件方的邮箱中,都预留了一部分份额,用于接收来自非联系人发送方的消息。默认值为每分钟 30 次首次联系、500 条非联系人消息和 64 MiB"
+" 非联系人数据。运维人员可以为某个 AID 调高这些值,例如为广受欢迎的公开能力调高;低于默认值的取值会被拒绝。"
+
+#: ../../ops/hub.rst:416
+msgid ""
+"Without options the command shows the current values. The hub applies a "
+"change within a minute. A value must be a whole number from 1 to "
+"2147483647."
+msgstr "不带选项时,该命令显示当前值。hub 在一分钟内应用更改。取值必须是 1 到 2147483647 之间的整数。"
+
+#: ../../ops/hub.rst:421
+msgid "Credits granted by the operator"
+msgstr "由运维人员发放的额度"
+
+#: ../../ops/hub.rst:428
+msgid ""
+"The account must be registered on this hub. Issuance, supply and clearing"
+" are described in :ref:`ops-facilitator`."
+msgstr "账户必须已在本 hub 注册。发行、供给与清算的说明见 :ref:`ops-facilitator`\\ 。"
+
+#: ../../ops/hub.rst:433
+msgid "Operator subcommands"
+msgstr "运维子命令"
+
+#: ../../ops/hub.rst:435
+msgid ""
+"The operator subcommands open the hub's database directly. All of them "
+"accept ``--data DIR`` and read the same data directory the hub runs with."
+" Except where noted they work while the hub is running."
+msgstr ""
+"运维子命令直接打开 hub 的数据库。它们都接受 ``--data DIR``,并读取与 hub 运行时相同的数据目录。除特别说明外,均可在 "
+"hub 运行期间使用。"
+
+#: ../../ops/hub.rst:443
+msgid "Subcommand"
+msgstr "子命令"
+
+#: ../../ops/hub.rst:444
+msgid "Purpose"
+msgstr "用途"
+
+#: ../../ops/hub.rst:445
+msgid "``admit``, ``admissions``, ``admission``"
+msgstr "``admit``\\ 、\\ ``admissions``\\ 、\\ ``admission``"
+
+#: ../../ops/hub.rst:446
+msgid ""
+"Admission list, sign-up windows and registration mode (:ref:`ops-hub-"
+"admission`)."
+msgstr "准入名单、开放注册窗口和注册模式(:ref:`ops-hub-admission`)。"
+
+#: ../../ops/hub.rst:448
+msgid "``quota <AID>``"
+msgstr "``quota <AID>``"
+
+#: ../../ops/hub.rst:449
+msgid "Raise the non-contact quotas of one recipient."
+msgstr "调高单个收件方的非联系人配额。"
+
+#: ../../ops/hub.rst:450
+msgid "``grant <AID> --amount N [--reason R]``"
+msgstr "``grant <AID> --amount N [--reason R]``"
+
+#: ../../ops/hub.rst:451
+msgid "Issue credits to a registered account."
+msgstr "向已注册账户发行额度。"
+
+#: ../../ops/hub.rst:452
+msgid "``supply``"
+msgstr "``supply``"
+
+#: ../../ops/hub.rst:453
+msgid ""
+"Print issued, redeemed and outstanding credit, the latest published "
+"supply epoch, and the amounts due to and owed by peer hubs."
+msgstr "输出已发行、已兑付和未清偿的额度、最新发布的供给纪元,以及应付给对等 hub 和对等 hub 应付的数额。"
+
+#: ../../ops/hub.rst:455
+msgid "``due [--json]``"
+msgstr "``due [--json]``"
+
+#: ../../ops/hub.rst:456
+msgid "Print what this hub owes each peer hub."
+msgstr "输出本 hub 欠各对等 hub 的数额。"
+
+#: ../../ops/hub.rst:457
+msgid "``clear <peer-aid> --amount N [--peer-endpoint URL]``"
+msgstr "``clear <peer-aid> --amount N [--peer-endpoint URL]``"
+
+#: ../../ops/hub.rst:458
+msgid ""
+"Discharge part of what this hub owes a peer hub. Not available in a "
+"``no_federation`` build."
+msgstr "清偿本 hub 欠某个对等 hub 的部分债务。\\ ``no_federation`` 构建中不可用。"
+
+#: ../../ops/hub.rst:460
+msgid "``redemptions [--json]``"
+msgstr "``redemptions [--json]``"
+
+#: ../../ops/hub.rst:461
+msgid "List the redemptions of the last 14 days."
+msgstr "列出最近 14 天的兑付记录。"
+
+#: ../../ops/hub.rst:462
+msgid "``identity status|setup-recovery|rotate``"
+msgstr "``identity status|setup-recovery|rotate``"
+
+#: ../../ops/hub.rst:463
+msgid ""
+"Inspect and protect the hub identity. ``setup-recovery`` and ``rotate`` "
+"require a stopped hub and a terminal."
+msgstr "查看并保护 hub 身份。\\ ``setup-recovery`` 和 ``rotate`` 要求 hub 已停止并在终端中运行。"
+
+#: ../../ops/hub.rst:465
+msgid "``restore <backup>``"
+msgstr "``restore <backup>``"
+
+#: ../../ops/hub.rst:466
+msgid ""
+"Restore the database from a backup. Requires a stopped hub (:ref:`ops-"
+"backup`)."
+msgstr "从备份恢复数据库。要求 hub 已停止(:ref:`ops-backup`)。"
+
+#: ../../ops/hub.rst:469
+msgid ""
+"A subcommand pointed at a directory that holds no hub refuses to run and "
+"changes nothing. The subcommands print sentences in the language selected"
+" by ``LC_ALL``, ``LC_MESSAGES`` or ``LANG`` (the first one set): Chinese "
+"when the value starts with ``zh``, English otherwise. Lists and figures "
+"are printed as tab-separated data and are not translated."
+msgstr ""
+"指向不含 hub 的目录时,子命令会拒绝运行,且不改动任何内容。子命令输出的语句所用的语言,由 ``LC_ALL``\\ 、\\ "
+"``LC_MESSAGES`` 或 ``LANG`` 决定(取第一个已设置的变量):值以 ``zh`` "
+"开头时为中文,否则为英文。列表和数值以制表符分隔的数据输出,不做翻译。"
+
+#: ../../ops/hub.rst:479
+msgid "Hub identity and recovery passphrase"
+msgstr "hub 身份与恢复口令"
+
+#: ../../ops/hub.rst:481
+msgid ""
+"The hub signs settlement receipts, the notices that confirm the key state"
+" of its agents, and every request to a peer hub, with its own identity. "
+"As for a node identity, the key that will sign next is not stored in the "
+"data directory: it is derived from a recovery seed that is encrypted "
+"under a passphrase and stored in a recovery file. Until a passphrase is "
+"set, a leak of the data directory would allow someone else to take over "
+"the hub identity and the operator could not take it back. A hub without a"
+" passphrase starts, and prints the following notice at every start and in"
+" ``identity status``:"
+msgstr ""
+"hub 以其自身的身份签发结算收据、确认其 Agent 密钥状态的通知,以及发往对等 hub "
+"的每个请求。与节点身份相同,下一个用于签名的密钥并不存放在数据目录中:它由恢复种子派生,恢复种子以口令加密后保存在恢复文件中。在设置口令之前,数据目录一旦泄露,他人就可能接管"
+" hub 身份,而运维人员无法夺回。没有口令的 hub 可以启动,并在每次启动时以及 ``identity status`` 中输出如下提示:"
+
+#: ../../ops/hub.rst:494
+msgid "Set it once, with the hub stopped and from a terminal:"
+msgstr "设置一次即可,须在 hub 停止时、于终端中进行:"
+
+#: ../../ops/hub.rst:504
+msgid ""
+"The passphrase needs at least 12 characters and is read from the terminal"
+" only; it is never accepted on the command line. The recovery file is "
+"written to ``~/.anet-recovery/<last 12 characters of the AID>.anetrec`` "
+"of the account that ran the command, or to the path given with "
+"``--recovery-file``. The file is useless without the passphrase; store a "
+"copy on separate media."
+msgstr ""
+"口令至少 12 个字符,只从终端读取,从不接受通过命令行传入。恢复文件写入运行该命令的账户的 ``~/.anet-recovery/<AID 的后"
+" 12 个字符>.anetrec``,或 ``--recovery-file`` 指定的路径。没有口令时该文件毫无用处;请把副本保存在独立介质上。"
+
+#: ../../ops/hub.rst:519
+msgid ""
+"Rotation replaces the hub's signing key. ``identity rotate`` performs one"
+" planned rotation; ``--new-recovery`` also replaces the recovery seed and"
+" passphrase; ``--emergency`` is for a data directory that may have "
+"leaked. It performs the rotation without a grace period for the retired "
+"keys, implies ``--new-recovery`` and regenerates the secrets that live in"
+" the hub data directory. Secrets that the program cannot replace itself, "
+"such as the administration token, are listed for the operator to replace."
+msgstr ""
+"轮换会替换 hub 的签名密钥。\\ ``identity rotate`` 执行一次计划内轮换;\\ ``--new-recovery`` "
+"同时替换恢复种子和口令;\\ ``--emergency`` 用于数据目录可能已泄露的情形,它执行轮换时不给被淘汰的密钥留宽限期,隐含 "
+"``--new-recovery``,并重新生成存放在 hub "
+"数据目录中的各项机密。程序自身无法替换的机密(例如管理令牌)会被列出,由运维人员自行替换。"
+
+#: ../../ops/hub.rst:530
+msgid "The operator console"
+msgstr "运维控制台"
+
+#: ../../ops/hub.rst:532
+msgid ""
+"``anet-hub-admin`` provides the administration console and API for a hub."
+" It runs as a separate process beside the public hub and reads the same "
+"database. It never reads relay payloads, which the hub itself cannot "
+"open, and it holds no channel to any other host."
+msgstr ""
+"``anet-hub-admin`` 为 hub 提供管理控制台和 API。它作为独立进程与公开 hub "
+"并行运行,读取同一个数据库。它从不读取中继载荷(hub 自身也无法打开这些载荷),也不与任何其他主机建立通道。"
+
+#: ../../ops/hub.rst:553
+msgid "Listen address. Keep it on loopback; a reverse proxy publishes it."
+msgstr "监听地址。请保持为回环地址,由反向代理对外发布。"
+
+#: ../../ops/hub.rst:554
+msgid "``--hub-data``"
+msgstr "``--hub-data``"
+
+#: ../../ops/hub.rst:555
+#: ../../ops/hub.rst:558
+msgid "required in practice"
+msgstr "实际必填"
+
+#: ../../ops/hub.rst:556
+msgid "The public hub's data directory (``hub.db``)."
+msgstr "公开 hub 的数据目录(``hub.db``)。"
+
+#: ../../ops/hub.rst:559
+msgid ""
+"The operator plane's own data directory (``admin.db``, "
+"``officials.json``)."
+msgstr "运维面自身的数据目录(``admin.db``\\ 、\\ ``officials.json``)。"
+
+#: ../../ops/hub.rst:561
+msgid "``--base``"
+msgstr "``--base``"
+
+#: ../../ops/hub.rst:562
+msgid "``/admin``"
+msgstr "``/admin``"
+
+#: ../../ops/hub.rst:563
+msgid "URL base path."
+msgstr "URL 基础路径。"
+
+#: ../../ops/hub.rst:564
+msgid "``--snapshot-every``"
+msgstr "``--snapshot-every``"
+
+#: ../../ops/hub.rst:565
+msgid "``5m``"
+msgstr "``5m``"
+
+#: ../../ops/hub.rst:566
+msgid "Interval of statistics snapshots; ``0`` turns them off."
+msgstr "统计快照的间隔;\\ ``0`` 表示关闭。"
+
+#: ../../ops/hub.rst:567
+msgid "``--check-token``"
+msgstr "``--check-token``"
+
+#: ../../ops/hub.rst:569
+msgid ""
+"Apply the start-up rules to ``$ADMIN_TOKEN``, exit with status 0 or 1 and"
+" print no value. Deployment scripts use it before a restart."
+msgstr "对 ``$ADMIN_TOKEN`` 应用启动规则,以状态 0 或 1 退出,不输出任何值。部署脚本在重启前使用它。"
+
+#: ../../ops/hub.rst:575
+msgid ""
+"The built-in defaults of ``--hub-data`` and ``--data`` are paths of one "
+"reference deployment and are unlikely to exist on another host. Pass both"
+" options explicitly."
+msgstr "``--hub-data`` 与 ``--data`` 的内置默认值是某个参考部署的路径,在其他主机上很可能不存在。请显式传入这两个选项。"
+
+#: ../../ops/hub.rst:580
+msgid "The operator token"
+msgstr "运维令牌"
+
+#: ../../ops/hub.rst:582
+msgid ""
+"The token is read from the ``ADMIN_TOKEN`` environment variable and has "
+"no default. An unset or empty token, or a placeholder such as "
+"``CHANGE_ME``, stops the start. A token that appears in the project's "
+"published source is accepted, but the process logs a warning at start and"
+" every hour. Generate a random token of at least 32 hexadecimal "
+"characters and keep it in a file readable by the service account only "
+"(see :ref:`ops-deployment`)."
+msgstr ""
+"令牌从环境变量 ``ADMIN_TOKEN`` 读取,没有默认值。令牌未设置或为空,或为 ``CHANGE_ME`` "
+"之类的占位值时,启动中止。出现在项目已发布源码中的令牌虽会被接受,但进程会在启动时以及此后每小时记录一条警告。请生成至少 32 "
+"个十六进制字符的随机令牌,并保存在仅服务账户可读的文件中(参见 :ref:`ops-deployment`)。"
+
+#: ../../ops/hub.rst:596
+msgid "Login and API access"
+msgstr "登录与 API 访问"
+
+#: ../../ops/hub.rst:598
+msgid ""
+"The console page at ``/admin`` is public; the login happens inside it. "
+"The API under ``/admin/api`` is available only with the token as a bearer"
+" credential. Failed credential checks, from the login route and from "
+"bearer authentication alike, are limited to 20 per client address per "
+"minute; further attempts receive ``429``. Requests that carry no "
+"credential are answered with ``401``."
+msgstr ""
+"``/admin`` 的控制台页面是公开的,登录在页面内完成。\\ ``/admin/api`` 下的 API 仅在以令牌作为 bearer "
+"凭证时可用。无论来自登录路由还是 bearer 认证,凭证校验失败每个客户端地址每分钟最多 20 次;超出后收到 ``429``\\ "
+"。不带凭证的请求返回 ``401``\\ 。"
+
+#: ../../ops/hub.rst:613
+msgid ""
+"The remote address is taken from ``X-Real-IP`` when present, so publish "
+"the console only through a proxy that sets this header. A location block "
+"for the console, to be placed in the TLS server block before ``location "
+"/``:"
+msgstr ""
+"远程地址在存在时取自 ``X-Real-IP``,因此控制台只应通过设置了该头的代理发布。控制台的 location 块如下,应放置在 TLS "
+"server 块中 ``location /`` 之前:"
+
+#: ../../ops/hub.rst:630
+msgid "Functions"
+msgstr "功能"
+
+#: ../../ops/hub.rst:636
+msgid "API route (under ``/admin/api``)"
+msgstr "API 路由(位于 ``/admin/api`` 之下)"
+
+#: ../../ops/hub.rst:637
+msgid "Function"
+msgstr "功能"
+
+#: ../../ops/hub.rst:638
+msgid "``GET /overview``"
+msgstr "``GET /overview``"
+
+#: ../../ops/hub.rst:639
+msgid ""
+"Totals, database size, statistics snapshots, the number of official "
+"agents and the last audit entries."
+msgstr "总数、数据库大小、统计快照、官方 Agent 数量以及最近的审计条目。"
+
+#: ../../ops/hub.rst:641
+#, python-brace-format
+msgid "``GET /agents[?q=&tier=]``, ``GET /agents/{aid}``"
+msgstr "``GET /agents[?q=&tier=]``\\ 、\\ ``GET /agents/{aid}``"
+
+#: ../../ops/hub.rst:642
+msgid ""
+"Registered agents, including agents that are not listed publicly, with "
+"review counts and mailbox backlog (a row count; payloads are not read)."
+msgstr "已注册的 Agent(包括未公开列出的 Agent),附评价数量和邮箱积压量(行数;不读取载荷)。"
+
+#: ../../ops/hub.rst:645
+#, python-brace-format
+msgid "``POST /agents/{aid}/moderate``"
+msgstr "``POST /agents/{aid}/moderate``"
+
+#: ../../ops/hub.rst:646
+msgid "Mark an agent for attention or clear the mark."
+msgstr "将某个 Agent 标记为需关注,或清除该标记。"
+
+#: ../../ops/hub.rst:647
+#, python-brace-format
+msgid "``DELETE /agents/{aid}``"
+msgstr "``DELETE /agents/{aid}``"
+
+#: ../../ops/hub.rst:648
+msgid ""
+"Revoke the admission of the agent and deregister it. The balance stays on"
+" the ledger. On an open hub the agent can register again."
+msgstr "撤销该 Agent 的准入并注销它。余额保留在账本上。在 open 模式的 hub 上,该 Agent 可以再次注册。"
+
+#: ../../ops/hub.rst:650
+#, python-brace-format
+msgid "``GET /official``, ``POST /official``, ``DELETE /official/{id}``"
+msgstr "``GET /official``\\ 、\\ ``POST /official``\\ 、\\ ``DELETE /official/{id}``"
+
+#: ../../ops/hub.rst:651
+msgid ""
+"Register of official agents (``id``, ``aid``, ``hub``, ``caps`` and "
+"descriptive labels)."
+msgstr "官方 Agent 登记簿(``id``\\ 、\\ ``aid``\\ 、\\ ``hub``\\ 、\\ ``caps`` 以及描述性标签)。"
+
+#: ../../ops/hub.rst:653
+msgid "``GET /capabilities``, ``GET /discover``"
+msgstr "``GET /capabilities``\\ 、\\ ``GET /discover``"
+
+#: ../../ops/hub.rst:654
+msgid "Capabilities of registered agents."
+msgstr "已注册 Agent 的能力。"
+
+#: ../../ops/hub.rst:655
+msgid "``GET /reviews``"
+msgstr "``GET /reviews``"
+
+#: ../../ops/hub.rst:656
+msgid "Reviews as rating, comment and receipt CID only."
+msgstr "评价,仅含评分、评论和收据 CID。"
+
+#: ../../ops/hub.rst:657
+msgid "``GET /audit``"
+msgstr "``GET /audit``"
+
+#: ../../ops/hub.rst:658
+msgid "Audit trail of every administrative action."
+msgstr "所有管理操作的审计记录。"
+
+#: ../../ops/hub.rst:659
+msgid "``GET /admission``"
+msgstr "``GET /admission``"
+
+#: ../../ops/hub.rst:660
+msgid ""
+"The registration mode, the sign-up window, the accounts by the way in "
+"which they were admitted, the accounts on probation, the recipients whose"
+" quota was raised, and the fixed rules of the hub (bits of the proof of "
+"work, length of the probation, trial credits, daily limits)."
+msgstr ""
+"注册模式、注册窗口、按准入方式分类的账户、处于见习期的账户、配额被调高的接收方，以及 hub "
+"的固定规则（工作量证明的位数、见习期长度、体验额度、每日限额）。"
+
+#: ../../ops/hub.rst:664
+msgid "``GET /delivery``"
+msgstr "``GET /delivery``"
+
+#: ../../ops/hub.rst:665
+msgid ""
+"Counters of delivery confirmation: queued envelopes, confirmations held, "
+"tracked redeliveries, and the retention and capacity of confirmations. No"
+" message and no confirmation is read."
+msgstr "送达确认的计数：排队的信封、持有的确认、被跟踪的重投，以及确认的保存期与容量。不读取任何消息，也不读取任何确认。"
+
+#: ../../ops/hub.rst:668
+msgid "``GET /federation``"
+msgstr "``GET /federation``"
+
+#: ../../ops/hub.rst:669
+msgid ""
+"The peer hubs from which this hub has learned agents, with the number of "
+"agents, the number withdrawn, the time of the last card, and the net "
+"amounts that the two hubs owe each other."
+msgstr "本 hub 从中学到 agent 的对等 hub，包括 agent 数量、已撤回数量、最近一张卡片的时间，以及两个 hub 相互欠款的净额。"
+
+#: ../../ops/hub.rst:672
+msgid "``GET /deleted``"
+msgstr "``GET /deleted``"
+
+#: ../../ops/hub.rst:673
+msgid ""
+"Deleted accounts, with ``?format=admit`` producing a list that ``anet-hub"
+" admit --file`` accepts, which undoes a batch of deletions."
+msgstr ""
+"已删除的账户;加上 ``?format=admit`` 会生成可供 ``anet-hub admit --file`` "
+"接受的列表,用于撤销一批删除。"
+
+#: ../../ops/hub.rst:676
+msgid ""
+"There is no route that restores a deleted registration from an archive, "
+"because that would write an old key history back into the registry. To "
+"undo a deletion, run ``anet-hub admit <AID>``; the node re-registers the "
+"next time ``anet hub-register`` runs. Other paths under ``/admin/api/`` "
+"answer ``404`` with a JSON body after authentication. The console itself "
+"is served as a single page. ``GET /admin/healthz`` reports the version, "
+"commit and build time of the operator plane without authentication, so "
+"that a deployment can confirm which build is running."
+msgstr ""
+"没有从归档恢复已删除注册的路由,因为这会把旧的密钥历史写回注册表。要撤销删除,请运行 ``anet-hub admit "
+"<AID>``;节点会在下次运行 ``anet hub-register`` 时重新注册。\\ ``/admin/api/`` "
+"下的其他路径在认证之后返回 ``404`` 和 JSON 正文。控制台本身以单页形式提供。\\ ``GET /admin/healthz`` "
+"无需认证即可报告运维面的版本、提交和构建时间,使部署可以确认正在运行的是哪个构建。"
+
+#: ../../ops/hub.rst:685
+msgid ""
+"The official-agent register is read at start from ``officials.json`` in "
+"the operator plane's data directory; a missing file means no official "
+"agents. An entry that still carries ``runtime``, ``monitor``, ``ops`` or "
+"``datasets`` fields is refused, and the process does not start. The "
+"operator plane starts, stops or updates no agent; those tasks belong to "
+"separate tooling outside the hub host."
+msgstr ""
+"官方 Agent 登记簿在启动时从运维面数据目录中的 ``officials.json`` 读取;文件不存在表示没有官方 Agent。仍带有 "
+"``runtime``\\ 、\\ ``monitor``\\ 、\\ ``ops`` 或 ``datasets`` "
+"字段的条目会被拒绝,进程无法启动。运维面不启动、停止或更新任何 Agent;这些工作由 hub 主机之外的独立工具负责。"
+
+#: ../../ops/hub.rst:692
+msgid ""
+"The console is a single page with a navigation column and seven sections:"
+" overview, nodes, registrations, federation, settlement and audit, "
+"admission and quotas, and logs. The tables can be sorted and filtered. "
+"The sections for admission, delivery confirmation and federation show the"
+" read-only routes above; the console has no page for an interface that "
+"0.3 removed. The console can be used with the keyboard and has a light "
+"and a dark theme."
+msgstr ""
+"控制台是单页界面，带有导航栏和七个部分：概览、节点、注册、联邦、结算与审计、准入与配额、日志。表格可以排序和过滤。准入、送达确认和联邦部分显示上述只读路由；控制台没有针对"
+" 0.3 已移除接口的页面。控制台可用键盘操作，并有浅色和深色两种主题。"
+
+#: ../../ops/hub.rst:699
+msgid ""
+"Two options of earlier releases, ``--restore-agents-from`` and ``--keep-"
+"only-agents``, are removed. Each is refused with exit status 2 and names "
+"its replacement (``anet-hub restore`` and the console's delete function "
+"or ``anet-hub admissions revoke``)."
+msgstr ""
+"早期版本的两个选项 ``--restore-agents-from`` 和 ``--keep-only-agents`` "
+"已移除。使用它们会被拒绝,退出状态为 2,并提示替代方式(``anet-hub restore``,以及控制台的删除功能或 ``anet-hub "
+"admissions revoke``)。"
+
+#: ../../ops/hub.rst:706
+msgid "Upgrading a hub"
+msgstr "升级 hub"
+
+#: ../../ops/hub.rst:708
+msgid "Take a backup (:ref:`ops-backup`)."
+msgstr "先做备份(:ref:`ops-backup`)。"
+
+#: ../../ops/hub.rst:709
+msgid "Stop the service."
+msgstr "停止服务。"
+
+#: ../../ops/hub.rst:710
+msgid ""
+"Replace the binaries. Replace ``anet-hub-admin`` in the same step; the "
+"operator plane refuses a hub data directory written by a newer release."
+msgstr "替换二进制文件。请同时替换 ``anet-hub-admin``;运维面会拒绝由更新版本写入的 hub 数据目录。"
+
+#: ../../ops/hub.rst:712
+msgid "Start the service and check ``/healthz`` for the new version."
+msgstr "启动服务,并检查 ``/healthz`` 返回的是新版本。"
+
+#: ../../ops/hub.rst:714
+msgid ""
+"Release 0.3.0 uses hub wire 3. A node that declares an older wire version"
+" is refused with status ``426`` and the reason ``wire_too_old``, which "
+"names the required wire version and node release; they cannot use a 0.3.0"
+" hub, and a 0.3.0 node does not use an older hub."
+msgstr ""
+"0.3.0 使用 hub 线路协议第 3 版。声明较旧线路协议版本的节点会被拒绝,状态为 ``426``,原因码为 "
+"``wire_too_old``,其中给出所需的线路协议版本和节点版本;这类节点无法使用 0.3.0 的 hub,0.3.0 的节点也不使用较旧的"
+" hub。"
+
+#~ msgid ""
+#~ "The console is being redesigned as "
+#~ "a navigation sidebar with sections for"
+#~ " overview, nodes, registration, federation, "
+#~ "settlement and audit, admission and "
+#~ "quota, and logs, with sortable and "
+#~ "filterable tables. Delivery confirmations and"
+#~ " admission state (proof of work, "
+#~ "quota, probation) are shown there."
+#~ msgstr "控制台正在改版为导航侧栏形式,分为概览、节点、注册、联邦、结算与审计、准入与配额、日志几个部分,数据表可排序和筛选。送达确认和准入状态(工作量证明、配额、试用期)将显示在其中。"
+

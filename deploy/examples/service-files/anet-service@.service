@@ -1,0 +1,59 @@
+# anet-service@.service - the adapter of one service-module deployment.
+#
+# Install as /etc/systemd/system/anet-service@.service, create the account
+# and the token (see README.md), then:
+#
+#     systemctl enable --now anet-service@NAME
+#
+# The adapter listens on a Unix socket in its own runtime directory and on
+# nothing else. The daemon unit for the same node needs the same account,
+# Requires=anet-service@NAME.service and After= the same unit. The daemon
+# refuses a socket whose listener is not that account.
+[Unit]
+Description=anet service adapter %i
+After=local-fs.target
+
+[Service]
+Type=simple
+User=anet-service
+Group=anet-service
+RuntimeDirectory=anet-service-adapter
+RuntimeDirectoryMode=0700
+ExecStart=/usr/bin/python3 /opt/anet/service-files/adapter.py /run/anet-service-adapter/backend.sock /var/lib/anet-service/svc.token
+Restart=on-failure
+RestartSec=5s
+
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ReadWritePaths=
+ReadOnlyPaths=/var/lib/anet-service/svc.token
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+PrivateNetwork=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+RestrictAddressFamilies=AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged
+SystemCallErrorNumber=EPERM
+UMask=0077
+MemoryMax=512M
+CPUQuota=100%
+TasksMax=64
+
+[Install]
+WantedBy=multi-user.target

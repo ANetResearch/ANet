@@ -71,7 +71,6 @@ func recordingDaemon(t *testing.T) (*client, func() []string) {
 // daemon at all; without "yes" nothing that changes anything does; the other
 // commands need none.
 func TestGrantingCommandsNeedATerminal(t *testing.T) {
-	withPaymentsCompiled(t)
 	grants := [][]string{
 		{"peers", "allow", "bafyreipeer000000000"},
 		{"peers", "trust", "bafyreipeer000000000"},
@@ -168,7 +167,6 @@ func runClientArgs(c *client, args []string) error {
 // Approving an id the daemon does not hold ends without asking and without
 // calling approve.
 func TestConfirmationsDescribeWhatTheyGrant(t *testing.T) {
-	withPaymentsCompiled(t)
 	lang := a2ashape.Lang()
 	prompt := func(args []string) string {
 		t.Helper()
@@ -191,7 +189,7 @@ func TestConfirmationsDescribeWhatTheyGrant(t *testing.T) {
 		{[]string{"peers", "allow", "bafyreipeer000000000"},
 			a2ashape.Sentence("allow_confirm", lang, a2ashape.Args{"peer": "bafyreipeer000000000"})},
 		{[]string{"peers", "trust", "bafyreipeer000000000"},
-			a2ashape.Sentence("trust_confirm.direct", lang, a2ashape.Args{"peer": "bafyreipeer000000000"})},
+			a2ashape.Sentence("trust_confirm.no_agent", lang, a2ashape.Args{"peer": "bafyreipeer000000000"})},
 		{[]string{"payments", "set", "agent_max=7"}, a2ashape.Sentence("limits_confirm", lang, nil) + "\n  " +
 			a2ashape.Sentence("limits_confirm.line", lang, a2ashape.Args{"key": "agent_max", "from": "0", "to": 7})},
 		{[]string{"pay", "ix_2"}, a2ashape.Sentence("pay.prompt_quote", lang, a2ashape.Args{"amount": "5",
@@ -226,7 +224,6 @@ func TestConfirmationsDescribeWhatTheyGrant(t *testing.T) {
 // ends before the question: there is no payee to show and nothing the
 // daemon could sign to.
 func TestRedeemWithoutAKnownHubDoesNotAsk(t *testing.T) {
-	withPaymentsCompiled(t)
 	for name, body := range map[string]string{
 		"no hub":           `{"hub":"","hub_aid":"","explicit_max":10,"daily_max":50}`,
 		"hub not answered": `{"hub":"https://hub.example","hub_aid":"","hub_error":"timeout","explicit_max":10,"daily_max":50}`,
@@ -264,13 +261,25 @@ func TestPrintableStripsTerminalControl(t *testing.T) {
 	}
 }
 
-// withPaymentsCompiled makes the CLI behave as a build with the payment
-// module for one test. These tests are about the terminal confirmation and
-// the prompt, which a -tags no_x402 build never reaches: there `anet
-// redeem` ends before asking (redeem_nox402_test.go).
-func withPaymentsCompiled(t *testing.T) {
-	t.Helper()
-	prev := paymentsCompiled
-	t.Cleanup(func() { paymentsCompiled = prev })
-	paymentsCompiled = func() bool { return true }
+// MOD-3: `peers trust` asks how a trusted peer's tasks will run on this node: directly, in the sandbox, or
+// — without auto-reply (no auto_reply block, or the module is not available) — not at all.
+func TestTrustConfirmFollowsAutoReply(t *testing.T) {
+	lang := a2ashape.Lang()
+	peer := "bafyreipeer000000000"
+	for _, tc := range []struct{ status, key string }{
+		{`{}`, "trust_confirm.no_agent"},
+		{`{"auto_reply":{"backend":"exec","trusted":"direct"}}`, "trust_confirm.direct"},
+		{`{"auto_reply":{"backend":"exec","trusted":"sandbox"}}`, "trust_confirm.sandbox"},
+	} {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(tc.status))
+		}))
+		c := &client{base: srv.URL, token: "t", timeout: 5 * time.Second}
+		want := a2ashape.Sentence(tc.key, lang, a2ashape.Args{"peer": peer})
+		if got := peerPrompt(c, "trust", peer); got != want {
+			t.Errorf("status %s: prompt %q, want %q", tc.status, got, want)
+		}
+		srv.Close()
+	}
 }

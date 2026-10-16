@@ -4,6 +4,7 @@ package mcpserv
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 )
 
@@ -20,29 +21,53 @@ import (
 // A payment an agent makes goes through /tasks/pay, whose route fixes the
 // purpose at task-agent and so the agent limits. Everything else here reads,
 // or sends a task message that spends nothing.
-var allowedPaths = map[string]bool{
-	"/agents/list":     true,
-	"/agents/card":     true,
-	"/tasks/send":      true,
-	"/tasks/get":       true,
-	"/tasks/list":      true,
-	"/tasks/wait":      true,
-	"/tasks/cancel":    true,
-	"/tasks/reply":     true,
-	"/tasks/pay":       true,
-	"/balance":         true,
-	"/evidence":        true,
-	"/status":          true,
-	"/inbound/pending": true,
+//
+// Each route has the check its request body must pass (CUX-S6): anyBody for
+// the routes whose daemon-side handler reads the body, emptyBody for
+// /payments/status, which the daemon also answers with the hub's identity
+// when asked with {"hub": true}, a call this surface has no use for.
+var allowedPaths = map[string]bodyCheck{
+	"/agents/list":     anyBody,
+	"/agents/card":     anyBody,
+	"/tasks/send":      anyBody,
+	"/tasks/get":       anyBody,
+	"/tasks/list":      anyBody,
+	"/tasks/wait":      anyBody,
+	"/tasks/cancel":    anyBody,
+	"/tasks/reply":     anyBody,
+	"/tasks/pay":       anyBody,
+	"/balance":         anyBody,
+	"/payments/status": emptyBody,
+	"/evidence":        anyBody,
+	"/status":          anyBody,
+	"/inbound/pending": anyBody,
 }
 
 // guarded is the Control every tool gets: calls outside allowedPaths are
 // refused here, before they reach the daemon.
 type guarded struct{ c Control }
 
+// bodyCheck judges a request body before it is sent.
+type bodyCheck func(body any) error
+
+func anyBody(any) error { return nil }
+
+// emptyBody accepts the JSON object {} and nothing else.
+func emptyBody(body any) error {
+	b, err := json.Marshal(body)
+	if err != nil || string(b) != "{}" {
+		return fmt.Errorf("anet mcp: this route takes an empty request body")
+	}
+	return nil
+}
+
 func (g guarded) Call(ctx context.Context, path string, body, out any) error {
-	if !allowedPaths[path] {
+	check, ok := allowedPaths[path]
+	if !ok {
 		return fmt.Errorf("anet mcp: %s is not a route this surface may call", path)
+	}
+	if err := check(body); err != nil {
+		return err
 	}
 	return g.c.Call(ctx, path, body, out)
 }

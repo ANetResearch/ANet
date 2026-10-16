@@ -124,7 +124,7 @@ func (m *Module) Start(ctx context.Context, h module.Host) error {
 		log.Printf("anet: a2a: this daemon offers no task seam; the local A2A interface is not started")
 		return nil
 	}
-	dir := h.StateDir(name)
+	dir := h.StateDir()
 	if dir == "" {
 		return errors.New("a2a: no private state directory for the local A2A interface (see the log line above)")
 	}

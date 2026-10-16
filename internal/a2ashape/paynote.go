@@ -98,6 +98,15 @@ var payNoteD3 = map[string]bool{
 // PayNoteArgs are the placeholder values of a snapshot: its numbers as they
 // were, the task and the payee.
 func PayNoteArgs(n PayNote) Args {
-	return Args{"amount": n.Amount, "price": n.Price, "tier": n.Tier, "single": n.Single, "left": n.Left,
+	a := Args{"amount": n.Amount, "price": n.Price, "tier": n.Tier, "single": n.Single, "left": n.Left,
 		"key": n.Key, "value": n.Value, "why": n.Why, "peer": n.Peer, "task": n.Task}
+	if n.Code == "module_absent.payment" {
+		// {why} and {fix} of the module sentences: the module is the payment
+		// module, and Why holds how it is absent (module.Absent*).
+		a["m"], a["reason"] = "x402", n.Why
+		if n.Why == "" {
+			a["reason"] = "not_compiled"
+		}
+	}
+	return a
 }

@@ -26,6 +26,8 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+
+	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 )
 
 // InitChange is one thing InitLayout did or found.
@@ -174,8 +176,8 @@ func fillConfig(raw []byte) ([]InitChange, []byte, error) {
 	}
 	if ar, ok := cur["auto_reply"].(map[string]any); ok {
 		if _, has := ar["untrusted"]; !has {
-			ar["untrusted"] = UntrustedOff
-			changes = append(changes, InitChange{Key: "auto_reply.untrusted", Action: "added", Value: UntrustedOff})
+			ar["untrusted"] = untrustedOff
+			changes = append(changes, InitChange{Key: "auto_reply.untrusted", Action: "added", Value: untrustedOff})
 		}
 	}
 	if len(changes) == 0 {
@@ -392,6 +394,13 @@ var SI5Keys = []string{
 	"payments.agent_max",
 	"payments.agent_daily_max",
 	"payments.payees",
+	// ux §2.7 (UX-D5).
+	"payments.explicit_max",
+	"payments.daily_max",
+	"stream_preview",
+	"content_retention",
+	"modules.p2p.lan",
+	"without",
 }
 
 // si5DefaultText states each key's fresh-install value for reports.
@@ -400,27 +409,38 @@ var si5DefaultText = map[string]string{
 	"peers.allow":                 "empty",
 	"peers.trust":                 "empty",
 	"inbound.public_capabilities": "empty",
-	"auto_reply.untrusted":        UntrustedOff,
+	"auto_reply.untrusted":        untrustedOff,
 	"payments.auto_max":           "0",
 	"payments.agent_max":          "0",
 	"payments.agent_daily_max":    "0",
 	"payments.payees":             "empty",
+	"payments.explicit_max":       "10",
+	"payments.daily_max":          "50",
+	"stream_preview":              streamPreviewOff,
+	"content_retention":           "30d",
+	"modules.p2p.lan":             "false",
+	"without":                     "empty",
 }
 
 // SI5 returns the value of every SI-5 key and the keys whose value differs
 // from the fresh-install default, in SI5Keys order.
 func (st PolicyState) SI5() (values map[string]any, changed []string) {
-	untrusted := UntrustedOff
-	if ar := st.Config.AutoReply; ar != nil {
-		untrusted = ar.UntrustedMode()
-		if ar.Untrusted != "" && ar.Untrusted != UntrustedOff && ar.Untrusted != UntrustedSandbox {
-			untrusted = ar.Untrusted // invalid; shown as written
-		}
+	// The auto-reply module's value (its ConfigSpec.SI5): "off" without a block, an invalid one as written.
+	untrusted := untrustedOff
+	if v, ok := moduleSI5(st.Config)["auto_reply.untrusted"].(string); ok {
+		untrusted = v
 	}
 	caps := make([]string, 0, len(st.Inbound.PublicCapabilities))
 	for _, c := range st.Inbound.PublicCapabilities {
 		caps = append(caps, c.ID)
 	}
+	var p2p struct {
+		LAN bool `json:"lan"`
+	}
+	if raw, ok := st.Config.Modules["p2p"]; ok {
+		_ = json.Unmarshal(raw, &p2p)
+	}
+	p2pLAN := p2p.LAN
 	values = map[string]any{
 		"inbound.policy":              st.Inbound.Policy,
 		"peers.allow":                 nonNil(st.Allow),
@@ -431,17 +451,29 @@ func (st PolicyState) SI5() (values map[string]any, changed []string) {
 		"payments.agent_max":          st.Payments.AgentMax,
 		"payments.agent_daily_max":    st.Payments.AgentDailyMax,
 		"payments.payees":             nonNil(st.Payees),
+		"payments.explicit_max":       st.Payments.ExplicitMax,
+		"payments.daily_max":          st.Payments.DailyMax,
+		"stream_preview":              st.Config.streamPreview(),
+		"content_retention":           st.Config.contentRetention().String(),
+		"modules.p2p.lan":             p2pLAN,
+		"without":                     nonNil(st.Config.Without),
 	}
 	safe := map[string]bool{
 		"inbound.policy":              st.Inbound.Policy == PolicyClosed,
 		"peers.allow":                 len(st.Allow) == 0,
 		"peers.trust":                 len(st.Trust) == 0,
 		"inbound.public_capabilities": len(caps) == 0,
-		"auto_reply.untrusted":        untrusted == UntrustedOff,
+		"auto_reply.untrusted":        untrusted == untrustedOff,
 		"payments.auto_max":           st.Payments.AutoMax == 0,
 		"payments.agent_max":          st.Payments.AgentMax == 0,
 		"payments.agent_daily_max":    st.Payments.AgentDailyMax == 0,
 		"payments.payees":             len(st.Payees) == 0,
+		"payments.explicit_max":       st.Payments.ExplicitMax == defaultExplicitMax,
+		"payments.daily_max":          st.Payments.DailyMax == defaultDailyMax,
+		"stream_preview":              st.Config.streamPreview() == streamPreviewOff,
+		"content_retention":           st.Config.contentRetention() == interactions.DefaultRetention(),
+		"modules.p2p.lan":             !p2pLAN,
+		"without":                     len(st.Config.Without) == 0,
 	}
 	for _, k := range SI5Keys {
 		if !safe[k] {

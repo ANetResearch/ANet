@@ -43,34 +43,32 @@ type AgentView struct {
 	HomeHub string `json:"home_hub,omitempty"`
 }
 
-// ReviewView is one stored, verified review. The hub verified the receipt's and the review's
-// signatures and that the review is anchored to the receipt. It holds no task content (A2A-DESIGN
-// §9): RequestCID and ResultCID are the receipt's commitments, and ContentBinding is always
-// "UNVERIFIED" — whether they match any particular bytes was not checked by the hub.
+// ReviewView is one stored, verified review as the hub lists it (HPP §2.5, PAY-V5). The hub holds
+// no task content and no reviewer: a review names the reviewed agent, the receipt it rates and
+// two UTC day numbers. The reviewer's AID and any millisecond time are not part of it (SI-48).
 type ReviewView struct {
-	InteractionID  string `json:"interaction_id"`
-	SubjectAID     string `json:"subject_aid"`
-	ReviewerAID    string `json:"reviewer_aid"`
-	Rating         int    `json:"rating"`
-	Comment        string `json:"comment,omitempty"`
-	ReceiptCID     string `json:"receipt_cid"`
-	RequestCID     string `json:"request_cid"`     // the receipt's commitment to the request
-	ResultCID      string `json:"result_cid"`      // the receipt's commitment to the result
-	ContentBinding string `json:"content_binding"` // ContentBindingUnverified
-	CompletedAt    uint64 `json:"completed_at"`    // provider's receipt time (unix millis)
-	CreatedAt      uint64 `json:"created_at"`      // review time (unix millis)
+	SubjectAID   string `json:"subject_aid"`
+	Rating       int    `json:"rating"`
+	Comment      string `json:"comment,omitempty"`
+	ReceiptCID   string `json:"receipt_cid"`
+	CompletedDay uint64 `json:"completed_day"` // UTC day number of the receipt
+	CreatedDay   uint64 `json:"created_day"`   // UTC day number of the review
 }
 
-// ContentBindingUnverified is ReviewView.ContentBinding on every review: the hub holds no content.
-const ContentBindingUnverified = "UNVERIFIED"
-
-// UploadReviewRequest is the body of POST /reviews: the provider-signed receipt and the
-// requester-signed review, both base64 CoreDet-CBOR, and nothing else. Earlier versions also sent the
-// request TaskDoc and the deliverable; the hub no longer receives task content and answers 400 to a
-// body that carries either.
+// UploadReviewRequest is the body of POST /reviews (HPP §2.5): the provider-signed receipt, the
+// requester-signed review (both CoreDet-CBOR) and the salt of requester_commit, all base64url
+// without padding, and nothing else. The hub answers 400 to any other member.
 type UploadReviewRequest struct {
-	Receipt string `json:"receipt"` // base64(evidence.Receipt.Marshal)
-	Review  string `json:"review"`  // base64(evidence.Review.Marshal)
+	Receipt string `json:"receipt"` // B64(evidence.ReceiptWire.Marshal)
+	Review  string `json:"review"`  // B64(evidence.ReviewWire.Marshal)
+	RSalt   string `json:"rsalt"`   // B64 of the 32-byte salt of requester_commit
+}
+
+// UploadReviewResponse is the hub's 200 to POST /reviews: the hub's attestation (B64 of
+// evidence.ReviewAttWire.Marshal), which says it stored this review on that day.
+type UploadReviewResponse struct {
+	Status      string `json:"status"` // "stored"
+	Attestation string `json:"attestation"`
 }
 
 // C2 — the Hub wire contract's own version.

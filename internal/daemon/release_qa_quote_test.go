@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"testing"
 
-	evidence "github.com/ANetResearch/ANet/internal/evidencev1" // v030-todo(PAY-14): evidence v2
 	"github.com/ANetResearch/ANetCore/delegation"
 	"github.com/ANetResearch/ANetCore/effect"
+	"github.com/ANetResearch/ANetCore/evidence"
 	"github.com/ANetResearch/ANetCore/payment"
 	"github.com/ANetResearch/ANetCore/seal"
 
@@ -34,17 +34,7 @@ func storeQuote(t *testing.T, d *Daemon, id string, seen interactions.Verificati
 	if err != nil {
 		t.Fatal(err)
 	}
-	rc := &evidence.Receipt{
-		InteractionID: id, RequesterAID: d.AID(), ProviderAID: d.AID(),
-		RequestCID: "req_cid", ResultCID: "res_cid", CompletedAt: 1,
-	}
-	if err := rc.Sign(d.self); err != nil {
-		t.Fatal(err)
-	}
-	rcBytes, err := rc.Marshal()
-	if err != nil {
-		t.Fatal(err)
-	}
+	rcBytes := receiptBody(t, d.self, evidence.ReceiptBody{RequestCID: "req_cid", ResultCID: "res_cid"})
 	if err := d.ix.SetResult(id, body, "res_cid", rcBytes, seen, interactions.CausePeerEnded); err != nil {
 		t.Fatal(err)
 	}

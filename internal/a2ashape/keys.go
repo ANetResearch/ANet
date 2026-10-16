@@ -75,6 +75,24 @@ const (
 	// payment line, MCP and the local A2A interface's status.message show
 	// (UX-G3, SI-79). Present from the first decision on.
 	KeyPaymentNote = "anet.payment_note"
+	// KeyDelivery is whether the other side's node confirmed the latest
+	// message this node sent on the task (or, on a Message, that message):
+	// DeliveryPending, DeliveryConfirmed or DeliveryUnconfirmed. KeyDeliveryDetail
+	// says, for pending and unconfirmed, how far it got (not_sent, sent,
+	// queued_at_hub), and KeyDeliveryWait, for pending, what holds it back
+	// (a wait code of ux §1.4 C2). Only this node computes them; they are
+	// never read from a peer's message and never sent to one (CORE-K17,
+	// DLV-W-20).
+	KeyDelivery       = "anet.delivery"
+	KeyDeliveryDetail = "anet.delivery_detail"
+	KeyDeliveryWait   = "anet.delivery_wait"
+	// The Task also carries what the human line needs and the three keys do
+	// not say (DLV-L-2): when the message was queued (RFC 3339), when the
+	// task gives up on it (UX-R11, RFC 3339, pending only), and that it waits
+	// for the message before it (DLV-W-21d, true only). Local like the three.
+	KeyDeliverySince   = "anet.delivery_since"
+	KeyDeliveryEndsAt  = "anet.delivery_ends_at"
+	KeyDeliveryOrdered = "anet.delivery_ordered"
 	// KeyNext is the one command the task's reason asks the person to run,
 	// placeholders filled (core §2.13 revision 7): the next step of the row
 	// of anet.reason — with the sentence variant the projection shows, the
@@ -82,12 +100,22 @@ const (
 	// next_kind is command. The CLI prints it on its "→" line; it never
 	// guesses a variant itself.
 	KeyNext = "anet.next"
+	// KeySpendCheck is the live forecast of who can pay the quote a task of
+	// this node's waits on (CUX-S3, core §2.13): a SpendCheck. It is on the
+	// operator's clients' view of a task whose pay_state is required, never
+	// on one for a local backend, and never travels to a peer.
+	KeySpendCheck = "anet.spend_check"
 	// KeyDeduplicated marks the answer to a local client's retry of a
 	// message it sent: the task its first attempt made, and nothing was
 	// sent again (correctness-ux CUX-D3). Its value is true; it is on that
 	// one answer only and is never stored (core §2.13), and the sentence
 	// that goes with it is the reason table's "deduplicated".
 	KeyDeduplicated = "anet.deduplicated"
+	// KeyContentExpiresAt is when the content of an ended task is deleted
+	// under the retention in force, RFC 3339 UTC (FS-U4, core §2.13). It is
+	// in this node's projection only, on the control plane, MCP and the
+	// local A2A interface alike, and never on the wire (CORE-K17).
+	KeyContentExpiresAt = "anet.content_expires_at"
 )
 
 // Deduplicated is t as the answer to a retry (KeyDeduplicated).

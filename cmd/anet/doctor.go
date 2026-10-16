@@ -14,6 +14,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/ANetResearch/ANet/deploy/apparmor"
 	"io"
 	"net/url"
 	"os"
@@ -51,6 +52,9 @@ type doctorCheck struct {
 	Reason string `json:"reason,omitempty"`
 	Detail string `json:"detail"`
 	Hint   string `json:"hint,omitempty"`
+	// Deletion is /status.privacy.deletion on the clock warnings: how far
+	// deleting expired keys and content is slowed (FS §5.4).
+	Deletion string `json:"deletion,omitempty"`
 }
 
 // sayCheck is a finding told by a sentence of the reason table: the detail
@@ -136,6 +140,8 @@ type doctorReport struct {
 		ReleaseRecord   string `json:"release_record,omitempty"`
 	} `json:"version"`
 	Modules []string `json:"modules"`
+	// Without is the modules config.json turns off.
+	Without []string `json:"without"`
 	// Official is the official-agent manifest built into this binary
 	// (A2A-DESIGN §15): "ok", "expired" or "invalid".
 	Official struct {
@@ -200,7 +206,7 @@ type doctorReport struct {
 		APIKeyConfigured bool   `json:"api_key_configured"`
 	} `json:"auto_reply"`
 	// Sandbox is this host's sandbox self-check (doctor_sandbox.go), when the sandbox item is shown.
-	Sandbox *daemon.SandboxCheck `json:"sandbox,omitempty"`
+	Sandbox *sandboxReport `json:"sandbox,omitempty"`
 	// SI5 is every key of SI-5 with its current value; SI5Changed names the
 	// keys whose value is not the fresh-install default.
 	SI5        map[string]any `json:"si5"`
@@ -242,7 +248,7 @@ type doctorEnv struct {
 	status func(addr, tokenPath string) (map[string]any, error)
 	// sandbox runs this host's sandbox self-check (nil: not run; see
 	// doctor_sandbox.go).
-	sandbox func() daemon.SandboxCheck
+	sandbox func() sandboxReport
 }
 
 func defaultDoctorEnv() doctorEnv {
@@ -252,7 +258,7 @@ func defaultDoctorEnv() doctorEnv {
 		hh = filepath.Join(home, ".hermes")
 	}
 	return doctorEnv{home: home, hermesHome: hh, running: daemonAnswersAt, listenerUIDs: localpeer.ListenerUIDs,
-		status: daemonStatusAt, sandbox: daemon.SandboxSelfCheck}
+		status: daemonStatusAt, sandbox: sandboxSelfCheck}
 }
 
 // env reads an environment variable; HERMES_HOME is the one doctor
@@ -364,6 +370,12 @@ func releaseCheck(env doctorEnv) release.InstalledCheck {
 
 func runDoctor(layout daemon.Layout, rest []string) error {
 	_, flags := splitFlags(rest)
+	if _, ok := flags["apparmor-profile"]; ok {
+		// The profile that lets bubblewrap make user namespaces under Ubuntu's AppArmor policy, for the
+		// userns_blocked sentence's command: stdout only, no file written, no root needed.
+		_, err := io.WriteString(outW(), apparmor.Profile)
+		return err
+	}
 	return doctorTo(os.Stdout, layout, defaultDoctorEnv(), flags["json"] == "true")
 }
 
@@ -428,7 +440,6 @@ func collectDoctor(layout daemon.Layout, env doctorEnv) (*doctorReport, error) {
 	if rep.Modules == nil {
 		rep.Modules = []string{}
 	}
-	add("modules", stInfo, compiledModulesReport(), "")
 	officialCheck(add, rep, time.Now())
 
 	// Configuration and policy.
@@ -453,6 +464,13 @@ func collectDoctor(layout daemon.Layout, env doctorEnv) (*doctorReport, error) {
 		add("config", stOK, st.ConfigPath, "")
 	}
 	removedConfigCheck(say, st.ConfigPath, env)
+	// The optional modules: what this binary contains, what the
+	// configuration turns off, and a block for a module that is not there.
+	// The blocks of modules that are not available are left out of the
+	// checks that read them below: the modules row says it once.
+	avail := daemon.AvailabilityOf(cfg)
+	rep.Without = avail.Without()
+	cfg = modulesChecks(add, say, rep, cfg, avail)
 
 	// Identity.
 	rep.Identity.AID = daemon.ReadIdentityAID(layout)
@@ -481,7 +499,7 @@ func collectDoctor(layout daemon.Layout, env doctorEnv) (*doctorReport, error) {
 	identityChecks(add, say, rep, env, layout, lang)
 
 	// Local A2A interface (module a2a, §11).
-	rep.A2A.Compiled = slices.Contains(rep.Modules, "a2a")
+	rep.A2A.Compiled = avail.Available("a2a")
 	// The module keeps both files in its state directory (anethome.A2ADir),
 	// the same path in every build, no_a2a included.
 	rep.A2A.AddrFile = statFile(filepath.Join(anethome.A2ADir(layout.Root), anethome.A2AAddrFile))
@@ -497,7 +515,7 @@ func collectDoctor(layout daemon.Layout, env doctorEnv) (*doctorReport, error) {
 	const freePort = "free the port (stop the process holding it), restart the node (anet stop && anet up), then: anet agents wire --refresh"
 	switch {
 	case !rep.A2A.Compiled && rep.A2A.Addr == "":
-		add("a2a", stInfo, "the local A2A interface is not in this build (no_a2a)", "")
+		add("a2a", stInfo, a2ashape.Sentence("module_absent", lang, module.AbsentArgs("a2a", avail.Absence("a2a"))), "")
 	case rep.A2A.Addr == "":
 		add("a2a", stWarn, "no "+rep.A2A.AddrFile.Path+": the local A2A interface has not started in this data directory yet",
 			"anet up")
@@ -528,14 +546,8 @@ func collectDoctor(layout daemon.Layout, env doctorEnv) (*doctorReport, error) {
 		tokenCheck(add, "a2a.token", rep.A2A.Token)
 	}
 
-	// Hub.
-	rep.Hub.URL = cfg.HubURL
-	rep.Hub.Registered = cfg.HubURL != ""
-	if rep.Hub.Registered {
-		add("hub", stOK, "registered with "+cfg.HubURL+" (per config)", "")
-	} else {
-		add("hub", stInfo, "not registered with a hub", "anet hub-register <url>")
-	}
+	// Hub (doctor_hub.go).
+	hubCheck(add, say, rep, env, layout, lang)
 
 	// Inbound.
 	rep.Inbound.Policy = st.Inbound.Policy
@@ -557,59 +569,62 @@ func collectDoctor(layout daemon.Layout, env doctorEnv) (*doctorReport, error) {
 
 	// Payments (§8.6).
 	rep.Payments, rep.Payees = st.Payments, st.Payees
-	p := st.Payments
-	payDetail := fmt.Sprintf("auto_max %d; agent_max %d, agent_daily_max %d; explicit_max %d, daily_max %d; "+
-		"payee list %d entries (%s)", p.AutoMax, p.AgentMax, p.AgentDailyMax, p.ExplicitMax, p.DailyMax,
-		len(st.Payees), st.PayeesPath)
-	add("payments", stOK, payDetail, "")
+	var spend map[string]any
+	if rs, ok := runtimeStatusQuiet(env, rep, layout); ok {
+		spend, _ = rs["payments"].(map[string]any)
+	}
+	paymentsCheck(say, st, spend)
+	capabilitiesChecks(say, st)
+	if avail.Available("preview") { // no preview row without the module (MOD-5)
+		previewCheck(say, cfg)
+	}
 	paymentsCardCheck(say, add, rep, env, layout) // doctor_payments.go
+	paymentsAuditCheck(say, add, rep, env, layout)
+	paymentsReviewsCheck(say, add, rep, env, layout)
+	paymentsUnchargeableCheck(say, rep, env, layout, avail)
+	haveProbation := false // hubCheck already told it from the join record
+	for _, c := range rep.Checks {
+		haveProbation = haveProbation || c.ID == "hub.probation"
+	}
+	if !haveProbation {
+		hubProbationCheck(say, add, rep, env, layout)
+	}
 
 	// Tasks this node sends (§4.2): how long one may hear nothing at all
 	// from its peer before it fails as no_response.
 	rep.Tasks.Configured = strings.TrimSpace(cfg.NoResponseAfter) != ""
 	if after, ok := cfg.NoResponseAfterValue(); !ok {
 		rep.Tasks.NoResponseAfter = cfg.NoResponseAfter
-		add("tasks.no_response", stFail, fmt.Sprintf("no_response_after %q is not a duration; the daemon refuses to start", cfg.NoResponseAfter),
-			`write a Go duration such as "15m", or "0" to turn it off`)
+		say("tasks.no_response", stFail, "config_invalid", a2ashape.Args{"key": "no_response_after", "rule": "a Go duration such as \"15m\", or \"0\" to turn it off"})
 	} else if rep.Tasks.NoResponseAfter = after.String(); after == 0 {
-		add("tasks.no_response", stInfo, "no_response_after is 0: a task a peer never answers — one that refused it without "+
-			"telling, past its refusal-notice limit — stays submitted for ever", "")
+		say("tasks.no_response", stInfo, "no_response_after.off", nil)
 	} else {
-		add("tasks.no_response", stOK, fmt.Sprintf("a task this node sends that hears nothing from its peer for %s after delivery "+
-			"fails (anet.reason=no_response, effect UNVERIFIED); a later answer is still recorded (no_response_after)", after), "")
+		say("tasks.no_response", stOK, "no_response_after.set", a2ashape.Args{"limit": after})
 	}
+	deliveryOutboxCheck(say, rep, env, layout, lang) // doctor_delivery.go
 
 	// Sender privacy (sealed-sender §5.4) and p2p.lan.
 	senderPrivacyChecks(say, add, rep, env, layout, cfg) // doctor_sender.go
 	p2pLANCheck(say, cfg)
 
+	// Forward secrecy (FS §5.4): the clock, the encryption keys, how long content is kept and a
+	// rollback of the data.
+	privacyChecks(say, rep, env, layout, cfg, time.Now())
+
 	// Auto-reply and the sandbox (§6).
-	if ar := cfg.AutoReply; ar != nil {
-		rep.AutoReply.Configured = true
-		rep.AutoReply.Backend = ar.Backend
-		if rep.AutoReply.Backend == "" {
-			rep.AutoReply.Backend = "openai"
-		}
-		rep.AutoReply.APIKeyConfigured = strings.TrimSpace(ar.APIKey) != ""
-	}
+	autoReplyReport(rep, cfg) // doctor_sandbox.go
 	rep.SI5, rep.SI5Changed = st.SI5()
 	if rep.SI5Changed == nil {
 		rep.SI5Changed = []string{}
 	}
 	rep.AutoReply.Untrusted, _ = rep.SI5["auto_reply.untrusted"].(string)
-	switch {
-	case !rep.AutoReply.Configured:
-		add("auto_reply", stInfo, "auto-reply off", "")
-	case rep.AutoReply.Backend == "exec" && rep.AutoReply.Untrusted == daemon.UntrustedSandbox && !rep.AutoReply.APIKeyConfigured:
-		add("auto_reply.sandbox", stFail, "auto_reply.untrusted=sandbox without auto_reply.api_key: the sandboxed agent "+
-			"cannot log in, so every untrusted task fails closed (sandbox_unavailable)",
-			"set auto_reply.api_key, or auto_reply.untrusted=off")
-	case rep.AutoReply.Backend == "exec" && rep.AutoReply.Untrusted == daemon.UntrustedSandbox:
-		add("auto_reply.sandbox", stOK, "exec auto-reply runs the local agent for untrusted peers in the sandbox, with auto_reply.api_key", "")
-	default:
-		add("auto_reply", stOK, fmt.Sprintf("backend %s; untrusted peers: %s", rep.AutoReply.Backend, rep.AutoReply.Untrusted), "")
+	if avail.Available("autoreply") {
+		autoReplyChecks(add, say, rep, env, layout, cfg, lang) // doctor_sandbox.go
+	} else {
+		// An absent module is info with the module_absent sentence (UX-K6).
+		say("auto_reply", stInfo, "module_absent", module.AbsentArgs("autoreply", avail.Absence("autoreply")))
 	}
-	sandboxCheck(say, rep, env, layout, cfg.AutoReply)           // doctor_sandbox.go
+	capabilitiesFilesChecks(say, avail, st.ConfigPath)           // doctor_modules.go
 	a2aBackendChecks(add, st.Inbound.Policy, cfg, len(st.Trust)) // doctor_backends.go
 	backendTransportChecks(add, say, cfg)                        // doctor_backends.go
 	anetlinkChecks(add, say, cfg, st.Inbound.PublicCapabilities) // doctor_anetlink.go
@@ -713,16 +728,13 @@ func collectDoctor(layout daemon.Layout, env doctorEnv) (*doctorReport, error) {
 
 // removedConfigCheck is config.removed (ux §5.2, §2.3): each removed key in
 // config.json fails, as it stops the daemon, and ANET_INVITE in the
-// environment warns (it is ignored). Shown only when there is one. The keys
-// a work item still writes itself are left to it (daemon.RemovedSetting).
+// environment warns (it is ignored). Shown only when there is one.
 func removedConfigCheck(say func(id, status, key string, args a2ashape.Args), path string, env doctorEnv) {
 	if raw, err := os.ReadFile(path); err == nil {
 		found, _ := daemon.FindRemovedSettings(raw) // a file that does not parse fails the config check
 		for _, f := range found {
-			if f.Pending == "" {
-				r := daemon.RemovedSettingRefusal(f)
-				say("config.removed", stFail, r.Key, r.Args)
-			}
+			r := daemon.RemovedSettingRefusal(f)
+			say("config.removed", stFail, r.Key, r.Args)
 		}
 	}
 	if env.env(daemon.InviteEnv) != "" {
@@ -816,4 +828,24 @@ func renderDoctor(w io.Writer, rep *doctorReport) {
 	if !rep.OK {
 		fmt.Fprintln(w, "\nA check failed ([fail]); see above.")
 	}
+}
+
+// sandboxReport is this host's sandbox as doctor reports it: which sandbox the platform has and, when it
+// cannot be used, the local reason and a detail for the operator. It has the shape of the auto-reply
+// module's SandboxCheck, which a build with the module converts it from.
+type sandboxReport struct {
+	Kind   string `json:"kind"`
+	Reason string `json:"reason,omitempty"`
+	Detail string `json:"detail,omitempty"`
+}
+
+// runtimeStatusQuiet is GET /status of the running daemon, without saying anything when it does not
+// answer.
+func runtimeStatusQuiet(env doctorEnv, rep *doctorReport, layout daemon.Layout) (map[string]any, bool) {
+	if rep.Control.Running && env.status != nil {
+		if st, err := env.status(rep.Control.Addr, layout.ControlTokenPath()); err == nil {
+			return st, true
+		}
+	}
+	return nil, false
 }

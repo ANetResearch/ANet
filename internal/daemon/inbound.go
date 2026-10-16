@@ -33,6 +33,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/ANetResearch/ANet/module"
 	"log"
 	"os"
 	"path/filepath"
@@ -41,6 +42,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ANetResearch/ANetCore/delegation"
 	"github.com/ANetResearch/ANetCore/tsir"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
@@ -88,12 +90,12 @@ type PublicCapability struct {
 	// answer, at the same moment, as a capability this node does not have
 	// (CUX-Q2), and it is on no card the hub sees (CUX-F32).
 	AllowOnly bool `json:"allow_only,omitempty"`
-	// Evidence is what the chain keeps of a call of this capability
-	// (trust public_cap, whoever the caller): "cid" (the default) keeps
-	// the result CID and the metrics, "full" also keeps the provenance
-	// with the observed state, which is the capability's whole answer.
-	// See evidence_mode.go.
-	Evidence string `json:"evidence,omitempty"`
+	// Files is what the capability takes as files (CUX-F10); nil takes none.
+	Files *CapFilesConfig `json:"files,omitempty"`
+	// Discard keeps the call's input and result off the disk: the files are
+	// not stored, and the terminal write clears the args and the result
+	// (CUX-F13).
+	Discard bool `json:"discard,omitempty"`
 }
 
 // The peer lists, in the data directory (ux §2.2: "固定为数据目录下的
@@ -167,9 +169,6 @@ func (p PublicCapability) limits() PublicCapability {
 	p.PerCallerInflight = min(p.PerCallerInflight, p.MaxInflight)
 	if p.MaxArgsBytes <= 0 {
 		p.MaxArgsBytes = defaultCapMaxArgsBytes
-	}
-	if p.Evidence == "" {
-		p.Evidence = EvidenceCID
 	}
 	return p
 }
@@ -252,22 +251,12 @@ func validatePolicy(c Config, untrustedBackend bool) error {
 	default:
 		return fmt.Errorf("anet: inbound.policy %q is not one of closed, approve, open", in.Policy)
 	}
-	if ar := c.AutoReply; ar != nil {
-		switch ar.Untrusted {
-		case "", UntrustedOff, UntrustedSandbox:
-		default:
-			return fmt.Errorf("anet: auto_reply.untrusted %q is not one of off, sandbox", ar.Untrusted)
-		}
-	}
 	if _, err := c.noResponseAfter(); err != nil {
 		return err
 	}
 	for _, p := range in.PublicCapabilities {
 		if strings.TrimSpace(p.ID) == "" {
 			return fmt.Errorf("anet: inbound.public_capabilities has an entry without an id")
-		}
-		if err := validEvidenceMode(p); err != nil {
-			return err
 		}
 	}
 	if ref := checkPublicCapabilities(in); ref != nil {
@@ -300,6 +289,11 @@ func checkPublicCapabilities(in InboundConfig) *a2ashape.Refusal {
 					fmt.Sprintf("the capability %s is listed already; list each capability once", id)))
 		}
 		seen[id] = true
+		if p.Files != nil {
+			if zh, en := checkFilesConfig(*p.Files); zh != "" {
+				return configInvalid(fmt.Sprintf("inbound.public_capabilities[%d].files", i), ruleText(zh, en))
+			}
+		}
 		if p.PerCallerInflight == 0 {
 			continue
 		}
@@ -327,8 +321,11 @@ func (d *Daemon) validate(c Config) error {
 	if err := validatePolicy(c, d.untrustedBackend.Load()); err != nil {
 		return err
 	}
-	if ref := checkAutoReplyConfig(c.AutoReply, d.layout.Root); ref != nil {
-		return ref
+	if err := d.checkFilesReceivers(c); err != nil {
+		return err
+	}
+	for _, ref := range moduleConfigRefusals(c, d.layout.Root) {
+		return ref // the first: the module's own checks that need the data dir (LEC §3.2)
 	}
 	return nil
 }
@@ -473,6 +470,10 @@ type delegateForm struct {
 	// that are not one JSON object, or with a top-level key that starts
 	// with "$" and is not one anet defines.
 	bad bool
+	// args are the call's args as sent, "$files" included; atts are the
+	// files the delegation carries (CUX-F10).
+	args map[string]any
+	atts []delegation.Attachment
 }
 
 // argsFilesKey is the one "$" key of a capability call's args that anet
@@ -483,8 +484,9 @@ const argsFilesKey = "$files"
 // readDelegateForm reads td as step 9 does. The capability is the first
 // requirement of type capability, as capabilityCall finds it; its args
 // are the one args context, which every capability call carries.
-func readDelegateForm(td *tsir.TaskDoc) delegateForm {
+func readDelegateForm(td *tsir.TaskDoc, atts ...delegation.Attachment) delegateForm {
 	var f delegateForm
+	f.atts = atts
 	if td == nil || len(td.Tasks) == 0 {
 		return f
 	}
@@ -521,7 +523,15 @@ func readDelegateForm(td *tsir.TaskDoc) delegateForm {
 			return f
 		}
 	}
-	if b, err := json.Marshal(args); err == nil {
+	f.args = args
+	// max_args_bytes counts the args without "$files" (CUX §2.5).
+	plain := make(map[string]any, len(args))
+	for k, v := range args {
+		if k != argsFilesKey {
+			plain[k] = v
+		}
+	}
+	if b, err := json.Marshal(plain); err == nil {
 		f.argsLen = len(b)
 	}
 	return f
@@ -552,7 +562,26 @@ func (d *Daemon) decideDelegateAt(now int64, from string, f delegateForm) inboun
 		return refuseWith(reasonBadRequest, 0)
 	}
 	if !public {
+		// A capability call that is not public has declared no files
+		// (CUX-F10 item 1). A held call is not looked at: what a stranger
+		// is told must not depend on whether the capability exists.
+		if f.capID != "" && dec.action == actAccept && (declaresFiles(f.args) || len(f.atts) > 0) {
+			return refuseWith(admitFilesCount, 0)
+		}
 		return dec
+	}
+	// Step 3, the args' size; step 4, the files (CUX-F10). The files are
+	// read against the declaration only when something that can receive
+	// them serves the capability (CUX-F15, the second look).
+	if f.argsLen > pc.limits().MaxArgsBytes {
+		return refuseWith(admitArgsTooLarge, 0)
+	}
+	var fc CapFilesConfig
+	if pc.Files != nil && d.capAcceptsFiles(pc.ID) {
+		fc = *pc.Files
+	}
+	if code := admitFiles(fc, f.args, f.atts); code != "" {
+		return refuseWith(code, 0)
 	}
 	release, refusal, retry := d.admitAt(now, from, pc, f.argsLen)
 	if refusal != "" {
@@ -599,6 +628,12 @@ func decidePolicy(in InboundConfig, ps peerSets, from, capID string) (dec inboun
 	}
 	switch in.Policy {
 	case PolicyApprove: // row 4
+		// A discard capability is never held: its input must not wait on
+		// the disk for an operator (CUX-F13 item 4). This is the one
+		// answer under approve that tells such a capability from none.
+		if p, ok := in.publicCapability(capID); ok && p.Discard {
+			return refuseWith(reasonNotAccepting, 0), pc, false
+		}
 		return inboundDecision{action: actHold}, pc, false
 	case PolicyOpen: // row 5
 		if capID != "" {
@@ -758,7 +793,13 @@ func (d *Daemon) admitAt(now int64, caller string, pc PublicCapability, argsLen 
 }
 
 // DeclareUntrustedBackend implements module.Host.DeclareUntrustedBackend.
-func (h moduleHost) DeclareUntrustedBackend() { h.d.untrustedBackend.Store(true) }
+func (h moduleHost) DeclareUntrustedBackend() {
+	if !h.grants(module.GrantDeclareUntrust) {
+		h.deny("DeclareUntrustedBackend")
+		return
+	}
+	h.d.untrustedBackend.Store(true)
+}
 
 // --- refusals: reply, aggregate evidence, local log ---
 
@@ -948,9 +989,9 @@ func (d *Daemon) InboundStatus() InboundState {
 	ps := d.readPeers()
 	st := InboundState{Policy: in.Policy,
 		Allow: sortedKeys(ps.allow), Deny: sortedKeys(ps.deny), Trust: sortedKeys(ps.trust),
-		PublicCapabilities: in.PublicCapabilities, UntrustedAutoReply: UntrustedOff}
-	if cfg.AutoReply != nil {
-		st.UntrustedAutoReply = cfg.AutoReply.UntrustedMode()
+		PublicCapabilities: in.PublicCapabilities, UntrustedAutoReply: untrustedOff}
+	if v, ok := moduleSI5(cfg)["auto_reply.untrusted"].(string); ok {
+		st.UntrustedAutoReply = v
 	}
 	if items, err := d.ix.ListPending(); err == nil {
 		st.Pending = len(items)
@@ -969,6 +1010,9 @@ func (d *Daemon) SetInboundPolicy(policy string) error {
 	d.cfgWrite.Lock()
 	defer d.cfgWrite.Unlock()
 	next := d.config()
+	if err := d.carryDiskConfig(&next); err != nil {
+		return err
+	}
 	in := next.inbound()
 	from := in.Policy
 	in.Policy = policy
@@ -998,11 +1042,17 @@ func (d *Daemon) SetPublicCapabilities(caps []PublicCapability) error {
 	d.cfgWrite.Lock()
 	defer d.cfgWrite.Unlock()
 	next := d.config()
+	if err := d.carryDiskConfig(&next); err != nil {
+		return err
+	}
 	in := next.inbound()
 	from := in.PublicCapabilities
 	in.PublicCapabilities = caps
 	next.Inbound = &in
 	if err := validatePolicy(next, d.untrustedBackend.Load()); err != nil {
+		return err
+	}
+	if err := d.checkFilesReceivers(next); err != nil {
 		return err
 	}
 	if err := SaveConfig(d.layout, next); err != nil {

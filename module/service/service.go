@@ -58,6 +58,7 @@ package service
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -68,11 +69,14 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/ANetResearch/ANetCore/effect"
+	"github.com/ANetResearch/ANetCore/seal"
 	"github.com/ANetResearch/ANetCore/tsir"
 
 	"github.com/ANetResearch/ANet/internal/backendconn"
@@ -457,11 +461,7 @@ func (p *svcProvider) Invoke(ctx context.Context, call provider.Call) (effect.Ef
 		return effect.Effect{}, fmt.Errorf("service: no capability %q on this node", call.Capability)
 	}
 
-	args := call.Args
-	if args == nil {
-		args = map[string]any{}
-	}
-	body, err := json.Marshal(args)
+	body, err := requestBody(call)
 	if err != nil {
 		return effect.Effect{}, err
 	}
@@ -566,37 +566,40 @@ func (p *svcProvider) Invoke(ctx context.Context, call provider.Call) (effect.Ef
 		if resp.StatusCode == http.StatusGatewayTimeout {
 			reason = provider.ReasonTimeout
 		}
+		// What the gateway said stays in this node's log (T1 F-leak).
+		log.Printf("service: %s: HTTP %d from a gateway: %s", call.Capability, resp.StatusCode, snippet(raw))
 		ev := &effect.Evidence{Protocol: protoOf(target), Requested: call.Capability, LatencyMS: latency}
 		return effect.Effect{Status: effect.Unverified, Evidence: ev},
 			fmt.Errorf("service %s: %w", call.Capability, &provider.OutcomeUnknownError{Reason: reason,
-				Err: fmt.Errorf("HTTP %d from a gateway: %s", resp.StatusCode, snippet(raw))})
+				Err: fmt.Errorf("HTTP %d from a gateway", resp.StatusCode)})
+	}
+	if refusal := refusalOf(resp, raw, call.Capability); refusal != nil {
+		// The service said no to this call, or not now (CUX-F22). Its
+		// words stay in this node's log; the requester gets the code.
+		log.Printf("service: %s: HTTP %d: %s", call.Capability, resp.StatusCode, snippet(raw))
+		return effect.Effect{Status: effect.Unavailable, Evidence: &effect.Evidence{
+			Protocol: protoOf(target), Requested: call.Capability, LatencyMS: latency}}, refusal
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		// 503 and 429 are the service saying "not now": busy, or out of
-		// time under load. UNAVAILABLE, like an unreachable service, so the
-		// requester knows a retry may succeed; every other refusal is an
-		// answer about this call, and FAILED.
-		st := effect.Failed
-		if resp.StatusCode == http.StatusServiceUnavailable || resp.StatusCode == http.StatusTooManyRequests {
-			st = effect.Unavailable
-		}
+		// A 5xx, a redirect or anything else outside 2xx and the refusals
+		// above: the service's own words (an error page, a stack trace, a
+		// credential in a message) stay in this node's log, and the
+		// requester gets the table's backend_failed, never the body.
+		log.Printf("service: %s: HTTP %d: %s", call.Capability, resp.StatusCode, snippet(raw))
 		return effect.Effect{
-			Status:  st,
-			Message: fmt.Sprintf("service %s: HTTP %d: %s", call.Capability, resp.StatusCode, snippet(raw)),
-			Evidence: &effect.Evidence{
-				Protocol: protoOf(target), Requested: call.Capability, LatencyMS: latency,
-			},
+			Status:   effect.Failed,
+			Message:  fmt.Sprintf("service %s: backend_failed (HTTP %d)", call.Capability, resp.StatusCode),
+			Evidence: &effect.Evidence{Protocol: protoOf(target), Requested: call.Capability, LatencyMS: latency},
 		}, nil
 	}
 
 	var reply map[string]any
 	if err := json.Unmarshal(raw, &reply); err != nil {
+		log.Printf("service: %s: reply is not a JSON object: %s", call.Capability, snippet(raw))
 		return effect.Effect{
-			Status:  effect.Failed,
-			Message: fmt.Sprintf("service %s: reply is not a JSON object: %s", call.Capability, snippet(raw)),
-			Evidence: &effect.Evidence{
-				Protocol: protoOf(target), Requested: call.Capability, LatencyMS: latency,
-			},
+			Status:   effect.Failed,
+			Message:  fmt.Sprintf("service %s: backend_failed (the reply is not a JSON object)", call.Capability),
+			Evidence: &effect.Evidence{Protocol: protoOf(target), Requested: call.Capability, LatencyMS: latency},
 		}, nil
 	}
 
@@ -625,6 +628,87 @@ func (p *svcProvider) Invoke(ctx context.Context, call provider.Call) (effect.Ef
 }
 
 const maxReplyBytes = 1 << 20
+
+// reasonCodeRe is the form of a reason code (core CORE-K19).
+var reasonCodeRe = regexp.MustCompile(`^[a-z][a-z0-9_]{0,29}$`)
+
+// defaultRetryAfterS is the wait told for a 503 or 429 that names none.
+const defaultRetryAfterS = 5
+
+// requestBody is what a call sends (CUX-F21). Without files it is the
+// args object, as it always was. With files it is
+// {"args": {...}, "files": [{"name", "mime", "data_b64"}]}; the args hold
+// no "$" key, which belong to the daemon.
+func requestBody(call provider.Call) ([]byte, error) {
+	args := map[string]any{}
+	for k, v := range call.Args {
+		if strings.HasPrefix(k, "$") {
+			if len(call.Files) == 0 {
+				return nil, fmt.Errorf("service: the call carries the reserved key %q", k)
+			}
+			continue
+		}
+		args[k] = v
+	}
+	if len(call.Files) == 0 {
+		return json.Marshal(args)
+	}
+	type fileOut struct {
+		Name    string `json:"name"`
+		Mime    string `json:"mime"`
+		DataB64 string `json:"data_b64"`
+	}
+	files := make([]fileOut, len(call.Files))
+	for i, f := range call.Files {
+		files[i] = fileOut{Name: f.Name, Mime: f.Mime, DataB64: base64.StdEncoding.EncodeToString(f.Data)}
+	}
+	return json.Marshal(struct {
+		Args  map[string]any `json:"args"`
+		Files []fileOut      `json:"files"`
+	}{args, files})
+}
+
+// refusalOf maps a service's refusal (CUX-F22): 503 and 429 are
+// UNAVAILABLE (reason busy) with the Retry-After rounded by
+// seal.RetryBucket; any other 4xx is the code in {"error": "<code>"} when it
+// has the form of CORE-K19 and backend_failed otherwise. Nil for any other
+// status.
+func refusalOf(resp *http.Response, raw []byte, capability string) *provider.RefusalError {
+	switch {
+	case resp.StatusCode == http.StatusServiceUnavailable || resp.StatusCode == http.StatusTooManyRequests:
+		wait := uint32(defaultRetryAfterS)
+		if h := strings.TrimSpace(resp.Header.Get("Retry-After")); h != "" {
+			wait = retryAfterSeconds(h, time.Now())
+		}
+		return &provider.RefusalError{Reason: "busy", RetryAfterS: seal.RetryBucket(wait, false, 0),
+			Err: fmt.Errorf("service %s: HTTP %d", capability, resp.StatusCode)}
+	case resp.StatusCode >= 400 && resp.StatusCode < 500:
+		var v struct {
+			Error string `json:"error"`
+		}
+		if json.Unmarshal(raw, &v) == nil && reasonCodeRe.MatchString(v.Error) {
+			return &provider.RefusalError{Reason: v.Error, Verbatim: true,
+				Err: fmt.Errorf("service %s: HTTP %d", capability, resp.StatusCode)}
+		}
+		return &provider.RefusalError{Reason: "backend_failed",
+			Err: fmt.Errorf("service %s: HTTP %d", capability, resp.StatusCode)}
+	}
+	return nil
+}
+
+// retryAfterSeconds reads a Retry-After value: delta-seconds or an HTTP
+// date. Anything else, or a past date, is the default.
+func retryAfterSeconds(h string, now time.Time) uint32 {
+	if n, err := strconv.ParseUint(h, 10, 32); err == nil {
+		return uint32(n)
+	}
+	if t, err := http.ParseTime(h); err == nil {
+		if d := t.Sub(now); d > 0 {
+			return uint32(min(d.Seconds()+1, float64(seal.MaxRetryAfterS)))
+		}
+	}
+	return defaultRetryAfterS
+}
 
 // applyDeclared folds a service's own evidence in. Trust is taken as the
 // lower of what it claims and what a plain HTTP answer establishes: a
@@ -692,6 +776,15 @@ func (p *svcProvider) Price(capability string) (uint64, bool) {
 
 var _ provider.Priced = (*svcProvider)(nil)
 
+// AcceptsFiles says whether the capability takes the files of a call
+// (CUX-F15). Every capability of this module does: the request body has a
+// place for them (CUX-F21). Part of provider.FileReceiver.
+func (p *svcProvider) AcceptsFiles(capability string) bool {
+	return p.capability(capability) != nil
+}
+
+var _ provider.FileReceiver = (*svcProvider)(nil)
+
 // Headers the module sets on every call. They are part of the contract
 // with the services behind it, so they are fixed names, not configuration.
 const (
@@ -750,3 +843,26 @@ func (p *svcProvider) InvokeTimeout(capability string) (time.Duration, bool) {
 }
 
 var _ provider.LongRunning = (*svcProvider)(nil)
+
+// LocalPaths implements module.LocalPaths: the sockets of the capabilities
+// and the token files, which a sandbox must never be able to open (K-5). A
+// URL that is not a socket contributes only its token file.
+func (m *Module) LocalPaths() []string {
+	var out []string
+	add := func(p string) {
+		if p != "" {
+			out = append(out, os.ExpandEnv(p))
+		}
+	}
+	add(m.cfg.TokenFile)
+	for i := range m.cfg.Capabilities {
+		c := &m.cfg.Capabilities[i]
+		add(c.TokenFile)
+		if t, err := backendconn.Parse(c.URL); err == nil && t.Unix() {
+			add(t.Socket)
+		}
+	}
+	return out
+}
+
+var _ module.LocalPaths = (*Module)(nil)

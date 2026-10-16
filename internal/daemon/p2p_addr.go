@@ -30,7 +30,7 @@ func init() { configChecks = append(configChecks, checkP2PConfig) }
 const cntP2PAddrRefused = "p2p-addr-refused"
 
 // P2PAddr is module.TransportHost's: where aid may be dialled directly now.
-func (h moduleHost) P2PAddr(aid string) (string, bool) { return h.d.p2pAddr(aid, h.d.nowMS()) }
+func (h transportPart) P2PAddr(aid string) (string, bool) { return h.d.p2pAddr(aid, h.d.nowMS()) }
 
 // p2pAddr is the p2p address of a peer capability aid gave this node that
 // is valid at now (heldValid: not given up, not about to expire, under aid's
@@ -38,6 +38,9 @@ func (h moduleHost) P2PAddr(aid string) (string, bool) { return h.d.p2pAddr(aid,
 // the literal check with this node's LAN setting; "" and false otherwise.
 func (d *Daemon) p2pAddr(aid string, now uint64) (string, bool) {
 	if aid == "" || aid == d.AID() || d.ix == nil {
+		return "", false
+	}
+	if !d.p2pMayDial(aid) {
 		return "", false
 	}
 	held, err := d.ix.HeldCaps(aid)
@@ -58,6 +61,23 @@ func (d *Daemon) p2pAddr(aid string, now uint64) (string, bool) {
 		return h.P2P, true
 	}
 	return "", false
+}
+
+// p2pMayDial is whether aid is a peer this node may dial at all: on its allow
+// or trust list, or one it started an interaction with (pinned outbound), and
+// not denied. A contact grant that a stranger sent with an accepted message
+// is kept, but the address in it is the stranger's choice, so it is never
+// dialled (RT-SSRC-1: egress-IP leak and blind SSRF).
+func (d *Daemon) p2pMayDial(aid string) bool {
+	ps := d.readPeers()
+	if ps.denied(aid) {
+		return false
+	}
+	if ps.allowed(aid) {
+		return true
+	}
+	row, err := d.ix.PeerIdentity(aid)
+	return err == nil && row != nil && row.PinnedReason == interactions.PinOutbound
 }
 
 // p2pLAN is modules.p2p.lan: whether a direct delivery may be dialled at a

@@ -201,6 +201,6 @@ anet stop && anet up           # restart this node
 ```
 
 More: the [README](https://github.com/ANetResearch/ANet#readme), the
-[Guide](https://github.com/ANetResearch/ANet/blob/main/docs/GUIDE-zh.md) (Chinese), the
-[known limitations](https://github.com/ANetResearch/ANet/blob/main/docs/KNOWN-LIMITATIONS.md), and the
+[documentation](https://docs.agentnetwork.org.cn/docs/en/latest/), the
+[known limitations](https://docs.agentnetwork.org.cn/docs/en/latest/reference/known-limitations.html), and the
 official hub's step-by-step onboarding for agents at https://hub.agentnetwork.org.cn/llms.txt.

@@ -5,9 +5,6 @@
   "summary": "anet official public agent: search and read the anet documentation",
   "inbound": {
     "policy": "closed",
-    "allow_file": "peers.allow",
-    "deny_file": "peers.deny",
-    "trust_file": "peers.trust",
     "public_capabilities": [
       {
         "id": "docs.search",
@@ -15,8 +12,7 @@
         "per_caller_per_day": 1000,
         "global_per_min": 300,
         "max_inflight": 8,
-        "max_args_bytes": 2048,
-        "evidence": "cid"
+        "max_args_bytes": 2048
       },
       {
         "id": "docs.get",
@@ -24,8 +20,7 @@
         "per_caller_per_day": 2000,
         "global_per_min": 600,
         "max_inflight": 8,
-        "max_args_bytes": 1024,
-        "evidence": "cid"
+        "max_args_bytes": 1024
       }
     ]
   },

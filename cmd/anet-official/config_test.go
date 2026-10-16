@@ -8,6 +8,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/ANetResearch/ANet/internal/daemon"
 )
 
 // The capability table is what the routes, the generated configuration and
@@ -143,13 +145,6 @@ func TestDeploySamplesMatchTheTable(t *testing.T) {
 		if !reflect.DeepEqual(cfg.Inbound.PublicCapabilities, want.Inbound.PublicCapabilities) {
 			t.Errorf("%s: public_capabilities differ from `anet-official service-config -groups %s`", id, group)
 		}
-		// The published retention policy (README §5): the chain of an
-		// official agent keeps the result CID and the metrics, not answers.
-		for _, pc := range cfg.Inbound.PublicCapabilities {
-			if pc.Evidence != "cid" {
-				t.Errorf("%s: %s has evidence %q, want cid", id, pc.ID, pc.Evidence)
-			}
-		}
 		var svc svcModuleConfig
 		if err := json.Unmarshal(cfg.Modules["service"], &svc); err != nil {
 			t.Fatalf("%s: modules.service: %v", id, err)
@@ -244,4 +239,21 @@ func chownAllowed(unit string) bool {
 		seen = true
 	}
 	return allowed
+}
+
+// The generated daemon configuration must pass the daemon's own removed-key
+// check for every group: a key 0.3.0 removed stops the daemon from starting
+// (the generator once wrote inbound.public_capabilities[].evidence).
+func TestServiceConfigHasNoRemovedKeys(t *testing.T) {
+	raw, err := json.Marshal(buildServiceConfig(allCapabilities(), "unix:///run/x/backend.sock", "/run/x/token", 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	found, err := daemon.FindRemovedSettings(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range found {
+		t.Errorf("service-config writes a removed setting: %+v", f)
+	}
 }

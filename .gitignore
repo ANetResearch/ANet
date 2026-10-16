@@ -49,3 +49,5 @@ Thumbs.db
 
 # release build artifacts (deploy/release/build-release.sh)
 /dist/
+
+_site/

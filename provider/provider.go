@@ -1,9 +1,9 @@
-// Package provider defines C1 — the CapabilityProvider contract (docs/CONTRACTS-zh.md §3):
+// Package provider defines C1 — the CapabilityProvider contract (the C1 contract):
 // the only doorway through which the ANet daemon acquires callable
 // capabilities. Native agents, external agent connectors, and physical-world
 // runtimes (ANetLink) all enter through this one interface.
 //
-// Red line (the org lesson, docs/CONTRACTS-zh.md): the daemon must never know what stands
+// Red line (the org lesson): the daemon must never know what stands
 // behind a provider — in particular it must never know the concept of a
 // "device". A provider declares capabilities, can be invoked, and returns
 // effects. Nothing else crosses the boundary.
@@ -36,6 +36,27 @@ type Call struct {
 	// There is no other door: work is paid for inside the task, on the
 	// relay door, and the hub's gateway and its vouchers are gone (0.3.0).
 	Via string
+	// Files are the files a call carries (CUX-F20), in the order of the
+	// request's $files. Mime is the type the daemon sniffed from the bytes,
+	// never the caller's claim. They are held in memory for the call only:
+	// a provider that keeps a file keeps its own copy. Empty for a call
+	// without files.
+	Files []File
+}
+
+// File is one file of a call.
+type File struct {
+	Name string
+	Mime string
+	Data []byte
+}
+
+// FileReceiver is implemented by a provider that can take the files of a
+// call (CUX-F15). The daemon asks per capability: a capability that
+// declares files is served only by a provider that answers true for it, and
+// the daemon does not look at which provider that is.
+type FileReceiver interface {
+	AcceptsFiles(capID string) bool
 }
 
 // Values of Call.Via.
@@ -96,6 +117,16 @@ type RemotePolicy interface {
 // sentence.
 type RefusalError struct {
 	Reason string
+	// Verbatim says Reason is a code the far side chose, in the form of
+	// CORE-K19, that this node repeats as it is (CUX-F22) even when the
+	// reason table has no row for it: the task then ends failed, effect
+	// FAILED. Without it a code the table does not know becomes
+	// backend_failed.
+	Verbatim bool
+	// RetryAfterS is how long the far side asks to wait, in seconds,
+	// already rounded (seal.RetryBucket); 0 for none. The requester gets
+	// it as anet.retry_after_ms.
+	RetryAfterS uint32
 	// Err is what happened, for this node's log only.
 	Err error
 }

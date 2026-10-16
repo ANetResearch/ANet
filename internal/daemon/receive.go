@@ -439,7 +439,7 @@ func (d *Daemon) receiveEnvelopeVia(ctx context.Context, env []byte, path rxPath
 		} else {
 			verifiedKeys = set
 			ks := &peerKeySet{signed: in.Keys, set: set}
-			switch seal.DecideHighWater(seenOf(row), set.Seq, signed.Set) {
+			switch seal.DecideHighWater(seenAgainst(row, use, now, set.Seq), set.Seq, signed.Set) {
 			case seal.Replace:
 				m.keysUpdate, m.noticeKeys = ks, ks
 			case seal.Same:
@@ -1046,7 +1046,13 @@ func (d *Daemon) authorizeDelegate(m *rxMsg, now uint64) *rxResult {
 		r := d.drop(dropCanceled, nil)
 		return &r
 	}
-	form := readDelegateForm(m.td)
+	form := readDelegateForm(m.td, m.dr.Attachments...)
+	// The task binding (core §2.4.3, CORE-K7): a delegation without it, a text task or a capability
+	// call alike, is a bad request (step 2 of CUX-Q1a, after the policy). The receipt this node
+	// would sign for it could not carry the requester's commitments.
+	if delegation.CheckTaskBinding(m.td) != nil {
+		form.bad = true
+	}
 	dec := d.decideDelegate(m.from, form)
 	switch dec.action {
 	case actRefuse:
@@ -1428,7 +1434,7 @@ func (d *Daemon) process(ctx context.Context, m *rxMsg) rxResult {
 	}
 	d.noteLivePeer(m.from)
 	if m.typ == seal.TypeDelegate {
-		d.kickAutoReply()
+		d.kickTurns()
 	}
 	return res
 }
@@ -1915,6 +1921,7 @@ func (d *Daemon) receiveMaintenance(ctx context.Context) {
 			d.flushInboundSummary(false)
 			d.expirePending()
 			d.revocationSweep()
+			d.sweepCallFiles()
 		}
 	}
 }

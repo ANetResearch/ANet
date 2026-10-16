@@ -129,9 +129,11 @@ type Host interface {
 	// with the policy, and refuses a later policy write that would.
 	DeclareUntrustedBackend()
 
-	// StateDir is a directory the named module may keep its own files in:
-	// <data dir>/modules/<module>/, created 0700 when first asked for. It
-	// returns "" for a name that is not a plain directory name, and for a
+	// StateDir is a directory this module may keep its own files in:
+	// <data dir>/modules/<module>/, created 0700 when first asked for. The
+	// directory is decided by the name this Host is bound to, never by an
+	// argument: a module cannot ask for another module's. It returns ""
+	// when the name table does not grant StateDir to the module, and for a
 	// directory that cannot be made private to this user (a symbolic link,
 	// another uid's); a module that needs one does not start without it.
 	//
@@ -144,7 +146,12 @@ type Host interface {
 	// state, which pushes that state into the kernel. A directory per
 	// module keeps each one's files apart; it is not a boundary between
 	// modules, which share a process.
-	StateDir(module string) string
+	StateDir() string
+
+	// Available reports whether another module is available here: compiled
+	// into this binary and not turned off in `without`. Every Host answers
+	// it, from the daemon's own Availability value (K-1).
+	Available(name string) bool
 
 	// TaskSeam hands over the tasks this node starts as a requester, in
 	// their A2A form: sending a task to a remote agent, reading, listing,
@@ -163,6 +170,53 @@ type Host interface {
 	// that policy is enforced, rather than through PaymentSeam, which
 	// would let the module sign without asking it.
 	TaskSeam() (TaskSeam, bool)
+}
+
+// ErrNotGranted is what a Host answers when the module it is bound to was
+// not granted what it asked for (RecordEvidence of a type outside the
+// module's EvidenceTypes, or of anet.policy.*, among them).
+var ErrNotGranted = errors.New("module: this module is not granted that")
+
+// ControlHandler is implemented by a module that answers control-plane
+// routes the name table registers to it (K-3). The kernel owns the route
+// table, the bearer authentication, the body limit and the error body; it
+// hands the module only the requests for its own routes, and only while the
+// module is available. A route is never a console session route: it is
+// bearer-only.
+//
+// status is the HTTP status of the answer; resp is encoded as JSON unless
+// it is already a []byte or json.RawMessage; an error that is an
+// *a2ashape.Refusal is answered as the refusal's body (UX-R9).
+type ControlHandler interface {
+	HandleControl(ctx context.Context, route string, body []byte) (status int, resp any, err error)
+}
+
+// StatusContributor is implemented by a module that adds a member to
+// /status (K-4). The kernel collects the members; it takes only the keys the
+// name table lists for the module's name (StatusKeys), drops every other and
+// reports the drop. SI5 contributes the module's values to the SI-5 map the
+// same way.
+type StatusContributor interface {
+	StatusMember() (key string, v any)
+	SI5() map[string]any
+}
+
+// LocalPaths is implemented by a module that owns endpoints on this
+// machine: a Unix socket, a token file. The kernel gathers them into the
+// sensitive-path list (SensitivePathsHost), the part of the sandbox's
+// never-bind list that depends on which modules are available.
+type LocalPaths interface {
+	LocalPaths() []string
+}
+
+// SensitivePathsHost is the optional Host interface that hands over the
+// paths a sandbox must never bind: the data directory, the control and local
+// A2A tokens, the runtime directories, the default C1 socket, and what the
+// available modules declare through LocalPaths. Read only. Granted to
+// autoreply alone: a list of where this node keeps its secrets is itself
+// something a smaller grant should not see.
+type SensitivePathsHost interface {
+	SensitivePaths() []string
 }
 
 // Task, TaskEvent and TaskPage are the kernel's A2A projection
@@ -212,8 +266,14 @@ type TaskSeam interface {
 	// Watch is SubscribeToTask: the task as it is now and its later
 	// events, taken together so that no change falls between them. The
 	// channel closes after the terminal status update, when ctx ends, or
-	// when the watcher falls too far behind (it may Watch again).
-	Watch(ctx context.Context, peerAID, taskID string) (Task, <-chan TaskEvent, error)
+	// when the watcher falls too far behind (it may Watch again). Only a
+	// watcher that opts in receives preview events (CUX-A3).
+	Watch(ctx context.Context, peerAID, taskID string, opts WatchOpts) (Task, <-chan TaskEvent, error)
+	// PreviewAvailable reports whether this node can preview (K-10): the
+	// preview module is available. The local A2A interface activates the
+	// preview extension, and so declares it on a proxy card, only when this
+	// is true (CUX-P30, SI-79).
+	PreviewAvailable() bool
 	// Agents lists the remote agents a client may address.
 	Agents(ctx context.Context, q AgentQuery) ([]RemoteAgent, error)
 	// Card is one remote agent, with its verified network card if it has
@@ -231,6 +291,22 @@ type TaskSeam interface {
 	// authorization within the agent-tier limits and sends it; reject
 	// declines. The purpose is always task-agent.
 	Pay(ctx context.Context, peerAID, taskID string, decision PayDecision) (Task, error)
+	// CanPay reports whether this node can sign a payment and settle it
+	// now: a payment module that is available, a hub address, and the
+	// hub's AID. It is worked out at each call and never kept (K-11): a
+	// node registers at its hub after it starts, so the answer changes
+	// while the interface runs. The proxy card declares a2a-x402 only when
+	// it is true.
+	CanPay() bool
+}
+
+// WatchOpts are what a subscriber asks of Watch.
+type WatchOpts struct {
+	// Preview is set for a subscriber that activated the preview extension
+	// (ExtPreviewURI): it receives the task's preview frames as artifact
+	// updates, and one for the preview the task shows when it subscribes.
+	// A subscriber that did not receives none.
+	Preview bool
 }
 
 // TaskSend is one SendMessage as the local A2A interface received it.
@@ -253,6 +329,10 @@ type TaskSend struct {
 	// Extensions are the extension URIs the client activated for this
 	// request, from A2A-Extensions and X-A2A-Extensions merged.
 	Extensions []string
+	// Preview asks the provider for previews of the round this message
+	// opens: "on" or "with_reasoning" (CUX-P10); empty or "off" asks for
+	// none.
+	Preview string
 }
 
 // TaskFilter selects tasks for List (A2A ListTasksRequest).
@@ -497,7 +577,42 @@ type PaymentSeam interface {
 	// or to a route the node does not send, is refused before anything is
 	// sent. The caller closes the response body.
 	HubDo(req *http.Request) (*http.Response, error)
+
+	// SignHubRequest signs req as this node for its hub (relayauth v2, RC1):
+	// the action, the hub's AID, the signing time, the method, the request
+	// target and the body bytes, set in the X-ANet-* headers. body is the
+	// exact bytes the request carries, nil for none. The signing time comes
+	// from the clock the node keeps for that hub, shared with the node's own
+	// requests, so two requests never carry the same time (PAY-R10). The
+	// outbound gate applies as it does to the node's own signed requests:
+	// nothing is signed while the identity is not confirmed.
+	//
+	// The ability is the same as Sign's and is granted with it: the module
+	// asks for the request to be signed, it never composes the preimage.
+	SignHubRequest(req *http.Request, action string, body []byte) error
+	// NoteHubStale tells the node that the hub answered a request signed by
+	// SignHubRequest with ts_stale and a floor (the member "floor" of the
+	// body, or X-ANet-TS-Floor). True: the clock for that hub is now above
+	// the floor and the caller signs again and retries once; false: the
+	// floor is beyond what other hubs accept, and the hub is unreachable for
+	// this request (PAY-R11).
+	NoteHubStale(floor int64) bool
+	// RegisteredAt is when this node first registered at its hub, unix
+	// milliseconds, and false when the node does not know. An audit finding
+	// that the hub withheld a balance proof is made only for a period that
+	// closed after this.
+	RegisteredAt() (int64, bool)
+	// RefreshHubIdentity reads the hub's key history again, for a record the
+	// hub signed under a key state the pinned history does not reach: the
+	// hub rotated since it was pinned. It reports whether the history
+	// changed, so the check is worth making again; the hub's history may
+	// only ever extend what is pinned (KEL H-34, CORE-L8).
+	RefreshHubIdentity() bool
 }
+
+// EvidenceAt is the member ReadEvidence adds to each payload it returns: the
+// time the event was recorded on this node's chain, unix milliseconds.
+const EvidenceAt = "_recorded_at"
 
 // Spending purposes: the tiers of A2A-DESIGN §8.6, named by the surface a
 // payment was asked for on. The control-plane route decides the purpose,
@@ -630,10 +745,10 @@ type Payer interface {
 	// call.
 	Reconcile(ctx context.Context) (any, error)
 	AuditIssuance(ctx context.Context) (any, error)
-	// WitnessHub records the hub's current issuance head on this node's
-	// own chain. Opt-in — see the module's own documentation for why a
-	// trimmed node should not be made to do this.
-	WitnessHub(ctx context.Context) (uint64, string, error)
+	// AuditSummary is what the module's automatic balance-proof check last
+	// found, as a JSON object for doctor's payments.audit: nil before the
+	// first check.
+	AuditSummary() any
 	// Serve starts the module's background work. Called once, after
 	// Start, by the kernel that owns the process lifetime. It opens no
 	// listener: the payment module has no public door.
@@ -827,6 +942,24 @@ func Compiled() []string {
 	return out
 }
 
+// absentConfigured is the refusal for a configuration block of a module that
+// is not available: module_absent.configured, the same sentence at start,
+// in the daemon log and in doctor (MOD-F1).
+func absentConfigured(av Availability, name string) error {
+	reason := av.Absence(name)
+	if reason == "" {
+		reason = AbsentNotCompiled
+	}
+	info, _ := Lookup(name)
+	key := info.ConfigKey
+	if key == "" {
+		key = "modules." + name
+	}
+	args := AbsentArgs(name, reason)
+	args["key"] = key
+	return a2ashape.Refuse("module_absent.configured", args)
+}
+
 // BuildOne instantiates a single registered module from its config
 // block, for callers that want one rather than the set.
 //
@@ -843,7 +976,7 @@ func BuildOne(name string, cfg []byte) (Module, error) {
 			return r.factory(cfg)
 		}
 	}
-	return nil, fmt.Errorf("module %q is not compiled into this build", name)
+	return nil, absentConfigured(Availability{}, name)
 }
 
 // Build instantiates every compiled-in module that is configured.
@@ -851,7 +984,13 @@ func BuildOne(name string, cfg []byte) (Module, error) {
 // A configured module that is not compiled in is an error, not a no-op. The
 // alternative is a daemon that reads `"p2p": {...}` from a config, silently
 // ignores it, and leaves an operator wondering why nothing is peering.
-func Build(cfg map[string][]byte) ([]Module, error) {
+func Build(cfg map[string][]byte) ([]Module, error) { return BuildWith(Availability{}, cfg) }
+
+// BuildWith is Build for the modules an Availability value lets run: a
+// module that is turned off is not built (its factory is not called), and a
+// configuration block for a module that is not available is the refusal
+// module_absent.configured (MOD-F1), whichever way it is absent.
+func BuildWith(av Availability, cfg map[string][]byte) ([]Module, error) {
 	regMu.Lock()
 	regs := append([]registration(nil), registry...)
 	regMu.Unlock()
@@ -860,6 +999,12 @@ func Build(cfg map[string][]byte) ([]Module, error) {
 	var out []Module
 	for _, r := range regs {
 		known[r.name] = true
+		if !av.Available(r.name) {
+			if _, ok := cfg[r.name]; ok {
+				return nil, absentConfigured(av, r.name)
+			}
+			continue
+		}
 		m, err := r.factory(cfg[r.name])
 		if err != nil {
 			return nil, fmt.Errorf("module %q: %w", r.name, err)
@@ -868,30 +1013,33 @@ func Build(cfg map[string][]byte) ([]Module, error) {
 			out = append(out, m)
 		}
 	}
+	names := make([]string, 0, len(cfg))
 	for name := range cfg {
-		if !known[name] {
-			// The hint has to name the tag that actually governs this
-			// module. An additive module is missing because nobody asked
-			// for it, not because somebody removed it.
-			// Three different reasons a name in "modules" is not a module
-			// here, and they send an operator to three different places.
-			if declaredCompiled(name) {
-				// Compiled in, but not a Module — it has no config block at
-				// all. Saying "not compiled into this build" would be false,
-				// and pointing at no_%s would send them to remove a tag that
-				// is not the reason.
-				return nil, fmt.Errorf(
-					"%q is part of this build but is not configured under \"modules\": "+
-						"it is reached as a subcommand (anet %s), and takes no config block",
-					name, name)
-			}
-			hint := fmt.Sprintf("built with no_%s?", name)
-			if optInName(name) {
-				hint = fmt.Sprintf("it needs -tags %s, which the default build does not use", name)
-			}
-			return nil, fmt.Errorf(
-				"module %q is configured but not compiled into this build (%s)", name, hint)
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		if known[name] {
+			continue
 		}
+		info, ok := Lookup(name)
+		if !ok {
+			return nil, a2ashape.Refuse("config_invalid", a2ashape.Args{"key": "modules." + clip(name),
+				"rule": ruleText("没有这个模块", "there is no such module")})
+		}
+		// A name of the table that is not a registration here. Its block is
+		// either not under modules at all (autoreply and preview keep their
+		// historical top-level keys, MOD-P3; mcp and console take none), or
+		// the module is not in this binary.
+		switch {
+		case info.ConfigKey == "":
+			return nil, a2ashape.Refuse("config_invalid", a2ashape.Args{"key": "modules." + name,
+				"rule": ruleText("这个模块没有配置块", "this module takes no configuration block")})
+		case info.ConfigKey != "modules."+name:
+			return nil, a2ashape.Refuse("config_invalid", a2ashape.Args{"key": "modules." + name,
+				"rule": "top_level_key", "m": name})
+		}
+		return nil, absentConfigured(av, name)
 	}
 	return out, nil
 }
