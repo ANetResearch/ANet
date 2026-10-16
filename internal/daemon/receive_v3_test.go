@@ -962,6 +962,19 @@ func TestACardRequestIsAnsweredUnderItsOwnGrant(t *testing.T) {
 			t.Fatalf("a card request held for approval: %v", err)
 		}
 	}
+	// A grant for another interaction than the request's own is no grant to
+	// answer it under (core G11: one-shot for the request's ix).
+	{
+		const ixOther, ixAsked = "card-0000000000000000000000000000000a", "card-0000000000000000000000000000000b"
+		now := req.nowMS()
+		grant, _ := issueNow(t, req, prov.AID(), grantFor(capMsg{Kind: capMsgCardGet, IX: ixOther}, capRel{}, now), now)
+		env, _ := craftWith(t, senderOf(req), prov, delegation.TypeCardGet, ixAsked, cardGet,
+			craftOpt{oneShot: true, edit: func(in *seal.SealedInner) { in.Grant = grant }})
+		answers = nil
+		if r := receive(t, prov, env); r.reason != cardGetNoGrant || len(answers) != 0 {
+			t.Fatalf("a grant for another interaction: %+v, answers %q", r, answers)
+		}
+	}
 	stranger := registered(t, prov.config().HubURL, "stranger")
 	denied := registered(t, prov.config().HubURL, "denied")
 	denyPeers(t, prov, denied.AID())
