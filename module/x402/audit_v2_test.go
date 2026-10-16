@@ -254,9 +254,9 @@ func TestPeriodsThatWentUncheckedAreToldOnce(t *testing.T) {
 	f := newFakeHub(t)
 	d := today()
 	long := time.Now().Add(-20 * 24 * time.Hour).UnixMilli()
-	f.addEpochAt(d-22, 100, 10, long)
-	f.addEpochAt(d-21, 100, 20, long)
-	f.addEpochAt(d-20, 100, 30, long)
+	f.addEpochAt(d-24, 100, 10, long)
+	f.addEpochAt(d-23, 100, 20, long)
+	f.addEpochAt(d-22, 100, 30, long)
 	m, _ := f.hubbed()
 	// A first run on a node that has no history alleges nothing.
 	if rep := mustAudit(t, m); len(rep.Findings) != 0 {

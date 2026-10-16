@@ -63,6 +63,9 @@ const (
 	// proofKeptFor is how long the hub keeps an epoch's leaves, counted from
 	// the epoch record's publication (HPP §2.3).
 	proofKeptFor = 14 * dayMillis
+	// epochTimeSlack is the clock difference tolerated between the hub's
+	// record time and the end of the day it covers, or this node's clock.
+	epochTimeSlack = 10 * 60 * 1000
 	// auditEvery is the pace of the automatic check (PAY-S9).
 	auditEvery = 6 * time.Hour
 	// maxEpochs bounds what one audit reads of the chain.
@@ -238,6 +241,27 @@ func (m *Module) verifyChain(chain []epochView, hubAID string) (problems []Findi
 				problems = append(problems, chainFinding(p))
 			}
 			sound = false
+		}
+		// The hub writes each record's time, and the 14-day rule below trusts
+		// it: a time that precedes the end of the day the epoch covers, runs
+		// backwards along the chain or lies in the future would let a hub age
+		// a new epoch out of the audit.
+		now := time.Now().UnixMilli()
+		for i := 0; i < len(chain) && sound; i++ {
+			ts, why := chain[i].rec.Timestamp, ""
+			switch {
+			case ts < chain[i].closeMS()-epochTimeSlack:
+				why = "is older than the end of the last day it covers"
+			case i > 0 && ts < chain[i-1].rec.Timestamp:
+				why = "is older than the epoch before it"
+			case ts > now+epochTimeSlack:
+				why = "is in the future"
+			}
+			if why != "" {
+				problems = append(problems, chainFinding(fmt.Sprintf(
+					"seq %d: the time the hub wrote %s", chain[i].Seq, why)))
+				sound = false
+			}
 		}
 		// One epoch per day, in order: a day covered twice, or backwards, is
 		// not a supply history.
