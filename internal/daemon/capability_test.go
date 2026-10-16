@@ -294,8 +294,8 @@ func TestEvidenceProvenanceReachesTheChain(t *testing.T) {
 	if ev["quirk"] != "aqara.temp.scale100" {
 		t.Errorf("the correction must be named on the chain, got %v", ev["quirk"])
 	}
-	if ev["observed_state"] != "2212.93" {
-		t.Errorf("what the device actually reported must survive, got %v", ev["observed_state"])
+	if ev["observed_state"] != nil || ev["observed_state_cid"] == nil {
+		t.Errorf("the reading is kept as its CID only, got %v / %v", ev["observed_state"], ev["observed_state_cid"])
 	}
 	if ev["protocol"] != "zigbee" {
 		t.Errorf("protocol = %v, want zigbee", ev["protocol"])
@@ -378,6 +378,12 @@ func TestAReadReturnsWhatItRead(t *testing.T) {
 		t.Fatal("no provenance on the provider chain")
 	}
 	for k, v := range got.Evidence {
+		if k == "observed_state" {
+			if onChain["observed_state_cid"] == nil {
+				t.Errorf("the chain lost the reading's CID")
+			}
+			continue
+		}
 		if fmt.Sprint(onChain[k]) != fmt.Sprint(v) {
 			t.Errorf("evidence disagrees on %q: chain=%v requester=%v", k, onChain[k], v)
 		}

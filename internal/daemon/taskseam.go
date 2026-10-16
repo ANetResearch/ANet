@@ -392,7 +392,7 @@ func (d *Daemon) sendTask(ctx context.Context, sc taskScope, to string, req modu
 	sctx, cancel := context.WithTimeout(ctx, relayCallTimeout)
 	defer cancel()
 	if in.capID != "" {
-		_, err = d.delegateCapabilityCtx(sctx, id, peer, in.capID, in.args, contextID, cm)
+		_, err = d.delegateCapabilityCtx(sctx, id, peer, in.capID, in.args, in.atts, contextID, cm)
 	} else {
 		var mb []byte
 		if len(meta) > 0 {
@@ -758,8 +758,8 @@ func parseTaskInput(m a2ashape.Message, role a2ashape.Role) (*taskInput, error) 
 		}
 	}
 	if in.capID != "" {
-		if len(in.texts) > 0 || len(in.atts) > 0 {
-			return nil, bad("a capability call takes its input as args, not as text or files")
+		if len(in.texts) > 0 {
+			return nil, bad("a capability call takes its input as args and files, not as text")
 		}
 		switch {
 		case len(looseJSON) == 0:
@@ -771,6 +771,11 @@ func parseTaskInput(m a2ashape.Message, role a2ashape.Role) (*taskInput, error) 
 		}
 		if in.args == nil {
 			in.args = map[string]any{}
+		}
+		// Keys that start with "$" are anet's (CUX-F2): refused here, before
+		// anything is written.
+		if reservedArgsKey(in.args) != "" {
+			return nil, a2ashape.Refuse("args_reserved_key", nil)
 		}
 		return in, nil
 	}

@@ -18,7 +18,10 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"mime"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	evidence "github.com/ANetResearch/ANet/internal/evidencev1" // v030-todo(PAY-14): evidence v2
 	"github.com/ANetResearch/ANetCore/anetcid"
@@ -131,21 +134,38 @@ func (d *Daemon) DelegateCapabilityIn(ctx context.Context, providerAID, capID st
 	if err != nil {
 		return "", err
 	}
-	return d.delegateCapabilityCtx(ctx, id, providerAID, capID, args, contextID, nil)
+	return d.delegateCapabilityCtx(ctx, id, providerAID, capID, args, nil, contextID, nil)
 }
 
 // delegateCapabilityCtx sends a capability call as interaction id, with a
 // task nonce minted here: the binding its payment, if it is priced, is
 // signed over (pay_bind). cm, when the client named a messageId, is stored
 // with the call's message, in the same transaction (clientdedupe.go).
+//
+// atts are the files of the call (CUX-F3): they ride as the DelegateReq's
+// attachments, and "$files" in the signed args names each of them, so the
+// request CID binds every file's CID. A key of args that starts with "$"
+// is anet's and is refused (CUX-F2).
 func (d *Daemon) delegateCapabilityCtx(ctx context.Context, id, providerAID, capID string,
-	args map[string]any, contextID string, cm *clientMark) (string, error) {
+	args map[string]any, atts []delegation.Attachment, contextID string, cm *clientMark) (string, error) {
 	hub := d.config().HubURL
 	if hub == "" {
 		return "", fmt.Errorf("anet: no hub configured (run `anet hub-register` first)")
 	}
 	if providerAID == d.AID() {
 		return "", fmt.Errorf("anet: cannot delegate to yourself")
+	}
+	if k := reservedArgsKey(args); k != "" {
+		return "", a2ashape.Refuse("args_reserved_key", nil)
+	}
+	atts, filesList := filesOfCall(atts)
+	if len(atts) > 0 {
+		with := make(map[string]any, len(args)+1)
+		for k, v := range args {
+			with[k] = v
+		}
+		with[argsFilesKey] = filesList
+		args = with
 	}
 	argsJSON := "{}"
 	if len(args) > 0 {
@@ -184,10 +204,16 @@ func (d *Daemon) delegateCapabilityCtx(ctx context.Context, id, providerAID, cap
 		return "", err
 	}
 	// The KEL travels in the sealed envelope (inner key 10), not in the body.
-	dr := &delegation.DelegateReq{TaskDoc: doc, Envelope: td.Envelope, InteractionID: id, ContextID: contextID}
+	dr := &delegation.DelegateReq{TaskDoc: doc, Envelope: td.Envelope, InteractionID: id, ContextID: contextID,
+		Attachments: atts}
 	payload, err := dr.Marshal()
 	if err != nil {
 		return "", err
+	}
+	// The requester keeps its own files like any it sends (CUX-F5).
+	attRows, attErr := receivedAttachments(atts)
+	if attErr != nil {
+		return "", attErr
 	}
 	// Recorded and queued together, under the envelope's message id (0017
 	// Q5, Q9); see delegateInWithID.
@@ -216,7 +242,10 @@ func (d *Daemon) delegateCapabilityCtx(ctx context.Context, id, providerAID, cap
 		}
 		var err error
 		seq, _, err = tx.AddMessageRecord(rec)
-		return err
+		if err != nil {
+			return err
+		}
+		return addAttachmentsTx(tx, id, seq, attRows)
 	})
 	if err != nil {
 		return "", err
@@ -249,6 +278,47 @@ func (d *Daemon) delegateCapabilityCtx(ctx context.Context, id, providerAID, cap
 		return "", err
 	}
 	return id, nil
+}
+
+// reservedArgsKey is a top-level key of args that starts with "$" (CUX-F2),
+// or "".
+func reservedArgsKey(args map[string]any) string {
+	for k := range args {
+		if strings.HasPrefix(k, "$") {
+			return k
+		}
+	}
+	return ""
+}
+
+// filesOfCall is the attachments of a call as they are sent, and the
+// "$files" list that names them (CUX §2.5): the name through safeName and
+// at most 255 bytes, the declared type lower case and without parameters,
+// the size, and the content CID.
+func filesOfCall(atts []delegation.Attachment) ([]delegation.Attachment, []any) {
+	if len(atts) == 0 {
+		return nil, nil
+	}
+	out := make([]delegation.Attachment, len(atts))
+	list := make([]any, len(atts))
+	for i, a := range atts {
+		name := safeName(a.Name)
+		for len(name) > fileNameMax {
+			_, n := utf8.DecodeLastRuneInString(name)
+			name = name[:len(name)-n]
+		}
+		if name == "" {
+			name = "file"
+		}
+		mt := "application/octet-stream"
+		if m, _, err := mime.ParseMediaType(a.Mime); err == nil {
+			mt = strings.ToLower(m)
+		}
+		a.Name, a.Mime = name, mt
+		out[i] = a
+		list[i] = map[string]any{"name": name, "mime": mt, "size": a.Size, "cid": a.CID}
+	}
+	return out, list
 }
 
 // capabilityResult is the deterministic deliverable of a capability call.
@@ -289,6 +359,9 @@ type capabilityResult struct {
 	// Paid names the settlement that let this run, so the caller holds a
 	// transaction id it can point at.
 	Paid *paidView `json:"paid,omitempty"`
+	// latencyMS is how long the invocation took; the evidence of a discard
+	// capability keeps it (CUX §2.13). Not part of the deliverable.
+	latencyMS int64
 }
 
 // paidView is the settlement, as the payer sees it in the result.
@@ -399,8 +472,25 @@ func (d *Daemon) tryCapabilityPaid(ctx context.Context, interactionID, capID str
 		res.Paid = paidViewOf(ix)
 	}
 
+	// The call's files, held in memory since the delegation was admitted.
+	// A call that names files and has none here lost them with a restart:
+	// it is not run on what is left (CUX-F13 item 5).
+	files := d.callFilesOf(interactionID)
+	if declaresFiles(args) {
+		if len(files) == 0 {
+			d.reportInterrupted(ix, capID)
+			return true
+		}
+		if !d.capAcceptsFiles(capID) {
+			res.Status = string(effect.Unavailable)
+			d.deliverCapabilityResult(ctx, interactionID, capID, ix, res, nil, resultOpts{reason: admitFilesCount})
+			return true
+		}
+	}
+	started := time.Now()
 	eff, err := p.Invoke(ctx, provider.Call{Capability: capID, Args: args, CallID: interactionID,
-		CallerAID: ix.PeerAID, Via: provider.ViaRelay})
+		CallerAID: ix.PeerAID, Via: provider.ViaRelay, Files: files})
+	res.latencyMS = time.Since(started).Milliseconds()
 	if d.cutOffByStop(err, eff) {
 		log.Printf("anet: %s: %s was cut off by the daemon stopping; no result recorded", interactionID, capID)
 		return false
@@ -596,19 +686,29 @@ func (d *Daemon) deliverCapabilityResult(_ context.Context, interactionID, capID
 	if err != nil {
 		return false
 	}
+	// A discard capability's call leaves nothing of its input or result
+	// behind: the terminal write clears the args and the result, and no
+	// message holds the answer (CUX-F13 item 3).
+	discard := d.discardCall(ix, capID)
 	var seq int64
 	id, err := d.queueSend(ctx, ix.PeerAID, seal.TypeResult, interactionID, payload, func(tx *interactions.Tx) error {
 		// Signed with this node's own key a few lines up, so there is
 		// nothing to take on trust.
 		if err := tx.Finish(interactionID, interactions.Finish{State: state, Result: deliverable,
 			ResultCID: resultCID, Receipt: receiptBytes, Verified: interactions.VerificationVerified,
-			Meta: metaBytes}, interactions.CauseProviderEnd.When(state)); err != nil {
+			Meta: metaBytes, Scrub: discard && state.IsTerminal()}, interactions.CauseProviderEnd.When(state)); err != nil {
 			return err
+		}
+		if discard {
+			return nil
 		}
 		var err error
 		seq, err = tx.AddMessage(interactionID, d.AID(), interactions.MsgText, string(deliverable))
 		return err
 	})
+	if state.IsTerminal() {
+		d.dropCallFiles(interactionID)
+	}
 	if errors.Is(err, interactions.ErrTerminal) {
 		log.Printf("anet: capability %s: %s ended before its result; no result or receipt recorded", capID, interactionID)
 		return true
@@ -625,20 +725,65 @@ func (d *Daemon) deliverCapabilityResult(_ context.Context, interactionID, capID
 		"status": res.Status, "verifiable": res.Verifiable, "metrics": res.Metrics,
 		"result_cid": resultCID, "state": string(state),
 	}
-	// A public_cap call in the cid mode keeps only how the effect was
-	// checked, not what it produced (evidence_mode.go).
-	if prov := d.effectEvidence(ix, capID, res.Evidence); prov != nil {
+	// Only how the effect was checked is kept, not what it produced
+	// (evidence_mode.go).
+	if prov := d.effectEvidence(ix, res.Evidence); prov != nil {
 		ev["evidence"] = prov
+	}
+	if discard {
+		// A discard capability keeps the outcome and the two CIDs, and how
+		// long it took (CUX §2.13).
+		ev = map[string]any{
+			"interaction_id": interactionID, "capability": capID, "caller_aid": ix.PeerAID,
+			"status": res.Status, "latency_ms": res.latencyMS, "request_cid": ix.RequestCID,
+			"result_cid": resultCID, "state": string(state),
+		}
 	}
 	if _, lerr := d.ledger.Append(EvCapabilityEffect, ev); lerr != nil {
 		log.Printf("anet: capability %s: evidence ledger: %v", capID, lerr)
 	}
-	d.publishMessage(interactionID, seq, interactions.MsgText)
+	if !discard {
+		d.publishMessage(interactionID, seq, interactions.MsgText)
+	}
 	d.publishResult(interactionID)
 	if err := d.deliverQueued(ctx, id); err != nil {
 		log.Printf("anet: capability %s: result for %s queued for delivery: %v", capID, interactionID, err)
 	}
 	return true
+}
+
+// discardCall reports whether the capability call of ix leaves nothing of
+// its input or result behind (CUX-F13): the capability is configured
+// discard, and the call is one a stranger could make (trust public_cap,
+// which every discard call is: it is never held). A call of a capability
+// since removed from the list is read from its own request: one that
+// carried files is scrubbed too, so that removing the setting does not
+// leave what it was there to keep off the disk.
+func (d *Daemon) discardCall(ix *interactions.Interaction, capID string) bool {
+	if ix.Trust != interactions.TrustPublicCap {
+		return false
+	}
+	if pc, ok := d.config().inbound().publicCapability(capID); ok {
+		return pc.Discard
+	}
+	_, args := storedCall(ix)
+	return declaresFiles(args)
+}
+
+// filesLost reports whether the call of ix named files and was cut off
+// before it answered: the bytes were in memory only, so it cannot be run
+// again (CUX-F13 item 5).
+func filesLost(ix *interactions.Interaction) bool {
+	if !ix.IsCapability || ix.IsTerminal() || len(ix.Receipt) > 0 {
+		return false
+	}
+	switch ix.PayState {
+	case interactions.PayNone, interactions.PayCompleted:
+	default:
+		return false
+	}
+	_, args := storedCall(ix)
+	return declaresFiles(args)
 }
 
 // recoverInterrupted runs at start (A2A-DESIGN §3.6, startup recovery): an
@@ -693,7 +838,13 @@ func (d *Daemon) recoverInterrupted() {
 			continue
 		}
 		capID, args := storedCall(ix)
-		switch d.leftoverAction(ix, capID) {
+		act := d.leftoverAction(ix, capID)
+		if filesLost(ix) && (ix.State == interactions.StateSubmitted || ix.State == interactions.StateWorking) {
+			// The files were held in memory: not run again, whatever the
+			// provider's bound (CUX-F13 item 5).
+			act = leftoverInterrupted
+		}
+		switch act {
 		case leftoverRerun:
 			if ix.PayState != interactions.PayCompleted {
 				if ps.denied(ix.PeerAID) {

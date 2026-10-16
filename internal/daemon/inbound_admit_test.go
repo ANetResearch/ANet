@@ -457,7 +457,7 @@ func TestTheRequestsFormIsStepTwo(t *testing.T) {
 		{"args not JSON", "c", "{", false, seal.NoteBadRequest},
 		{"an undefined $ key", "c", `{"$x":1}`, false, seal.NoteBadRequest},
 		{"a $ key not at the top is the capability's", "c", `{"a":{"$x":1}}`, false, ""},
-		{"$files is anet's", "c", `{"$files":[]}`, false, ""},
+		{"$files is anet's, and c takes no files", "c", `{"$files":[]}`, false, seal.NoteFilesCount},
 		{"not public: the policy first", "private", `{"$x":1}`, false, seal.NoteNotAccepting},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -775,6 +775,7 @@ func FuzzReadDelegateForm(f *testing.F) {
 			t.Fatalf("args %q (absent %v, twice %v): bad %v, want %v", args, absent, twice, form.bad, want)
 		}
 		if !form.bad {
+			delete(m, argsFilesKey)
 			b, _ := json.Marshal(m)
 			if form.argsLen != len(b) {
 				t.Fatalf("args %q: size %d, want %d", args, form.argsLen, len(b))
@@ -787,10 +788,10 @@ func FuzzReadDelegateForm(f *testing.F) {
 // args'.
 func TestATextTaskHasNoArgsToRead(t *testing.T) {
 	td := &tsir.TaskDoc{Tasks: []tsir.Task{{Contexts: []tsir.Context{{Key: "args", Value: "{"}}}}}
-	if f := readDelegateForm(td); f != (delegateForm{}) {
+	if f := readDelegateForm(td); f.capID != "" || f.bad || f.argsLen != 0 {
 		t.Fatalf("%+v", f)
 	}
-	if f := readDelegateForm(nil); f != (delegateForm{}) {
+	if f := readDelegateForm(nil); f.capID != "" || f.bad || f.argsLen != 0 {
 		t.Fatalf("%+v", f)
 	}
 }

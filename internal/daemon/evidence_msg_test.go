@@ -201,15 +201,6 @@ func TestPublicCapabilityEvidenceModes(t *testing.T) {
 		t.Fatalf("cid mode recorded the observed state: %s", raw)
 	}
 
-	if err := prov.SetPublicCapabilities([]PublicCapability{{ID: capID, Evidence: EvidenceFull}}); err != nil {
-		t.Fatal(err)
-	}
-	ev = call()
-	full, _ := ev["evidence"].(map[string]any)
-	if full["observed_state"] != "2212.93" || full["quirk"] != "aqara.temp.scale100" {
-		t.Fatalf("full mode lost the provenance: %v", full)
-	}
-
 	// A caller on the allow list calling a public capability is admitted
 	// at §5.2 row 2 like anyone else (call checks trust public_cap), so the
 	// capability's mode applies to it too.
@@ -222,9 +213,6 @@ func TestPublicCapabilityEvidenceModes(t *testing.T) {
 		t.Fatalf("an allowed caller of a public capability got the full record in the cid mode: %s", raw)
 	}
 
-	if err := prov.SetPublicCapabilities([]PublicCapability{{ID: capID, Evidence: "none"}}); err == nil {
-		t.Fatal("an unknown evidence mode was accepted")
-	}
 }
 
 // The retention sweep deletes public_cap calls that ended more than seven

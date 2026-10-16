@@ -36,6 +36,27 @@ type Call struct {
 	// There is no other door: work is paid for inside the task, on the
 	// relay door, and the hub's gateway and its vouchers are gone (0.3.0).
 	Via string
+	// Files are the files a call carries (CUX-F20), in the order of the
+	// request's $files. Mime is the type the daemon sniffed from the bytes,
+	// never the caller's claim. They are held in memory for the call only:
+	// a provider that keeps a file keeps its own copy. Empty for a call
+	// without files.
+	Files []File
+}
+
+// File is one file of a call.
+type File struct {
+	Name string
+	Mime string
+	Data []byte
+}
+
+// FileReceiver is implemented by a provider that can take the files of a
+// call (CUX-F15). The daemon asks per capability: a capability that
+// declares files is served only by a provider that answers true for it, and
+// the daemon does not look at which provider that is.
+type FileReceiver interface {
+	AcceptsFiles(capID string) bool
 }
 
 // Values of Call.Via.
