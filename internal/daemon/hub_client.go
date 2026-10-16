@@ -370,41 +370,32 @@ func (d *Daemon) hubSigned(ctx context.Context, hubURL, method, path, action str
 		}
 	}
 	target := strings.TrimRight(hubURL, "/") + path
-	req, err := http.NewRequestWithContext(ctx, method, target, bytes.NewReader(raw))
-	if err != nil {
-		return err
-	}
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-	// Wall clock, not d.nowMS: the hub checks the time against its own
-	// clock, and the test clock only moves the sealed wire.
-	//
-	// Strictly increasing per process. Ed25519 signatures are
-	// deterministic, so two identical requests signed in the same
-	// millisecond would carry the same signature, and the hub's replay
-	// cache would refuse the second one as a replay.
-	ts := uint64(time.Now().UnixMilli())
-	for {
-		last := d.lastSignTS.Load()
-		if ts <= last {
-			ts = last + 1
+	// A ts_stale answer is signed again once, above the floor the hub
+	// named (RC1, HPP PAY-R11); anything else is the caller's.
+	for attempt := 0; ; attempt++ {
+		req, err := http.NewRequestWithContext(ctx, method, target, bytes.NewReader(raw))
+		if err != nil {
+			return err
 		}
-		if d.lastSignTS.CompareAndSwap(last, ts) {
-			break
+		if body != nil {
+			req.Header.Set("Content-Type", "application/json")
 		}
+		d.signHubRequest(req, hubAID, action, raw)
+		rep := d.hubExchange(req, hubURL, path, -1)
+		if attempt == 0 {
+			if retry, rejected := d.tsStale(hubAID, rep); retry {
+				continue
+			} else if rejected {
+				rep = hubReply{Err: errTSFloorRejected}
+			}
+		}
+		if rp, ok := out.(*hubReply); ok {
+			// The caller reads the hub's answer itself (hubSignedRaw).
+			*rp = rep
+			return nil
+		}
+		return d.hubFinish(req, path, rep, out)
 	}
-	sig, seq := d.self.Sign(relayauth.PreimageV2(action, d.AID(), hubAID, ts, method, req.URL.RequestURI(), raw))
-	req.Header.Set(hubapi.HeaderAID, d.AID())
-	req.Header.Set(hubapi.HeaderTS, strconv.FormatUint(ts, 10))
-	req.Header.Set(hubapi.HeaderSeq, strconv.FormatUint(seq, 10))
-	req.Header.Set(hubapi.HeaderSig, relayauth.EncodeSig(sig))
-	if rep, ok := out.(*hubReply); ok {
-		// The caller reads the hub's answer itself (hubSignedRaw).
-		*rep = d.hubExchange(req, hubURL, path, -1)
-		return nil
-	}
-	return d.hubDo(req, hubURL, path, out)
 }
 
 // hubSignedRaw is hubSigned answering with the hub's reply as it came, for a
@@ -786,9 +777,14 @@ func (d *Daemon) moduleHubDo(req *http.Request) (*http.Response, error) {
 // hubDo sends the request (hubExchange), refuses a hub of another wire, and
 // decodes a 2xx body into out. route is the path below hubURL.
 func (d *Daemon) hubDo(req *http.Request, hubURL, route string, out any) error {
-	rep := d.hubExchange(req, hubURL, route, -1)
+	return d.hubFinish(req, route, d.hubExchange(req, hubURL, route, -1), out)
+}
+
+// hubFinish is hubDo after the exchange: no answer, a hub of another wire,
+// a non-2xx status, or the 2xx body decoded into out.
+func (d *Daemon) hubFinish(req *http.Request, route string, rep hubReply, out any) error {
 	if rep.Status == 0 {
-		if rep.Local {
+		if rep.Local || errors.Is(rep.Err, errTSFloorRejected) {
 			return rep.Err
 		}
 		return fmt.Errorf("anet: hub %s: %w", route, rep.Err)

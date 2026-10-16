@@ -642,7 +642,25 @@ func (d *Daemon) hStatus(w http.ResponseWriter, r *http.Request) {
 		if c := d.paymentsCardCheck(); c != nil {
 			out["payments_card"] = c
 		}
+		// The balance-proof check, as the payment module last ran it
+		// (doctor payments.audit), and the account state doctor's
+		// hub.probation reads (HPP §5.6).
+		if p := d.payer(); p != nil {
+			if a := p.AuditSummary(); a != nil {
+				out["payments_audit"] = a
+			}
+		}
+		if cfg.HubURL != "" {
+			ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+			if acct, err := d.HubAccount(ctx); err == nil {
+				out["hub_account"] = map[string]any{"probation_until": acct.ProbationUntil, "trial": acct.Trial}
+			}
+			cancel()
+		}
 	}
+	// How often the hub found this node's signing time behind its floor in
+	// the last hour (doctor clock.ts_retries; HPP PAY-R11).
+	out["clock"] = map[string]any{"ts_retries": d.TSRetries()}
 	writeJSON(w, http.StatusOK, out)
 }
 

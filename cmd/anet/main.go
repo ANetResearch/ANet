@@ -1361,7 +1361,7 @@ func runClient(layout daemon.Layout, cmd string, rest []string, explicit bool) e
 		// not prevent a hub issuing credit — it is the issuer — but a hub
 		// cannot do so retroactively without contradicting a record this
 		// node already holds.
-		return c.do("/audit-hub", map[string]any{})
+		return runAuditHub(c)
 	case "redeem":
 		// Credit back out. What the reference buys is between this node's
 		// operator and its hub — anet signs the withdrawal and keeps the
@@ -1374,7 +1374,7 @@ func runClient(layout daemon.Layout, cmd string, rest []string, explicit bool) e
 		// The hub is the custodian of the number; `anet audit --type
 		// anet.payment.settled` is where the events that moved it are, and
 		// the two disagreeing is a thing you can now see.
-		return c.do("/balance", map[string]any{})
+		return runBalance(c)
 	case "visibility":
 		// How far this node is willing to be published: hub-local (the
 		// default), federated, or public. The agent decides, because this

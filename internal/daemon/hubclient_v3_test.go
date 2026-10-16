@@ -670,8 +670,6 @@ func TestDaemonDecodesHubBinaryAsBase64URL(t *testing.T) {
 		"cmd/anet/verify.go verifyAttestation":                   "an attestation the user gives",
 		"tools/anetfixture/attack.go readEnvelope":               "the fixture's command line",
 		"tools/anetfixture/main.go parseGenesisArg":              "the fixture's command line",
-		// Not this package's to change: each goes with its item.
-		"module/x402/audit.go auditIssuance": "v030-todo(PAY-13): per-event issuance records, replaced by supply epochs",
 	}
 	found := stdBase64Decoders(t, anetRoot(t))
 	for site := range found {

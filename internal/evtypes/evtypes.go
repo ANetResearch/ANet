@@ -31,6 +31,7 @@ const (
 	PaymentQuoted            = "anet.payment.quoted"
 	CreditRedeemed           = "anet.credit.redeemed"
 	IssuanceHeadSeen         = "anet.issuance.head_seen"
+	SupplyProof              = "anet.supply.proof"
 	ShellCommand             = "anet.shell.command"
 	ShellRefused             = "anet.shell.refused"
 	PolicyChanged            = "anet.policy.changed"
@@ -95,6 +96,7 @@ var registry = []Event{
 	{Type: PaymentQuoted, Label: "payment quoted", Source: SourceNode},
 	{Type: CreditRedeemed, Label: "credit redeemed", Source: SourceHub},
 	{Type: IssuanceHeadSeen, Label: "hub issuance head seen", Source: SourceHub},
+	{Type: SupplyProof, Label: "balance proof checked", Source: SourceHub},
 	{Type: ShellCommand, Label: "shell command run", Source: SourceNode},
 	{Type: ShellRefused, Label: "shell command refused", Source: SourceNode},
 	{Type: PolicyChanged, Label: "policy changed", Source: SourceNode},

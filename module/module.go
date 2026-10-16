@@ -497,7 +497,42 @@ type PaymentSeam interface {
 	// or to a route the node does not send, is refused before anything is
 	// sent. The caller closes the response body.
 	HubDo(req *http.Request) (*http.Response, error)
+
+	// SignHubRequest signs req as this node for its hub (relayauth v2, RC1):
+	// the action, the hub's AID, the signing time, the method, the request
+	// target and the body bytes, set in the X-ANet-* headers. body is the
+	// exact bytes the request carries, nil for none. The signing time comes
+	// from the clock the node keeps for that hub, shared with the node's own
+	// requests, so two requests never carry the same time (PAY-R10). The
+	// outbound gate applies as it does to the node's own signed requests:
+	// nothing is signed while the identity is not confirmed.
+	//
+	// The ability is the same as Sign's and is granted with it: the module
+	// asks for the request to be signed, it never composes the preimage.
+	SignHubRequest(req *http.Request, action string, body []byte) error
+	// NoteHubStale tells the node that the hub answered a request signed by
+	// SignHubRequest with ts_stale and a floor (the member "floor" of the
+	// body, or X-ANet-TS-Floor). True: the clock for that hub is now above
+	// the floor and the caller signs again and retries once; false: the
+	// floor is beyond what other hubs accept, and the hub is unreachable for
+	// this request (PAY-R11).
+	NoteHubStale(floor int64) bool
+	// RegisteredAt is when this node first registered at its hub, unix
+	// milliseconds, and false when the node does not know. An audit finding
+	// that the hub withheld a balance proof is made only for a period that
+	// closed after this.
+	RegisteredAt() (int64, bool)
+	// RefreshHubIdentity reads the hub's key history again, for a record the
+	// hub signed under a key state the pinned history does not reach: the
+	// hub rotated since it was pinned. It reports whether the history
+	// changed, so the check is worth making again; the hub's history may
+	// only ever extend what is pinned (KEL H-34, CORE-L8).
+	RefreshHubIdentity() bool
 }
+
+// EvidenceAt is the member ReadEvidence adds to each payload it returns: the
+// time the event was recorded on this node's chain, unix milliseconds.
+const EvidenceAt = "_recorded_at"
 
 // Spending purposes: the tiers of A2A-DESIGN §8.6, named by the surface a
 // payment was asked for on. The control-plane route decides the purpose,
@@ -630,10 +665,10 @@ type Payer interface {
 	// call.
 	Reconcile(ctx context.Context) (any, error)
 	AuditIssuance(ctx context.Context) (any, error)
-	// WitnessHub records the hub's current issuance head on this node's
-	// own chain. Opt-in — see the module's own documentation for why a
-	// trimmed node should not be made to do this.
-	WitnessHub(ctx context.Context) (uint64, string, error)
+	// AuditSummary is what the module's automatic balance-proof check last
+	// found, as a JSON object for doctor's payments.audit: nil before the
+	// first check.
+	AuditSummary() any
 	// Serve starts the module's background work. Called once, after
 	// Start, by the kernel that owns the process lifetime. It opens no
 	// listener: the payment module has no public door.

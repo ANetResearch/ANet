@@ -12,6 +12,7 @@ import (
 	"github.com/ANetResearch/ANetCore/aobj"
 	"github.com/ANetResearch/ANetCore/coredet"
 	"github.com/ANetResearch/ANetCore/identity"
+	"github.com/ANetResearch/ANetCore/relayauth"
 	"github.com/ANetResearch/ANetCore/seal"
 	"github.com/ANetResearch/ANetCore/tsir"
 
@@ -68,9 +69,12 @@ type Daemon struct {
 	// anonymous transports and the first-contact sessions (hub_client.go,
 	// session_client.go).
 	hubc hubClient
-	// lastSignTS is the time of the last relayauth v2 signature, kept
-	// strictly increasing (hubSigned).
-	lastSignTS atomic.Uint64
+	// hubClock hands out the time of every relayauth v2 signature to a hub,
+	// strictly increasing per hub, for the daemon and the payment module
+	// alike (RC1, PAY-R10); tsRetries counts the signatures a hub found
+	// behind its floor (hub_sign.go).
+	hubClock  relayauth.MonoClock
+	tsRetries tsRetryLog
 
 	// Receive pipeline state (receive.go): the per-message lock, the
 	// refused-envelope list, outcome counters, the limit on notices after
