@@ -1,4 +1,4 @@
-package daemon
+package preview
 
 // preview.go is the stream_preview kernel (correctness-ux §2.3, §4.3.6,
 // §4.3.7; engine §2.11.5, §4.5): the provider's coalescer and the
