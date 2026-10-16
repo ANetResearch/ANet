@@ -1292,3 +1292,48 @@ func TestPreviewClearedByAResultWithoutReply(t *testing.T) {
 		t.Fatalf("the requester shows %q after the result", f.Text)
 	}
 }
+
+// ENG-K20, CUX-P8: a frame already made when its round is canceled (a real
+// answer queued in the same call) is not handed over. Only the round's id
+// stops it here: the store still shows the round open.
+func TestPreviewFrameMadeBeforeCancelNotSent(t *testing.T) {
+	_, _, co, clk, id, log := previewPair(t, previewModeOn)
+	co.Offer(id, "words", "", previewModeOn)
+	frames, _ := co.due(clk.now())
+	if len(frames) != 1 {
+		t.Fatalf("%d frames due", len(frames))
+	}
+	co.CancelRound(id)
+	co.send(frames[0])
+	if log.count() != 0 {
+		t.Fatalf("%d envelopes went after the round was canceled", log.count())
+	}
+}
+
+// CUX-P4: a task that ended, or already has its result, gets no frame even
+// when its round's message is still the latest one in the store.
+func TestPreviewNoFrameForEndedTask(t *testing.T) {
+	for _, name := range []string{"terminal", "result"} {
+		t.Run(name, func(t *testing.T) {
+			_, prov, co, clk, id, log := previewPair(t, previewModeOn)
+			co.Offer(id, "words", "", previewModeOn)
+			frames, _ := co.due(clk.now())
+			if len(frames) != 1 {
+				t.Fatalf("%d frames due", len(frames))
+			}
+			var err error
+			if name == "terminal" {
+				_, err = prov.ix.SetState(id, interactions.StateCompleted, interactions.CauseProviderEnd)
+			} else {
+				err = prov.ix.SetResult(id, []byte("r"), "cid", nil, interactions.VerificationVerified, interactions.CauseProviderEnd)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			co.send(frames[0])
+			if log.count() != 0 {
+				t.Fatalf("%d envelopes went for an ended task", log.count())
+			}
+		})
+	}
+}
