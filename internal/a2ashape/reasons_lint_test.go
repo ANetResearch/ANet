@@ -154,13 +154,16 @@ func TestReasonPunctuation(t *testing.T) {
 // nextPhrases are the fixed phrases of each kind of next step (UX-G2): a
 // sentence has at least one, in each language.
 var nextPhrases = map[NextKind][2][]string{
-	NextNoneNeeded:  {{"不需要操作"}, {"nothing to do"}},
-	NextAuto:        {{"会自动"}, {"on its own"}},
-	NextRetryLater:  {{"后再发", "后再试", "后重试", "后重发"}, {"again in", "again later", "again when"}},
-	NextChangeInput: {{"后重发", "后重试", "请换", "请改", "改用", "请加", "请减小", "请删"}, {"send again", "try again", "send it again", "use ", "add ", "remove "}},
-	NextContact:     {{"联系", "问对方", "请对方", "发给"}, {"contact", "ask "}},
-	NextStartOver:   {{"新建任务", "重新发起"}, {"start a new task", "start the task again", "start it again", "start them again"}},
-	NextFutile:      {{"重试无用"}, {"retrying will not help"}},
+	NextNoneNeeded: {{"不需要操作"}, {"nothing to do"}},
+	NextAuto:       {{"会自动"}, {"on its own"}},
+	NextRetryLater: {{"后再发", "后再试", "后重试", "后重发"}, {"again in", "again later", "again when"}},
+	// The module sentences (MOD-1) end on what to change: install another
+	// build, rebuild, turn the module back on, or take the block out.
+	NextChangeInput: {{"后重发", "后重试", "请换", "请改", "改用", "请加", "请减小", "请删", "删掉", "改装", "重新构建", "运行 anet", "用 install.sh", "可以用"},
+		{"send again", "try again", "send it again", "use ", "add ", "remove ", "install ", "rebuild", "run anet", "you can "}},
+	NextContact:   {{"联系", "问对方", "请对方", "发给"}, {"contact", "ask "}},
+	NextStartOver: {{"新建任务", "重新发起"}, {"start a new task", "start the task again", "start it again", "start them again"}},
+	NextFutile:    {{"重试无用"}, {"retrying will not help"}},
 }
 
 // hasPhrase reports whether s carries one of the phrases; an English phrase
@@ -221,7 +224,8 @@ func TestReasonNextStep(t *testing.T) {
 			english := i == 1
 			var sentences []string
 			for _, s := range expand(tmpl, "instead", phraseSetOf(r.Code, r.Variant, "instead"), english) {
-				sentences = append(sentences, s)
+				// {fix} of the module sentences is one of the fixes of its phrase set.
+				sentences = append(sentences, expand(s, "fix", phraseSetOf(r.Code, r.Variant, "fix"), english)...)
 			}
 			for _, s := range sentences {
 				if r.NextKind == NextCommand {
@@ -257,6 +261,8 @@ var placeholders = map[string]bool{
 	"from": true, "to": true, "old": true, "file": true, "how": true, "skill": true, "state": true,
 	"charge": true, "backend": true, "m": true, "k": true, "host": true, "field": true, "type": true,
 	"paths": true, "auto_reply": true,
+	// MOD-1: the module sentences.
+	"fix": true, "variant": true, "modules": true,
 }
 
 // UX-T4: every placeholder is defined; with no values at all a sentence
