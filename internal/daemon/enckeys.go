@@ -71,6 +71,7 @@ import (
 	"time"
 
 	"github.com/ANetResearch/ANetCore/coredet"
+	"github.com/ANetResearch/ANetCore/identity"
 	"github.com/ANetResearch/ANetCore/seal"
 )
 
@@ -820,7 +821,10 @@ func (r *encKeyRing) regenerate(tag, floor uint64, in ringInputs) (bool, error) 
 	}
 	r.mu.Lock()
 	r.keys, r.lastSeq, r.prevSeq, r.signed, r.regenTag, r.mbox = keys, seq, lastSeq, b, tag, mbox
-	r.ownPrev = own
+	// A rollback accounts for every set up to the hub's, the other copy's
+	// earlier ones included: a hub that replays one of those later must not
+	// make a second finding (FS-B4a).
+	r.ownPrev = max(own, floor)
 	r.mu.Unlock()
 	return true, nil
 }
@@ -1084,18 +1088,38 @@ func (d *Daemon) setupKeyRing() error {
 var keyMaintainEvery = newKnob(time.Duration(keyMaintainEveryMS) * time.Millisecond)
 
 // keysHeld reports whether no key set may be signed or published now: an
-// emergency rotation is between its E1 and E2 (core §4.7). E1 has put the
-// new mailbox key in place, and a set signed then would publish the old
-// epoch keys under it; E2 regenerates the ring (regenerate) and publishes
-// the set of the new keys.
+// emergency rotation is being published (E0: its registration carries no
+// key set), or is accepted and has not regenerated the ring yet (core
+// §4.7, between E1 and E2). E1 puts the new mailbox key in place, and a set
+// signed then would publish the old epoch keys under it; E2 regenerates
+// the ring (regenerate, tagged with the rot's seq) and publishes the set
+// of the new keys.
 //
-// v030-todo(KEL-9): the emergency rotation's state answers this (KEL-9
-// runs E1 and E2); until then only a test holds key sets.
+// Both are read from disk — the pending event of the identity file, its
+// tip, the ring's regen_tag — so the answer is the same after a crash
+// (FS-4 §3 item 6).
 func (d *Daemon) keysHeld() bool {
 	if f := d.testKeyHold(); f != nil {
 		return f()
 	}
-	return false
+	if d.self == nil {
+		return false
+	}
+	if p, ok := d.self.Pending(); ok && p.Emergency {
+		return true
+	}
+	kel := d.self.Accepted()
+	tip := kel[len(kel)-1].Event
+	if tip.Type != identity.Rotation || !tip.Emergency || d.enc == nil {
+		return false
+	}
+	if d.idOps.started.Load() && !d.idOps.emergencyOpen.Load() {
+		// E5 is on the evidence chain: the emergency is over, whatever a
+		// later regeneration (a local state rollback, FS-B3) tagged the
+		// ring with.
+		return false
+	}
+	return !d.enc.regeneratedFor(tip.Seq)
 }
 
 // maintainRing is one maintenance period of the ring (FS-K4, FS-K14a): the

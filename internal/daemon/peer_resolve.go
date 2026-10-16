@@ -75,6 +75,10 @@ const (
 	// fetched again at most this often; refusals in between take the same
 	// answer (SSR-D11 item 1).
 	reviewEveryMS uint64 = 60 * 1000
+	// noticeRefetchMS: directory material without a fresh notice is
+	// fetched again, bypassing every cache, at most this often per peer
+	// (KEL D-26 item 3, §2.12).
+	noticeRefetchMS uint64 = 10 * 60 * 1000
 	// unknownRefreshMS: a 404 recipient_unknown refreshes the recipient
 	// through a bucket only when that was not done in this long, and one
 	// queued message at most this often (SSR-D12).
@@ -280,6 +284,13 @@ type peerResolver struct {
 	unknownRows map[int64]uint64
 	// rechecks is when each active contact was last rechecked (SSR-D18).
 	rechecks map[string]uint64
+	// noticeRefetches is when each peer's material was last fetched again
+	// for want of a fresh notice (KEL D-26 item 3).
+	noticeRefetches map[string]uint64
+	// hubKELsAt is when the hub KEL set was last read (KEL D-24), and
+	// hubKELFlights the read in progress.
+	hubKELsAt     uint64
+	hubKELFlights flights[bool]
 }
 
 // dirMaxBits is a hub's dir_max_bits as it said it.
@@ -346,6 +357,21 @@ func (fs *flights[T]) do(key string, fn func() (T, error)) (T, error) {
 
 // resolvePeer finds aid's material by SSR-D15's three sources, and
 // records it when o.record. It names aid to no hub.
+//
+// Material from the directory (steps 2 and 3) that is to be sealed to or
+// written to this node's record — o.need is needKeys, or o.record — must
+// come with a notice its witness signed, fresh now and about the tip of
+// the material's KEL (KEL D-26 item 2, noticeFresh): this node's own hub
+// hands it all of the directory, and without that hub's word being checked
+// against the agent's witness, a hub working with a thief of the agent's
+// old key could have a first message sealed to the thief. A discovery
+// entry without one sends the lookup to a bucket, and a bucket entry
+// without one is asked for again, bypassing every cache — once every ten
+// minutes per peer (item 3); still without one, the verdict is unavailable
+// (the outbound path waits on home_unreachable) and nothing is written.
+// This node's own record (step 1) is used as it is (item 1). Material only
+// shown — a card, a key history for anet verify — needs no notice: its
+// key_state says whether it had one (D-28).
 func (d *Daemon) resolvePeer(ctx context.Context, aid string, o resolveOpts) (peerMaterial, peerVerdict) {
 	now := d.nowMS()
 	if !identity.ValidAID(aid) {
@@ -360,31 +386,69 @@ func (d *Daemon) resolvePeer(ctx context.Context, aid string, o resolveOpts) (pe
 			return m, verdictFound
 		}
 	}
+	gate := o.record || o.need == needKeys
+	bo := o
 	// 2. The discovery cache.
 	if !o.bypass {
 		if m, ok := d.peers.discovered(aid, now); ok && d.againstRecord(&m, now) == verdictFound && m.satisfies(o.need, now) {
-			if o.record {
-				d.recordPeer(m, o.pin)
+			if !gate || d.noticeFresh(ctx, &m, now) {
+				if o.record {
+					d.recordPeer(m, o.pin)
+				}
+				return m, verdictFound
 			}
-			return m, verdictFound
+			// Without a fresh notice: the bucket, as the hub has it now.
+			bo.bypass = d.peers.mayRefetchForNotice(aid, now)
 		}
 	}
 	// 3. A directory bucket.
-	m, v := d.bucketPeer(ctx, aid, o, now)
+	m, v := d.bucketMaterial(ctx, aid, bo, now)
+	if v == verdictFound && gate && !d.noticeFresh(ctx, &m, now) && !bo.bypass && d.peers.mayRefetchForNotice(aid, now) {
+		bo.bypass = true
+		m, v = d.bucketMaterial(ctx, aid, bo, now)
+	}
 	if v != verdictFound {
 		return m, v
 	}
-	if !m.satisfies(o.need, now) {
-		// The entry verified, but holds no key set this node may use now
-		// (expired keys, or older than the one it holds): nothing to
-		// conclude about the agent, and nothing to seal to yet.
-		m.Err = errors.New("its key set holds no key usable now")
+	if gate && !d.noticeFresh(ctx, &m, now) {
+		m.Err = errNoFreshNotice
 		return m, verdictUnavailable
 	}
 	if o.record {
 		d.recordPeer(m, o.pin)
 	}
 	return m, verdictFound
+}
+
+// errNoFreshNotice is why directory material that verifies is not used:
+// it carries no notice its witness signed, fresh now and about its key
+// history's tip (KEL D-26). The agent's witness is its home hub: an entry
+// without that hub's fresh word usually means the hub cannot be reached.
+var errNoFreshNotice = errors.New("its directory entry carries no fresh key confirmation from its hub")
+
+// bucketMaterial is SSR-D15 step 3 with what the caller needs of it: the
+// bucket's verdict, and unavailable when the entry verified but holds no
+// key set this node may use now (expired keys, or older than the one it
+// holds) — nothing to conclude about the agent, and nothing to seal to yet.
+func (d *Daemon) bucketMaterial(ctx context.Context, aid string, o resolveOpts, now uint64) (peerMaterial, peerVerdict) {
+	m, v := d.bucketPeer(ctx, aid, o, now)
+	if v == verdictFound && !m.satisfies(o.need, now) {
+		m.Err = errors.New("its key set holds no key usable now")
+		return m, verdictUnavailable
+	}
+	return m, v
+}
+
+// noticeFresh is KEL D-26 item 2 for directory material: m carries a
+// notice that passes C-51 now (identity.VerifyNotice at arrival = now)
+// about the tip of m.KEL, as it stands after againstRecord. A notice under
+// a witness this node does not hold the KEL of as far as it needs
+// (witness-unknown) has the hub KEL set refreshed once (D-24) and is
+// checked again. It sets m.NoticeOK to the answer: a notice that was fresh
+// when the material was fetched may not be any more.
+func (d *Daemon) noticeFresh(ctx context.Context, m *peerMaterial, now uint64) bool {
+	m.NoticeOK = d.dirNoticeOK(ctx, m.Notice, m.KEL, now)
+	return m.NoticeOK
 }
 
 // localPeer is SSR-D15 step 1: this node's record of aid — a KEL that
@@ -413,11 +477,14 @@ func (d *Daemon) recordPeer(m peerMaterial, pin string) {
 	if m.Source == sourceLocal {
 		return
 	}
-	// v030-todo(KEL-11): KEL D-26 — directory material is written, and
-	// sealed to, only with a notice that passed C-51 at arrival = now about
-	// its KEL's tip (m.NoticeOK); until the hub serves its notices in every
-	// entry (KEL-5) and this node keeps the federation's hub KELs (D-24),
-	// that would refuse every peer.
+	// Directory material is written only with a notice that passed C-51
+	// at arrival = now about its KEL's tip (KEL D-26 item 2; resolvePeer's
+	// noticeFresh set NoticeOK): a refresh that finds none keeps the stored
+	// record (item 4).
+	if !m.NoticeOK {
+		d.logOnce("record-peer-notice:"+m.AID, "anet: not recording %s: %v", m.AID, errNoFreshNotice)
+		return
+	}
 	if err := d.notePeer(m.AID, m.KEL, m.Keys, pin, true); err != nil {
 		d.logOnce("record-peer:"+m.AID, "anet: record %s: %v", m.AID, err)
 	}
@@ -876,8 +943,9 @@ func (d *Daemon) recheckActiveContact(row *interactions.PeerIdentity, pin string
 	d.goBackground(func() {
 		ctx, cancel := context.WithTimeout(d.ctx, resolveTimeout)
 		defer cancel()
-		// v030-todo(KEL-11): KEL D-26 item 4 — material without a fresh
-		// notice is not written by this refresh.
+		// Material without a fresh notice is not written by this refresh
+		// (KEL D-26 item 4): resolvePeer answers unavailable and records
+		// nothing, and the stored record stays in use.
 		if _, v := d.resolvePeer(ctx, aid, resolveOpts{need: needKeySet, fresh: true, record: true}); v != verdictFound {
 			d.logOnce("recheck:"+aid, "anet: rechecking %s in the directory: %s (keeping the stored record)", aid, v)
 		}
@@ -1112,6 +1180,46 @@ func (r *peerResolver) mayRecheck(aid string, now uint64) bool {
 		clear(r.rechecks)
 	}
 	r.rechecks[aid] = now
+	return true
+}
+
+// mayRefetchForNotice reports whether aid's material may be fetched again,
+// bypassing every cache, because what the directory gave carries no fresh
+// notice (KEL D-26 item 3): once every noticeRefetchMS per peer, counted
+// when allowed.
+func (r *peerResolver) mayRefetchForNotice(aid string, now uint64) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if t, ok := r.noticeRefetches[aid]; ok && now >= t && now-t < noticeRefetchMS {
+		return false
+	}
+	if r.noticeRefetches == nil {
+		r.noticeRefetches = map[string]uint64{}
+	}
+	if len(r.noticeRefetches) >= discoveryMax {
+		for k, t := range r.noticeRefetches {
+			if now < t || now-t >= noticeRefetchMS {
+				delete(r.noticeRefetches, k)
+			}
+		}
+		if len(r.noticeRefetches) >= discoveryMax {
+			clear(r.noticeRefetches)
+		}
+	}
+	r.noticeRefetches[aid] = now
+	return true
+}
+
+// mayReadHubKELs reports whether the hub KEL set may be read now, when it
+// was last read at least every ms ago, and if so notes now as the read
+// (KEL D-24's once a minute; 0 always allows).
+func (r *peerResolver) mayReadHubKELs(now, every uint64) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if every > 0 && r.hubKELsAt != 0 && now >= r.hubKELsAt && now-r.hubKELsAt < every {
+		return false
+	}
+	r.hubKELsAt = now
 	return true
 }
 

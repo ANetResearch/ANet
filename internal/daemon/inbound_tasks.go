@@ -217,7 +217,7 @@ func (d *Daemon) inboundTaskNow(id string) (a2ashape.Task, bool, error) {
 	if !ok {
 		return a2ashape.Task{}, false, nil
 	}
-	view, err := d.taskView(ix, viewOpts{})
+	view, err := d.taskView(ix, viewOpts{backend: true})
 	if err != nil {
 		return a2ashape.Task{}, false, err
 	}
@@ -317,7 +317,7 @@ func (d *Daemon) feedInbound(ctx context.Context, out chan<- module.Task, seen m
 				continue // a later scan has it
 			}
 		}
-		view, err := d.taskView(ix, viewOpts{})
+		view, err := d.taskView(ix, viewOpts{backend: true})
 		if err != nil {
 			continue
 		}
@@ -461,7 +461,7 @@ func (d *Daemon) replyInbound(ctx context.Context, taskID string, msg a2ashape.M
 	if err != nil {
 		return a2ashape.Task{}, err
 	}
-	view, err := d.taskView(cur, viewOpts{})
+	view, err := d.taskView(cur, viewOpts{backend: true})
 	if err != nil {
 		return a2ashape.Task{}, err
 	}

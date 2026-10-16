@@ -33,11 +33,12 @@ import (
 const remotePolicyTimeout = 5 * time.Second
 
 // publicOnly returns the members of caps that are public capabilities a
-// remote caller may use, in order.
+// remote caller may use, in order. An allow_only capability is not among
+// them: the hub never sees one (CUX-F32).
 func (d *Daemon) publicOnly(caps []string) []string {
 	public := map[string]bool{}
 	for _, p := range d.config().inbound().PublicCapabilities {
-		if id := strings.TrimSpace(p.ID); id != "" {
+		if id := strings.TrimSpace(p.ID); id != "" && !p.AllowOnly {
 			public[id] = true
 		}
 	}

@@ -145,9 +145,9 @@ type Daemon struct {
 	// outboxHold, set by a test (setOutboxHold), skips the passes of the
 	// outbox loop and of the no-response sweep.
 	outboxHold atomic.Bool
-	// previewer is the stream_preview coalescer (UX-8, set with
-	// setPreviewer); none is the stub that sends nothing (previews,
-	// outbox_seams.go).
+	// previewer is the stream_preview coalescer and preview cache
+	// (preview.go, set with setPreviewer); none leaves previews
+	// unavailable (previewsUnavailable).
 	previewer atomic.Pointer[previewCoalescer]
 	// sbRefused remembers outbound auto-reply turns that failed closed
 	// because the sandbox was unavailable (autoreply.go).
@@ -194,6 +194,9 @@ type Daemon struct {
 	// extCard is this node's signed extended cards and who asked for one
 	// lately (extcard.go).
 	extCard extCardState
+	// extFetch is the extended cards this node asked agents for and waits
+	// on (extcard_fetch.go).
+	extFetch extFetchState
 	// longCalls bounds how many long-running capability invocations run
 	// at once. A buffered channel rather than a counter because the
 	// bound has to be enforced at the moment of accepting, and a
@@ -265,6 +268,9 @@ type Daemon struct {
 	// created before it was left by an earlier process (wire_edges.go).
 	started time.Time
 
+	// idOps is the state of the identity's key events (identity_ops.go).
+	idOps identityOps
+
 	// ready is closed when New has finished: every module started, startup
 	// recovery (recoverInterrupted, startPayments) done. A transport module
 	// delivers from the moment its Start runs, so its deliveries wait for
@@ -310,19 +316,11 @@ func New(layout Layout) (*Daemon, error) {
 	// This node's latest witness notice, checked again, so the outbound gate
 	// does not wait for the first hub answer after a restart (KEL D-50).
 	d.loadKeyStateNotice()
-	if cfg.migratedInbound {
-		// Logged once: the migrated config is saved below without the old
-		// key, so the next start reads an explicit inbound block.
-		log.Printf("anet: accept_delegations is replaced by inbound.policy (A2A-DESIGN §5.1); this node now runs " +
-			"policy closed. Allow a peer with `anet peers allow <aid>` or list public capabilities under inbound.public_capabilities")
-	}
 	if cfg.rewriteConfig {
 		if err := SaveConfig(layout, cfg); err != nil {
 			log.Printf("anet: save migrated config: %v", err)
 		}
 	}
-	in := cfg.inbound()
-	d.notices.configure(in.RejectNotice.PerPeerPerHour, in.RejectNotice.GlobalPerMin)
 	// From here on a failed start goes through Close, which releases
 	// whatever had been opened by then — the context, the background
 	// loops, the modules started so far, the ledger and the store — in
@@ -341,7 +339,11 @@ func New(layout Layout) (*Daemon, error) {
 		return nil, err
 	}
 	d.ledger = led
+	// Where the identity's key events stand: what a crash cut short is
+	// finished first (KEL D-35), by the identity loop started below.
+	d.initIdentityOps()
 	d.purgeReplay()
+	d.startPreviews(ctx) // before anything can arrive (preview.go)
 	d.goBackground(func() { d.receiveMaintenance(ctx) })
 	d.goBackground(func() { d.keyMaintenanceLoop(ctx) })
 	d.goBackground(func() { d.mboxLoop(ctx) }) // mbox.go
@@ -368,6 +370,12 @@ func New(layout Layout) (*Daemon, error) {
 	// closed first (engine §6.3 step 2); then the rows an attempt left
 	// marked count as handed over (step 3), before anything is sent.
 	d.closeLeftAtStart()
+	gone := d.identityRefusesInbound()
+	if gone {
+		// A stopped or deactivated identity sends and receives nothing
+		// directly (KEL D-1): the transports close, and no poll starts.
+		d.closeP2P()
+	}
 	d.finishLeftRollback() // a local state rollback a crash cut short (FS-B3)
 	d.recoverOutboxAttempts()
 	d.recoverInterrupted()
@@ -380,10 +388,13 @@ func New(layout Layout) (*Daemon, error) {
 	d.initJoin(cfg)
 	// The withdrawal push reads the join record, so it starts after it.
 	d.goBackground(func() { d.revokeLoop(ctx) }) // revoke_push.go
-	if cfg.HubURL != "" {
+	// The federation hub KEL set follows the hub's /hub/kels (KEL D-24).
+	d.goBackground(func() { d.hubKELSyncLoop(ctx) }) // peerkel.go
+	if cfg.HubURL != "" && !gone {
 		d.startRelayLoop(cfg.HubURL)
 	}
 	d.startJoinLoop()
+	d.startIdentityLoop()
 	if cfg.AutoReply != nil {
 		d.startAutoReply(*cfg.AutoReply)
 	}

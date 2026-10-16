@@ -204,7 +204,7 @@ func TestListsEditedByHandAreApplied(t *testing.T) {
 		t.Fatalf("lists unchanged: %d %v", n, err)
 	}
 	// a is taken off by hand, c is denied by hand.
-	allow := d.peerFile(d.config().inbound().AllowFile)
+	allow := d.peerFile(peersAllowFile)
 	if err := os.WriteFile(allow, []byte(b+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -217,7 +217,7 @@ func TestListsEditedByHandAreApplied(t *testing.T) {
 	}
 	// A deny list that cannot be read withdraws nothing (readPeers would
 	// take it for "deny everyone").
-	deny := d.peerFile(d.config().inbound().DenyFile)
+	deny := d.peerFile(peersDenyFile)
 	if err := os.Remove(deny); err != nil {
 		t.Fatal(err)
 	}

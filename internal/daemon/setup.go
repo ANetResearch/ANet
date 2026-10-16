@@ -356,7 +356,7 @@ func ReadPolicy(l Layout) (PolicyState, error) {
 		}
 		return filepath.Join(l.Root, name)
 	}
-	st.AllowPath, st.DenyPath, st.TrustPath = resolve(st.Inbound.AllowFile), resolve(st.Inbound.DenyFile), resolve(st.Inbound.TrustFile)
+	st.AllowPath, st.DenyPath, st.TrustPath = resolve(peersAllowFile), resolve(peersDenyFile), resolve(peersTrustFile)
 	st.PayeesPath = resolve(st.Payments.PayeesFile)
 	read := func(path string) []string {
 		m, err := readPeerFile(path)

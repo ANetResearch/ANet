@@ -192,6 +192,20 @@ func TestTheToolSurfaceIsWhatWePromise(t *testing.T) {
 	if !strings.Contains(desc("get_agent_card"), "Only a VERIFIED card is returned") {
 		t.Error("get_agent_card must say an unverified card is not returned")
 	}
+	// HPP §4.6: what the prices are, that fetching them is seen by the
+	// agent and waits, what decides a payment, and when list-only skills
+	// show; and that a list fetches none.
+	for _, want := range []string{"`charge`", "`prices`", "`pricesFetchedAt`", "`priceNote`", "the agent knows you looked",
+		"up to 10 seconds", "follows the a2a-x402 quote", "never paid automatically", "after your first exchange"} {
+		if !strings.Contains(desc("get_agent_card"), want) {
+			t.Errorf("get_agent_card must say %q", want)
+		}
+	}
+	for _, want := range []string{"`charge`", "fetches no prices"} {
+		if !strings.Contains(desc("list_agents"), want) {
+			t.Errorf("list_agents must say %q", want)
+		}
+	}
 	// Paying spends the operator's money. The model has to learn whose
 	// credit it is, what caps it, and what to do when it is refused.
 	for _, want := range []string{"agent_max", "payees.allow", "anet pay <task_id>", "never try to raise a limit",
@@ -761,4 +775,30 @@ func TestNodeStatusSaysToRelayTheRecoveryReminder(t *testing.T) {
 		return
 	}
 	t.Fatal("no node_status tool")
+}
+
+// KEL M-3: list_agents and get_agent_card say what key_state is, and that
+// a stale one does not affect sending.
+func TestAgentToolsSayWhatKeyStateMeans(t *testing.T) {
+	sess := connect(t, &fakeControl{})
+	tools, err := sess.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := 0
+	for _, tl := range tools.Tools {
+		if tl.Name != "list_agents" && tl.Name != "get_agent_card" {
+			continue
+		}
+		seen++
+		for _, want := range []string{"key_state is fresh when the agent's own hub confirmed its current key, stale otherwise",
+			"key_state stale does not affect sending"} {
+			if !strings.Contains(tl.Description, want) {
+				t.Errorf("%s does not say %q", tl.Name, want)
+			}
+		}
+	}
+	if seen != 2 {
+		t.Fatalf("%d of the two agent tools found", seen)
+	}
 }

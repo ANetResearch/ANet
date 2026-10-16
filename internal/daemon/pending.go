@@ -21,7 +21,7 @@ package daemon
 // rotation grace. An approved item becomes an interaction with
 // trust=approved and follows the ordinary execution path.
 //
-// A held item that is not decided within ttl_hours expires and the
+// A held item that is not decided within 72 hours (pendingTTL) expires and the
 // requester is told status{rejected, anet.reason=pending_expired}.
 
 import (
@@ -37,6 +37,7 @@ import (
 	"github.com/ANetResearch/ANetCore/seal"
 	"github.com/ANetResearch/ANetCore/tsir"
 
+	"github.com/ANetResearch/ANet/internal/a2ashape"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 )
 
@@ -60,7 +61,6 @@ var ErrNotPending = errors.New("anet: no held delegation with that id")
 
 // holdDelegate is step 10 for a delegation the approve policy holds.
 func (d *Daemon) holdDelegate(m *rxMsg) rxResult {
-	in := d.config().inbound()
 	requestCID, err := anetcid.Sum(m.tdBytes)
 	if err != nil {
 		return d.drop(dropBadTaskDoc, err)
@@ -97,7 +97,7 @@ func (d *Daemon) holdDelegate(m *rxMsg) rxResult {
 		PeerRK: m.rk,
 	}
 	res := d.commitRx(m, func(tx *interactions.Tx) error {
-		if err := tx.PutPending(item, in.Pending.MaxTotal, in.Pending.MaxPerPeer); err != nil {
+		if err := tx.PutPending(item, pendingMaxTotal, pendingMaxPerPeer); err != nil {
 			if errors.Is(err, interactions.ErrPendingFull) {
 				return &rxPermanentErr{reason: dropRefusedPrefix + reasonPendingFull, err: err,
 					note: refusalNote(reasonPendingFull, 0, d.nowMS())}
@@ -151,7 +151,7 @@ func (d *Daemon) PendingList() ([]PendingView, error) {
 	if err != nil {
 		return nil, err
 	}
-	ttl := int64(d.config().inbound().Pending.TTLHours) * 3600 * 1000
+	ttl := pendingTTL.Milliseconds()
 	out := make([]PendingView, 0, len(items))
 	for _, p := range items {
 		out = append(out, PendingView{
@@ -183,6 +183,16 @@ func (d *Daemon) ApprovePending(ixID string) (*interactions.Interaction, error) 
 		return nil, fmt.Errorf("anet: %s is from %s, which is on the deny list; not approved", ixID, item.FromAID)
 	}
 	dr, td, tdBytes, kel, keys, err := d.reverifyPending(item)
+	if errors.Is(err, errHeldKeyState) {
+		// The task may not be the sender's (KEL D-25): refused and
+		// removed, and the sender is told nothing — the real sender ended
+		// it when it rotated (E1).
+		if _, derr := d.ix.DeletePending(ixID); derr != nil {
+			return nil, derr
+		}
+		d.recordPolicyChange("inbound.pending", ixID, "rejected", map[string]any{"requester_aid": item.FromAID, "reason": "key_state"})
+		return nil, a2ashape.Refuse(keyStateApprove, nil)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("anet: %s no longer verifies, not approved: %w", ixID, err)
 	}
@@ -318,8 +328,15 @@ func (d *Daemon) reverifyPending(item *interactions.PendingItem) (*delegation.De
 	if signer != item.FromAID {
 		return nil, nil, nil, nil, nil, fmt.Errorf("TaskDoc signed by %s", signer)
 	}
+	// Both of the sender's signatures — the message's (item.KeyState) and
+	// the TaskDoc's — are judged at the arrival kept with the item, under
+	// the latest KEL this node knows of the sender (KEL D-25).
+	arrival := uint64(max(item.ArrivedAt, 0))
+	if err := keyStateUsable(kel, item.KeyState, arrival); err != nil {
+		return nil, nil, nil, nil, nil, err
+	}
 	if dr.Envelope != nil {
-		if err := d.keyStateUsable(kel, dr.Envelope.KeyStateSeq); err != nil {
+		if err := keyStateUsable(kel, dr.Envelope.KeyStateSeq, arrival); err != nil {
 			return nil, nil, nil, nil, nil, err
 		}
 	}
@@ -334,10 +351,19 @@ func (d *Daemon) reverifyPending(item *interactions.PendingItem) (*delegation.De
 	return dr, td, tdBytes, kel, keys, nil
 }
 
-// keyStateUsable applies the key-state rule of §3.6 step 7 at the current
-// time: a signature by the active key state is usable; one by a retired key
-// state only within the rotation grace after its retirement.
-func (d *Daemon) keyStateUsable(kel []identity.SignedEvent, seq uint64) error {
+// errHeldKeyState is a held delegation whose sender's signing key state
+// is no longer usable at the arrival kept with it (KEL D-25): an emergency
+// rotation or a deactivation replaced it while the task waited.
+var errHeldKeyState = errors.New("the sender's signing key was replaced in an emergency after the task arrived")
+
+// keyStateUsable is KEL D-25: the key state seq of kel — the latest KEL
+// this node knows of the sender — must be usable for something that
+// arrived at arrival (identity.SenderKeyUsable, C-13). A state an
+// emergency rot or a dip replaced never is, whatever arrival says; one a
+// scheduled rotation replaced is when the task arrived within the grace,
+// however long the operator took to approve it. A seq past the KEL is an
+// error of its own; an unusable state is errHeldKeyState.
+func keyStateUsable(kel []identity.SignedEvent, seq, arrival uint64) error {
 	states, err := identity.Replay(kel)
 	if err != nil {
 		return err
@@ -345,18 +371,15 @@ func (d *Daemon) keyStateUsable(kel []identity.SignedEvent, seq uint64) error {
 	if seq >= uint64(len(states)) {
 		return fmt.Errorf("key state %d beyond the KEL", seq)
 	}
-	ks := states[seq]
-	if ks.Status == identity.StatusActive {
-		return nil
-	}
-	// The grace is a constant (KEL §2.12): config.json's rotation_grace is
-	// refused at start (config_key_removed).
-	grace := identity.RotationGrace
-	if now := d.nowMS(); ks.SupersededAt == 0 || (now > ks.SupersededAt && now-ks.SupersededAt > grace) {
-		return fmt.Errorf("signed by key state %d, retired at %d, beyond the rotation grace", seq, ks.SupersededAt)
+	if !identity.SenderKeyUsable(states[seq], arrival) {
+		return fmt.Errorf("%w (key state %d)", errHeldKeyState, seq)
 	}
 	return nil
 }
+
+// keyStateApprove is the refusal of an approval KEL D-25 turns down: code
+// key_state, the sentence of its approve variant (ux C).
+const keyStateApprove = "key_state.approve"
 
 // RejectPending removes a held delegation and tells the requester
 // status{rejected, anet.reason=operator_rejected}.
@@ -385,7 +408,7 @@ func (d *Daemon) expirePending() { d.expirePendingAt(int64(d.nowMS())) }
 
 // expirePendingAt is expirePending with the current time given (unix ms).
 func (d *Daemon) expirePendingAt(now int64) {
-	ttl := int64(d.config().inbound().Pending.TTLHours) * 3600 * 1000
+	ttl := pendingTTL.Milliseconds()
 	cutoff := now - ttl
 	items, err := d.ix.ExpiredPending(cutoff)
 	if err != nil {

@@ -24,6 +24,7 @@ package daemon
 
 import (
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -31,6 +32,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/ANetResearch/ANetCore/a2acard"
@@ -57,6 +59,14 @@ const (
 type extCardState struct {
 	mu     sync.Mutex
 	signed map[module.CardVariant]*signedExtCard
+	// same holds, per variant, the digest of what it was last made from
+	// when that made it the same as the public card: the same content again
+	// is answered from here, without building it (W4 PAY-10 7).
+	same map[module.CardVariant][32]byte
+	// builds counts the times both variants were made or looked up
+	// (extendedCards), and templates the variant templates built, so a
+	// test can tell a request that built nothing.
+	builds, templates atomic.Uint64
 	// allowOnly stands in for the capabilities served to allow ∪ trust only
 	// until the configuration says which they are (allowOnlyCapabilityIDs).
 	allowOnly []string
@@ -75,8 +85,36 @@ type extCardKey struct {
 }
 
 type signedExtCard struct {
-	key  extCardKey
-	card []byte
+	key extCardKey
+	// input is the digest of what the card was made from (extInputDigest):
+	// the same input under the same public seq and key state is the same
+	// card, given without building it again.
+	input [32]byte
+	card  []byte
+}
+
+// extInputDigest is the digest of what variant v is made from: the public
+// card's input without its seq and times, and the modules' contributions
+// to the variant. Equal digests make equal templates.
+func extInputDigest(tmpl netcard.Input, v module.CardVariant, exts []map[string]any) ([32]byte, error) {
+	in, err := json.Marshal(tmpl)
+	if err != nil {
+		return [32]byte{}, err
+	}
+	ex, err := json.Marshal(exts)
+	if err != nil {
+		return [32]byte{}, err
+	}
+	h := sha256.New()
+	for _, part := range [][]byte{[]byte(v), in, ex} {
+		var n [8]byte
+		binary.BigEndian.PutUint64(n[:], uint64(len(part)))
+		h.Write(n[:])
+		h.Write(part)
+	}
+	var out [32]byte
+	copy(out[:], h.Sum(nil))
+	return out, nil
 }
 
 // extVariant is one variant as cardAnswer sees it.
@@ -150,11 +188,37 @@ func cardAnswer(in cardAnswerInput) delegation.CardResp {
 // for the receive pipeline to send back under the one-shot grant the
 // request carried (engine §4.5; ENG-K2: no grant, no answer). It touches no
 // interaction.
+//
+// The per-sender limit is judged before anything is made: a sender over it
+// is answered from what is already known — not_configured when its variant
+// was last found to be the public card (rule 1 still comes first), busy
+// otherwise — with nothing built, signed or checked for it (W4 PAY-10 7),
+// so asking faster costs this node no more than the count.
 func (d *Daemon) answerCardGet(sender string) delegation.CardResp {
 	recent := d.noteCardRequest(sender, d.nowMS())
 	listed := d.readPeers().allowed(sender)
+	if recent > cardRequestsPerWindow {
+		if d.knownSame(listed) {
+			return delegation.CardResp{Error: delegation.CardNotConfigured}
+		}
+		return delegation.CardResp{Error: delegation.CardBusy}
+	}
 	general, list := d.extendedCards()
 	return cardAnswer(cardAnswerInput{Listed: listed, Recent: recent, General: general, List: list})
+}
+
+// knownSame reports whether the variant a sender gets (the list variant
+// for a listed one) was last found to say nothing the public card does
+// not.
+func (d *Daemon) knownSame(listed bool) bool {
+	v := module.VariantGeneral
+	if listed {
+		v = module.VariantList
+	}
+	d.extCard.mu.Lock()
+	defer d.extCard.mu.Unlock()
+	_, ok := d.extCard.same[v]
+	return ok
 }
 
 // noteCardRequest records a card request from sender at now (unix ms) and
@@ -212,6 +276,7 @@ func (d *Daemon) noteCardRequest(sender string, now uint64) int {
 // what was signed before. A node without a hub or without a public card
 // has no extended card to give: both are the same as (no) public card.
 func (d *Daemon) extendedCards() (general, list extVariant) {
+	d.extCard.builds.Add(1)
 	same := extVariant{Same: true}
 	cfg := d.config()
 	hub := strings.TrimRight(strings.TrimSpace(cfg.HubURL), "/")
@@ -269,29 +334,54 @@ func (d *Daemon) extendedCardLocked(in netcard.Input, pubSeq uint64, signer iden
 
 	// The template, without seq and times, is the variant's content: equal to
 	// the public card's template when it says nothing more, and the cache
-	// key otherwise.
+	// key otherwise. What it is made from is looked up first: the same
+	// input as last time is the same conclusion, or the same card under the
+	// same public seq and key state, and is not built again.
 	tmpl := in
 	tmpl.Seq, tmpl.IssuedAtMs, tmpl.NotBeforeMs = 0, 0, 0
+	keySeq, err := identity.SeqOf(signer)
+	if err != nil {
+		return fail("sign", err)
+	}
+	input, err := extInputDigest(tmpl, v, exts)
+	if err != nil {
+		return fail("build", err)
+	}
+	d.extCard.mu.Lock()
+	if h, ok := d.extCard.same[v]; ok && h == input {
+		d.extCard.mu.Unlock()
+		return extVariant{Same: true}
+	}
+	if c := d.extCard.signed[v]; c != nil && c.input == input && c.key.pubSeq == pubSeq && c.key.keySeq == keySeq {
+		d.extCard.mu.Unlock()
+		return extVariant{Card: c.card}
+	}
+	d.extCard.mu.Unlock()
+	d.extCard.templates.Add(1)
 	template, same, err := netcard.BuildExtended(tmpl, v, exts)
 	if err != nil {
 		return fail("build", err)
 	}
 	if same {
+		d.extCard.mu.Lock()
+		if d.extCard.same == nil {
+			d.extCard.same = map[module.CardVariant][32]byte{}
+		}
+		d.extCard.same[v] = input
+		d.extCard.mu.Unlock()
 		return extVariant{Same: true}
 	}
 	payload, err := a2acard.SigningPayload(template)
 	if err != nil {
 		return fail("build", err)
 	}
-	keySeq, err := identity.SeqOf(signer)
-	if err != nil {
-		return fail("sign", err)
-	}
 	key := extCardKey{pubSeq: pubSeq, variant: v, digest: sha256.Sum256(payload), keySeq: keySeq}
 
 	d.extCard.mu.Lock()
 	defer d.extCard.mu.Unlock()
+	delete(d.extCard.same, v)
 	if c := d.extCard.signed[v]; c != nil && c.key == key {
+		c.input = input
 		return extVariant{Card: c.card}
 	}
 	now := d.nowMS()
@@ -318,19 +408,15 @@ func (d *Daemon) extendedCardLocked(in netcard.Input, pubSeq uint64, signer iden
 	if d.extCard.signed == nil {
 		d.extCard.signed = map[module.CardVariant]*signedExtCard{}
 	}
-	d.extCard.signed[v] = &signedExtCard{key: key, card: signed}
+	d.extCard.signed[v] = &signedExtCard{key: key, input: input, card: signed}
 	return extVariant{Card: signed}
 }
 
 // allowOnlyCapabilityIDs are the capabilities this node serves only to the
-// callers in allow ∪ trust (CUX-F12), which the list variant lists.
-//
-// v030-todo(UX-4): read inbound.public_capabilities[].allow_only; until
-// then only a test sets them.
+// callers in allow ∪ trust (inbound.public_capabilities[].allow_only,
+// CUX-F12), which the list variant lists.
 func (d *Daemon) allowOnlyCapabilityIDs() []string {
-	d.extCard.mu.Lock()
-	defer d.extCard.mu.Unlock()
-	return append([]string(nil), d.extCard.allowOnly...)
+	return d.config().inbound().allowOnlyIDs()
 }
 
 // listOnlySkillIDs are the skills the list variant adds to the public
@@ -385,11 +471,15 @@ type cardCheck struct {
 }
 
 // paymentsCardCheck is doctor's payments.card (HPP §5.6, ux §5.2), nil when
-// this node lists no priced skill on any card. Otherwise, in order: every
-// price is between 1 and 2^63-1 (payments.price_invalid, the first one
-// that is not); the public card declares an extended card; and each
-// variant is made, verifies under this node's own KEL and states exactly
-// the prices of its skills (payments.card_failed, with variant and step).
+// this node has no priced capability, public or for the allow and trust
+// lists only. Otherwise, in order: every price is between 1 and 2^63-1
+// (payments.price_invalid, the first one that is not); a node with no
+// public card — the priced capabilities are all allow_only and nothing is
+// public — is warned that it has no extended card either, so its listed
+// callers pay each task by hand (payments.card_no_public); the public card
+// declares an extended card; and each variant is made, verifies under this
+// node's own KEL and states exactly the prices of its skills
+// (payments.card_failed, with variant and step).
 func (d *Daemon) paymentsCardCheck() *cardCheck {
 	p := d.payer()
 	if p == nil || strings.TrimSpace(d.config().HubURL) == "" {
@@ -416,6 +506,13 @@ func (d *Daemon) paymentsCardCheck() *cardCheck {
 	}
 	failed := func(code string) *cardCheck {
 		return &cardCheck{Status: "fail", Reason: "payments.card_failed", Args: map[string]string{"code": code}}
+	}
+	// An A2A card lists at least one skill: with nothing public (no
+	// public capability, no chat skill) there is no public card, and no
+	// extended card is asked for. Not a failure to report (2026-10-10, the
+	// owner's ruling on PAY-10's record): a choice to tell the operator of.
+	if len(public) == 0 && !d.publishesChat() {
+		return &cardCheck{Status: "warn", Reason: "payments.card_no_public"}
 	}
 	card, err := d.NetworkCard()
 	if err != nil {

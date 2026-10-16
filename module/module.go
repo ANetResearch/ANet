@@ -217,8 +217,16 @@ type TaskSeam interface {
 	// Agents lists the remote agents a client may address.
 	Agents(ctx context.Context, q AgentQuery) ([]RemoteAgent, error)
 	// Card is one remote agent, with its verified network card if it has
-	// one.
+	// one. It never contacts the agent: Charge is read from the public
+	// card, and ExtendedOffered says whether ExtendedCard would.
 	Card(ctx context.Context, aid string) (RemoteAgent, error)
+	// ExtendedCard is GetExtendedAgentCard (HPP §4.7, core CORE-K23): the
+	// agent's extended card, verified here, from this node's cache or
+	// fetched end to end within 10 seconds — only when CORE-K23 rule 2
+	// holds for it. Every other outcome is an *a2ashape.Refusal of the
+	// extended_card_* codes (or the node's own state), with RetryAfter for
+	// a passing one; the CLI and MCP show the same sentence.
+	ExtendedCard(ctx context.Context, aid string) (ExtendedAgent, error)
 	// Pay answers a payment-required task (§8.7): submit signs an
 	// authorization within the agent-tier limits and sends it; reject
 	// declines. The purpose is always task-agent.
@@ -334,12 +342,70 @@ type RemoteAgent struct {
 	Quiet       bool     `json:"quiet,omitempty"`
 	ReviewCount int      `json:"reviewCount,omitempty"`
 	AvgRating   any      `json:"avgRating,omitempty"`
+	// KeyState is KeyStateFresh when the directory's entry for the agent
+	// carried a notice its witness hub signed, checked here and fresh, about
+	// the tip of its key history; KeyStateStale otherwise. It says whether
+	// the agent's hub confirmed its current key, not whether its card
+	// verified (Verification), and a stale one does not stop a send: the
+	// send waits for a fresh confirmation itself (KEL D-26, D-28).
+	KeyState string `json:"key_state,omitempty"`
 	// Official is true when AID is listed in the official-agent manifest
 	// built into this binary, signed with the release key (A2A-DESIGN §15,
 	// internal/official). The AID alone decides it: a name, a card or a
 	// hub's word never does. It is a label; it grants the agent nothing.
 	Official bool `json:"anet.official,omitempty"`
+	// Charge is free, partial or paid (HPP PAY-C15), read from the
+	// standard a2a-x402 declaration of the card shown: the extended card
+	// when one was fetched and verified, the public card otherwise. Only
+	// for a VERIFIED card.
+	Charge string `json:"charge,omitempty"`
+	// Prices are every skill of the verified extended card, in its order,
+	// a free one at "0" (HPP §2.7); only when that card was had.
+	// PricesFetchedAt is when it was fetched (RFC 3339, milliseconds).
+	Prices          []SkillPrice `json:"prices,omitempty"`
+	PricesFetchedAt string       `json:"pricesFetchedAt,omitempty"`
+	// PriceNote is the sentence of extended_card_unavailable (or its
+	// .bad_signature variant) when the extended card should have been
+	// fetched and was not (CORE-K23 rule 4); the CLI's last line and the
+	// local A2A error message say the same.
+	PriceNote string `json:"priceNote,omitempty"`
+	// ExtendedOffered says CORE-K23 rule 2 holds: the agent's public card
+	// declares an extended card, and either declares a2a-x402 or this node
+	// holds a contact capability the agent issued it. Only then is the
+	// agent ever asked for its extended card for a display, and only then
+	// does its proxy card declare one (rule 3). Not on the wire.
+	ExtendedOffered bool `json:"-"`
 }
+
+// Charge values (HPP PAY-C15): what a card's a2a-x402 declaration says.
+const (
+	ChargeFree    = "free"    // no declaration
+	ChargePartial = "partial" // declared, required omitted
+	ChargePaid    = "paid"    // declared required
+)
+
+// SkillPrice is one skill of an extended card and the price its signer
+// put on it: Amount is a decimal string of credits, "0" for a free skill.
+type SkillPrice struct {
+	Skill  string `json:"skill"`
+	Amount string `json:"amount"`
+	Unit   string `json:"unit"`
+}
+
+// ExtendedAgent is a remote agent with its extended card (TaskSeam.
+// ExtendedCard): Agent as Card gives it, with Charge and Prices from the
+// extended card, and Card the extended card's bytes exactly as its signer
+// signed them, verified here.
+type ExtendedAgent struct {
+	Agent RemoteAgent
+	Card  json.RawMessage
+}
+
+// RemoteAgent.KeyState values (KEL D-28).
+const (
+	KeyStateFresh = "fresh"
+	KeyStateStale = "stale"
+)
 
 // PayDecision answers a payment-required task.
 type PayDecision struct {

@@ -20,7 +20,8 @@ package x402
 // nothing to look the amount up in. The other half of the rerun — anyone,
 // a probe identity included, can ask the provider for its extended card and
 // read the prices there, which is stated rather than prevented (PAY-N2) —
-// needs the extended card.
+// needs two daemons and a hub between them: it is internal/daemon's
+// TestAProbeIdentityCanReadThePricesFromTheExtendedCard.
 
 import (
 	"context"
@@ -161,12 +162,4 @@ func TestTheHubCannotNameThePaidSkillFromWhatItIsSent(t *testing.T) {
 			t.Fatalf("the payment contribution names the skill %s: %s", s, published)
 		}
 	}
-}
-
-// PAY-N2: the prices are not secret from someone who asks the provider. A
-// probe identity — an operator's own, say — fetches the provider's extended
-// card end to end and reads them there; the provider answers it as any other
-// caller. Stated in §21, not prevented.
-func TestAProbeIdentityCanReadThePricesFromTheExtendedCard(t *testing.T) {
-	t.Skip("v030-todo(PAY-11)") // the extended card: provider side (PAY-10) and its fetch (PAY-11)
 }

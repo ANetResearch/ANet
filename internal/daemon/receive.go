@@ -40,7 +40,6 @@ package daemon
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -528,6 +527,12 @@ func (d *Daemon) receiveEnvelopeVia(ctx context.Context, env []byte, path rxPath
 
 	// Step 10.
 	out := d.process(ctx, m)
+	if out.class == rxAccepted {
+		// The round a requester's message opened, and whether it asked
+		// for previews: read from the message as it arrived, before
+		// anet.* is stripped for storage (CUX-P0).
+		d.notePreviewRound(m)
+	}
 	if m.release != nil {
 		// Admitted in step 9 but not executed (a store error, a duplicate):
 		// the admission slot is returned.
@@ -1041,17 +1046,11 @@ func (d *Daemon) authorizeDelegate(m *rxMsg, now uint64) *rxResult {
 		r := d.drop(dropCanceled, nil)
 		return &r
 	}
-	capID, args, _ := capabilityCall(m.td)
-	argsLen := 0
-	if capID != "" {
-		if b, err := json.Marshal(args); err == nil {
-			argsLen = len(b)
-		}
-	}
-	dec := d.decideDelegate(m.from, capID, argsLen)
+	form := readDelegateForm(m.td)
+	dec := d.decideDelegate(m.from, form)
 	switch dec.action {
 	case actRefuse:
-		d.noteRefused(m.from, m.ix, m.typ, dec.reason, capID)
+		d.noteRefused(m.from, m.ix, m.typ, dec.reason, form.capID)
 		reason := dropRefusedPrefix + dec.reason
 		if dec.reason == reasonNotAccepting {
 			reason = dropNotAccepting
@@ -1288,6 +1287,12 @@ func (d *Daemon) authorizeReply(m *rxMsg) *rxResult {
 	}
 	if ix.PeerAID != m.from {
 		r := d.drop(dropNotPeer, fmt.Errorf("%s belongs to %s", m.ix, ix.PeerAID))
+		return &r
+	}
+	if m.rr != nil && m.rr.Reply != nil && ix.IsCapability {
+		// Only a text task's result carries a reply (CUX-R1); the decoder
+		// cannot tell, this node knows the task.
+		r := d.drop(dropBadBody, fmt.Errorf("a capability task's result carries a reply"))
 		return &r
 	}
 	m.existing = ix
@@ -1767,12 +1772,14 @@ type noticeLimiter struct {
 	global tokenBucket
 	peers  map[string]*tokenBucket
 	order  []string
-	// perPeerPerHour and globalPerMin are the configured rates
-	// (inbound.reject_notice); zero means the defaults.
+	// perPeerPerHour and globalPerMin are the rates; zero means the
+	// constants noticePerPeerPerHour and noticeGlobalPerMin, which are all
+	// a daemon runs with (core G10: inbound.reject_notice is gone). Only a
+	// test sets others.
 	perPeerPerHour, globalPerMin int
 }
 
-// configure sets the rates and resets the buckets.
+// configure sets the rates (a test's) and resets the buckets.
 func (l *noticeLimiter) configure(perPeerPerHour, globalPerMin int) {
 	l.mu.Lock()
 	defer l.mu.Unlock()

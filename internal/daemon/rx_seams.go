@@ -3,21 +3,25 @@ package daemon
 // rx_seams.go is where the receive pipeline v3 meets what other packages
 // deliver after it (engine ENG-G3, §0.2): each seam has the signature the
 // pipeline calls and, until its package replaces it, the stub behavior the
-// engine fixes (no preview frame is taken, every card answer is refused,
-// nothing more is written for a refused result, the hub KEL set is not
-// refreshed). The interaction key lookup of step 3a (FS-7) is the store's.
-// The reply grant of anet.card.get/1 is kept here for the one-shot sender
-// (ENG-1b), which seals the answer.
+// engine fixes (nothing more is written for a refused result). The hub KEL
+// refresh of step 6½ is the peer key state's (peerkel.go, KEL-11). The
+// interaction key lookup of step 3a (FS-7) is the store's. A card answer is
+// taken by cardAnswerArrived (extcard_fetch.go, PAY-11), and a preview
+// frame by previewArrived (preview.go, UX-8). The reply grant of
+// anet.card.get/1 is kept here for the one-shot sender (ENG-1b), which
+// seals the answer.
 
 import (
-	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"log"
 	"sync"
 
-	"github.com/ANetResearch/ANetCore/delegation"
-	"github.com/ANetResearch/ANetCore/identity"
+	"github.com/ANetResearch/ANetCore/effect"
 	"github.com/ANetResearch/ANetCore/seal"
 
+	"github.com/ANetResearch/ANet/internal/a2ashape"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 )
 
@@ -74,27 +78,8 @@ func wipeLookup(l seal.IXKeyLookup) {
 	}
 }
 
-// previewArrived is receive step 9 for a stream_preview frame (engine §4.5;
-// CUX-P14): UX-8's previewAccept decides, an accepted frame is kept in
-// memory and published (EventPreview), and nothing is written to the store.
-// It reports whether the frame was taken; one that was not is dropped
-// without a word (preview-rejected).
-//
-// v030-todo(UX-8): previewAccept and the preview cache; until then no frame
-// is taken.
-func (d *Daemon) previewArrived(m *rxMsg) bool { return false }
-
-// cardAnswerArrived is receive step 9 for an anet.card/1 (engine §4.5; HPP
-// PAY-C13, C14): taken only for an ix this node has a card fetch pending
-// for, verified (verifyExtCard) against kel, the sender's KEL as steps 6 and
-// 7 resolved it, written to peer_ext_card outside any receive transaction,
-// then PAY-D5's wake-up. It reports whether the card was taken.
-//
-// v030-todo(PAY-11): the requester's half of the card exchange; until then
-// every answer is refused (verifyExtCard refuses, ENG-G3).
-func (d *Daemon) cardAnswerArrived(from, ix string, kel []identity.SignedEvent, resp *delegation.CardResp) bool {
-	return false
-}
+// previewArrived, receive step 9 for a stream_preview frame, is in
+// preview.go (UX-8).
 
 // resultRefused is CUX-R7's terminal transaction: before a result refused
 // for result-refused or reply-mismatch is answered with tok(2), the task
@@ -103,18 +88,54 @@ func (d *Daemon) cardAnswerArrived(from, ix string, kel []identity.SignedEvent, 
 // acknowledged and no token, so its refusal is told only once it is written
 // (as ENG-V12 for a delegation).
 //
-// v030-todo(UX-3): the terminal write; until then nothing is written.
-func (d *Daemon) resultRefused(m *rxMsg, reason string) error { return nil }
+// The provider holds the task ended and sends no other result, so the task
+// cannot stay working. Nothing of the result is stored: no deliverable, no
+// receipt. A capability task says its effect is UNVERIFIED: the provider
+// may have run it. A task already ended here is left as it is.
+func (d *Daemon) resultRefused(m *rxMsg, reason string) error {
+	ended := false
+	err := d.ix.Update(func(tx *interactions.Tx) error {
+		cur, err := tx.Get(m.ix)
+		if err != nil {
+			return err
+		}
+		if cur.Role != interactions.RoleOutbound || cur.PeerAID != m.from || cur.IsTerminal() {
+			return nil
+		}
+		meta := map[string]any{a2ashape.KeyState: string(interactions.StateFailed), a2ashape.KeyReason: reasonResultRefused}
+		if cur.IsCapability {
+			meta[a2ashape.KeyEffectStatus] = string(effect.Unverified)
+		}
+		b, err := json.Marshal(meta)
+		if err != nil {
+			return err
+		}
+		// The result column holds the reason's sentence, as for any task
+		// that fails here (undelivered.go), never the refused deliverable.
+		if err := tx.Finish(m.ix, interactions.Finish{State: interactions.StateFailed,
+			Result:   []byte(a2ashape.Sentence(reasonResultRefused, a2ashape.English, nil)),
+			Verified: interactions.VerificationUnknown, Meta: b}, interactions.CausePeerEnded); err != nil {
+			return err
+		}
+		ended = true
+		return nil
+	})
+	if errors.Is(err, interactions.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if ended {
+		log.Printf("anet: %s: failed: the provider's result was refused (%s)", m.ix, reason)
+		d.publishResult(m.ix)
+	}
+	return nil
+}
 
-// refreshHubKELs is receive step 6½'s refresh for a notice under a witness
-// this node does not hold the KEL of as far as the notice needs
-// (witness-unknown; KEL D-24): the federation hub KEL set is fetched again
-// from this node's hub, at most once a minute. It reports whether the set
-// may have changed, so the notice is checked again.
-//
-// v030-todo(KEL-11): /hub/kels on demand; until then nothing is refreshed and
-// witness-unknown stays temporary.
-func (d *Daemon) refreshHubKELs(ctx context.Context) bool { return false }
+// reasonResultRefused is the code of a task whose result was refused
+// (CUX-R7; ux §1.4).
+const reasonResultRefused = "result_refused"
 
 // cardReplyGrants keeps, by (requester, ix), the one-shot capability an
 // anet.card.get/1 brought for its answer (SS §4.3.2 rule 0): the only

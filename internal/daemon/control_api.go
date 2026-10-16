@@ -299,6 +299,8 @@ func (d *Daemon) ControlHandler(token string) http.Handler {
 	api.HandleFunc("GET /status", d.hStatus)
 	api.HandleFunc("POST /status", d.hStatus)
 	api.HandleFunc("POST /identity/status", d.hIdentityStatus)
+	api.HandleFunc("POST /identity/rotate", d.hIdentityRotate)
+	api.HandleFunc("POST /identity/deactivate", d.hIdentityDeactivate)
 	api.HandleFunc("POST /hub-register", d.hHubRegister)
 	api.HandleFunc("POST /hub-leave", d.hHubLeave)
 	api.HandleFunc("POST /accept", d.hAccept)
@@ -1518,6 +1520,11 @@ func (d *Daemon) hReview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	res, err := d.SubmitReview(req.InteractionID, req.Rating, req.Comment)
+	var ref *a2ashape.Refusal
+	if errors.As(err, &ref) {
+		writeRefusal(w, http.StatusConflict, ref)
+		return
+	}
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return

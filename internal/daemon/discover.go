@@ -1,8 +1,15 @@
 package daemon
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"time"
+
+	"github.com/ANetResearch/ANetCore/identity"
+	"github.com/ANetResearch/ANetCore/seal"
+
+	"github.com/ANetResearch/ANet/module"
 )
 
 // RunningDaemons returns the locally-recorded identities whose daemon is actually reachable right now
@@ -30,4 +37,29 @@ func RunningDaemons() []IdentityEntry {
 		}
 	}
 	return out
+}
+
+// keyStateOf is a directory entry's key_state as listings show it (KEL
+// D-28): fresh when the entry carried a notice that passed C-51 here at
+// arrival = now, stale otherwise. It only describes the entry; whether a
+// message may be sealed to it is resolvePeer's to decide (D-26).
+func keyStateOf(noticeOK bool) string {
+	if noticeOK {
+		return module.KeyStateFresh
+	}
+	return module.KeyStateStale
+}
+
+// dirNoticeOK checks a notice a directory or registry entry carried about
+// kel at now (KEL C-51), with the hub KEL set refreshed once when it names
+// a witness this node does not hold far enough (witness-unknown, D-24).
+func (d *Daemon) dirNoticeOK(ctx context.Context, notice []byte, kel []identity.SignedEvent, now uint64) bool {
+	if len(notice) == 0 || len(notice) > seal.MaxNoticeBytes || len(kel) == 0 {
+		return false
+	}
+	err := identity.VerifyNotice(notice, kel, d.hubKELs, now)
+	if errors.Is(err, identity.ErrNoticeUnknownWitness) && d.refreshHubKELs(ctx) {
+		err = identity.VerifyNotice(notice, kel, d.hubKELs, now)
+	}
+	return err == nil
 }

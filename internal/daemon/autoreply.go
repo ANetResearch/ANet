@@ -529,15 +529,21 @@ func (d *Daemon) replyTurn(ctx context.Context, cfg AutoReplyConfig, replier aut
 	if oerr != nil {
 		return d.sendAutoReply(ctx, th.InteractionID, autoReplyFailureReply(cfg, th.InteractionID, fmt.Errorf("outbox: %w", oerr)))
 	}
-	// A provider's reply that completes the task is its final reply (0017
-	// Q30): marked so the requester keeps waiting for the result that
-	// follows instead of stopping at an input-required between the two.
-	var meta map[string]any
+	// A provider's reply that completes the task goes in the result, one
+	// write with the completion (completeWithReply, CUX-R4, R5).
 	if done && th.EndReqBy != "me" && th.Role == string(interactions.RoleInbound) {
-		meta = a2ashape.FinalReplyMetadata()
+		hctx, cancel := context.WithTimeout(ctx, hubCallTimeout)
+		defer cancel()
+		if err := d.completeWithReply(hctx, th.InteractionID, reply, atts); err != nil {
+			return fmt.Errorf("complete after task-done: %w", err)
+		}
+		sharedExecSessionStore(d.layout.Root).del(th.InteractionID)
+		log.Printf("anet: auto-reply %s: backend replied (%d chars, %d attachment(s)) — task done, completed",
+			th.InteractionID, len(reply), len(atts))
+		return nil
 	}
 	if reply != "" || len(atts) > 0 {
-		if err := d.sendAutoReplyAttachments(ctx, th.InteractionID, reply, atts, meta); err != nil {
+		if err := d.sendAutoReplyAttachments(ctx, th.InteractionID, reply, atts, nil); err != nil {
 			return err
 		}
 		doneNote := ""

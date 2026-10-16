@@ -1,23 +1,19 @@
 package daemon
 
 import (
+	"errors"
 	"os"
+	"strings"
 	"testing"
 )
 
-// The accept_delegations notice ("is replaced by inbound.policy … this node
-// now runs policy closed") is for an operator whose config carried the old
-// key set to accept. A minimal config, with neither the key nor an inbound
-// block, replaced nothing: it gets the closed default silently (an internal note item).
-func TestTheAcceptDelegationsNoticeNeedsTheOldKey(t *testing.T) {
-	for _, c := range []struct {
-		name, config string
-		notice       bool
-	}{
-		{"minimal", `{"control_addr":"127.0.0.1:0"}`, false},
-		{"old key, accept", `{"control_addr":"127.0.0.1:0","accept_delegations":true}`, true},
-		{"old key, refuse", `{"control_addr":"127.0.0.1:0","accept_delegations":false}`, false},
-		{"inbound block", `{"control_addr":"127.0.0.1:0","accept_delegations":true,"inbound":{"policy":"closed"}}`, false},
+// A config without an inbound block gets the closed default (SI-5). The wire-1 accept_delegations key is not
+// migrated any more: it stops the daemon from starting (ux §2.3, UX-D3),
+// and nothing reads it.
+func TestAConfigWithoutAnInboundBlockIsClosed(t *testing.T) {
+	for _, c := range []struct{ name, config string }{
+		{"minimal", `{"control_addr":"127.0.0.1:0"}`},
+		{"inbound block", `{"control_addr":"127.0.0.1:0","inbound":{"policy":"closed"}}`},
 	} {
 		l := NewLayout(t.TempDir())
 		if err := l.EnsureRoot(); err != nil {
@@ -30,11 +26,20 @@ func TestTheAcceptDelegationsNoticeNeedsTheOldKey(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if cfg.migratedInbound != c.notice {
-			t.Errorf("%s: notice %v, want %v", c.name, cfg.migratedInbound, c.notice)
+		if cfg.Inbound == nil || cfg.inbound().Policy != PolicyClosed {
+			t.Errorf("%s: inbound %+v, want closed", c.name, cfg.Inbound)
 		}
-		if cfg.inbound().Policy != PolicyClosed {
-			t.Errorf("%s: policy %s, want closed", c.name, cfg.inbound().Policy)
-		}
+	}
+	l := NewLayout(t.TempDir())
+	if err := l.EnsureRoot(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(l.ConfigPath(), []byte(`{"control_addr":"127.0.0.1:0","accept_delegations":true}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var cr *ConfigRefusal
+	if err := CheckConfigForStart(l); !errors.As(err, &cr) || len(cr.Refusals) != 1 ||
+		!strings.Contains(cr.Error(), "accept_delegations") {
+		t.Fatalf("accept_delegations: %v", err)
 	}
 }

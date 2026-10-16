@@ -80,6 +80,10 @@ func FuzzServer(f *testing.F) {
 		{0, agentA + "/rest/tasks/task1:cancel", "application/json", "", "", "{}", true},
 		{1, agentA + "/rest/tasks/task1:subscribe", "", "", "", "", true},
 		{1, agentA + "/.well-known/agent-card.json", "", "", "", "", true},
+		{0, rpc, "application/json", "", "", `{"jsonrpc":"2.0","id":6,"method":"GetExtendedAgentCard","params":{}}`, true},
+		{0, rpc, "application/json", "", "", `{"jsonrpc":"2.0","id":{},"method":"GetExtendedAgentCard"}`, true},
+		{1, agentA + "/rest/extendedAgentCard", "", "1.0", "", "", true},
+		{0, agentA + "/rest/extendedAgentCard", "application/json", "", "", "{}", true},
 		{1, "", "", "", "", "", true},
 		{1, "?skill=x&limit=-1&cursor=zz", "", "", "", "", true},
 	}

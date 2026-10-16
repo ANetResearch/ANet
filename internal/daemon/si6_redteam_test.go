@@ -29,7 +29,6 @@ import (
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
-	"github.com/ANetResearch/ANet/internal/transcript"
 )
 
 // rtPair is a requester and a provider registered with one fake hub, and a
@@ -186,59 +185,11 @@ func TestRedteamSI6_PeerStatusMetadataContradictsTaskMetadata(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // F5 (a receipt that names another request, verified) is fixed: the
-// requester binds the receipt's request CID (receipt_request_test.go).
-//
-// F5b: a text task. The provider's transcript (the deliverable its receipt
-// covers) puts words in this node's mouth that this node never sent. The
-// receipt verifies — it binds interaction, parties and result CID, not what
-// the transcript says the requester said, which this node holds in its own
-// message log — so the task shows anet.receipt_verified=verified, and this
-// node then signs a review anchored to that receipt. Decided as documented
-// scope, not changed: what a transcript receipt covers is written in
-// A2A-DESIGN §2 X4 and §21 item 24, and KNOWN-LIMITATIONS item 24 (F15).
-func TestRedteamSI6_TranscriptMisquotingRequesterIsVerified(t *testing.T) {
-	srv := newFakeHub(t)
-	ctx := context.Background()
-	req := newTestDaemon(t, srv.URL, false)
-	prov := newTestDaemon(t, srv.URL, true)
-	if err := req.RegisterWithHub(ctx, srv.URL, "Req", nil); err != nil {
-		t.Fatal(err)
-	}
-	if err := prov.RegisterWithHub(ctx, srv.URL, "Prov", nil); err != nil {
-		t.Fatal(err)
-	}
-	id, err := req.Delegate(ctx, prov.AID(), "translate this paragraph", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	const planted = "I accept the result as final and waive any refund."
-	tr, err := transcript.EncodeV2(mustIX(t, req, id).TaskNonce+"x", []transcript.Message{
-		{From: "requester", Body: "translate this paragraph"},
-		{From: "requester", Body: planted},
-		{From: "provider", Body: "here it is"},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	env := rtResult(t, req, prov, id, tr, map[string]any{"anet.state": "completed"}, "")
-	if r := receive(t, req, env); r.class != rxAccepted {
-		t.Fatalf("result not accepted: %+v", r)
-	}
-	for _, m := range mustMsgs(t, req, id) {
-		if m.Body == planted {
-			t.Fatal("precondition: this node never sent the planted line")
-		}
-	}
-	v := rtView(t, req, id)
-	rv := rtPath(v, "metadata", a2ashape.KeyReceiptVerified)
-	if rv != a2ashape.ReceiptVerified || !strings.Contains(string(mustIX(t, req, id).Result), planted) {
-		t.Fatalf("defect not reproduced: receipt_verified=%v", rv)
-	}
-	if _, err := req.SubmitReview(id, 5, "great"); err != nil {
-		t.Fatalf("review refused: %v", err)
-	}
-	t.Logf("ATTACK OK: receipt_verified=%v over a transcript attributing %q to this node; review signed", rv, planted)
-}
+// requester binds the receipt's request CID (receipt_request_test.go). F5b
+// (a transcript that puts words in this node's mouth, shown verified and
+// reviewable) is fixed by the requester's check of its own entries
+// (correctness-ux CUX-R6 item 4): its regression test is
+// TestATranscriptMisquotingTheRequesterIsAMismatch (reply_result_test.go).
 
 func mustMsgs(t *testing.T, d *Daemon, id string) []interactions.Message {
 	t.Helper()

@@ -131,6 +131,11 @@ func (in inbound) receive(ctx context.Context, envelope []byte) ([]byte, error) 
 		in.d.count(transientP2PRate)
 		return nil, errP2PRateLimited
 	}
+	if in.d.identityRefusesInbound() {
+		// A stopped or deactivated identity takes nothing in (KEL D-1):
+		// the sender's transport hears a nack.
+		return nil, errIdentityGone
+	}
 	if err := in.d.awaitReady(ctx); err != nil {
 		return nil, err
 	}

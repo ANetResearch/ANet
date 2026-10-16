@@ -120,12 +120,9 @@ const (
 const (
 	MsgText       = "text"        // a normal chat message
 	MsgEndRequest = "end_request" // the requester asks the provider to complete the task
-	// MsgEndAccept is a historical kind. From wire 2 the provider completes on its own and no
-	// daemon sends it; rows written before the change keep it.
-	MsgEndAccept = "end_accept"
-	MsgCancel    = "cancel"  // a cancellation request
-	MsgStatus    = "status"  // a provider status update (anet.status/1)
-	MsgPayment   = "payment" // an x402 payment message; only its metadata is stored
+	MsgCancel     = "cancel"      // a cancellation request
+	MsgStatus     = "status"      // a provider status update (anet.status/1)
+	MsgPayment    = "payment"     // an x402 payment message; only its metadata is stored
 )
 
 // Message is one entry in an interaction's conversation log. The sealed envelope it arrived in
@@ -134,7 +131,7 @@ type Message struct {
 	Seq           int64
 	InteractionID string
 	SenderAID     string
-	Kind          string // MsgText | MsgEndRequest | MsgCancel | MsgStatus | MsgPayment | MsgEndAccept
+	Kind          string // MsgText | MsgEndRequest | MsgCancel | MsgStatus | MsgPayment
 	Body          string
 	// MsgID is the sender-minted message id. The sender stores its own id too, so both sides can
 	// replay a history with message ids (A2A Message.messageId).
@@ -217,16 +214,21 @@ type Interaction struct {
 // IsTerminal reports whether the interaction's state is terminal.
 func (ix *Interaction) IsTerminal() bool { return ix != nil && ix.State.IsTerminal() }
 
-// Verification is the three-state answer to "could this node check the
-// receipt?". The zero value is Unknown on purpose: a row that predates
-// this column, or any path that forgets to say, reads as "we do not
-// know" rather than as either verdict.
+// Verification is the answer to "could this node check the receipt?". The
+// zero value is Unknown on purpose: a row that predates this column, or any
+// path that forgets to say, reads as "we do not know" rather than as either
+// verdict.
 type Verification string
 
 const (
 	VerificationUnknown    Verification = ""
 	VerificationVerified   Verification = "verified"
 	VerificationUnverified Verification = "unverified"
+	// VerificationMismatch: the receipt verifies, but the conversation it
+	// covers changes what this node, the requester, said (correctness-ux
+	// CUX-R6 item 4). No evidence of the result is recorded and the
+	// provider cannot be reviewed on it; the result is kept and readable.
+	VerificationMismatch Verification = "mismatch"
 )
 
 // Store is the daemon's interaction log.
@@ -390,6 +392,7 @@ var schema = [][]string{
 	ixKeySchema,
 	capsSchema,
 	outboxSchema,
+	extCardSchema,
 }
 
 // createSchema gives a file with no schema the whole of schema and user_version SchemaVersion, in
@@ -1019,8 +1022,22 @@ func addMessage(e execer, m MessageRecord) (seq int64, stored bool, err error) {
 }
 
 // Messages returns an interaction's conversation log, oldest first.
-func (s *Store) Messages(interactionID string) ([]Message, error) {
-	rows, err := s.db.Query(
+func (s *Store) Messages(interactionID string) ([]Message, error) { return messagesOf(s.db, interactionID) }
+
+// Messages is Store.Messages inside the transaction: what a write that
+// depends on the log (a transcript a receipt covers) reads, with the rows
+// the same transaction wrote.
+func (t *Tx) Messages(interactionID string) ([]Message, error) { return messagesOf(t.tx, interactionID) }
+
+// logReader reads a log and opens it: the database handle or an open
+// transaction.
+type logReader interface {
+	execer
+	Query(query string, args ...any) (*sql.Rows, error)
+}
+
+func messagesOf(q logReader, interactionID string) ([]Message, error) {
+	rows, err := q.Query(
 		`SELECT seq,interaction_id,sender_aid,kind,body,msg_id,metadata,created_at FROM message
 		  WHERE interaction_id=? ORDER BY seq`,
 		interactionID)
@@ -1042,7 +1059,7 @@ func (s *Store) Messages(interactionID string) ([]Message, error) {
 	if len(out) == 0 {
 		return nil, nil
 	}
-	b, err := boxOf(s.db, interactionID)
+	b, err := boxOf(q, interactionID)
 	if err != nil {
 		return nil, err
 	}
@@ -1120,7 +1137,14 @@ func addAttachment(e execer, interactionID string, msgSeq int64, a Attachment) e
 
 // Attachments returns the metadata (NO bytes) of all attachments in an interaction, oldest first.
 func (s *Store) Attachments(interactionID string) ([]Attachment, error) {
-	rows, err := s.db.Query(
+	return attachmentsOf(s.db, interactionID)
+}
+
+// Attachments is Store.Attachments inside the transaction (Tx.Messages).
+func (t *Tx) Attachments(interactionID string) ([]Attachment, error) { return attachmentsOf(t.tx, interactionID) }
+
+func attachmentsOf(q logReader, interactionID string) ([]Attachment, error) {
+	rows, err := q.Query(
 		`SELECT seq,interaction_id,msg_seq,name,mime,size,cid,created_at FROM attachment WHERE interaction_id=? ORDER BY seq`,
 		interactionID)
 	if err != nil {
@@ -1141,7 +1165,7 @@ func (s *Store) Attachments(interactionID string) ([]Attachment, error) {
 	if len(out) == 0 {
 		return nil, nil
 	}
-	b, err := boxOf(s.db, interactionID)
+	b, err := boxOf(q, interactionID)
 	if err != nil {
 		return nil, err
 	}

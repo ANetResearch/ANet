@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -92,7 +93,7 @@ func (d *Daemon) screenPublication(what string, body any) error {
 	// question about the same bytes: INV-1 asks whether the TYPE may go
 	// out, INV-2 whether these VALUES may.
 	if err := inv1.GuardCommonsPublish(body); err != nil {
-		return fmt.Errorf("anet: refusing to publish %s: %w", what, err)
+		return fmt.Errorf("%w %s: %w", errPublicationBlocked, what, err)
 	}
 	var forbidden []string
 	for _, m := range d.modules {
@@ -108,10 +109,14 @@ func (d *Daemon) screenPublication(what string, body any) error {
 		return err
 	}
 	if err := inv2.Screen(b, forbidden); err != nil {
-		return fmt.Errorf("anet: refusing to publish %s: %w", what, err)
+		return fmt.Errorf("%w %s: %w", errPublicationBlocked, what, err)
 	}
 	return nil
 }
+
+// errPublicationBlocked is a publication screenPublication refused: this
+// node's own data, which no retry changes (hub_publication_blocked).
+var errPublicationBlocked = errors.New("anet: refusing to publish")
 
 // moduleStopTimeout is the deadline the modules' Stop calls share. It
 // bounds a Stop that honours its context (an http.Server.Shutdown, say);

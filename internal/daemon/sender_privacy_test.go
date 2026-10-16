@@ -189,6 +189,23 @@ func TestPeersListAfterAReply(t *testing.T) {
 	if p := column(); !p.SenderHidden || p.SenderHiddenText != a2ashape.Sentence(senderHiddenKey, a2ashape.Lang(), nil) {
 		t.Fatalf("after the reply: %+v", p)
 	}
+
+	// A credential under another mailbox key than the one this node holds
+	// of the peer is not one it may use: the column reads the peer's
+	// current key from the store, so it is visible again.
+	held, err := req.ix.HeldCaps(prov.AID())
+	if err != nil || len(held) == 0 {
+		t.Fatalf("held: %v %v", held, err)
+	}
+	other := held[0]
+	other.CapID = bytes.Repeat([]byte{0x7e}, seal.CapIDLen)
+	other.Epoch++
+	if err := req.ix.Update(func(tx *interactions.Tx) error { _, err := tx.PutHeldGrant(other); return err }); err != nil {
+		t.Fatal(err)
+	}
+	if p := column(); p.SenderHidden || p.SenderHiddenText != a2ashape.Sentence(senderVisibleKey, a2ashape.Lang(), nil) {
+		t.Fatalf("under another mailbox key: %+v", p)
+	}
 }
 
 // statusSenderPrivacy is GET /status's sender_privacy object.

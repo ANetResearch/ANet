@@ -474,7 +474,7 @@ func TestExecRunsOnlyForTrustedPeers(t *testing.T) {
 		}
 	}
 	// Taken off the trust list, the peer stops reaching the agent at the next turn.
-	if err := os.WriteFile(f.prov.peerFile(f.prov.config().inbound().TrustFile), nil, 0o600); err != nil {
+	if err := os.WriteFile(f.prov.peerFile(peersTrustFile), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := f.req.SendMessage(f.ctx, id, "again", nil); err != nil {

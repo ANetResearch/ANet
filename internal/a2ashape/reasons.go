@@ -963,6 +963,9 @@ var labels = map[string]phrasePair{
 	"find.skills":     {"能力", "skills"},
 	"find.aid":        {"AID", "AID"},
 	"find.unverified": {"（未验证）", "(not verified)"},
+	// The key column (KEL M-3): key_state fresh or stale.
+	"find.key_fresh": {"已确认", "confirmed"},
+	"find.key_stale": {"暂未确认", "not confirmed yet"},
 
 	// sealed-sender §5.2: the columns of `anet peers list`; the last says
 	// whether this node's messages to the peer carry its identity.
@@ -1955,10 +1958,18 @@ var reasonTable = []Row{
 		Zh:       "{hub} 拒绝了注册（{code}），anet 不会再试；请把这条信息发给 hub 运营者。",
 		En:       "{hub} refused to register this node ({code}), and anet will not retry; contact the hub's operator with this message.",
 		NextKind: NextContact},
+	{Code: "hub_publication_blocked", Class: ClassE | ClassC | ClassS, Level: LevelFail, A2A: A2A{Err: A2AFailedPrecondition},
+		Zh:       "注册资料里有组织模块标为保密的内容，本节点没有把它发给 {hub}；请从 agent 名称、能力描述或资料里去掉后重新运行 anet hub-register {hub}。",
+		En:       "The registration data has something an organization module marks confidential, so it was not sent to {hub}; remove it from the agent name, capability descriptions or profile, then run anet hub-register {hub} again.",
+		NextKind: NextCommand, Next: "anet hub-register {hub}"},
 	{Code: "hub_unreachable", Class: ClassC,
 		Zh:       "连不上 {hub}，配置没有改动；请检查地址或网络后重新运行 anet hub-register {hub}。",
 		En:       "{hub} cannot be reached, and nothing was changed; check the address or the network and run anet hub-register {hub} again.",
 		NextKind: NextCommand, Next: "anet hub-register {hub}"},
+	{Code: "hub_unreachable", Variant: "leave", Class: ClassC,
+		Zh:       "连不上 {hub}，没有离开，配置没有改动；请检查网络后重新运行 anet hub-leave。",
+		En:       "{hub} cannot be reached, so this node has not left it and nothing was changed; check the network and run anet hub-leave again.",
+		NextKind: NextCommand, Next: "anet hub-leave"},
 	{Code: "invite_removed", Class: ClassC,
 		Zh:       "hub 已不再使用邀请码；请直接运行 anet hub-register {hub}，再把它打印的 admit 命令发给 hub 运营者。",
 		En:       "Hubs no longer use invites; run anet hub-register {hub} and send the admit command it prints to the hub's operator.",
@@ -2647,6 +2658,9 @@ var reasonTable = []Row{
 	{Code: "payments.price_invalid", Class: ClassS, Level: LevelFail,
 		Zh: "能力 {name} 的价格不在 1 到 2^63−1 之间；请改正 config.json。",
 		En: "The price of the capability {name} is not between 1 and 2^63−1; fix it in config.json."},
+	{Code: "payments.card_no_public", Class: ClassS, Level: LevelWarn,
+		Zh: "只有名单内的能力标了价，本节点没有公开能力，所以没有扩展卡片：名单里的调用方看不到签名的价格，每笔都要手动付款；要让他们自动付款，请至少公开一个能力。",
+		En: "Only allow-listed capabilities are priced and none is public, so there is no extended card: listed callers see no signed price and pay each task by hand; to let them pay automatically, make at least one capability public."},
 	{Code: "autoreply.off", Class: ClassS, Level: LevelInfo,
 		Zh: "自动回复关。",
 		En: "Auto-reply is off."},

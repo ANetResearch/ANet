@@ -40,11 +40,15 @@ import (
 // Extension URIs of the proxy card: anet-origin is the proxy card's own.
 const (
 	// ExtOriginURI says which remote agent a proxy card stands for:
-	// params {aid, originVerification, originCard?, anet.official?},
-	// originCard being the remote network card's bytes, base64url without
-	// padding, present only when originVerification is VERIFIED, and
-	// anet.official true when this node's official manifest lists the
-	// agent by that AID (A2A-DESIGN §15).
+	// params {aid, originVerification, keyState, originCard?,
+	// originExtendedCard?, anet.official?}, originCard being the remote
+	// network card's bytes, base64url without padding, present only when
+	// originVerification is VERIFIED; originExtendedCard the remote extended
+	// card's bytes, the same way, only on a proxy extended card (HPP §2.6);
+	// keyState "fresh" when the agent's hub confirmed its current key and
+	// "stale" otherwise (KEL A-2, D-28); and anet.official true when this
+	// node's official manifest lists the agent by that AID
+	// (A2A-DESIGN §15).
 	ExtOriginURI = "https://agentnetwork.org.cn/a2a/ext/anet-origin/v1"
 )
 
@@ -65,6 +69,16 @@ const originOfficial = "anet.official"
 // network card is admitted under (ANetCore a2acard.MaxCardBytes).
 const maxOriginCard = 64 << 10
 
+// originKeyState is anet-origin's keyState for ra (KEL A-2): fresh only
+// when the kernel said so; anything else — an agent the directory does not
+// hold, a placeholder — is stale.
+func originKeyState(ra module.RemoteAgent) string {
+	if ra.KeyState == module.KeyStateFresh {
+		return module.KeyStateFresh
+	}
+	return module.KeyStateStale
+}
+
 // cardBuilder builds proxy cards for one listener.
 type cardBuilder struct {
 	host, port string
@@ -74,6 +88,25 @@ type cardBuilder struct {
 // URIs it declares (what the interface echoes back to a client that
 // activates them).
 func (b cardBuilder) build(ra module.RemoteAgent) (map[string]any, []string) {
+	card, uris, _ := b.buildFrom(ra, nil)
+	return card, uris
+}
+
+// buildExtended makes the proxy extended card (HPP §2.6): the proxy card
+// rule applied to the remote agent's verified extended card rather than its
+// public card — its skills, the a2a-x402 declaration with this node as the
+// signing service, and its price list as the agent signed it — with the
+// extended card's own bytes in anet-origin (originExtendedCard).
+func (b cardBuilder) buildExtended(ea module.ExtendedAgent) (map[string]any, []string, error) {
+	if len(ea.Card) == 0 {
+		return nil, nil, fmt.Errorf("no extended card")
+	}
+	return b.buildFrom(ea.Agent, ea.Card)
+}
+
+// buildFrom is build, and buildExtended when ext is the remote agent's
+// verified extended card.
+func (b cardBuilder) buildFrom(ra module.RemoteAgent, ext []byte) (map[string]any, []string, error) {
 	base := "http://" + listenerURLHost(b.host, b.port) + agentsPath + "/" + ra.AID
 	card := map[string]any{
 		"supportedInterfaces": []any{
@@ -103,13 +136,35 @@ func (b cardBuilder) build(ra module.RemoteAgent) (map[string]any, []string) {
 			remote, verification = &c, verified
 		}
 	}
+	var prices map[string]any
+	if ext != nil {
+		// The extended card stands in for the public one: what the remote
+		// agent says of itself is read from it.
+		if remote == nil {
+			return nil, nil, fmt.Errorf("an extended card for an agent whose public card is not verified")
+		}
+		var c a2a.AgentCard
+		if err := json.Unmarshal(ext, &c); err != nil {
+			return nil, nil, fmt.Errorf("the extended card: %w", err)
+		}
+		remote = &c
+		var err error
+		if prices, err = priceParams(ext); err != nil {
+			return nil, nil, err
+		}
+	}
 
-	origin := map[string]any{"aid": ra.AID, "originVerification": verification}
+	origin := map[string]any{"aid": ra.AID, "originVerification": verification, "keyState": originKeyState(ra)}
 	// The remote card's bytes only when they verified: a card that did not
 	// is not passed on in any form (an internal note item), and the proxy card is then
 	// the one for an agent without a card.
 	if n := len(ra.Card); remote != nil && n <= maxOriginCard {
 		origin["originCard"] = base64.RawURLEncoding.EncodeToString(ra.Card)
+	}
+	// The extended card's bytes beside them, which this node verified: a
+	// client checks the agent's own signature on its prices there.
+	if n := len(ext); n > 0 && n <= maxOriginCard {
+		origin["originExtendedCard"] = base64.RawURLEncoding.EncodeToString(ext)
 	}
 	// This node's statement, like the rest of the proxy card: the AID is on
 	// the official manifest it carries. It does not depend on the remote
@@ -148,17 +203,56 @@ func (b cardBuilder) build(ra module.RemoteAgent) (map[string]any, []string) {
 			})
 			uris = append(uris, a2ashape.X402ExtensionURI)
 		}
+		if prices != nil {
+			// The prices as the agent signed them, carried over unchanged;
+			// originExtendedCard holds its signature.
+			exts = append(exts, map[string]any{
+				"uri":         module.ExtPriceURI,
+				"description": "The price of each skill, as the remote agent signed it on its extended card; a skill not listed is free.",
+				"params":      prices,
+			})
+			uris = append(uris, module.ExtPriceURI)
+		}
 	} else {
 		placeholder(card, ra)
 	}
-	card["capabilities"] = map[string]any{
+	caps := map[string]any{
 		// This interface streams whatever the remote agent's card says:
 		// the stream is between the client and this node.
 		"streaming":         true,
 		"pushNotifications": false,
 		"extensions":        exts,
 	}
-	return card, uris
+	// An extended card is declared when this node would ask the agent for
+	// one (core CORE-K23 rule 3): what a client sees promised is what
+	// GetExtendedAgentCard does. false is the default, left out (§10.1).
+	if remote != nil && (ext != nil || ra.ExtendedOffered) {
+		caps["extendedAgentCard"] = true
+	}
+	card["capabilities"] = caps
+	return card, uris, nil
+}
+
+// priceParams are the params of the price list an extended card carries,
+// exactly as written; nil when it has none.
+func priceParams(card []byte) (map[string]any, error) {
+	var c struct {
+		Capabilities struct {
+			Extensions []struct {
+				URI    string         `json:"uri"`
+				Params map[string]any `json:"params"`
+			} `json:"extensions"`
+		} `json:"capabilities"`
+	}
+	if err := json.Unmarshal(card, &c); err != nil {
+		return nil, fmt.Errorf("the extended card: %w", err)
+	}
+	for _, e := range c.Capabilities.Extensions {
+		if e.URI == module.ExtPriceURI {
+			return e.Params, nil
+		}
+	}
+	return nil, nil
 }
 
 // copyVerified copies what a client needs of the remote agent's own card:

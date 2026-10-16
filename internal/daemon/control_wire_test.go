@@ -11,6 +11,7 @@ import (
 	"github.com/ANetResearch/ANetCore/wire/scan"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
+	"github.com/ANetResearch/ANet/module"
 )
 
 // ANet's half of the wire registry checks (ANetCore wire/registry.json).
@@ -69,8 +70,9 @@ func TestControlWireFields(t *testing.T) {
 		{route: "/identity/status", req: reflect.TypeFor[struct{}](), resp: reflect.TypeFor[IdentityStatus]()},
 		{route: "/hub-register", alt: "joined", req: reflect.TypeFor[hubRegisterReq](), resp: reflect.TypeFor[hubRegisterResp]()},
 		{route: "/payments/status", resp: reflect.TypeFor[SpendStatus](), todo: "v030-todo(PAY-12)"},
-		{route: "/agents/card", todo: "v030-todo(PAY-11)"},
-		{route: "/agents/list", todo: "v030-todo(PAY-11)"},
+		// One entry of /agents/list, and /agents/card: key_state is KEL's.
+		{route: "/agents/card", resp: reflect.TypeFor[module.RemoteAgent]()},
+		{route: "/agents/list", resp: reflect.TypeFor[module.RemoteAgent]()},
 	}
 	covered := map[string]bool{}
 	for _, row := range rows {

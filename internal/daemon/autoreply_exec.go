@@ -943,7 +943,8 @@ func readRegular(f *os.File, limit int64) ([]byte, error) {
 }
 
 // sendAutoReplyAttachments sends the auto-reply text plus the attachments collected from the outbox as
-// one relayed message, with meta as its metadata (a final reply's, or none).
+// one relayed message, with meta as its metadata. A reply that completes the task is not sent this way:
+// it goes in the result (completeWithReply).
 func (d *Daemon) sendAutoReplyAttachments(ctx context.Context, interactionID, body string, atts []delegation.Attachment,
 	meta map[string]any) error {
 	sctx, cancel := context.WithTimeout(ctx, relayCallTimeout)

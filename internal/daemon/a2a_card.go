@@ -124,6 +124,11 @@ func (d *Daemon) publicSkillIDs() []string {
 			continue
 		}
 		seen[id] = true
+		if p.AllowOnly {
+			// On the list variant of the extended card only
+			// (listOnlySkillIDs, CUX-F32).
+			continue
+		}
 		prov, ok := d.providers.Resolve(id)
 		if !ok {
 			continue
@@ -491,6 +496,10 @@ func (d *Daemon) afterCardAnswer(ctx context.Context, hubURL string, body hubapi
 	if err := d.hubSigned(ctx, hubURL, http.MethodPost, "/register", relayauth.ActionRegister, body, &again); err != nil {
 		log.Printf("anet: registering the re-issued network card with %s: %v", hubURL, err)
 		return
+	}
+	// This answer says how the hub confirms the key as well (KEL D-50).
+	if sameHub(hubURL, d.config().HubURL) {
+		d.noteHubNoticeFrom(hubURL, again.KeyStateNotice, again.KeyStateNoticeError)
 	}
 	if d.noteCardAnswer(hubURL, seq, again) {
 		log.Printf("anet: %s still reports a conflict for the network card at seq %d; leaving it", hubURL, seq)

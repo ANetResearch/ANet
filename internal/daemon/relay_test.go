@@ -325,19 +325,19 @@ func joinTestGroup(t testing.TB, d *Daemon, accept bool) {
 // do it without the CLI (the CLI's `anet peers allow` requires a TTY).
 func allowPeers(t testing.TB, d *Daemon, aids ...string) {
 	t.Helper()
-	appendPeerFile(t, d, d.config().inbound().AllowFile, aids...)
+	appendPeerFile(t, d, peersAllowFile, aids...)
 }
 
 // trustPeers appends AIDs to d's peers.trust.
 func trustPeers(t testing.TB, d *Daemon, aids ...string) {
 	t.Helper()
-	appendPeerFile(t, d, d.config().inbound().TrustFile, aids...)
+	appendPeerFile(t, d, peersTrustFile, aids...)
 }
 
 // denyPeers appends AIDs to d's peers.deny.
 func denyPeers(t *testing.T, d *Daemon, aids ...string) {
 	t.Helper()
-	appendPeerFile(t, d, d.config().inbound().DenyFile, aids...)
+	appendPeerFile(t, d, peersDenyFile, aids...)
 }
 
 func appendPeerFile(t testing.TB, d *Daemon, name string, aids ...string) {

@@ -51,6 +51,10 @@ const (
 	// hub held a key set this identity signed and this node did not, and
 	// the tasks in flight were ended (forward-secrecy §2.12, FS-B3).
 	LocalStateLost = "anet.local_state.lost"
+	// IdentityRotated is a key event of this node's identity the witness
+	// accepted: the witness designation, a planned or emergency rotation, a
+	// hub switch or a recover (KEL §2.10), signed by the new key.
+	IdentityRotated = "anet.identity.rotated"
 )
 
 // Source says where the fact an event records came from.
@@ -107,6 +111,7 @@ var registry = []Event{
 	{Type: HubAdmission, Label: "hub join state changed", Source: SourceHub},
 	{Type: RetentionChanged, Label: "content retention changed", Source: SourceNode},
 	{Type: LocalStateLost, Label: "local data went back (tasks in flight ended)", Source: SourceNode},
+	{Type: IdentityRotated, Label: "identity key rotated", Source: SourceNode},
 }
 
 var byType = func() map[string]Event {
@@ -177,6 +182,10 @@ var payloads = map[string]Payload{
 	// The hub's seq of the set this node's data was behind, this node's
 	// last_seq before it (0 when not known), the tasks ended (FS §2.12).
 	LocalStateLost: {Required: []string{"hub_seq", "local_seq", "failed_tasks"}},
+	// The seq of the event, how it was made and the witness that accepted
+	// it (KEL §2.10; core §2.14).
+	IdentityRotated: {Required: []string{"seq", "mode", "witness"},
+		Values: map[string][]string{"mode": {"witness", "scheduled", "emergency", "recover"}}},
 }
 
 // PayloadOf returns the fixed payload of event type t, if it has one.

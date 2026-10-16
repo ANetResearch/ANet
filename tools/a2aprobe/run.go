@@ -449,14 +449,14 @@ func (p *probe) blockingSend(ctx context.Context, cl *a2aclient.Client, id, text
 }
 
 // judgeAnswer checks that a blocking send came back with the answer. A
-// completed task has it as anet.reply. The provider completes a text task
-// with a message and then its result (reply_task(state=completed)); since
-// an internal note item that message carries anet.state=working, so the wait runs on to
-// the result. A provider daemon from before sends it plainly, and the wait
-// ends at the input-required between the two, with the answer as the
-// status message: the client has the answer either way, and the NOTE
-// records that a client reading only the state (Hermes) is told more input
-// is needed.
+// completed task has it as anet.reply. A provider completes a text task
+// with its answer in the result itself (reply_task(state=completed): one
+// message, the reply folded into the result), so the wait ends at
+// completed with the answer. A provider daemon from before sends the
+// answer and then the result, and the wait may end at the input-required
+// between the two, with the answer as the status message: the client has
+// the answer either way, and the NOTE records that a client reading only
+// the state (Hermes) is told more input is needed.
 func (p *probe) judgeAnswer(id string, t *a2a.Task, want string, took time.Duration) {
 	switch t.Status.State {
 	case a2a.TaskStateCompleted:
@@ -467,7 +467,7 @@ func (p *probe) judgeAnswer(id string, t *a2a.Task, want string, took time.Durat
 		if p.rep.check(got == want, id, "after %s at input-required with the answer %q as the status message", took, got) {
 			p.rep.note(id+"-state", "the blocking call ended at the provider's final message, before its result: "+
 				"a client that reads the state (Hermes) shows input-required and 'needs more input' for a finished answer "+
-				"(a provider daemon without an internal note item, which sends that message with anet.state=working)")
+				"(a provider daemon that sends its answer apart from its result)")
 		}
 	default:
 		p.rep.fail(id, "after %s at %s: %q", took, t.Status.State, statusText(t))
@@ -582,7 +582,7 @@ func (p *probe) streamSend(ctx context.Context, cl *a2aclient.Client, tag string
 		}
 		if p.rep.check(endMsg == want, id, "events %v: ended at input-required with the answer %q", kinds, endMsg) {
 			p.rep.note(id+"-state", "the stream ended at the provider's final message, before its result "+
-				"(a provider daemon without an internal note item)")
+				"(a provider daemon that sends its answer apart from its result)")
 		}
 		if done := p.waitTerminal(ctx, cl, taskID, id+"-done"); done != nil {
 			p.checkDoneText(id+"-done", done, want)

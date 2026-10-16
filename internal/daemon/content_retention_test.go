@@ -387,7 +387,7 @@ func TestPendingExpiryDeletesDEK(t *testing.T) {
 		t.Fatalf("level %v, want closed", level)
 	}
 	now := int64(d.nowMS())
-	ttl := int64(d.config().inbound().Pending.TTLHours) * 3600 * 1000
+	ttl := pendingTTL.Milliseconds()
 	if err := d.ix.Update(func(tx *interactions.Tx) error {
 		for _, ix := range []string{"ix_old", "ix_keyless", "ix_new"} {
 			at := now - ttl - 1
