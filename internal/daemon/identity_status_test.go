@@ -771,16 +771,16 @@ func TestIdentityV02RefusesToStart(t *testing.T) {
 				t.Fatal(err)
 			}
 		})
-		if err := CheckDataDirForStart(damaged); err != nil {
-			t.Errorf("%s: the check before the start refused it: %v", name, err)
+		// A damaged file is its own sentence, identity_file_invalid, never 0.2's (KEL-10).
+		if err := CheckDataDirForStart(damaged); !isRefusal(err, "identity_file_invalid") {
+			t.Errorf("%s: the check before the start said %v", name, err)
 		}
 		d, err := New(damaged)
 		if d != nil {
 			d.Close()
 		}
-		var cr *ConfigRefusal
-		if err == nil || errors.As(err, &cr) {
-			t.Errorf("%s: New said %v, want the identity file's own error", name, err)
+		if !isRefusal(err, "identity_file_invalid") {
+			t.Errorf("%s: New said %v, want identity_file_invalid", name, err)
 		}
 	}
 }

@@ -589,3 +589,20 @@ func (d *Daemon) hubKELSyncLoop(ctx context.Context) {
 		}
 	}
 }
+
+// offlineHubKEL is hubKELs for a data directory with no running daemon: the hub's KEL as the store
+// holds it, read without writing, replayed to the AID it is stored under.
+func offlineHubKEL(l Layout, aid string) ([]identity.SignedEvent, bool) {
+	raw, ok, err := interactions.HubKELIn(l.InteractionsDir(), aid)
+	if err != nil || !ok {
+		return nil, false
+	}
+	kel, err := identity.UnmarshalKEL(raw)
+	if err != nil {
+		return nil, false
+	}
+	if got, err := replayedAID(kel); err != nil || got != aid {
+		return nil, false
+	}
+	return kel, true
+}

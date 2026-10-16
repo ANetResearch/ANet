@@ -208,6 +208,8 @@ func TestStartupRepublishesTheCurrentCapabilities(t *testing.T) {
 	fake.mu.Unlock()
 
 	// A fresh Daemon over the same data dir is what a restart is.
+	// The first process has ended: a data directory has one daemon (KEL-10).
+	d.Close()
 	d2, err := New(d.layout)
 	if err != nil {
 		t.Fatal(err)

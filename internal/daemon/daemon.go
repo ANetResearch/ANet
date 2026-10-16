@@ -29,6 +29,8 @@ import (
 // which reads tasks via the CLI (`inbox`/`thread`) and drives the conversation with `anet message` /
 // `anet end`.
 type Daemon struct {
+	// dataLock is the data directory lock, held until Close (datalock.go).
+	dataLock *DataLock
 	// enc is this node's encryption key ring (enckeys.go); publishedKeySeq
 	// is the seq of the key set the hub last confirmed holding.
 	enc             *encKeyRing
@@ -293,6 +295,18 @@ func New(layout Layout) (*Daemon, error) {
 	if err := layout.EnsureRoot(); err != nil {
 		return nil, err
 	}
+	// One daemon per data directory (KEL-10): the lock lives as long as the
+	// process, and the CLI's offline branches look at it.
+	lock, err := AcquireDataLock(layout)
+	if err != nil {
+		return nil, err
+	}
+	lockOwned := false
+	defer func() {
+		if !lockOwned {
+			lock.Release()
+		}
+	}()
 	cfg, err := LoadConfig(layout)
 	if err != nil {
 		return nil, err
@@ -312,9 +326,10 @@ func New(layout Layout) (*Daemon, error) {
 		return nil, fmt.Errorf("anet: open interactions store: %w", err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	d := &Daemon{layout: layout, cfg: cfg, self: self, ix: ix, ctx: ctx, cancel: cancel, started: time.Now(),
+	d := &Daemon{layout: layout, cfg: cfg, self: self, ix: ix, ctx: ctx, cancel: cancel, started: time.Now(), dataLock: lock,
 		stop: make(chan struct{}), autoReplyKick: make(chan struct{}, 1), outboxKick: make(chan struct{}, 1),
 		longCalls: make(chan struct{}, maxConcurrentLongCalls), ready: make(chan struct{})}
+	lockOwned = true
 	d.caps.push.kick = make(chan struct{}, 1)
 	d.loadOfficials()
 	// This node's latest witness notice, checked again, so the outbound gate
@@ -509,6 +524,7 @@ func (d *Daemon) Close() error {
 		if ix != nil {
 			err = ix.Close()
 		}
+		d.dataLock.Release()
 	})
 	return err
 }

@@ -51,6 +51,11 @@ func helpSections() []helpSection {
 		}},
 		{"身份与 hub", "Identity and hub", []helpEntry{
 			{"id ls|new|use|rm", "本机的多个身份：列出、新建、设为缺省、删除（rm 要加 --purge；也可写 anet identity）", "this machine's identities: list, create, make the default, delete (rm needs --purge; also: anet identity)", false},
+			{"identity status [--json]", "本身份的密钥、见证 hub 与恢复文件", "this identity's key, witness hub and recovery file", true},
+			{"identity protect [--recovery-file F]", "设置恢复口令（只在终端；接入 hub 时没有终端的身份用它补设）", "set the recovery passphrase (terminal only; for an identity that joined a hub without one)", true},
+			{"identity rotate [--new-recovery] [--emergency]", "轮换签名密钥；--emergency 用于密钥可能已泄露的情况（需要恢复口令）", "rotate the signing key; --emergency is for when a key may have leaked (needs the recovery passphrase)", false},
+			{"identity recover <recovery-file> [--hub URL] [--name N]", "在本机用恢复文件找回身份（需要恢复口令）", "get an identity back on this machine from its recovery file (needs the recovery passphrase)", false},
+			{"identity deactivate", "永久注销本身份（需要恢复口令；不可撤销）", "deactivate this identity for good (needs the recovery passphrase; it cannot be undone)", false},
 			{"--id <name> <command>", "对指定身份执行任一命令（环境变量 ANET_ID 同样可用）", "run any command for one identity (ANET_ID works too)", false},
 			{"hub-register <url> [--name N] [--caps a,b] [--recovery-file F] [--new-recovery]", "接入 hub；准入制 hub 会打印一行 anet-hub admit，发给运营者即可，批准后自动完成", "join a hub; a hub that admits by AID prints an anet-hub admit line to send its operator, and joining then finishes on its own", true},
 			{"hub-leave [<url>]", "离开一个已不再使用的 hub", "leave a hub you no longer use", false},

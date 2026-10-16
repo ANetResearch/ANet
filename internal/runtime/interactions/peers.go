@@ -20,6 +20,10 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"net/url"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -402,4 +406,35 @@ var wire2Schema = []string{
 	   card_hash BLOB
 	 )`,
 	`CREATE INDEX idx_peer_lru ON peer_identity(pinned_reason, updated_at)`,
+}
+
+// HubKELIn is the KEL stored for the hub aid in the store of dir while no daemon need have it open
+// (`anet identity status`, doctor): the file is opened read-only and nothing in it changes. ok is
+// false when there is no store, no row, or the row is not pinned as a hub's.
+func HubKELIn(dir, aid string) (kel []byte, ok bool, err error) {
+	path := filepath.Join(dir, storeFile)
+	if _, serr := os.Stat(path); serr != nil {
+		return nil, false, nil
+	}
+	if err := CheckStore(dir); err != nil {
+		return nil, false, err
+	}
+	p := filepath.ToSlash(path)
+	if filepath.IsAbs(path) && !strings.HasPrefix(p, "/") {
+		p = "/" + p
+	}
+	db, err := sql.Open("sqlite", "file:"+(&url.URL{Path: p}).EscapedPath()+"?mode=ro&_pragma=busy_timeout(2000)")
+	if err != nil {
+		return nil, false, err
+	}
+	defer db.Close()
+	var pinned string
+	err = db.QueryRow(`SELECT kel,pinned_reason FROM peer_identity WHERE aid=?`, aid).Scan(&kel, &pinned)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	return kel, pinned == PinHub && len(kel) > 0, nil
 }

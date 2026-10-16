@@ -141,3 +141,10 @@ func oldDataDirRefusal() *ConfigRefusal {
 func newerDataDirRefusal() *ConfigRefusal {
 	return &ConfigRefusal{Refusals: []*a2ashape.Refusal{a2ashape.Refuse("datadir_too_new", nil)}}
 }
+
+// invalidIdentityFileRefusal is the refusal of an identity file that is neither 0.2's nor a newer
+// anet's but cannot be read (ux §1.4 E2, identity_file_invalid): the start and doctor say one
+// sentence, with the next step, instead of the Go error text.
+func invalidIdentityFileRefusal(path string) *ConfigRefusal {
+	return &ConfigRefusal{Refusals: []*a2ashape.Refusal{a2ashape.Refuse("identity_file_invalid", a2ashape.Args{"path": path})}}
+}

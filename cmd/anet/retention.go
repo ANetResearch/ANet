@@ -127,6 +127,13 @@ func setRetention(layout daemon.Layout, value string) error {
 	}
 	defer tty.Close()
 	c := retentionDaemon(layout)
+	// A daemon that holds the data directory but does not answer would write the old value back over
+	// a file changed under it: nothing is touched (KEL-10, daemon_not_answering).
+	if c == nil && daemon.DataLockHeld(layout) {
+		args := a2ashape.Args{"path": layout.Root, "dur": probeTimeout}
+		say(retentionStderr, a2ashape.Sentence("daemon_not_answering", lang, args), a2ashape.Next("daemon_not_answering", lang, args))
+		return errExit1
+	}
 	var k int64
 	if c != nil {
 		var ans struct {

@@ -114,6 +114,7 @@ recovery_passphrase_wrong
 recovery_wrong_identity
 recovery_mismatch
 passphrase_too_short
+passphrase_not_utf8
 no_hub_yet
 witness_unreachable
 rotation_pending
@@ -125,6 +126,7 @@ recover_not_witness
 clock_skew
 identity_v02
 datadir_too_new
+identity_file_invalid
 rotation_emergency_done
 identity_deactivated.unconfirmed
 identity.ok
@@ -180,6 +182,7 @@ extended_card_not_configured
 extended_card_unavailable
 extended_card_unavailable.bad_signature
 daemon_not_running
+daemon_not_answering
 aid_invalid
 cli_removed
 config_key_removed

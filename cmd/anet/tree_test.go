@@ -38,13 +38,8 @@ var commandTree = []string{
 // that adds it. It may only shrink: the package that adds a command lists it in the help and takes it
 // off here, or this test is red (the help would be promising nothing, or listing it twice).
 var pendingCommands = map[string]string{
-	"identity status":     "KEL-10", // v030-todo(KEL-10)
-	"identity protect":    "KEL-10", // v030-todo(KEL-10)
-	"identity rotate":     "KEL-10", // v030-todo(KEL-10)
-	"identity recover":    "KEL-10", // v030-todo(KEL-10)
-	"identity deactivate": "KEL-10", // v030-todo(KEL-10)
-	"task watch":          "UX-10",  // v030-todo(UX-10)
-	"preview":             "UX-9",   // v030-todo(UX-9)
+	"task watch": "UX-10", // v030-todo(UX-10)
+	"preview":    "UX-9",  // v030-todo(UX-9)
 }
 
 // helpForms reads the invocations a help text lists: "anet <word>", and "anet <word> <sub>" for the
