@@ -90,7 +90,8 @@ cd "$J"
 cat > "$J/agent-ok.sh" <<'STUB'
 #!/bin/sh
 # 成功:把收到的提示回声出去,好让断言能确认提示真的到了 agent 手里。
-printf 'FLEET-OK %s\n' "$*"
+# The prompt arrives on standard input; a command line carries no task text.
+printf 'FLEET-OK %s %s\n' "$*" "$(cat)"
 STUB
 cat > "$J/agent-fail.sh" <<'STUB'
 #!/bin/sh
@@ -154,12 +155,12 @@ for i in 0 1 2; do
   # 这类文本任务 worker 的目录标签:没有提供方服务它,节点不发 A2A 卡片(策略 closed,无可服务的
   # 公开 skill),对它的能力调用照样被拒;经 MCP 找它们要 include_uncarded(7/7,an internal note item)。
   api "$h" "$p" /inbound/policy '{"public_capabilities":[{"id":"code.write"}]}' >/dev/null
-  api "$h" "$p" /hub-register "{\"hub\":\"$HUB_URL\",\"name\":\"worker-$n\",\"caps\":[\"code.write\"]}" >/dev/null
+  HOME="$h" ./anet hub-register "$HUB_URL" --name "worker-$n" --caps code.write >/dev/null 2>&1
   # exec 后端 + 桩:agent 用 claude 这一档,binary 用 command 覆盖掉。
   api "$h" "$p" /autoreply "{\"backend\":\"exec\",\"agent\":\"claude\",\"command\":\"$J/agent-ok.sh\"}" >/dev/null
   W_AID[$i]=$(api "$h" "$p" /status '{}' | python3 -c 'import sys,json;print(json.load(sys.stdin).get("aid",""))')
 done
-api "$CTRL_HOME" "$CTRL_PORT" /hub-register "{\"hub\":\"$HUB_URL\",\"name\":\"fleet-control\"}" >/dev/null
+HOME="$CTRL_HOME" ./anet hub-register "$HUB_URL" --name fleet-control >/dev/null 2>&1
 # 入站策略默认 closed(A2A-DESIGN §5):worker 只接受 allow 名单里的委派,
 # exec 自动回复只为 trust 名单里的对端拉起本机 agent。控制端两份名单都进。
 # 直接写文件:CLI 的 `anet peers allow/trust` 要在终端确认,脚本没有终端;
