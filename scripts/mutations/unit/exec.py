@@ -1131,7 +1131,7 @@ MUTS += [
  dict(
   id='m-bu-5', group='BU-2', repo='ANet',
   desc='预算按固定 24 小时窗口(UTC 日)而不是 localDayBounds',
-  edits=[('module/autoreply/sandbox_budget.go', '\tb.loadLocked(now, runs)\n\tstart, end := localday.Bounds(now)', '\tb.loadLocked(now, runs)\n\tstart, end := now.Truncate(24*time.Hour), now.Truncate(24*time.Hour).Add(24*time.Hour)')],
+  edits=[('module/autoreply/sandbox_budget.go', '\tstart, end := localday.Bounds(now)\n\tkey := start.UnixMilli()', '\tstart, end := now.Truncate(24*time.Hour), now.Truncate(24*time.Hour).Add(24*time.Hour)\n\tkey := start.UnixMilli()')],
   tests=[(DAEMON, 'TestRunBudgetProperty|TestRunBudgetCountsTheLocalDay|TestTheBudgetAndTheSpendingLimitsShareTheLocalDay')],
   full=[DAEMON],
  ),
@@ -1210,8 +1210,8 @@ MUTS += [
   id='m-gt-2b', group='GT-2', repo='ANet',
   desc='拒绝的状态消息带正文(UX-R1:只带 anet.reason)',
   edits=[('internal/daemon/turnhost.go', 'return d.SendStatus(sctx, ix, state, "", meta)', 'return d.SendStatus(sctx, ix, state, "turned away: "+kernelReason, meta)')],
-  tests=[(DAEMON, 'TestUntrustedRunsAreBudgeted|TestTrustedPeersRunAsTrustedSays')],
-  full=[DAEMON],
+  tests=[(KERNEL, 'TestRefuseTurnReasonAllowlist')],
+  full=[KERNEL],
  ),
  dict(
   id='m-gt-2c', group='GT-2', repo='ANet',
@@ -1223,7 +1223,7 @@ MUTS += [
  dict(
   id='m-gt-5', group='GT-5', repo='ANet',
   desc='恢复 policy open 与 exec untrusted=sandbox 的互斥',
-  edits=[('internal/daemon/inbound.go', '\tif in.Policy != PolicyOpen {\n\t\treturn nil\n\t}\n\tif untrustedBackend {', '\tif in.Policy != PolicyOpen {\n\t\treturn nil\n\t}\n\tif ar := c.AutoReply; ar != nil && ar.Backend == "exec" && ar.UntrustedMode() != UntrustedOff {\n\t\treturn ErrPolicyConflict\n\t}\n\tif untrustedBackend {')],
+  edits=[('internal/daemon/inbound.go', '\tif in.Policy != PolicyOpen {\n\t\treturn nil\n\t}\n\tif untrustedBackend {', '\tif in.Policy != PolicyOpen {\n\t\treturn nil\n\t}\n\tif strings.Contains(string(c.AutoReply), "\"untrusted\":\"sandbox\"") {\n\t\treturn ErrPolicyConflict\n\t}\n\tif untrustedBackend {')],
   tests=[(KERNEL, 'TestOpenWithTheSandboxForUntrustedPeers')],
   full=[KERNEL, DAEMON],
  ),
@@ -1323,7 +1323,7 @@ MUTS += [
  dict(
   id='m-sb-11', group='SB-8', repo='ANet',
   desc='codex 的回复文件按路径读取(沙箱内把它换成指向运营者文件的链接,文件内容作为回复发给对端)',
-  edits=[('module/autoreply/agents.go', 'readWorkFile(dir, filepath.Base(outFile), pathsafe.MaxAttachmentBytes)', 'os.ReadFile(outFile)')],
+  edits=[('module/autoreply/agents.go', 'readWorkFile(dir, filepath.Base(outFile), pathsafe.MaxAttachmentBytes)', 'func() ([]byte, error) { _ = pathsafe.MaxAttachmentBytes; return os.ReadFile(outFile) }()')],
   tests=[(DAEMON, 'TestCodexReplyFileIsNotReadThroughALink')],
   full=[DAEMON],
  ),
