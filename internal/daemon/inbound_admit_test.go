@@ -331,9 +331,17 @@ func TestOneCallerCannotHoldEveryCallSlot(t *testing.T) {
 func TestAllowOnlyIndistinguishable(t *testing.T) {
 	_, _, prov := registeredPair(t)
 	roomyRxBuckets(prov)
-	stranger, denied, listed := newStranger(t), newStranger(t), newStranger(t)
+	stranger, denied := newStranger(t), newStranger(t)
 	denyPeers(t, prov, denied.aid)
-	allowPeers(t, prov, listed.aid)
+	// One listed caller per subtest: a call that is taken keeps running, and
+	// a second call of the same caller meets the in-flight bound
+	// (caller_busy) when the machine is loaded.
+	var listedCallers []sender
+	for i := 0; i < 4; i++ {
+		listedCallers = append(listedCallers, newStranger(t))
+		allowPeers(t, prov, listedCallers[i].aid)
+	}
+	next := 0
 	n := 0
 	type answer struct {
 		class   rxClass
@@ -367,6 +375,8 @@ func TestAllowOnlyIndistinguishable(t *testing.T) {
 			name string
 			call func(sender, string) answer
 		}{{"hub", hubCall}, {"p2p", directCall}} {
+			listed := listedCallers[next]
+			next++
 			t.Run(policy+"/"+path.name, func(t *testing.T) {
 				absent := path.call(stranger, "face.absent")
 				allowOnly := path.call(stranger, "face.compare")
