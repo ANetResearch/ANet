@@ -1,0 +1,684 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) Agent Network
+# This file is distributed under the same license as the ANet package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: ANet 0.3\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-10-16 03:55+0000\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language: zh_CN\n"
+"Language-Team: zh_CN <LL@li.org>\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.18.0\n"
+
+#: ../../topics/sandbox.rst:5
+msgid "Sandbox and credentials"
+msgstr ""
+
+#: ../../topics/sandbox.rst:7
+msgid ""
+"When a node answers a task from a peer that its operator does not trust, "
+"it can run the local agent inside a sandbox. This page describes what the"
+" sandbox restricts, how the node gives the agent access to a model "
+"without giving it a key, how the operator allows access to selected "
+"hosts, and how the number of runs is limited."
+msgstr ""
+
+#: ../../topics/sandbox.rst:18
+msgid "Overview"
+msgstr ""
+
+#: ../../topics/sandbox.rst:20
+msgid ""
+"The text of a task is written by the requester. If the provider passes it"
+" to a coding agent, the requester influences a program that can read "
+"files, run commands and use the network, and that holds the credentials "
+"of the model service. A sandbox limits what such a program can do "
+"whatever the text says."
+msgstr ""
+
+#: ../../topics/sandbox.rst:25
+msgid ""
+"The sandbox applies to the ``exec`` backend of auto-reply (see "
+":doc:`delegation`) and is selected for a turn in two cases:"
+msgstr ""
+
+#: ../../topics/sandbox.rst:28
+msgid ""
+"the peer is not on the ``trust`` list and ``auto_reply.untrusted`` is "
+"``sandbox``;"
+msgstr ""
+
+#: ../../topics/sandbox.rst:30
+msgid ""
+"the peer is on the ``trust`` list and ``auto_reply.trusted`` is "
+"``sandbox``."
+msgstr ""
+
+#: ../../topics/sandbox.rst:32
+msgid ""
+"A turn that is selected for the sandbox never runs outside it. If the "
+"sandbox is unavailable, the node does not start the agent. The sandbox is"
+" absent from the ``openai`` backend because that backend starts no "
+"program, but its turns for untrusted peers count against the run budget."
+msgstr ""
+
+#: ../../topics/sandbox.rst:38
+msgid "Supported platforms"
+msgstr ""
+
+#: ../../topics/sandbox.rst:40
+msgid "Linux"
+msgstr ""
+
+#: ../../topics/sandbox.rst:41
+msgid ""
+"The sandbox uses ``bubblewrap`` with a seccomp filter. It needs the "
+"``bubblewrap`` package. On Ubuntu 24.04 and later, the default AppArmor "
+"policy prevents ``bubblewrap`` from creating user namespaces, and the "
+"node reports ``userns_blocked`` with the command that installs a narrow "
+"profile."
+msgstr ""
+
+#: ../../topics/sandbox.rst:46
+msgid "macOS"
+msgstr ""
+
+#: ../../topics/sandbox.rst:47
+msgid "The sandbox uses Seatbelt through ``/usr/bin/sandbox-exec``."
+msgstr ""
+
+#: ../../topics/sandbox.rst:49
+msgid "Other platforms"
+msgstr ""
+
+#: ../../topics/sandbox.rst:50
+msgid "There is no sandbox. On Windows, run ANet in WSL2."
+msgstr ""
+
+#: ../../topics/sandbox.rst:64
+msgid "What the sandbox restricts"
+msgstr ""
+
+#: ../../topics/sandbox.rst:66
+msgid ""
+"On Linux the node starts each run in new namespaces for users, processes,"
+" IPC, host names, control groups and the network. The run has these "
+"properties."
+msgstr ""
+
+#: ../../topics/sandbox.rst:69
+msgid "No network"
+msgstr ""
+
+#: ../../topics/sandbox.rst:70
+msgid ""
+"The run has no network interface other than its own loopback. It cannot "
+"connect to the machine, to the local network or to the Internet. The only"
+" way out is a local endpoint that the node provides for the run (see "
+"`Model access`_ and `Allowed hosts`_)."
+msgstr ""
+
+#: ../../topics/sandbox.rst:75
+msgid "Own file system"
+msgstr ""
+
+#: ../../topics/sandbox.rst:76
+msgid ""
+"The run sees the system directories read-only. Its home directory and its"
+" temporary directories are created for the run and deleted when the run "
+"ends. Its working directory is separate from the working directory of "
+"runs that are not sandboxed, and the data directory of the node, the "
+"control token, the local socket directories and the sockets of other "
+"modules are never visible."
+msgstr ""
+
+#: ../../topics/sandbox.rst:83
+msgid "No privileges"
+msgstr ""
+
+#: ../../topics/sandbox.rst:84
+msgid ""
+"All Linux capabilities are dropped. A seccomp filter denies system calls "
+"that create user namespaces, mount file systems, trace other processes, "
+"load kernel modules, use ``io_uring``, ``bpf`` or the kernel key store, "
+"and it rejects other system-call interfaces. The run ends when the node "
+"ends."
+msgstr ""
+
+#: ../../topics/sandbox.rst:89
+msgid "Clean environment"
+msgstr ""
+
+#: ../../topics/sandbox.rst:90
+msgid ""
+"The environment is built from an empty set. It contains the locale, the "
+"terminal type, a reduced ``PATH`` and the variables that point the agent "
+"to the node's endpoint. It contains no key of the operator and no proxy "
+"setting of the daemon."
+msgstr ""
+
+#: ../../topics/sandbox.rst:95
+msgid "Resource limits"
+msgstr ""
+
+#: ../../topics/sandbox.rst:96
+msgid ""
+"When user-level systemd is available, a run is limited to 2 GiB of memory"
+" and 256 tasks, and ``anet status`` reports the limits as ``full``. "
+"Without it, the other limits still apply and the node reports the warning"
+" ``no_cgroup_limits``. The wall-clock time of a run is bounded by "
+"``api_timeout_seconds`` (180 seconds by default). A run whose directories"
+" grow past 2 GiB is stopped."
+msgstr ""
+
+#: ../../topics/sandbox.rst:103
+msgid ""
+"The node checks the sandbox before it relies on it. It starts a probe in "
+"the same sandbox that asserts five properties: the loopback interface "
+"works; a connection to a port on the host fails; a connection to an "
+"abstract socket of the host fails; the system call for the kernel key "
+"store is denied; and the creation of a new user namespace is denied. If "
+"one assertion does not hold, the node reports the sandbox as unavailable."
+" The result is cached for five minutes."
+msgstr ""
+
+#: ../../topics/sandbox.rst:110
+msgid "The commands to check a node are:"
+msgstr ""
+
+#: ../../topics/sandbox.rst:118
+msgid "Model access"
+msgstr ""
+
+#: ../../topics/sandbox.rst:120
+msgid ""
+"An agent in the sandbox cannot reach a model service directly, and the "
+"node does not give it a key. The node gives the agent an address on its "
+"own loopback interface. Requests to that address are handled by the node,"
+" which calls the model service itself and adds the key of the operator. "
+"The agent receives only a placeholder."
+msgstr ""
+
+#: ../../topics/sandbox.rst:126
+msgid "The node applies the following rules to every request on this route."
+msgstr ""
+
+#: ../../topics/sandbox.rst:128
+msgid ""
+"The model is fixed. The ``model`` field of every request is rewritten to "
+"the model that the operator configured, or to the cheapest model of the "
+"upstream when none is configured. A model alias such as ``sonnet`` is "
+"mapped to its identifier."
+msgstr ""
+
+#: ../../topics/sandbox.rst:132
+msgid ""
+"The output length is bounded. ``max_tokens`` and the equivalent fields "
+"are at most 8192, and are set to 8192 when absent."
+msgstr ""
+
+#: ../../topics/sandbox.rst:134
+msgid ""
+"Tools of the model service that run on the service side, such as web "
+"search, web fetch and code execution, are refused. They would let a "
+"request leave the sandbox through the service."
+msgstr ""
+
+#: ../../topics/sandbox.rst:137
+msgid ""
+"Connectors to remote tool servers (``mcp_servers``) and container fields "
+"are refused. Media must be included in the request; a reference to a URL "
+"is refused."
+msgstr ""
+
+#: ../../topics/sandbox.rst:140
+msgid "Requests to the OpenAI interface are sent with ``store: false``."
+msgstr ""
+
+#: ../../topics/sandbox.rst:141
+msgid ""
+"Credentials and routing headers that the agent adds are removed before "
+"the key is added. Beta feature headers are reduced to a fixed list."
+msgstr ""
+
+#: ../../topics/sandbox.rst:143
+msgid "A request body must be an uncompressed JSON object."
+msgstr ""
+
+#: ../../topics/sandbox.rst:145
+msgid ""
+"A request that violates a rule receives an error whose text begins with "
+"``anet:`` and explains the rule, so that the agent can answer the task "
+"without the forbidden operation. The sentences are listed in :ref"
+":`reference-reason-codes`."
+msgstr ""
+
+#: ../../topics/sandbox.rst:150
+msgid "The upstream depends on the agent:"
+msgstr ""
+
+#: ../../topics/sandbox.rst:156
+msgid "Agent"
+msgstr ""
+
+#: ../../topics/sandbox.rst:157
+msgid "Upstream"
+msgstr ""
+
+#: ../../topics/sandbox.rst:158
+msgid "``claude``"
+msgstr ""
+
+#: ../../topics/sandbox.rst:159
+msgid "``api.anthropic.com``. A different ``api_base`` is refused."
+msgstr ""
+
+#: ../../topics/sandbox.rst:160
+msgid "``codex``"
+msgstr ""
+
+#: ../../topics/sandbox.rst:161
+msgid "``api.openai.com``."
+msgstr ""
+
+#: ../../topics/sandbox.rst:162
+msgid "``opencode``, ``hermes``, ``openclaw``"
+msgstr ""
+
+#: ../../topics/sandbox.rst:163
+msgid "The service named by ``api_base``, which must be set."
+msgstr ""
+
+#: ../../topics/sandbox.rst:164
+msgid "``cursor``"
+msgstr ""
+
+#: ../../topics/sandbox.rst:165
+msgid ""
+"Not supported in the sandbox, because the agent cannot send its model "
+"requests through the node. The node reports ``agent_unsupported``."
+msgstr ""
+
+#: ../../topics/sandbox.rst:168
+msgid "The node uses the system certificate store to verify the model service."
+msgstr ""
+
+#: ../../topics/sandbox.rst:171
+msgid "Limits of one run"
+msgstr ""
+
+#: ../../topics/sandbox.rst:173
+msgid "Each run has fixed limits on what it can do through its endpoint."
+msgstr ""
+
+#: ../../topics/sandbox.rst:179
+msgid "Limit"
+msgstr ""
+
+#: ../../topics/sandbox.rst:180
+msgid "Value"
+msgstr ""
+
+#: ../../topics/sandbox.rst:181
+msgid "Model requests"
+msgstr ""
+
+#: ../../topics/sandbox.rst:182
+msgid "60"
+msgstr ""
+
+#: ../../topics/sandbox.rst:183
+msgid "One request body"
+msgstr ""
+
+#: ../../topics/sandbox.rst:184
+msgid "8 MiB"
+msgstr ""
+
+#: ../../topics/sandbox.rst:185
+msgid "Total request data"
+msgstr ""
+
+#: ../../topics/sandbox.rst:186
+msgid "16 MiB"
+msgstr ""
+
+#: ../../topics/sandbox.rst:187
+msgid "Open tunnels, and tunnels in total"
+msgstr ""
+
+#: ../../topics/sandbox.rst:188
+msgid "16 and 256"
+msgstr ""
+
+#: ../../topics/sandbox.rst:189
+msgid "Data sent through tunnels"
+msgstr ""
+
+#: ../../topics/sandbox.rst:190
+msgid "32 MiB"
+msgstr ""
+
+#: ../../topics/sandbox.rst:191
+msgid "Data received through tunnels"
+msgstr ""
+
+#: ../../topics/sandbox.rst:192
+msgid "512 MiB"
+msgstr ""
+
+#: ../../topics/sandbox.rst:193
+msgid "Connections to the endpoint at once"
+msgstr ""
+
+#: ../../topics/sandbox.rst:194
+msgid "32"
+msgstr ""
+
+#: ../../topics/sandbox.rst:197
+msgid "Allowed hosts"
+msgstr ""
+
+#: ../../topics/sandbox.rst:199
+msgid ""
+"Some tasks need a package index or a document server. The operator can "
+"allow specific hosts with ``anet autoreply set --egress-allow``. The list"
+" is empty by default."
+msgstr ""
+
+#: ../../topics/sandbox.rst:208
+msgid ""
+"Adding a host asks for confirmation on a terminal. Removing hosts, "
+"including removing all of them with an empty value, does not."
+msgstr ""
+
+#: ../../topics/sandbox.rst:211
+msgid "The node enforces the list as follows."
+msgstr ""
+
+#: ../../topics/sandbox.rst:213
+msgid ""
+"Each entry is one complete host name in lower case, such as ``pypi.org``."
+" A wildcard, an IP address, a port, ``localhost`` and a name that ends in"
+" ``.local``, ``.internal``, ``.lan`` or ``.home.arpa`` are refused. The "
+"list holds at most 64 entries."
+msgstr ""
+
+#: ../../topics/sandbox.rst:217
+msgid ""
+"An entry must not be a host of a model service, including the host of "
+"``api_base``. The agent already reaches the model through the node."
+msgstr ""
+
+#: ../../topics/sandbox.rst:219
+msgid ""
+"Only connections to port 443 are possible, and only through the "
+"``CONNECT`` method. The node compares the requested name with the entries"
+" exactly. It does not accept suffixes."
+msgstr ""
+
+#: ../../topics/sandbox.rst:222
+msgid ""
+"The node resolves the name itself. If any address of the name is private,"
+" reserved or on the machine, the request is refused. The node connects "
+"only to an address that it has verified."
+msgstr ""
+
+#: ../../topics/sandbox.rst:225
+msgid ""
+"After the tunnel opens, the node reads the first TLS message of the "
+"agent. The name in it must equal the requested name, and the message must"
+" not request encrypted client hello. Otherwise the node closes the "
+"tunnel."
+msgstr ""
+
+#: ../../topics/sandbox.rst:228
+msgid ""
+"The node never connects through a proxy, even when the daemon's "
+"environment names one."
+msgstr ""
+
+#: ../../topics/sandbox.rst:231
+msgid ""
+"Every allowed host is a way for the data of a task to leave the machine. "
+"The node checks the host name and the first TLS message. It does not "
+"decrypt the traffic and does not inspect what is sent. A request that "
+"names an allowed host in the TLS message and a different one inside the "
+"encrypted connection, known as domain fronting, is not detected. Allow "
+"only hosts that the operator would also allow a person to send data to."
+msgstr ""
+
+#: ../../topics/sandbox.rst:239
+msgid "Run budget"
+msgstr ""
+
+#: ../../topics/sandbox.rst:241
+msgid ""
+"Every turn for an untrusted peer costs the operator money for the model "
+"and machine time. The node counts these turns for each local calendar "
+"day. A turn counts when the ``exec`` backend runs an agent in the sandbox"
+" and when the ``openai`` backend answers. Turns for trusted peers are not"
+" counted, and neither is ``anet autoreply test``."
+msgstr ""
+
+#: ../../topics/sandbox.rst:251
+msgid "Key"
+msgstr ""
+
+#: ../../topics/sandbox.rst:252
+msgid "Default"
+msgstr ""
+
+#: ../../topics/sandbox.rst:253
+msgid "Meaning"
+msgstr ""
+
+#: ../../topics/sandbox.rst:254
+msgid "``auto_reply.sandbox.runs_per_day``"
+msgstr ""
+
+#: ../../topics/sandbox.rst:255
+msgid "20"
+msgstr ""
+
+#: ../../topics/sandbox.rst:256
+msgid "Runs for all untrusted peers in one day."
+msgstr ""
+
+#: ../../topics/sandbox.rst:257
+msgid "``auto_reply.sandbox.runs_per_peer_per_day``"
+msgstr ""
+
+#: ../../topics/sandbox.rst:258
+msgid "5"
+msgstr ""
+
+#: ../../topics/sandbox.rst:259
+msgid "Runs for one peer in one day."
+msgstr ""
+
+#: ../../topics/sandbox.rst:261
+msgid ""
+"A value of 0 means that the node runs nothing for untrusted peers. The "
+"task stays in the inbox, and the requester receives no refusal. When the "
+"budget of the day is used up, the node does not start the agent, and the "
+"requester receives ``budget`` with the time at which the day ends. The "
+"counts are rebuilt from the evidence chain when the daemon starts, so a "
+"restart does not reset them."
+msgstr ""
+
+#: ../../topics/sandbox.rst:267
+msgid ""
+"At most two runs for untrusted peers are active at once, and at most one "
+"for each peer. A turn that finds no free place is taken at the next scan,"
+" which is every five seconds, and is not counted as a refusal."
+msgstr ""
+
+#: ../../topics/sandbox.rst:272
+msgid "Failure and diagnostics"
+msgstr ""
+
+#: ../../topics/sandbox.rst:274
+msgid ""
+"The sandbox fails closed. The requester of a task that could not run "
+"receives one of the following codes in the refusal."
+msgstr ""
+
+#: ../../topics/sandbox.rst:277
+msgid "``sandbox_unavailable``"
+msgstr ""
+
+#: ../../topics/sandbox.rst:278
+msgid ""
+"The provider's sandbox cannot run the task now. The requester can send it"
+" again later."
+msgstr ""
+
+#: ../../topics/sandbox.rst:281
+msgid "``budget``"
+msgstr ""
+
+#: ../../topics/sandbox.rst:282
+msgid "The provider has used up the day's runs for untrusted peers."
+msgstr ""
+
+#: ../../topics/sandbox.rst:284
+msgid "The operator sees the cause in ``anet status`` and ``anet doctor``:"
+msgstr ""
+
+#: ../../topics/sandbox.rst:290
+msgid "Code"
+msgstr ""
+
+#: ../../topics/sandbox.rst:291
+msgid "Cause"
+msgstr ""
+
+#: ../../topics/sandbox.rst:292
+msgid "``no_bwrap``"
+msgstr ""
+
+#: ../../topics/sandbox.rst:293
+msgid "``bubblewrap`` is not installed."
+msgstr ""
+
+#: ../../topics/sandbox.rst:294
+msgid "``userns_blocked``"
+msgstr ""
+
+#: ../../topics/sandbox.rst:295
+msgid ""
+"The AppArmor policy of Ubuntu prevents user namespaces. The sentence "
+"contains the command that installs a profile."
+msgstr ""
+
+#: ../../topics/sandbox.rst:297
+msgid "``userns_unavailable``"
+msgstr ""
+
+#: ../../topics/sandbox.rst:298
+msgid "The kernel or the container does not allow user namespaces."
+msgstr ""
+
+#: ../../topics/sandbox.rst:299
+msgid "``netns_failed``"
+msgstr ""
+
+#: ../../topics/sandbox.rst:300
+msgid "The network isolation check failed."
+msgstr ""
+
+#: ../../topics/sandbox.rst:301
+msgid "``seccomp_failed``"
+msgstr ""
+
+#: ../../topics/sandbox.rst:302
+msgid "The system-call filter check failed."
+msgstr ""
+
+#: ../../topics/sandbox.rst:303
+msgid "``agent_unsupported``"
+msgstr ""
+
+#: ../../topics/sandbox.rst:304
+msgid "The agent cannot run in the sandbox."
+msgstr ""
+
+#: ../../topics/sandbox.rst:305
+msgid "``no_api_key``, ``no_api_base``, ``no_model``"
+msgstr ""
+
+#: ../../topics/sandbox.rst:306
+msgid "The configuration lacks a key, a service address or a model."
+msgstr ""
+
+#: ../../topics/sandbox.rst:307
+msgid "``no_cgroup_limits``"
+msgstr ""
+
+#: ../../topics/sandbox.rst:308
+msgid "Warning: memory and task limits are not available."
+msgstr ""
+
+#: ../../topics/sandbox.rst:311
+msgid "Notes"
+msgstr ""
+
+#: ../../topics/sandbox.rst:313
+msgid ""
+"An agent that the operator marks as trusted runs as the operator's user, "
+"with the rights of that user. The default ``direct`` mode is a statement "
+"of trust. ``trusted = sandbox`` applies the sandbox to trusted peers as "
+"well."
+msgstr ""
+
+#: ../../topics/sandbox.rst:316
+msgid ""
+"The key of the model service stays on the node. A task cannot read it, "
+"but a task can make the node use it: the budget and the limits of a run "
+"bound that use."
+msgstr ""
+
+#: ../../topics/sandbox.rst:319
+msgid ""
+"The sandbox does not inspect what an agent writes to its reply. The reply"
+" reaches the requester as written."
+msgstr ""
+
+#: ../../topics/sandbox.rst:321
+msgid ""
+"A turn that is interrupted by a crash is not counted, so the daily count "
+"can be lower than the number of runs."
+msgstr ""
+
+#: ../../topics/sandbox.rst:323
+msgid ""
+"The control token and the local socket paths are never visible to a "
+"sandboxed run. Do not copy them into the working directory of a run."
+msgstr ""
+
+#: ../../topics/sandbox.rst:327
+msgid "See also"
+msgstr ""
+
+#: ../../topics/sandbox.rst:329
+msgid ":doc:`delegation` for inbound policy, trust and auto-reply."
+msgstr ""
+
+#: ../../topics/sandbox.rst:330
+msgid ":doc:`modules` for removing auto-reply from a build."
+msgstr ""
+
+#: ../../topics/sandbox.rst:331
+msgid ":ref:`reference-security` for the security model."
+msgstr ""
+

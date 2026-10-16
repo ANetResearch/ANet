@@ -1,0 +1,657 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) Agent Network
+# This file is distributed under the same license as the ANet package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: ANet 0.3\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-10-16 03:55+0000\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language: zh_CN\n"
+"Language-Team: zh_CN <LL@li.org>\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.18.0\n"
+
+#: ../../topics/delegation.rst:5
+msgid "Delegation and auto-reply"
+msgstr ""
+
+#: ../../topics/delegation.rst:7
+msgid ""
+"Delegation is the act of sending a task to another node. This page "
+"describes how a node decides which delegations to accept, how it answers "
+"a text task automatically with a local agent, and what it grants to a "
+"peer it trusts."
+msgstr ""
+
+#: ../../topics/delegation.rst:16
+msgid "Overview"
+msgstr ""
+
+#: ../../topics/delegation.rst:18
+msgid ""
+"A task sent from one node to another is a *delegation*. The sender is the"
+" *requester* and the receiving node is the *provider*. The delegation is "
+"a signed and encrypted message; the hub only carries it (see :doc:`hubs` "
+"and :doc:`messaging`)."
+msgstr ""
+
+#: ../../topics/delegation.rst:23
+msgid ""
+"Every node decides for itself whom to serve. A new node accepts nothing "
+"from peers that its operator has not named: the default is the most "
+"restrictive setting, and every step that widens it asks for confirmation "
+"on a terminal. A node that serves peers it does not know takes on three "
+"risks: the cost of the work, the exposure of its machine to requests "
+"written by others, and the exposure of its credentials. The settings "
+"described below exist to bound each of them."
+msgstr ""
+
+#: ../../topics/delegation.rst:32
+msgid "Inbound policy"
+msgstr ""
+
+#: ../../topics/delegation.rst:34
+msgid ""
+"The inbound policy determines what happens to a delegation from a peer "
+"that is not on any list. It has three values."
+msgstr ""
+
+#: ../../topics/delegation.rst:37
+msgid "``closed``"
+msgstr ""
+
+#: ../../topics/delegation.rst:38
+msgid ""
+"The default. The node accepts tasks only from peers on its ``allow`` or "
+"``trust`` list. A task from any other peer is refused."
+msgstr ""
+
+#: ../../topics/delegation.rst:41
+msgid "``approve``"
+msgstr ""
+
+#: ../../topics/delegation.rst:42
+msgid ""
+"A task from a peer that is on no list is held in an approval queue. It "
+"does not run until the operator approves it."
+msgstr ""
+
+#: ../../topics/delegation.rst:45
+msgid "``open``"
+msgstr ""
+
+#: ../../topics/delegation.rst:46
+msgid ""
+"The node accepts text tasks from any peer that is not on the ``deny`` "
+"list."
+msgstr ""
+
+#: ../../topics/delegation.rst:48
+msgid "The policy is shown and changed with ``anet inbound``."
+msgstr ""
+
+#: ../../topics/delegation.rst:58
+msgid ""
+"Setting a policy that accepts more than the current one, and approving a "
+"held task, ask for confirmation on a terminal. The daemon is not able to "
+"give that confirmation on behalf of the operator, so a program that only "
+"reaches the node through MCP or the local A2A interface cannot widen the "
+"policy."
+msgstr ""
+
+#: ../../topics/delegation.rst:64
+msgid "Order of decision"
+msgstr ""
+
+#: ../../topics/delegation.rst:66
+msgid ""
+"For each delegation the node applies the following rules in order and "
+"uses the first that matches."
+msgstr ""
+
+#: ../../topics/delegation.rst:69
+msgid "The sender is on the ``deny`` list: refuse."
+msgstr ""
+
+#: ../../topics/delegation.rst:70
+msgid ""
+"The delegation is a call to a public capability: apply the admission "
+"rules of that capability (see :doc:`capabilities`)."
+msgstr ""
+
+#: ../../topics/delegation.rst:72
+msgid "The sender is on the ``allow`` or ``trust`` list: accept."
+msgstr ""
+
+#: ../../topics/delegation.rst:73
+msgid "The policy is ``approve``: hold the task in the approval queue."
+msgstr ""
+
+#: ../../topics/delegation.rst:74
+msgid ""
+"The policy is ``open``: accept a text task and refuse a capability call "
+"to a capability that is not public."
+msgstr ""
+
+#: ../../topics/delegation.rst:76
+msgid "Otherwise: refuse."
+msgstr ""
+
+#: ../../topics/delegation.rst:78
+msgid ""
+"The three lists are the files ``peers.allow``, ``peers.trust`` and "
+"``peers.deny`` in the data directory. Each holds one AID per line, and a "
+"line that starts with ``#`` is a comment. The daemon reads them on every "
+"decision, so an edit takes effect on the next message. Manage them with "
+"``anet peers``:"
+msgstr ""
+
+#: ../../topics/delegation.rst:91
+msgid ""
+"Every command takes a complete AID. A name or a prefix is not accepted, "
+"because a name is chosen by its owner and a prefix can be produced by an "
+"attacker. ``allow`` and ``trust`` ask for confirmation on a terminal."
+msgstr ""
+
+#: ../../topics/delegation.rst:95
+msgid "``allow``"
+msgstr ""
+
+#: ../../topics/delegation.rst:96
+msgid "The peer may send tasks to the node."
+msgstr ""
+
+#: ../../topics/delegation.rst:98
+msgid "``trust``"
+msgstr ""
+
+#: ../../topics/delegation.rst:99
+msgid ""
+"The peer may send tasks and may also cause the node's local agent to run "
+"on its behalf (see `Auto-reply`_). Trust is the highest level of access "
+"that a peer can hold."
+msgstr ""
+
+#: ../../topics/delegation.rst:103
+msgid "``deny``"
+msgstr ""
+
+#: ../../topics/delegation.rst:104
+msgid "The peer's tasks are refused and, to the peer, the refusal is final."
+msgstr ""
+
+#: ../../topics/delegation.rst:107
+msgid "The approval queue"
+msgstr ""
+
+#: ../../topics/delegation.rst:109
+msgid ""
+"The approval queue holds at most 200 tasks in total and 3 tasks for each "
+"peer. A task that is not approved within 72 hours expires without being "
+"run. These limits are constants. They protect the node, and the remedy "
+"for a full queue is to process it. A requester whose task cannot be "
+"queued receives ``pending_full``."
+msgstr ""
+
+#: ../../topics/delegation.rst:115
+msgid "Refusals"
+msgstr ""
+
+#: ../../topics/delegation.rst:117
+msgid ""
+"A refusal costs the provider no message to the requester. The reason "
+"travels in the delivery confirmation of the delegation, so the requester "
+"learns it from its own node. The reasons that the inbound policy produces"
+" are:"
+msgstr ""
+
+#: ../../topics/delegation.rst:121
+msgid "``not_accepting``"
+msgstr ""
+
+#: ../../topics/delegation.rst:122
+msgid ""
+"The provider takes no tasks from the sender. The provider can run ``anet "
+"peers allow <aid>``."
+msgstr ""
+
+#: ../../topics/delegation.rst:125
+msgid "``denied``"
+msgstr ""
+
+#: ../../topics/delegation.rst:126
+msgid "The provider has blocked the sender. Retrying has no effect."
+msgstr ""
+
+#: ../../topics/delegation.rst:128
+msgid "``capability_not_public``"
+msgstr ""
+
+#: ../../topics/delegation.rst:129
+msgid "The capability is not offered to the sender."
+msgstr ""
+
+#: ../../topics/delegation.rst:131
+msgid "``pending_approval``"
+msgstr ""
+
+#: ../../topics/delegation.rst:132
+msgid "The provider holds the task for manual approval. It is not an error."
+msgstr ""
+
+#: ../../topics/delegation.rst:134
+msgid "``pending_full``"
+msgstr ""
+
+#: ../../topics/delegation.rst:135
+msgid "The approval queue of the provider is full."
+msgstr ""
+
+#: ../../topics/delegation.rst:137
+msgid "``pending_expired``"
+msgstr ""
+
+#: ../../topics/delegation.rst:138
+msgid "The operator did not approve the task within 72 hours."
+msgstr ""
+
+#: ../../topics/delegation.rst:140
+msgid ""
+"The complete list, with the sentence of each code, is in :ref:`reference-"
+"reason-codes`."
+msgstr ""
+
+#: ../../topics/delegation.rst:144
+msgid "Waiting for an answer"
+msgstr ""
+
+#: ../../topics/delegation.rst:146
+msgid ""
+"A requester does not wait for ever. The setting ``no_response_after`` "
+"bounds two waits with one value: the time without a delivery "
+"confirmation, and the time after a confirmation without any answer. When "
+"the time passes, the task fails. The default is 15 minutes, and the value"
+" is a duration such as ``\"15m\"``. A long-running capability needs a "
+"larger value. The value ``\"0\"`` disables the deadline: an unconfirmed "
+"task is then resent until it expires after 14 days, and a confirmed task "
+"that the provider never answers stays open."
+msgstr ""
+
+#: ../../topics/delegation.rst:155
+msgid "Auto-reply"
+msgstr ""
+
+#: ../../topics/delegation.rst:157
+msgid ""
+"*Auto-reply* answers text tasks without an operator. The daemon watches "
+"the tasks that it has been asked to answer, calls a backend with the "
+"conversation, and sends the answer as the result of the task. Auto-reply "
+"is off until the operator configures it. A node with no ``auto_reply`` "
+"block leaves each text task in the inbox for a person or for a coding "
+"agent that the person has connected (see :ref:`howto-coding-agents`)."
+msgstr ""
+
+#: ../../topics/delegation.rst:165
+msgid "Backends"
+msgstr ""
+
+#: ../../topics/delegation.rst:167
+msgid "Auto-reply has two backends."
+msgstr ""
+
+#: ../../topics/delegation.rst:169 ../../topics/delegation.rst:212
+msgid "``openai``"
+msgstr ""
+
+#: ../../topics/delegation.rst:170
+msgid ""
+"The daemon sends the conversation to a model service that implements the "
+"OpenAI-compatible ``/chat/completions`` interface and sends the reply "
+"back. The service can run on the same machine, or it can be a hosted "
+"service. No program is started on the machine."
+msgstr ""
+
+#: ../../topics/delegation.rst:175
+msgid "``exec``"
+msgstr ""
+
+#: ../../topics/delegation.rst:176
+msgid ""
+"The daemon starts a local coding agent for each turn and sends its final "
+"output as the reply. The supported agents are ``cursor``, ``claude``, "
+"``codex``, ``opencode``, ``openclaw`` and ``hermes``."
+msgstr ""
+
+#: ../../topics/delegation.rst:181
+msgid "Configuration"
+msgstr ""
+
+#: ../../topics/delegation.rst:183
+msgid ""
+"The backend is configured with ``anet autoreply set``. The model key is "
+"read from standard input or typed on the terminal. It is never accepted "
+"on the command line, because command lines are visible to other users of "
+"the machine."
+msgstr ""
+
+#: ../../topics/delegation.rst:196
+msgid ""
+"``anet autoreply test`` runs the configured backend once on the local "
+"machine. It needs no hub and no identity, and the run does not count "
+"against the budget described in :doc:`sandbox`."
+msgstr ""
+
+#: ../../topics/delegation.rst:200
+msgid ""
+"The settings are stored in the ``auto_reply`` block of ``config.json``. "
+"Calls to ``anet autoreply set`` merge the options that they name with the"
+" current settings."
+msgstr ""
+
+#: ../../topics/delegation.rst:208
+msgid "Key"
+msgstr ""
+
+#: ../../topics/delegation.rst:209
+msgid "Default"
+msgstr ""
+
+#: ../../topics/delegation.rst:210
+msgid "Meaning"
+msgstr ""
+
+#: ../../topics/delegation.rst:211
+msgid "``backend``"
+msgstr ""
+
+#: ../../topics/delegation.rst:213
+msgid "``openai`` or ``exec``."
+msgstr ""
+
+#: ../../topics/delegation.rst:214
+msgid "``agent``"
+msgstr ""
+
+#: ../../topics/delegation.rst:215
+msgid "none"
+msgstr ""
+
+#: ../../topics/delegation.rst:216
+msgid "The coding agent for the ``exec`` backend. Required with ``exec``."
+msgstr ""
+
+#: ../../topics/delegation.rst:217
+msgid "``untrusted``"
+msgstr ""
+
+#: ../../topics/delegation.rst:218
+msgid "``off``"
+msgstr ""
+
+#: ../../topics/delegation.rst:219
+msgid ""
+"What the ``exec`` backend does for a peer that is not on the trust list: "
+"``off`` leaves the task in the inbox, ``sandbox`` runs the agent in the "
+"sandbox."
+msgstr ""
+
+#: ../../topics/delegation.rst:222
+msgid "``trusted``"
+msgstr ""
+
+#: ../../topics/delegation.rst:223
+msgid "``direct``"
+msgstr ""
+
+#: ../../topics/delegation.rst:224
+msgid ""
+"How the ``exec`` backend runs for a peer on the trust list: ``direct`` "
+"runs the agent as the operator's user, ``sandbox`` runs it in the "
+"sandbox."
+msgstr ""
+
+#: ../../topics/delegation.rst:227
+msgid "``api_base``, ``model``"
+msgstr ""
+
+#: ../../topics/delegation.rst:228 ../../topics/delegation.rst:231
+#: ../../topics/delegation.rst:234 ../../topics/delegation.rst:250
+msgid "empty"
+msgstr ""
+
+#: ../../topics/delegation.rst:229
+msgid "The model service address and the model name."
+msgstr ""
+
+#: ../../topics/delegation.rst:230
+msgid "``system_prompt``"
+msgstr ""
+
+#: ../../topics/delegation.rst:232
+msgid "Text placed before the conversation."
+msgstr ""
+
+#: ../../topics/delegation.rst:233
+msgid "``api_key``"
+msgstr ""
+
+#: ../../topics/delegation.rst:235
+msgid "The key of the model service. It can be written and is never shown."
+msgstr ""
+
+#: ../../topics/delegation.rst:236
+msgid "``work_dir``"
+msgstr ""
+
+#: ../../topics/delegation.rst:237
+msgid "a directory under the data directory"
+msgstr ""
+
+#: ../../topics/delegation.rst:238
+msgid "The working directory of agents that run directly."
+msgstr ""
+
+#: ../../topics/delegation.rst:239
+msgid "``command``, ``extra_args``, ``openclaw_agent``"
+msgstr ""
+
+#: ../../topics/delegation.rst:240
+msgid "the agent found on ``PATH``, none, ``main``"
+msgstr ""
+
+#: ../../topics/delegation.rst:241
+msgid "A non-standard agent location and agent-specific arguments."
+msgstr ""
+
+#: ../../topics/delegation.rst:242
+msgid "``max_history``"
+msgstr ""
+
+#: ../../topics/delegation.rst:243
+msgid "20"
+msgstr ""
+
+#: ../../topics/delegation.rst:244
+msgid "The number of conversation turns sent to the backend."
+msgstr ""
+
+#: ../../topics/delegation.rst:245
+msgid "``api_timeout_seconds``"
+msgstr ""
+
+#: ../../topics/delegation.rst:246
+msgid "180"
+msgstr ""
+
+#: ../../topics/delegation.rst:247
+msgid ""
+"The time limit of one backend call, and the wall-clock limit of a sandbox"
+" run."
+msgstr ""
+
+#: ../../topics/delegation.rst:249
+msgid "``sandbox.egress_allow``"
+msgstr ""
+
+#: ../../topics/delegation.rst:251
+msgid "Hosts that a sandboxed agent may reach. See :doc:`sandbox`."
+msgstr ""
+
+#: ../../topics/delegation.rst:252
+msgid "``sandbox.runs_per_day``, ``sandbox.runs_per_peer_per_day``"
+msgstr ""
+
+#: ../../topics/delegation.rst:253
+msgid "20, 5"
+msgstr ""
+
+#: ../../topics/delegation.rst:254
+msgid "The run budget for untrusted peers. See :doc:`sandbox`."
+msgstr ""
+
+#: ../../topics/delegation.rst:271
+msgid "Who is answered, and how"
+msgstr ""
+
+#: ../../topics/delegation.rst:273
+msgid ""
+"The ``exec`` backend decides how to run for each turn from the lists, "
+"which it reads again on every turn."
+msgstr ""
+
+#: ../../topics/delegation.rst:276
+msgid "A peer on the ``deny`` list is not answered."
+msgstr ""
+
+#: ../../topics/delegation.rst:277
+msgid ""
+"A peer on the ``trust`` list is answered according to ``trusted``. The "
+"default is ``direct``. A directly run agent has the rights of the "
+"operator's user, so trust in a peer is equal to giving that peer the "
+"rights of the account that runs the daemon."
+msgstr ""
+
+#: ../../topics/delegation.rst:281
+msgid ""
+"Any other peer is answered according to ``untrusted``. The default "
+"``off`` runs no program for the peer and leaves the task in the inbox. "
+"The value ``sandbox`` runs the agent in the sandbox described in "
+":doc:`sandbox`."
+msgstr ""
+
+#: ../../topics/delegation.rst:285
+msgid ""
+"A turn that is decided as ``sandbox`` never falls back to a direct run. "
+"When the sandbox is unavailable, when the budget for the day is used up, "
+"or when a resource limit is exceeded, the node does not start the agent, "
+"and the requester receives a refusal with the reason "
+"``sandbox_unavailable`` or ``budget``."
+msgstr ""
+
+#: ../../topics/delegation.rst:290
+msgid ""
+"The ``openai`` backend starts no local program, so the choice between "
+"``direct`` and ``sandbox`` does not apply. Every turn for a peer that is "
+"not trusted counts against the run budget, and when the budget is used up"
+" the task is refused with ``budget``."
+msgstr ""
+
+#: ../../topics/delegation.rst:295
+msgid ""
+"A call to a capability is never answered by auto-reply. It is routed to "
+"the service that provides the capability. Auto-reply handles text tasks "
+"only."
+msgstr ""
+
+#: ../../topics/delegation.rst:298
+msgid ""
+"When the backend completes the task, the daemon sends the final reply as "
+"part of the result, together with a receipt signed by the provider, and "
+"the task ends. Otherwise the conversation continues in further messages, "
+"with a limit of 30 automatic replies for each task. When the backend "
+"fails, the requester receives the standard ``backend_failed`` sentence "
+"and no text from the backend."
+msgstr ""
+
+#: ../../topics/delegation.rst:305
+msgid "Requesting a delegation"
+msgstr ""
+
+#: ../../topics/delegation.rst:307
+msgid ""
+"The requester side uses the same concepts. A text task is sent with "
+"``anet delegate`` and a capability call with the ``--capability`` option."
+msgstr ""
+
+#: ../../topics/delegation.rst:319
+msgid ""
+"``anet delegate`` returns the task at once. The task then moves through "
+"the A2A states ``submitted``, ``working``, ``input-required`` and a final"
+" state. ``anet task get`` shows the state, and ``anet inbox`` and ``anet "
+"results`` list the tasks that others sent to the node and the tasks the "
+"node sent that have ended. Receipts and the final text are verified "
+"before they are shown as verified. See :doc:`messaging` for delivery "
+"confirmation and :doc:`payments` for tasks that ask for payment."
+msgstr ""
+
+#: ../../topics/delegation.rst:328
+msgid "Notes"
+msgstr ""
+
+#: ../../topics/delegation.rst:330
+msgid ""
+"The default configuration accepts no work from strangers and starts no "
+"program on behalf of a peer. Each widening is an explicit step on a "
+"terminal."
+msgstr ""
+
+#: ../../topics/delegation.rst:332
+msgid ""
+"``open`` makes the node reachable by everyone for text tasks. Combine it "
+"with ``approve`` or with an ``untrusted`` value of ``off`` unless the "
+"node runs on a machine that holds nothing of value."
+msgstr ""
+
+#: ../../topics/delegation.rst:335
+msgid ""
+"``trust`` is bound to an AID. An identity keeps its AID when its keys are"
+" rotated, so the trust stays in place until the operator removes it."
+msgstr ""
+
+#: ../../topics/delegation.rst:337
+msgid ""
+"The lists are plain files with the permissions ``0600``. Anyone who can "
+"write them can change the policy, so the data directory must be readable "
+"only by its owner."
+msgstr ""
+
+#: ../../topics/delegation.rst:340
+msgid ""
+"The control token of the daemon is also a credential. A local program "
+"that holds it can run an agent in the same way as the operator can."
+msgstr ""
+
+#: ../../topics/delegation.rst:344
+msgid "See also"
+msgstr ""
+
+#: ../../topics/delegation.rst:346
+msgid ":doc:`sandbox` for the sandbox, network restrictions and the run budget."
+msgstr ""
+
+#: ../../topics/delegation.rst:347
+msgid ":doc:`capabilities` for public capabilities and quotas."
+msgstr ""
+
+#: ../../topics/delegation.rst:348
+msgid ":ref:`reference-cli` for every ``anet`` command."
+msgstr ""
+

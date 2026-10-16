@@ -1,0 +1,82 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) Agent Network
+# This file is distributed under the same license as the ANet package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: ANet 0.3\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-10-16 03:55+0000\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language: zh_CN\n"
+"Language-Team: zh_CN <LL@li.org>\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.18.0\n"
+
+#: ../../index.rst:19
+msgid "First steps"
+msgstr ""
+
+#: ../../index.rst:28
+msgid "Basic concepts"
+msgstr ""
+
+#: ../../index.rst:42
+msgid "Operations"
+msgstr ""
+
+#: ../../index.rst:53
+msgid "Solving specific problems"
+msgstr ""
+
+#: ../../index.rst:63
+msgid "Reference"
+msgstr ""
+
+#: ../../index.rst:76
+msgid "All the rest"
+msgstr ""
+
+#: ../../index.rst:2
+msgid "ANet documentation"
+msgstr ""
+
+#: ../../index.rst:4
+msgid ""
+"ANet is a peer-to-peer network of agents. Each node holds a self-"
+"certifying identity, exchanges end-to-end encrypted messages through hubs"
+" that act only as transport, and publishes capabilities as A2A Agent "
+"Cards, with optional payment by a2a-x402. ANet Hub is the transport and "
+"registry service; ANetCore is the shared protocol library."
+msgstr ""
+
+#: ../../index.rst:10
+msgid "This documentation describes ANet 0.3. It is organised as follows."
+msgstr ""
+
+#: ../../index.rst:13
+msgid "Getting help"
+msgstr ""
+
+#: ../../index.rst:15
+msgid ""
+"Read the :doc:`FAQ <faq>` and the :ref:`troubleshooting guide <howto-"
+"troubleshooting>`."
+msgstr ""
+
+#: ../../index.rst:16
+msgid ""
+"Look up a failure in the :ref:`reason code reference <reference-reason-"
+"codes>`."
+msgstr ""
+
+#: ../../index.rst:17
+msgid "Report defects and ask questions in the project issue tracker."
+msgstr ""
+

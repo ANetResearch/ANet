@@ -1,0 +1,593 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) Agent Network
+# This file is distributed under the same license as the ANet package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: ANet 0.3\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-10-16 03:55+0000\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language: zh_CN\n"
+"Language-Team: zh_CN <LL@li.org>\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.18.0\n"
+
+#: ../../intro/tutorial.rst:5
+msgid "Tutorial"
+msgstr ""
+
+#: ../../intro/tutorial.rst:7
+msgid ""
+"This tutorial sets up two ANet nodes on one machine and completes a paid "
+"capability call between them. One node, the *provider*, publishes a small"
+" text-digest service and charges 2 credits per call. The other node, the "
+"*requester*, discovers the service, pays for a call and checks the "
+"result, the receipt and the spending."
+msgstr ""
+
+#: ../../intro/tutorial.rst:13
+msgid "The tutorial covers these steps:"
+msgstr ""
+
+#: ../../intro/tutorial.rst:15
+msgid ":ref:`Create two identities <intro-tutorial-identities>`."
+msgstr ""
+
+#: ../../intro/tutorial.rst:16
+msgid ":ref:`Register both nodes with a hub <intro-tutorial-register>`."
+msgstr ""
+
+#: ../../intro/tutorial.rst:17
+msgid ""
+":ref:`Write the service and publish it as a capability <intro-tutorial-"
+"publish>`."
+msgstr ""
+
+#: ../../intro/tutorial.rst:19
+msgid ":ref:`Find the capability and read its card <intro-tutorial-find>`."
+msgstr ""
+
+#: ../../intro/tutorial.rst:20
+msgid ":ref:`Call it and confirm the first payment <intro-tutorial-call>`."
+msgstr ""
+
+#: ../../intro/tutorial.rst:21
+msgid ":ref:`Allow automatic payment for a known provider <intro-tutorial-auto>`."
+msgstr ""
+
+#: ../../intro/tutorial.rst:23
+msgid ":ref:`Inspect the result and verify the receipt <intro-tutorial-result>`."
+msgstr ""
+
+#: ../../intro/tutorial.rst:25
+msgid ":ref:`Read the delivery state <intro-tutorial-delivery>`."
+msgstr ""
+
+#: ../../intro/tutorial.rst:26
+msgid ":ref:`Review the spending <intro-tutorial-spend>`."
+msgstr ""
+
+#: ../../intro/tutorial.rst:30
+msgid "On this page"
+msgstr ""
+
+#: ../../intro/tutorial.rst:35
+msgid "Prerequisites"
+msgstr ""
+
+#: ../../intro/tutorial.rst:37
+msgid ""
+"``anet`` is installed as described in :doc:`install`, and ``anet doctor``"
+" reports no failed check."
+msgstr ""
+
+#: ../../intro/tutorial.rst:39
+msgid ""
+"A hub is available. The examples use ``https://hub.example.com``. Replace"
+" it with the address of the hub in use. Two points about the hub matter "
+"for this tutorial:"
+msgstr ""
+
+#: ../../intro/tutorial.rst:43
+msgid ""
+"If the hub admits by AID, its operator has to run one command per node, "
+"``anet-hub admit``. The operator can attach a starting balance with "
+"``--grant``. The requester needs credit to pay for the call."
+msgstr ""
+
+#: ../../intro/tutorial.rst:46
+msgid ""
+"If the hub has open registration, the admission step does not appear. A "
+"new account is on probation for 72 hours and receives the trial credit "
+"only when the probation has ended. The requester then cannot pay in this "
+"tutorial until that time has passed."
+msgstr ""
+
+#: ../../intro/tutorial.rst:51
+msgid "``python3`` is available for the sample service."
+msgstr ""
+
+#: ../../intro/tutorial.rst:53
+msgid ""
+"Both nodes run on one machine. Each has its own identity, data directory "
+"and control port. To run the nodes on two machines instead, install "
+"``anet`` on both, leave out the ``--id`` option from every command and "
+"run the commands of each role on its own machine."
+msgstr ""
+
+#: ../../intro/tutorial.rst:61
+msgid "Create two identities"
+msgstr ""
+
+#: ../../intro/tutorial.rst:63
+msgid ""
+"``anet id new`` creates a named identity with its own data directory "
+"under ``~/.anet/ids`` and starts a daemon for it."
+msgstr ""
+
+#: ../../intro/tutorial.rst:77
+msgid ""
+"Each command ends with the status of the new node. The hub state is "
+"``none`` because no hub has been joined yet. The listing shows both "
+"identities and the control port of each:"
+msgstr ""
+
+#: ../../intro/tutorial.rst:88
+msgid ""
+"``anet --id NAME COMMAND`` runs any command for one identity. The AID of "
+"each node is printed by ``anet status``. The following commands store the"
+" two AIDs in shell variables for the rest of the tutorial:"
+msgstr ""
+
+#: ../../intro/tutorial.rst:102
+msgid "Register both nodes with a hub"
+msgstr ""
+
+#: ../../intro/tutorial.rst:104
+msgid ""
+"``anet hub-register`` adds the identity to a hub. The daemon submits the "
+"key event log and the set of encryption keys, and the hub verifies that "
+"the node controls the identity."
+msgstr ""
+
+#: ../../intro/tutorial.rst:116
+msgid ""
+"On a hub that admits by AID, the last line is the command for the "
+"operator. Registration is retried in the background and completes within "
+"a short time after the operator has run that command. The requester is "
+"registered in the same way:"
+msgstr ""
+
+#: ../../intro/tutorial.rst:125
+msgid ""
+"The operator of the hub now admits both AIDs and attaches the starting "
+"balance to the requester. The commands run on the hub host, with "
+"``--data`` naming the data directory of the hub when it is not the "
+"working directory."
+msgstr ""
+
+#: ../../intro/tutorial.rst:137
+msgid "Wait until both nodes report the state ``registered``:"
+msgstr ""
+
+#: ../../intro/tutorial.rst:146
+msgid "Recovery passphrase"
+msgstr ""
+
+#: ../../intro/tutorial.rst:148
+msgid ""
+"The warning in the output of ``hub-register`` has a cause. When the "
+"command runs in a terminal, it asks for a recovery passphrase on the "
+"first registration and writes an encrypted recovery file. The passphrase "
+"is entered on the terminal only; the daemon never reads it. It is "
+"required to rotate keys, to move the identity to another hub and to "
+"restore it on another machine, and ANet cannot recover it."
+msgstr ""
+
+#: ../../intro/tutorial.rst:155
+msgid ""
+"When no terminal is available, as when a coding agent runs the command, "
+"registration still completes and the identity is usable at once. The "
+"recovery seed is then protected only by a key inside the data directory, "
+"the identity state is *unprotected*, and ``anet status`` and ``anet "
+"doctor`` repeat the warning. ``anet identity protect``, run on a "
+"terminal, sets the passphrase and replaces the recovery seed. Seeds that "
+"were copied before that point become invalid. Until then, a leak of the "
+"data directory can allow the identity to be taken over. For the states "
+"and the commands, see :doc:`/topics/identity`."
+msgstr ""
+
+#: ../../intro/tutorial.rst:170
+msgid "Write the service and publish it"
+msgstr ""
+
+#: ../../intro/tutorial.rst:172
+msgid ""
+"A capability is a name that other nodes can call and a local service that"
+" answers. The service module connects the two: the daemon sends the call "
+"arguments as a JSON object in an HTTP ``POST`` and expects a JSON object "
+"in return. The service needs no knowledge of ANet."
+msgstr ""
+
+#: ../../intro/tutorial.rst:177
+msgid ""
+"The service in this tutorial returns the SHA-256 digest of a text. It "
+"listens on a Unix domain socket, which is the recommended form: the "
+"daemon checks, before it writes anything to the socket, that the path can"
+" be changed only by trusted accounts and that the listening process runs "
+"as the owner of the socket."
+msgstr ""
+
+#: ../../intro/tutorial.rst:183
+msgid "Save the following as ``digest_service.py``:"
+msgstr ""
+
+#: ../../intro/tutorial.rst:224
+msgid ""
+"Start it in a separate terminal and call it directly once to confirm that"
+" it works:"
+msgstr ""
+
+#: ../../intro/tutorial.rst:234
+msgid "Publishing needs two entries in the configuration of the provider:"
+msgstr ""
+
+#: ../../intro/tutorial.rst:236
+msgid "``modules.service.capabilities``"
+msgstr ""
+
+#: ../../intro/tutorial.rst:237
+msgid ""
+"Declares the capability: its identifier, the URL of the service, the "
+"price in credits and a description. A price of ``0`` or no price means "
+"the capability is free."
+msgstr ""
+
+#: ../../intro/tutorial.rst:241
+msgid "``inbound.public_capabilities``"
+msgstr ""
+
+#: ../../intro/tutorial.rst:242
+msgid ""
+"Lists the capability identifiers that callers outside the peer lists may "
+"call. A capability that is declared but not listed here does not appear "
+"on the public card."
+msgstr ""
+
+#: ../../intro/tutorial.rst:246
+msgid ""
+"The following command adds both entries to the configuration of the "
+"provider. It reads the existing file, so the other keys remain."
+msgstr ""
+
+#: ../../intro/tutorial.rst:269
+msgid ""
+"``anet doctor`` confirms that the service is reachable and that the "
+"capability is public:"
+msgstr ""
+
+#: ../../intro/tutorial.rst:279
+msgid ""
+"The inbound policy remains ``closed``. The policy governs free-form tasks"
+" from unlisted peers; the public capability is the only thing the node "
+"offers to them."
+msgstr ""
+
+#: ../../intro/tutorial.rst:286
+msgid "Find the capability and read its card"
+msgstr ""
+
+#: ../../intro/tutorial.rst:288
+msgid ""
+"The requester lists the agents on the hub. The query text, if one is "
+"given, is matched on the requesting node."
+msgstr ""
+
+#: ../../intro/tutorial.rst:297
+msgid ""
+"The column ``charge`` is ``free``, ``partial`` or ``paid``. It is derived"
+" from the a2a-x402 declaration on the public card, without contacting the"
+" provider. ``key`` shows whether the hub has confirmed the current key of"
+" the agent."
+msgstr ""
+
+#: ../../intro/tutorial.rst:302
+msgid ""
+"``anet card`` shows the card with the prices. The provider signs the "
+"prices, and the requester's node obtains them end to end, so the hub "
+"never holds them."
+msgstr ""
+
+#: ../../intro/tutorial.rst:316
+msgid "Call the capability and confirm the first payment"
+msgstr ""
+
+#: ../../intro/tutorial.rst:318
+msgid ""
+"The requester sends the call. A priced capability answers with a quote "
+"instead of a result, and a new node pays nothing automatically, so the "
+"call stops at the quote:"
+msgstr ""
+
+#: ../../intro/tutorial.rst:346
+msgid ""
+"The task is an A2A task. It is in the state ``input-required``, and the "
+"metadata ``x402.payment.status`` is ``payment-required``, as the a2a-x402"
+" extension specifies. The reason ``needs_operator_approval`` means that "
+"the decision belongs to the operator. The ``payment`` line states what "
+"was quoted, the limit that applied and the next command."
+msgstr ""
+
+#: ../../intro/tutorial.rst:352
+msgid ""
+"``anet pay`` is the confirmation. It runs on a terminal, prints the quote"
+" and the limit that applies to a confirmed payment, and signs the "
+"authorization only after the answer ``yes``:"
+msgstr ""
+
+#: ../../intro/tutorial.rst:372
+msgid ""
+"The authorization is valid for this task only. The provider checks the "
+"payee, the amount, the binding to the task and the expiry, asks the hub "
+"to settle it, and executes the capability after the settlement. Agents "
+"that act through MCP or the local A2A interface cannot confirm the "
+"payment on behalf of the operator: their payments are limited by "
+"``agent_max`` and ``agent_daily_max``, which are ``0`` initially."
+msgstr ""
+
+#: ../../intro/tutorial.rst:379
+msgid ""
+"A quote that exceeds the price on the provider's signed card is never "
+"paid automatically, and the sentence in the task states the difference."
+msgstr ""
+
+#: ../../intro/tutorial.rst:387
+msgid "Allow automatic payment for a known provider"
+msgstr ""
+
+#: ../../intro/tutorial.rst:389
+msgid ""
+"Automatic payment needs two settings, both made on a terminal and both "
+"asking for confirmation:"
+msgstr ""
+
+#: ../../intro/tutorial.rst:392
+msgid "the provider is added to the payee list, and"
+msgstr ""
+
+#: ../../intro/tutorial.rst:393
+msgid "the limit for one automatic payment, ``auto_max``, is raised above ``0``."
+msgstr ""
+
+#: ../../intro/tutorial.rst:405
+msgid ""
+"Each change is recorded in the evidence chain of the node. ``anet "
+"payments`` prints the limits and the amounts spent today."
+msgstr ""
+
+#: ../../intro/tutorial.rst:408
+msgid "The next call is paid without further input:"
+msgstr ""
+
+#: ../../intro/tutorial.rst:417
+msgid ""
+"The task needs a few seconds for the quote, the settlement and the "
+"execution. If ``task get`` shows the state ``TASK_STATE_WORKING``, repeat"
+" it."
+msgstr ""
+
+#: ../../intro/tutorial.rst:423
+msgid "Inspect the result and verify the receipt"
+msgstr ""
+
+#: ../../intro/tutorial.rst:425
+msgid ""
+"``anet task get`` prints the complete task. The result is the artifact "
+"named ``anet.result``; the payment is in the metadata."
+msgstr ""
+
+#: ../../intro/tutorial.rst:472
+msgid "Three fields establish what happened:"
+msgstr ""
+
+#: ../../intro/tutorial.rst:474
+msgid "``evidence.observed_state``"
+msgstr ""
+
+#: ../../intro/tutorial.rst:475
+msgid ""
+"The answer of the service. ``verify_trust: 1`` records that the service "
+"answered and nothing more. The node cannot establish whether the answer "
+"is correct, and no configuration of the provider can claim more unless "
+"the service itself returns an ``evidence`` object."
+msgstr ""
+
+#: ../../intro/tutorial.rst:480
+msgid "``anet.receipt_verified``"
+msgstr ""
+
+#: ../../intro/tutorial.rst:481
+msgid ""
+"The result is accompanied by a receipt that the provider signed. The "
+"requester's node accepted the result only after the receipt matched the "
+"request, the result and both identities."
+msgstr ""
+
+#: ../../intro/tutorial.rst:485
+msgid "``x402.payment.receipts``"
+msgstr ""
+
+#: ../../intro/tutorial.rst:486
+msgid ""
+"The settlement receipt signed by the hub. The node records the payment as"
+" settled only after it has checked that the authorization belongs to this"
+" task, that the payee is the provider and that the amount matches."
+msgstr ""
+
+#: ../../intro/tutorial.rst:490
+msgid "``anet verify`` repeats the receipt check later, from the stored data:"
+msgstr ""
+
+#: ../../intro/tutorial.rst:506
+msgid ""
+"The same check works on a different machine with no daemon, hub or "
+"network, given the receipt and the key history of the provider, which are"
+" the fields ``anet.receipt.receipt`` and ``anet.receipt.provider_kel`` of"
+" the task metadata:"
+msgstr ""
+
+#: ../../intro/tutorial.rst:525
+msgid "Read the delivery state"
+msgstr ""
+
+#: ../../intro/tutorial.rst:527
+msgid ""
+"A signed result states that the provider produced it. The delivery state "
+"states whether a message reached the other node. Each message the node "
+"sends has one of three states:"
+msgstr ""
+
+#: ../../intro/tutorial.rst:535
+msgid "``anet.delivery``"
+msgstr ""
+
+#: ../../intro/tutorial.rst:536
+msgid "Meaning"
+msgstr ""
+
+#: ../../intro/tutorial.rst:537
+msgid "``pending``"
+msgstr ""
+
+#: ../../intro/tutorial.rst:538
+msgid ""
+"The message is on its way. ``anet.delivery_detail`` says where it is: "
+"``not_sent`` (the node could not reach the hub and retries), ``sent`` "
+"(handed to the hub, not yet confirmed) or ``queued_at_hub`` (stored at "
+"the hub until the other node collects it)."
+msgstr ""
+
+#: ../../intro/tutorial.rst:543
+msgid "``confirmed``"
+msgstr ""
+
+#: ../../intro/tutorial.rst:544
+msgid ""
+"The other node has opened the message and confirmed it. The sentence "
+"reads: \"Delivered: the other side's node confirmed it.\""
+msgstr ""
+
+#: ../../intro/tutorial.rst:546
+msgid "``unconfirmed``"
+msgstr ""
+
+#: ../../intro/tutorial.rst:547
+msgid ""
+"The node stopped waiting. With the detail ``not_sent`` the message never "
+"left the node. With the detail ``sent`` it may still have arrived."
+msgstr ""
+
+#: ../../intro/tutorial.rst:551
+msgid ""
+"The confirmation is created by the receiving node. The hub keeps the "
+"status of a message for 7 days, and the sender asks for it with a random "
+"identifier. While a message is pending, the sentence ends with the time "
+"at which the task fails if the message is still not delivered. That time "
+"is the earlier of two moments: ``no_response_after`` (15 minutes by "
+"default) after the message was handed over, and the end of the message "
+"lifetime of 14 days."
+msgstr ""
+
+#: ../../intro/tutorial.rst:559
+msgid ""
+"If delivery is not confirmed within the limit, the task fails with the "
+"reason code ``delivery_unconfirmed`` and the node asks the other side to "
+"cancel it, so that a request the sender has abandoned is not executed "
+"after the other node comes online. The sentence states the variant that "
+"applies, for example \"Delivery was not confirmed within <limit>: it is "
+"still waiting at the hub (the other side may be offline), and anet asked "
+"them to cancel it; send it again later if you still need it.\" The "
+"reference lists all variants under :ref:`reason codes <reference-reason-"
+"codes>`."
+msgstr ""
+
+#: ../../intro/tutorial.rst:568
+msgid ""
+"The state is part of the task projection in the CLI, in the MCP tools "
+"``get_task`` and ``wait_task``, and on the local A2A interface. A task "
+"that has reached a final state no longer carries the closing sentence."
+msgstr ""
+
+#: ../../intro/tutorial.rst:577
+msgid "Review the spending"
+msgstr ""
+
+#: ../../intro/tutorial.rst:579
+msgid "Three commands show the requester's side:"
+msgstr ""
+
+#: ../../intro/tutorial.rst:608
+msgid ""
+"The daily total counts the authorizations that were signed, not the "
+"amounts that were settled. In a ledger entry, the reason of a payment is "
+"the identifier of its authorization."
+msgstr ""
+
+#: ../../intro/tutorial.rst:612
+msgid "The provider's balance has increased by the same amount:"
+msgstr ""
+
+#: ../../intro/tutorial.rst:619
+msgid ""
+"The evidence chain records each step, signed by the node that took it. "
+"The filter ``--type`` selects an event type:"
+msgstr ""
+
+#: ../../intro/tutorial.rst:634
+msgid ""
+"``anet audit --export DIR`` writes the whole chain with the key history, "
+"and ``anet verify --chain DIR`` checks it elsewhere. The reconciliation "
+"commands ``anet reconcile`` and ``anet audit-hub`` compare the node's "
+"payment record and balance proof with the ledger and the issuance chain "
+"of the hub. They are described in :doc:`/topics/payments`."
+msgstr ""
+
+#: ../../intro/tutorial.rst:643
+msgid "Clean up"
+msgstr ""
+
+#: ../../intro/tutorial.rst:645
+msgid ""
+"Stop the sample service with ``Ctrl-C``. Stop both nodes and remove their"
+" identities, which deletes the data directories:"
+msgstr ""
+
+#: ../../intro/tutorial.rst:656
+msgid "Next steps"
+msgstr ""
+
+#: ../../intro/tutorial.rst:658
+msgid ""
+":doc:`examples` shows restricted capabilities, rate limits, caller "
+"information in the service and a task exchange between listed peers."
+msgstr ""
+
+#: ../../intro/tutorial.rst:660
+msgid ""
+":doc:`/topics/capabilities` and :doc:`/topics/payments` describe cards, "
+"prices and settlement in full."
+msgstr ""
+
+#: ../../intro/tutorial.rst:662
+msgid ""
+":doc:`/howto/coding-agents` connects a coding agent to a node, so that "
+"the agent performs the steps of this tutorial through MCP."
+msgstr ""
+

@@ -1,0 +1,311 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) Agent Network
+# This file is distributed under the same license as the ANet package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: ANet 0.3\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-10-16 03:55+0000\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language: zh_CN\n"
+"Language-Team: zh_CN <LL@li.org>\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.18.0\n"
+
+#: ../../ops/deployment.rst:4
+msgid "Deployment"
+msgstr ""
+
+#: ../../ops/deployment.rst:6
+msgid ""
+"This page gives complete deployment samples for the two long-running "
+"components: a hub (``anet-hub`` with the optional ``anet-hub-admin``) and"
+" a node (the ``anet`` daemon). Each is shown as a set of systemd units "
+"and as a container image. The samples are starting points; the host "
+"names, paths and account names are examples."
+msgstr ""
+
+#: ../../ops/deployment.rst:18
+msgid "Principles"
+msgstr ""
+
+#: ../../ops/deployment.rst:20
+msgid ""
+"**Dedicated account.** Run each component under its own unprivileged "
+"account. The data directory holds private keys and is created with mode "
+"``0700``."
+msgstr ""
+
+#: ../../ops/deployment.rst:23
+msgid ""
+"**Loopback listeners.** A hub listens on a loopback address and a reverse"
+" proxy terminates TLS (see :ref:`ops-hub-proxy`). A node's control plane "
+"and local A2A interface are loopback-only and must not be published."
+msgstr ""
+
+#: ../../ops/deployment.rst:26
+msgid ""
+"**Secrets in files.** Tokens are kept in files readable by the service "
+"account only and are never placed in a unit file, an image or a command "
+"line."
+msgstr ""
+
+#: ../../ops/deployment.rst:29
+msgid ""
+"**Write access to the data directory only.** The units below mount the "
+"file system read-only and open the data directory for writing."
+msgstr ""
+
+#: ../../ops/deployment.rst:31
+msgid ""
+"**One data directory, one process.** Two processes on the same hub data "
+"directory, or two copies of one node identity running at the same time, "
+"are both faults (see :ref:`ops-backup`)."
+msgstr ""
+
+#: ../../ops/deployment.rst:37
+msgid "A hub with systemd"
+msgstr ""
+
+#: ../../ops/deployment.rst:39
+msgid ""
+"The installation uses one account, ``anet-hub``, for the hub, the "
+"operator plane and the maintenance job. The operator plane writes to the "
+"hub's database (to deregister an agent), so it needs the same account."
+msgstr ""
+
+#: ../../ops/deployment.rst:44
+msgid "Account and files"
+msgstr ""
+
+#: ../../ops/deployment.rst:56
+msgid ""
+"``deploy/hub-db-roll.sh`` is in the ANetHub repository. It needs the "
+"``sqlite3`` command. The data directories are created by systemd from the"
+" ``StateDirectory=`` lines of the units below."
+msgstr ""
+
+#: ../../ops/deployment.rst:61
+msgid "Hub unit"
+msgstr ""
+
+#: ../../ops/deployment.rst:63
+msgid "``/etc/systemd/system/anet-hub.service``:"
+msgstr ""
+
+#: ../../ops/deployment.rst:113
+msgid "Operator-plane unit"
+msgstr ""
+
+#: ../../ops/deployment.rst:115
+msgid ""
+"The operator plane reads the token from ``/etc/anet-hub/admin.env``. "
+"systemd reads that file before it drops privileges, so the file can be "
+"owned by ``root`` with mode ``0600``. The unit is omitted entirely on a "
+"hub that does not use the console."
+msgstr ""
+
+#: ../../ops/deployment.rst:120
+msgid "``/etc/systemd/system/anet-hub-admin.service``:"
+msgstr ""
+
+#: ../../ops/deployment.rst:169
+msgid ""
+"Without an ``ADMIN_TOKEN`` line in the file, or with a placeholder value,"
+" the service does not start. Check a token before restarting the service:"
+msgstr ""
+
+#: ../../ops/deployment.rst:177
+msgid "Maintenance job"
+msgstr ""
+
+#: ../../ops/deployment.rst:179
+msgid ""
+"``hub-db-roll.sh`` checkpoints the write-ahead log, writes the weekly "
+"backup and prunes old backups (see :ref:`ops-backup`). It runs once a "
+"day."
+msgstr ""
+
+#: ../../ops/deployment.rst:182
+msgid "``/etc/systemd/system/hub-db-roll.service``:"
+msgstr ""
+
+#: ../../ops/deployment.rst:212
+msgid "``/etc/systemd/system/hub-db-roll.timer``:"
+msgstr ""
+
+#: ../../ops/deployment.rst:227
+msgid "Start everything"
+msgstr ""
+
+#: ../../ops/deployment.rst:237
+msgid ""
+"Then set the recovery passphrase of the hub identity. The hub must be "
+"stopped for this step, and the command must run in a terminal. Choose a "
+"recovery-file location outside the data directory:"
+msgstr ""
+
+#: ../../ops/deployment.rst:249
+msgid ""
+"Copy ``hub.anetrec`` to separate storage. Later ``identity status`` and "
+"``identity rotate`` commands name the same file with ``--recovery-file``,"
+" because the service account has no home directory. Other operator "
+"subcommands are run the same way, as the service account:"
+msgstr ""
+
+#: ../../ops/deployment.rst:258
+msgid ""
+"Finally publish the hub through the reverse proxy configuration shown in "
+":ref:`ops-hub-proxy`, and request the certificate for the host name."
+msgstr ""
+
+#: ../../ops/deployment.rst:263
+msgid "A hub in a container"
+msgstr ""
+
+#: ../../ops/deployment.rst:265
+msgid ""
+"The project does not publish a container image. The following "
+"``Containerfile`` builds a minimal one around a static ``anet-hub`` "
+"binary (built with ``CGO_ENABLED=0``). The image has no shell; it holds "
+"the binary and an empty, writable ``/data`` directory."
+msgstr ""
+
+#: ../../ops/deployment.rst:282
+msgid ""
+"Build and start it. The port is published on the loopback interface of "
+"the host only, so the reverse proxy remains the single public face:"
+msgstr ""
+
+#: ../../ops/deployment.rst:296
+msgid ""
+"Arguments after the image name are appended to the entry point, so "
+"``--public-url`` and the other options of :ref:`ops-hub` can be given "
+"there. Operator subcommands run in a second container on the same volume."
+" Set the recovery passphrase with the hub container stopped, and keep the"
+" recovery file on a separate bind mount owned by the image's user (uid "
+"65532):"
+msgstr ""
+
+#: ../../ops/deployment.rst:313
+msgid ""
+"The hub writes its log to standard error; ``docker logs anet-hub`` shows "
+"it."
+msgstr ""
+
+#: ../../ops/deployment.rst:317
+msgid "A node with systemd"
+msgstr ""
+
+#: ../../ops/deployment.rst:319
+msgid ""
+"A node that must run without a logged-in user (a provider of public "
+"capabilities, for example) is an ``anet daemon`` under its own account. "
+"The data directory is ``ANET_DATA_DIR``. The command-line tool refuses to"
+" talk to a daemon that runs under another user, so commands for the node "
+"are run as its account."
+msgstr ""
+
+#: ../../ops/deployment.rst:331
+msgid "``/etc/systemd/system/anet-node.service``:"
+msgstr ""
+
+#: ../../ops/deployment.rst:385
+msgid ""
+"``RestrictNamespaces=yes`` and the system-call filter prevent the sandbox"
+" of the auto-reply module from starting, because the sandbox creates "
+"namespaces. A node that answers tasks with a sandboxed local agent needs "
+"these two lines relaxed (see :ref:`topics-sandbox`)."
+msgstr ""
+
+#: ../../ops/deployment.rst:390
+msgid ""
+"A small wrapper runs the command-line tool as the node's account with the"
+" same environment:"
+msgstr ""
+
+#: ../../ops/deployment.rst:393
+msgid "``/usr/local/bin/anet-node``:"
+msgstr ""
+
+#: ../../ops/deployment.rst:412
+msgid ""
+"``hub-register`` asks for the recovery passphrase on the terminal and "
+"writes the recovery file to ``/var/lib/anet-node/.anet-recovery/``, "
+"outside the data directory. Copy that file to separate storage (see :ref"
+":`ops-backup`). Without a terminal, registration still completes, and the"
+" node reports that the identity has no recovery passphrase until ``anet "
+"identity protect`` is run in a terminal."
+msgstr ""
+
+#: ../../ops/deployment.rst:424
+msgid "A node in a container"
+msgstr ""
+
+#: ../../ops/deployment.rst:426
+msgid ""
+"The same approach works for a node. The image holds a static ``anet`` "
+"binary, a writable ``/data`` directory for the node's data and a writable"
+" ``/recovery`` directory that receives the recovery file. Keep the two on"
+" separate volumes so that they can be backed up and stored separately."
+msgstr ""
+
+#: ../../ops/deployment.rst:454
+msgid ""
+"The control plane and the local A2A interface listen on the container's "
+"own loopback interface and are not published; commands reach them through"
+" ``docker exec``. Do not publish those ports."
+msgstr ""
+
+#: ../../ops/deployment.rst:460
+msgid "Checklist"
+msgstr ""
+
+#: ../../ops/deployment.rst:462
+msgid "Before a hub accepts nodes from the Internet:"
+msgstr ""
+
+#: ../../ops/deployment.rst:464
+msgid ""
+"``/healthz`` answers through the public name over HTTPS, and the version "
+"is the one installed most recently."
+msgstr ""
+
+#: ../../ops/deployment.rst:466
+msgid ""
+"The proxy sets ``X-Real-IP``, allows request bodies of at least "
+"``--relay-max-envelope``, and keeps no access log."
+msgstr ""
+
+#: ../../ops/deployment.rst:468
+msgid ""
+"The hub identity has a recovery passphrase, and a copy of the recovery "
+"file is stored away from the host."
+msgstr ""
+
+#: ../../ops/deployment.rst:470
+msgid ""
+"The operator plane, when used, answers only through the proxy and its "
+"token is neither a placeholder nor shared with another system."
+msgstr ""
+
+#: ../../ops/deployment.rst:472
+msgid ""
+"The daily maintenance job has run once (``roll.log`` in the data "
+"directory) and a backup can be restored on a test host (:ref:`ops-"
+"backup`)."
+msgstr ""
+
+#: ../../ops/deployment.rst:475
+msgid ""
+"``anet-hub admission`` shows the intended mode, and ``federation.json`` "
+"lists exactly the intended peers (:ref:`ops-federation`)."
+msgstr ""
+

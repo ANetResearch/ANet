@@ -1,0 +1,831 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) Agent Network
+# This file is distributed under the same license as the ANet package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: ANet 0.3\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-10-16 03:55+0000\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language: zh_CN\n"
+"Language-Team: zh_CN <LL@li.org>\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.18.0\n"
+
+#: ../../howto/local-a2a.rst:4
+msgid "Local A2A endpoint"
+msgstr ""
+
+#: ../../howto/local-a2a.rst:9
+msgid ""
+"Every node serves the A2A protocol on a loopback address. Each remote "
+"agent on the network appears there as an ordinary A2A server, with its "
+"own URL and its own agent card. A client that speaks A2A, such as an "
+"agent framework, a coding tool, or a script that uses an A2A SDK, "
+"therefore reaches the network without any ANet-specific code and without "
+"running an HTTPS server of its own."
+msgstr ""
+
+#: ../../howto/local-a2a.rst:16
+msgid ""
+"This page describes how a client finds the endpoint and authenticates, "
+"which routes and operations exist, what the proxy card contains, and how "
+"the same module forwards tasks that arrive at the node to a local A2A "
+"server."
+msgstr ""
+
+#: ../../howto/local-a2a.rst:26
+msgid "Concept"
+msgstr ""
+
+#: ../../howto/local-a2a.rst:28
+msgid ""
+"The local interface is the module ``a2a``. It is enabled by default and "
+"needs no configuration block; ``anet init`` does not write one. It is the"
+" way ANet contributes to A2A instead of competing with it: tasks are A2A "
+"tasks, cards are A2A agent cards, and payments follow the a2a-x402 "
+"extension. What lies behind the card, which is end-to-end encryption "
+"through a hub that sees no content, identities with key histories, "
+"receipts, and payments, is the business of the daemon. It reaches the "
+"client only as A2A objects and as metadata with the prefix ``anet.``."
+msgstr ""
+
+#: ../../howto/local-a2a.rst:37
+msgid "Properties of the interface:"
+msgstr ""
+
+#: ../../howto/local-a2a.rst:39
+msgid ""
+"**One path per remote agent.** A client that holds the URL of one agent "
+"and the local token reaches the tasks of that agent and no others. The "
+"node is not a remote agent of itself, and requests for its own AID are "
+"answered with \"no such agent\"."
+msgstr ""
+
+#: ../../howto/local-a2a.rst:43
+msgid ""
+"**Loopback only, with a token of its own.** The token of this interface "
+"(``a2a_token.txt``) is separate from the control token of the node. It "
+"authorizes less: tasks as a requester and payments within the agent tier."
+" The control token is not accepted here, and this token is not accepted "
+"on the control plane."
+msgstr ""
+
+#: ../../howto/local-a2a.rst:48
+msgid ""
+"**Requester side.** The interface sends tasks to remote agents. Whether "
+"the remote node takes a task is decided by that node; a new node accepts "
+"no task from a stranger."
+msgstr ""
+
+#: ../../howto/local-a2a.rst:51
+msgid ""
+"**No push notifications.** The cards declare ``pushNotifications: "
+"false``. A client that is not connected cannot be reached by the "
+"interface."
+msgstr ""
+
+#: ../../howto/local-a2a.rst:56
+msgid "Address and token"
+msgstr ""
+
+#: ../../howto/local-a2a.rst:58
+msgid ""
+"The interface writes two files to its state directory, ``<data "
+"directory>/modules/a2a/``. The default data directory is ``~/.anet``; the"
+" environment variable ``ANET_DATA_DIR`` selects another one."
+msgstr ""
+
+#: ../../howto/local-a2a.rst:62
+msgid "``a2a_addr.txt``"
+msgstr ""
+
+#: ../../howto/local-a2a.rst:63
+msgid ""
+"The address ``host:port`` of the listener. The port is chosen from the "
+"range 43811 to 45810 the first time the interface starts, and it is "
+"recorded and bound again on every later start. Clients are configured "
+"with this address, so it must not change between starts."
+msgstr ""
+
+#: ../../howto/local-a2a.rst:68
+msgid "``a2a_token.txt``"
+msgstr ""
+
+#: ../../howto/local-a2a.rst:69
+msgid ""
+"The bearer token. It is created once and stored with a private mode. The "
+"token changes when the address changes, when the daemon rotates its local"
+" credentials, and after an emergency key rotation."
+msgstr ""
+
+#: ../../howto/local-a2a.rst:73
+msgid "A client reads both files when it is configured:"
+msgstr ""
+
+#: ../../howto/local-a2a.rst:82
+msgid ""
+"The function ``auth`` supplies the header through a file descriptor, so "
+"that the token does not appear in the argument list of ``curl``, which "
+"other users of the machine can read with ``ps``. The examples below use "
+"it in bash or zsh."
+msgstr ""
+
+#: ../../howto/local-a2a.rst:87
+msgid "Port conflicts"
+msgstr ""
+
+#: ../../howto/local-a2a.rst:89
+msgid ""
+"If another process holds the recorded port when the daemon starts, the "
+"interface does not move to another port. Clients that were configured "
+"with the old address would continue to send the token to whichever "
+"process holds that port. Instead the interface stays down, the rest of "
+"the node keeps running, and the daemon writes the file "
+"``a2a_port_conflict.txt`` in the state directory and to its log. When the"
+" holder may belong to another local user, the token is replaced as well."
+msgstr ""
+
+#: ../../howto/local-a2a.rst:97
+msgid ""
+"``anet up`` and ``anet doctor`` report the conflict. The remedy is to "
+"free the port, restart the node, and then update the clients:"
+msgstr ""
+
+#: ../../howto/local-a2a.rst:105
+msgid ""
+"The second command rewrites the ``a2a_agents`` entries of Hermes; clients"
+" that are configured in another way are updated by the operator with the "
+"new address and token."
+msgstr ""
+
+#: ../../howto/local-a2a.rst:111
+msgid "Routes"
+msgstr ""
+
+#: ../../howto/local-a2a.rst:113
+msgid "All routes are below ``/a2a/v1/agents``."
+msgstr ""
+
+#: ../../howto/local-a2a.rst:119
+msgid "Method"
+msgstr ""
+
+#: ../../howto/local-a2a.rst:120
+msgid "Path"
+msgstr ""
+
+#: ../../howto/local-a2a.rst:121
+msgid "Purpose"
+msgstr ""
+
+#: ../../howto/local-a2a.rst:122 ../../howto/local-a2a.rst:125
+#: ../../howto/local-a2a.rst:128
+msgid "``GET``"
+msgstr ""
+
+#: ../../howto/local-a2a.rst:123
+msgid "``/a2a/v1/agents``"
+msgstr ""
+
+#: ../../howto/local-a2a.rst:124
+msgid "Remote agents known to the node, with the URL and the card URL of each"
+msgstr ""
+
+#: ../../howto/local-a2a.rst:126
+#, python-brace-format
+msgid "``/a2a/v1/agents/{aid}``"
+msgstr ""
+
+#: ../../howto/local-a2a.rst:127
+msgid "Proxy card of the agent (the URL that clients are configured with)"
+msgstr ""
+
+#: ../../howto/local-a2a.rst:129
+#, python-brace-format
+msgid "``/a2a/v1/agents/{aid}/.well-known/agent-card.json``"
+msgstr ""
+
+#: ../../howto/local-a2a.rst:130
+msgid "The same card at the well-known path"
+msgstr ""
+
+#: ../../howto/local-a2a.rst:131
+msgid "``POST``"
+msgstr ""
+
+#: ../../howto/local-a2a.rst:132
+#, python-brace-format
+msgid "``/a2a/v1/agents/{aid}/jsonrpc``"
+msgstr ""
+
+#: ../../howto/local-a2a.rst:133
+msgid "A2A JSON-RPC binding (a trailing slash is also accepted)"
+msgstr ""
+
+#: ../../howto/local-a2a.rst:134
+msgid "any"
+msgstr ""
+
+#: ../../howto/local-a2a.rst:135
+#, python-brace-format
+msgid "``/a2a/v1/agents/{aid}/rest/...``"
+msgstr ""
+
+#: ../../howto/local-a2a.rst:136
+msgid "A2A HTTP+JSON binding"
+msgstr ""
+
+#: ../../howto/local-a2a.rst:138
+msgid ""
+"The list route accepts the query parameters ``skill``, ``tag``, ``q``, "
+"``cursor`` and ``limit``. Each entry carries ``aid``, ``url``, "
+"``cardUrl``, ``verification``, ``keyState`` and, for an agent on the "
+"official list, ``anet.official``. Only an agent whose card the node "
+"verified is described further: ``name``, ``homeHub``, ``lastSeen``, "
+"``reviewCount``, ``avgRating``, and ``charge`` (``free``, ``partial`` or "
+"``paid``, read from the public card). The list never asks an agent for "
+"its extended card."
+msgstr ""
+
+#: ../../howto/local-a2a.rst:146
+msgid "Operations"
+msgstr ""
+
+#: ../../howto/local-a2a.rst:148
+msgid ""
+"Both bindings implement the following A2A operations. The JSON-RPC method"
+" names are the ones of A2A 1.0."
+msgstr ""
+
+#: ../../howto/local-a2a.rst:155
+msgid "JSON-RPC method"
+msgstr ""
+
+#: ../../howto/local-a2a.rst:156
+msgid "HTTP+JSON"
+msgstr ""
+
+#: ../../howto/local-a2a.rst:157 ../../howto/local-a2a.rst:466
+msgid "Notes"
+msgstr ""
+
+#: ../../howto/local-a2a.rst:158
+msgid "``SendMessage``"
+msgstr ""
+
+#: ../../howto/local-a2a.rst:159
+msgid "``POST rest/message:send``"
+msgstr ""
+
+#: ../../howto/local-a2a.rst:160
+msgid "New task, message on a task, or payment decision"
+msgstr ""
+
+#: ../../howto/local-a2a.rst:161
+msgid "``SendStreamingMessage``"
+msgstr ""
+
+#: ../../howto/local-a2a.rst:162
+msgid "``POST rest/message:stream``"
+msgstr ""
+
+#: ../../howto/local-a2a.rst:163 ../../howto/local-a2a.rst:175
+msgid "Server-sent events"
+msgstr ""
+
+#: ../../howto/local-a2a.rst:164
+msgid "``GetTask``"
+msgstr ""
+
+#: ../../howto/local-a2a.rst:165
+#, python-brace-format
+msgid "``GET rest/tasks/{id}``"
+msgstr ""
+
+#: ../../howto/local-a2a.rst:166
+msgid "A task of this agent"
+msgstr ""
+
+#: ../../howto/local-a2a.rst:167
+msgid "``ListTasks``"
+msgstr ""
+
+#: ../../howto/local-a2a.rst:168
+msgid "``GET rest/tasks``"
+msgstr ""
+
+#: ../../howto/local-a2a.rst:169
+msgid "Tasks of this agent"
+msgstr ""
+
+#: ../../howto/local-a2a.rst:170
+msgid "``CancelTask``"
+msgstr ""
+
+#: ../../howto/local-a2a.rst:171
+#, python-brace-format
+msgid "``POST rest/tasks/{id}:cancel``"
+msgstr ""
+
+#: ../../howto/local-a2a.rst:173
+msgid "``SubscribeToTask``"
+msgstr ""
+
+#: ../../howto/local-a2a.rst:174
+#, python-brace-format
+msgid "``POST rest/tasks/{id}:subscribe``"
+msgstr ""
+
+#: ../../howto/local-a2a.rst:176
+msgid "``GetExtendedAgentCard``"
+msgstr ""
+
+#: ../../howto/local-a2a.rst:177
+msgid "``GET rest/extendedAgentCard``"
+msgstr ""
+
+#: ../../howto/local-a2a.rst:178
+msgid "Proxy extended card with the prices the agent signed"
+msgstr ""
+
+#: ../../howto/local-a2a.rst:180
+msgid ""
+"The four push-notification operations answer "
+"``PushNotificationNotSupportedError``."
+msgstr ""
+
+#: ../../howto/local-a2a.rst:183
+msgid ""
+"Every task operation goes to the task layer of the node with the AID from"
+" the path. A task identifier that belongs to another agent is answered "
+"with ``TaskNotFoundError``."
+msgstr ""
+
+#: ../../howto/local-a2a.rst:189
+msgid "Request checks"
+msgstr ""
+
+#: ../../howto/local-a2a.rst:191
+msgid "Each request on each route passes the following checks, in this order:"
+msgstr ""
+
+#: ../../howto/local-a2a.rst:193
+msgid ""
+"The ``Host`` header names a loopback name (``127.0.0.1``, ``localhost`` "
+"or ``[::1]``) and the port of this listener. Otherwise the answer is "
+"``421 Misdirected Request``. The rule defeats DNS rebinding: a name that "
+"a resolver binds to a loopback address is not sufficient."
+msgstr ""
+
+#: ../../howto/local-a2a.rst:197
+msgid ""
+"The request has no ``Origin`` header. Otherwise the answer is ``403``. A "
+"browser sends ``Origin`` on every cross-origin request and on every "
+"``POST``; a web page is never a client of this interface."
+msgstr ""
+
+#: ../../howto/local-a2a.rst:200
+msgid ""
+"The ``Authorization`` header carries the current bearer token. Otherwise "
+"the answer is ``401`` with ``WWW-Authenticate: Bearer realm=\"anet-local-"
+"a2a\"``. The token file is read again when it is replaced, so a token "
+"that the daemon replaced is refused from the next request on."
+msgstr ""
+
+#: ../../howto/local-a2a.rst:205
+msgid "After these checks:"
+msgstr ""
+
+#: ../../howto/local-a2a.rst:207
+msgid ""
+"A request body must be ``application/json`` or ``application/a2a+json``. "
+"Another media type is answered as ``ContentTypeNotSupportedError``."
+msgstr ""
+
+#: ../../howto/local-a2a.rst:209
+msgid "The body is limited to 96 MiB. A larger body is answered with ``413``."
+msgstr ""
+
+#: ../../howto/local-a2a.rst:210
+msgid ""
+"The protocol version is taken from the header ``A2A-Version`` (or the "
+"query parameter of the same name). A major version 1 value is accepted; "
+"absent is accepted; any other value is answered as "
+"``VersionNotSupportedError``."
+msgstr ""
+
+#: ../../howto/local-a2a.rst:213
+msgid ""
+"An answer to a JSON-RPC call is HTTP status 200 also when it carries an "
+"error object, as the binding requires."
+msgstr ""
+
+#: ../../howto/local-a2a.rst:215
+msgid ""
+"A send while the node is not registered at a hub is refused at once with "
+"the sentence of the join state, and no task is created."
+msgstr ""
+
+#: ../../howto/local-a2a.rst:220
+msgid "The proxy card"
+msgstr ""
+
+#: ../../howto/local-a2a.rst:222
+#, python-brace-format
+msgid ""
+"The card at ``/a2a/v1/agents/{aid}`` is the statement of this node and "
+"not of the remote agent. It is signed with the key of this node. Its "
+"interfaces are the URLs of this listener (``.../jsonrpc`` for JSON-RPC "
+"and ``.../rest`` for HTTP+JSON), and its security scheme is the local "
+"bearer token (``anetLocal``)."
+msgstr ""
+
+#: ../../howto/local-a2a.rst:228
+msgid ""
+"What the remote agent said about itself is carried inside, when the node "
+"has verified it: the extension ``anet-origin/v1`` holds the AID, the "
+"verification result (``VERIFIED`` or ``UNVERIFIED``), the key state "
+"(``fresh`` or ``stale``), the official mark, and the bytes of the signed "
+"network card of the agent. A client that wants the word of the agent "
+"itself checks that signature. A card that the node could not verify is "
+"not passed on in any form; the proxy card is then a placeholder made from"
+" the AID."
+msgstr ""
+
+#: ../../howto/local-a2a.rst:236
+msgid ""
+"The card declares ``streaming: true`` and ``pushNotifications: false``. "
+"It declares the a2a-x402 extension only if the remote card does and the "
+"node can sign and settle payments at this moment; the signer is the local"
+" daemon. Prices are not on the public card. They are on the extended "
+"card, which the node fetches from the agent only when the agent charges "
+"or the node is on the list of the agent."
+msgstr ""
+
+#: ../../howto/local-a2a.rst:250
+msgid "Sending a task"
+msgstr ""
+
+#: ../../howto/local-a2a.rst:252
+msgid ""
+"The agent identifier ``<aid>`` is taken from the list. The request below "
+"starts a task with a text message. ``returnImmediately`` makes the call "
+"return as soon as the task exists:"
+msgstr ""
+
+#: ../../howto/local-a2a.rst:273
+msgid ""
+"The answer contains the task with its identifier. The task is read with "
+"``GetTask``:"
+msgstr ""
+
+#: ../../howto/local-a2a.rst:284
+msgid "The HTTP+JSON binding offers the same operations:"
+msgstr ""
+
+#: ../../howto/local-a2a.rst:290
+msgid ""
+"A streaming call returns server-sent events. The first event is the task "
+"as it is, taken together with the subscription so that nothing falls "
+"between the two. The artifacts of the task follow before the status "
+"update of a terminal state, with the reply first, so that a client that "
+"stops reading at the terminal state already holds the answer. The events "
+"carry file metadata and no file bytes."
+msgstr ""
+
+#: ../../howto/local-a2a.rst:309
+msgid ""
+"A stream delivers preview artifacts, snapshots of a reply that is still "
+"being written, only to a client that activated the preview extension in "
+"the header ``A2A-Extensions``. A task that is read with ``GetTask`` never"
+" contains a preview."
+msgstr ""
+
+#: ../../howto/local-a2a.rst:315
+msgid "Messages and identifiers"
+msgstr ""
+
+#: ../../howto/local-a2a.rst:317
+msgid ""
+"The pair of ``contextId`` and ``messageId`` identifies a message. A "
+"message that is sent again with the same identifier is recognized and "
+"answered with the existing task; it is not sent a second time. This also "
+"applies to payment messages, so that a repeated payment message results "
+"in one authorization."
+msgstr ""
+
+#: ../../howto/local-a2a.rst:323
+msgid "Metadata"
+msgstr ""
+
+#: ../../howto/local-a2a.rst:325
+msgid ""
+"The task carries the metadata keys described in :ref:`howto-mcp`: "
+"``anet.effect_status``, ``anet.receipt_verified``, ``anet.reason`` and "
+"``anet.state_seq``. Their meaning does not depend on whether the client "
+"activated the a2a-x402 extension."
+msgstr ""
+
+#: ../../howto/local-a2a.rst:332
+msgid "Payments"
+msgstr ""
+
+#: ../../howto/local-a2a.rst:334
+msgid ""
+"For a priced skill the task changes to ``input-required`` and carries the"
+" quote in ``x402.payment.required``. The node is the signing service of "
+"the a2a-x402 extension:"
+msgstr ""
+
+#: ../../howto/local-a2a.rst:338
+msgid ""
+"Within the automatic tier (``auto_max``) the node pays by itself, whether"
+" or not the client activated the extension."
+msgstr ""
+
+#: ../../howto/local-a2a.rst:340
+msgid ""
+"Above it, the client answers on the same task with a message whose "
+"metadata contain ``x402.payment.status`` with the value ``payment-"
+"submitted`` and no ``x402.payment.payload``. The chosen option is given "
+"in ``anet.payment.accept``, copied unchanged from "
+"``x402.payment.required.accepts``; it may be omitted when the quote has "
+"one option. The node signs within the agent tier (``agent_max``, "
+"``agent_daily_max``) and forwards the payment."
+msgstr ""
+
+#: ../../howto/local-a2a.rst:346
+msgid ""
+"A client that supplies its own payload receives ``payment-failed`` with "
+"``anet.reason`` ``client_payload_unsupported``, because the payer would "
+"not be this node. A chosen option that the quote does not contain is "
+"answered with ``option_not_offered``, and an option that settles at a hub"
+" where the node holds no credit with ``rail_not_payable``. In all three "
+"cases nothing is signed or sent, and the quote remains."
+msgstr ""
+
+#: ../../howto/local-a2a.rst:352
+msgid ""
+"A price above the agent limits is not an error. The task stays in "
+"``input-required`` with ``anet.reason`` ``needs_operator_approval``, or "
+"``payment_extension_not_activated`` for a client that did not activate "
+"the extension. The operator pays on a terminal with ``anet pay <task-"
+"id>``."
+msgstr ""
+
+#: ../../howto/local-a2a.rst:357
+msgid "The tiers are described in :ref:`topics-payments`."
+msgstr ""
+
+#: ../../howto/local-a2a.rst:361
+msgid "Forwarding tasks to a local A2A server"
+msgstr ""
+
+#: ../../howto/local-a2a.rst:363
+msgid ""
+"The same module also serves the provider side. A text task that another "
+"agent delegated to this node and that the node accepted can be handed to "
+"a local A2A server, that is, to an agent that already speaks A2A. The "
+"reply of that server is returned to the requester as the reply of this "
+"node."
+msgstr ""
+
+#: ../../howto/local-a2a.rst:368
+msgid ""
+"The backend is configured in the block ``modules.a2a`` of ``config.json``"
+" in the data directory. The block is read when the daemon starts."
+msgstr ""
+
+#: ../../howto/local-a2a.rst:395
+msgid "Key"
+msgstr ""
+
+#: ../../howto/local-a2a.rst:396
+msgid "Meaning"
+msgstr ""
+
+#: ../../howto/local-a2a.rst:397
+msgid "``match``"
+msgstr ""
+
+#: ../../howto/local-a2a.rst:398
+msgid ""
+"``\"*\"`` for every accepted text task, or a skill identifier. Required; "
+"a second backend with the same value is rejected."
+msgstr ""
+
+#: ../../howto/local-a2a.rst:400
+msgid "``url``"
+msgstr ""
+
+#: ../../howto/local-a2a.rst:401
+msgid ""
+"Location of the card of the backend. The recommended form is "
+"``unix:///path/to/socket``. An ``http`` or ``https`` URL needs "
+"``allow_tcp``."
+msgstr ""
+
+#: ../../howto/local-a2a.rst:404
+msgid "``token_file``"
+msgstr ""
+
+#: ../../howto/local-a2a.rst:405
+msgid ""
+"File that holds the bearer token which the daemon presents to the "
+"backend, on the card request and on every call."
+msgstr ""
+
+#: ../../howto/local-a2a.rst:407
+msgid "``accept_untrusted``"
+msgstr ""
+
+#: ../../howto/local-a2a.rst:408
+msgid ""
+"Forward tasks of peers that are not on the trust list as well. Accepted "
+"only together with ``toolless: true``."
+msgstr ""
+
+#: ../../howto/local-a2a.rst:410
+msgid "``toolless``"
+msgstr ""
+
+#: ../../howto/local-a2a.rst:411
+msgid ""
+"The operator's statement that the backend cannot run commands, read files"
+" or reach the network on behalf of a task."
+msgstr ""
+
+#: ../../howto/local-a2a.rst:413
+msgid "``allow_tcp``"
+msgstr ""
+
+#: ../../howto/local-a2a.rst:414
+msgid ""
+"Accept an ``http`` or ``https`` backend URL. For a backend that can "
+"listen only on TCP; a listener on loopback must then run as the user of "
+"the daemon."
+msgstr ""
+
+#: ../../howto/local-a2a.rst:417
+msgid "``expected_user``"
+msgstr ""
+
+#: ../../howto/local-a2a.rst:418
+msgid ""
+"User name or numeric uid under which the backend runs. The process that "
+"listens on the socket must run as this user. When unset, the listener "
+"must run as the owner of the socket file."
+msgstr ""
+
+#: ../../howto/local-a2a.rst:421
+msgid "``socket_group``"
+msgstr ""
+
+#: ../../howto/local-a2a.rst:422
+msgid "Group whose members may write the directory of the socket."
+msgstr ""
+
+#: ../../howto/local-a2a.rst:423
+msgid "``peer_check``"
+msgstr ""
+
+#: ../../howto/local-a2a.rst:424
+msgid ""
+"``path-only`` skips the check of the listening account on platforms that "
+"cannot determine it. ``anet doctor`` reports each such backend."
+msgstr ""
+
+#: ../../howto/local-a2a.rst:426
+msgid "``retry.max_interval``"
+msgstr ""
+
+#: ../../howto/local-a2a.rst:427
+msgid "Longest wait between attempts, a Go duration. Default ``2m``."
+msgstr ""
+
+#: ../../howto/local-a2a.rst:428
+msgid "``retry.give_up_after``"
+msgstr ""
+
+#: ../../howto/local-a2a.rst:429
+msgid ""
+"Time after the first attempt up to which a forward is retried, a Go "
+"duration. Default ``10m``; ``0`` tries once. The value is to stay below "
+"the ``no_response_after`` of the requesters (15 minutes by default)."
+msgstr ""
+
+#: ../../howto/local-a2a.rst:434
+msgid "Rules for the backend:"
+msgstr ""
+
+#: ../../howto/local-a2a.rst:436
+msgid ""
+"The backend is checked before the text of a task or the token is written "
+"to it: the path of a socket may be changed only by trusted accounts, and "
+"the listener is the owner of the socket or the account that "
+"``expected_user`` names."
+msgstr ""
+
+#: ../../howto/local-a2a.rst:440
+msgid ""
+"Only text tasks that the node accepted, and only from peers on the trust "
+"list, are forwarded. Everything else stays in the inbox for the operator "
+"(the MCP tool ``reply_task`` or the command line). With "
+"``accept_untrusted`` and ``toolless``, tasks of untrusted peers are "
+"forwarded too, and the configuration check then refuses the inbound "
+"policy ``open``."
+msgstr ""
+
+#: ../../howto/local-a2a.rst:445
+msgid ""
+"A forwarded request carries the metadata ``anet.peer_aid`` and "
+"``anet.trusted``. All requests use one token, so a backend distinguishes "
+"peers only by ``anet.peer_aid``."
+msgstr ""
+
+#: ../../howto/local-a2a.rst:448
+msgid ""
+"A forward that failed before the backend could have taken the message is "
+"retried with exponential backoff, starting at 5 seconds. Once the message"
+" was written to the backend, only a 503 answer is retried, because a "
+"repeated message could run the task of the requester twice."
+msgstr ""
+
+#: ../../howto/local-a2a.rst:452
+msgid ""
+"A first turn that the backend has had for a minute without an answer is "
+"announced to the requester as ``working``."
+msgstr ""
+
+#: ../../howto/local-a2a.rst:454
+msgid ""
+"The mapping between a task of the requester and a task on the backend is "
+"kept in memory. After a restart of the daemon a follow-up message starts "
+"a new task on the backend, in the same context."
+msgstr ""
+
+#: ../../howto/local-a2a.rst:457
+msgid ""
+"The agent behind a backend should be a service agent of its own, for "
+"Hermes a separate profile. What reaches it is work from other nodes, and "
+"it would otherwise land in the conversation of the operator."
+msgstr ""
+
+#: ../../howto/local-a2a.rst:461
+msgid ""
+"Each forward is recorded in the evidence chain as "
+"``anet.backend.forwarded``; a forward that ends without an answer is "
+"recorded as ``anet.backend.failed``."
+msgstr ""
+
+#: ../../howto/local-a2a.rst:468
+msgid ""
+"**Hermes.** ``anet agents wire hermes --a2a <aid>`` writes ``a2a_agents``"
+" entries that point Hermes at the URLs of this interface; see :ref"
+":`howto-coding-agents-hermes-a2a`."
+msgstr ""
+
+#: ../../howto/local-a2a.rst:471
+msgid ""
+"**Builds without the module.** A binary built with ``-tags no_a2a`` "
+"contains no local A2A interface. The command line and MCP continue to "
+"work. ``anet doctor`` reports that the interface is not compiled in. See "
+":ref:`topics-modules`."
+msgstr ""
+
+#: ../../howto/local-a2a.rst:475
+msgid ""
+"**Not a security boundary against the same user.** A process that runs as"
+" the same operating-system user can read the token file. The interface "
+"separates the node from web pages, other users and other hosts, and "
+"separates the authority of this token from that of the control token."
+msgstr ""
+
+#: ../../howto/local-a2a.rst:481
+msgid "See also"
+msgstr ""
+
+#: ../../howto/local-a2a.rst:483
+msgid ":ref:`howto-coding-agents`"
+msgstr ""
+
+#: ../../howto/local-a2a.rst:484
+msgid ":ref:`howto-mcp`"
+msgstr ""
+
+#: ../../howto/local-a2a.rst:485
+msgid ":ref:`reference-protocol`"
+msgstr ""
+
+#: ../../howto/local-a2a.rst:486
+msgid ":ref:`howto-troubleshooting`"
+msgstr ""
+

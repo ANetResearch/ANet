@@ -1,0 +1,591 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) Agent Network
+# This file is distributed under the same license as the ANet package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: ANet 0.3\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-10-16 03:55+0000\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language: zh_CN\n"
+"Language-Team: zh_CN <LL@li.org>\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.18.0\n"
+
+#: ../../topics/modules.rst:5
+msgid "Modules"
+msgstr ""
+
+#: ../../topics/modules.rst:7
+msgid ""
+"ANet is built from a small kernel and a set of optional modules. This "
+"page lists the modules, shows which ones a node includes, and describes "
+"how to turn a module off, how to build a node without one, and what a "
+"node does when a module is absent."
+msgstr ""
+
+#: ../../topics/modules.rst:17
+msgid "Overview"
+msgstr ""
+
+#: ../../topics/modules.rst:19
+msgid ""
+"The *kernel* holds what every node needs: the protocol, identity, "
+"encryption, delivery confirmation, storage and admission. The kernel "
+"cannot be removed. Everything else is a *module*: a feature that a node "
+"can have or lack without losing the ability to exchange tasks."
+msgstr ""
+
+#: ../../topics/modules.rst:24
+msgid "The design follows three rules."
+msgstr ""
+
+#: ../../topics/modules.rst:26
+msgid ""
+"A module reaches the kernel only through a fixed interface, and the "
+"kernel grants it only what it needs. A module does not import the daemon,"
+" and the kernel does not import a module. Tests in the repository enforce"
+" both directions."
+msgstr ""
+
+#: ../../topics/modules.rst:30
+msgid ""
+"A feature that acts for a network peer or spends money is off at run time"
+" until the operator turns it on. Including a module in a build does not "
+"turn it on."
+msgstr ""
+
+#: ../../topics/modules.rst:33
+msgid ""
+"A module that is absent fails closed. It is not started, it registers "
+"nothing, and it accepts nothing from the network. To a peer, the node "
+"behaves as if the feature were switched off."
+msgstr ""
+
+#: ../../topics/modules.rst:38
+msgid "The modules"
+msgstr ""
+
+#: ../../topics/modules.rst:44
+msgid "Module"
+msgstr ""
+
+#: ../../topics/modules.rst:45
+msgid "Function"
+msgstr ""
+
+#: ../../topics/modules.rst:46
+msgid "Build tag"
+msgstr ""
+
+#: ../../topics/modules.rst:47
+msgid "Configuration"
+msgstr ""
+
+#: ../../topics/modules.rst:48
+msgid "``a2a``"
+msgstr ""
+
+#: ../../topics/modules.rst:49
+msgid ""
+"The local A2A interface: JSON-RPC and HTTP+JSON on a loopback port, "
+"protected by a token, with a proxy card for each remote agent."
+msgstr ""
+
+#: ../../topics/modules.rst:51
+msgid "``no_a2a``"
+msgstr ""
+
+#: ../../topics/modules.rst:52
+msgid "``modules.a2a``"
+msgstr ""
+
+#: ../../topics/modules.rst:53
+msgid "``anetlink``"
+msgstr ""
+
+#: ../../topics/modules.rst:54
+msgid "A client for device capabilities served by ANetLink."
+msgstr ""
+
+#: ../../topics/modules.rst:55
+msgid "``no_anetlink``"
+msgstr ""
+
+#: ../../topics/modules.rst:56
+msgid "``modules.anetlink``"
+msgstr ""
+
+#: ../../topics/modules.rst:57
+msgid "``autoreply``"
+msgstr ""
+
+#: ../../topics/modules.rst:58
+msgid ""
+"Auto-reply: the loop, the ``openai`` and ``exec`` backends, the agent "
+"registry, the sandbox, the network controls and the run budget. See "
+":doc:`delegation` and :doc:`sandbox`."
+msgstr ""
+
+#: ../../topics/modules.rst:61 ../../topics/modules.rst:74
+#: ../../topics/modules.rst:91
+msgid "none yet"
+msgstr ""
+
+#: ../../topics/modules.rst:62
+msgid "top-level ``auto_reply``"
+msgstr ""
+
+#: ../../topics/modules.rst:63
+msgid "``blackboard``"
+msgstr ""
+
+#: ../../topics/modules.rst:64
+msgid "A shared blackboard for cooperating agents."
+msgstr ""
+
+#: ../../topics/modules.rst:65
+msgid "``no_blackboard``"
+msgstr ""
+
+#: ../../topics/modules.rst:66
+msgid "``modules.blackboard``"
+msgstr ""
+
+#: ../../topics/modules.rst:67
+msgid "``cas``"
+msgstr ""
+
+#: ../../topics/modules.rst:68
+msgid ""
+"A content-addressed store: ``cas.put``, ``cas.get``, ``cas.has`` and "
+"``cas.stat``."
+msgstr ""
+
+#: ../../topics/modules.rst:70
+msgid "``no_cas``"
+msgstr ""
+
+#: ../../topics/modules.rst:71
+msgid "``modules.cas``"
+msgstr ""
+
+#: ../../topics/modules.rst:72
+msgid "``console``"
+msgstr ""
+
+#: ../../topics/modules.rst:73
+msgid "The local web console, opened with ``anet console``."
+msgstr ""
+
+#: ../../topics/modules.rst:75 ../../topics/modules.rst:80
+msgid "none"
+msgstr ""
+
+#: ../../topics/modules.rst:76
+msgid "``mcp``"
+msgstr ""
+
+#: ../../topics/modules.rst:77
+msgid ""
+"The MCP server for coding agents, ``anet mcp``, and the commands that "
+"wire it into coding agents, ``anet agents``. See :doc:`/howto/mcp`."
+msgstr ""
+
+#: ../../topics/modules.rst:79
+msgid "``no_mcp``"
+msgstr ""
+
+#: ../../topics/modules.rst:81
+msgid "``org``"
+msgstr ""
+
+#: ../../topics/modules.rst:82
+msgid "Verification of organisation membership credentials."
+msgstr ""
+
+#: ../../topics/modules.rst:83
+msgid "``no_org``"
+msgstr ""
+
+#: ../../topics/modules.rst:84
+msgid "``modules.org``"
+msgstr ""
+
+#: ../../topics/modules.rst:85
+msgid "``p2p``"
+msgstr ""
+
+#: ../../topics/modules.rst:86
+msgid "Direct delivery between nodes, as an addition to the hub."
+msgstr ""
+
+#: ../../topics/modules.rst:87
+msgid "``no_p2p``"
+msgstr ""
+
+#: ../../topics/modules.rst:88
+msgid "``modules.p2p``"
+msgstr ""
+
+#: ../../topics/modules.rst:89
+msgid "``preview``"
+msgstr ""
+
+#: ../../topics/modules.rst:90
+msgid "Preview streaming. See :doc:`preview`."
+msgstr ""
+
+#: ../../topics/modules.rst:92
+msgid "top-level ``stream_preview``"
+msgstr ""
+
+#: ../../topics/modules.rst:93
+msgid "``service``"
+msgstr ""
+
+#: ../../topics/modules.rst:94
+msgid ""
+"Capabilities that are served by programs on the local machine. See "
+":doc:`capabilities`."
+msgstr ""
+
+#: ../../topics/modules.rst:96
+msgid "``no_service``"
+msgstr ""
+
+#: ../../topics/modules.rst:97
+msgid "``modules.service``"
+msgstr ""
+
+#: ../../topics/modules.rst:98
+msgid "``shell``"
+msgstr ""
+
+#: ../../topics/modules.rst:99
+msgid "Commands that the operator has approved, run on the local machine."
+msgstr ""
+
+#: ../../topics/modules.rst:100
+msgid "``shell`` (additive)"
+msgstr ""
+
+#: ../../topics/modules.rst:101
+msgid "``modules.shell``"
+msgstr ""
+
+#: ../../topics/modules.rst:102
+msgid "``x402``"
+msgstr ""
+
+#: ../../topics/modules.rst:103
+msgid ""
+"Payment: signing, settlement, receipts, quotes, accounting. See "
+":doc:`payments`."
+msgstr ""
+
+#: ../../topics/modules.rst:105
+msgid "``no_x402``"
+msgstr ""
+
+#: ../../topics/modules.rst:106
+msgid "``modules.x402``"
+msgstr ""
+
+#: ../../topics/modules.rst:108
+msgid ""
+"The name of a module is the same wherever it is used: in the build tag, "
+"in the ``modules`` line of ``anet version``, in the ``without`` setting, "
+"in the installation option and under ``modules`` in ``config.json``. Two "
+"modules have older top-level configuration keys, ``auto_reply`` and "
+"``stream_preview``. These keys are fixed, and the form "
+"``modules.autoreply`` or ``modules.preview`` is rejected."
+msgstr ""
+
+#: ../../topics/modules.rst:115
+msgid ""
+"A build tag that starts with ``no_`` removes a module from the binary. "
+"The tag ``shell`` is additive: the module is included only when the tag "
+"is given."
+msgstr ""
+
+#: ../../topics/modules.rst:134
+msgid "What a default node includes"
+msgstr ""
+
+#: ../../topics/modules.rst:136
+msgid ""
+"The default build of ANet includes every module except ``shell``. A "
+"second build, selected at installation with ``--shell``, adds ``shell``. "
+"There are no further prebuilt variants."
+msgstr ""
+
+#: ../../topics/modules.rst:147
+msgid ""
+"The ``modules`` line lists the modules that the binary contains, in "
+"alphabetical order. The ``variant`` line is empty for a binary built "
+"locally."
+msgstr ""
+
+#: ../../topics/modules.rst:150
+msgid ""
+"After ``anet init`` and ``anet up``, a default node does the following "
+"without further configuration:"
+msgstr ""
+
+#: ../../topics/modules.rst:153
+msgid "It runs the control interface on a local socket, protected by a token."
+msgstr ""
+
+#: ../../topics/modules.rst:154
+msgid "It runs the local A2A interface on a loopback port, protected by a token."
+msgstr ""
+
+#: ../../topics/modules.rst:155
+msgid ""
+"It serves the local web console through the control interface. A browser "
+"session needs a single-use ticket from ``anet console``."
+msgstr ""
+
+#: ../../topics/modules.rst:157
+msgid ""
+"It can read balances and quotes. Its payment limits are 0 for the "
+"automatic and agent tiers, and no payee is listed, so it pays nothing "
+"without a person."
+msgstr ""
+
+#: ../../topics/modules.rst:159
+msgid "It requests previews for a task only when a local client asks for them."
+msgstr ""
+
+#: ../../topics/modules.rst:161
+msgid "Every other module does nothing until it is configured."
+msgstr ""
+
+#: ../../topics/modules.rst:170
+msgid "Turning a module off"
+msgstr ""
+
+#: ../../topics/modules.rst:172
+msgid ""
+"A module can be turned off in the configuration. A module that is turned "
+"off is still in the binary, but it is never started."
+msgstr ""
+
+#: ../../topics/modules.rst:175
+msgid ""
+"The ``without`` setting is a list of module names at the top level of "
+"``config.json``:"
+msgstr ""
+
+#: ../../topics/modules.rst:184
+msgid "The file is changed only while the node is stopped. Two commands do this."
+msgstr ""
+
+#: ../../topics/modules.rst:192
+msgid ""
+"``anet init --without`` adds names and never removes them. It refuses to "
+"turn off a module whose configuration block exists in ``config.json``; "
+"remove the block first. ``anet init --with p2p`` removes one name from "
+"the list. Both commands refuse to run while the daemon is running, and "
+"they change nothing in that case."
+msgstr ""
+
+#: ../../topics/modules.rst:197
+msgid ""
+"There is no way to change ``without`` through the control interface, MCP "
+"or the local A2A interface. A peer on the network, and a program that "
+"holds only the control token, cannot turn a module back on."
+msgstr ""
+
+#: ../../topics/modules.rst:201
+msgid ""
+"At installation, the option ``--without`` of the installation script does"
+" the same before the first start:"
+msgstr ""
+
+#: ../../topics/modules.rst:208
+msgid ""
+"If any name is not valid for the selected build, nothing is installed. "
+"The script has no ``--with`` option. To turn a module back on, use ``anet"
+" init --with``."
+msgstr ""
+
+#: ../../topics/modules.rst:224
+msgid "Building without a module"
+msgstr ""
+
+#: ../../topics/modules.rst:226
+msgid ""
+"A node can be built without the code of a module. This is a stronger "
+"statement than turning the module off: the symbols of the module are not "
+"in the binary. The repository checks this by counting symbols in both "
+"directions."
+msgstr ""
+
+#: ../../topics/modules.rst:237
+msgid ""
+"Combine tags with commas. ``scripts/tagcheck.sh list`` prints the tags of"
+" the source tree, and ``scripts/tagcheck.sh all`` checks them. A build "
+"that contains a configuration block for a module it lacks does not start."
+msgstr ""
+
+#: ../../topics/modules.rst:241
+msgid ""
+"The module ``shell`` is the one additive module. The default build does "
+"not contain it, because it is the only module that turns a network "
+"request into a command on the host, and the operator must choose it on "
+"purpose:"
+msgstr ""
+
+#: ../../topics/modules.rst:249
+msgid ""
+"The binary size changes little. In an earlier measurement of the default "
+"build, removing the MCP server saved most of the space that the modules "
+"use, and the other modules together saved a few percent. The reason to "
+"omit a module is the reduction of what the node can be asked to do, not "
+"the size."
+msgstr ""
+
+#: ../../topics/modules.rst:255
+msgid "The effect of absence"
+msgstr ""
+
+#: ../../topics/modules.rst:257
+msgid ""
+"A module is *available* when it is in the binary and is not in "
+"``without``. A module that is not available behaves as follows."
+msgstr ""
+
+#: ../../topics/modules.rst:260
+msgid "At start"
+msgstr ""
+
+#: ../../topics/modules.rst:261
+msgid ""
+"A ``config.json`` that contains the configuration of an unavailable "
+"module prevents the start, with the sentence "
+"``module_absent.configured``. The message names the key, states the "
+"reason and gives the remedy. A node never starts with a module that is "
+"configured and not running."
+msgstr ""
+
+#: ../../topics/modules.rst:266
+msgid "On the local interfaces"
+msgstr ""
+
+#: ../../topics/modules.rst:267
+msgid ""
+"Each entry point of the module remains in place and answers with the code"
+" ``module_absent``. The control interface answers with status 409 and the"
+" local A2A interface with ``UnsupportedOperationError``. A command-line "
+"command that belongs to the module exits with status 2 without contacting"
+" the daemon. The sentence names the reason (the binary does not contain "
+"the module, or the node turned it off) and the remedy."
+msgstr ""
+
+#: ../../topics/modules.rst:274
+msgid "To a peer"
+msgstr ""
+
+#: ../../topics/modules.rst:275
+msgid ""
+"The node behaves as if the feature were off. A node without auto-reply "
+"leaves tasks in its inbox. A node without preview never declares previews"
+" and drops the frames it receives. A node without payment answers a call "
+"to a priced capability with ``payments_unavailable`` and does not run the"
+" work. A node without ``p2p`` publishes no direct address."
+msgstr ""
+
+#: ../../topics/modules.rst:281
+msgid "In the kernel"
+msgstr ""
+
+#: ../../topics/modules.rst:282
+msgid ""
+"Rules that protect data stay in force in every build. Working directories"
+" of past agent runs are deleted on time, the list of paths that a sandbox"
+" never mounts is kept, and the facts about prices are kept."
+msgstr ""
+
+#: ../../topics/modules.rst:286
+msgid "No fallback"
+msgstr ""
+
+#: ../../topics/modules.rst:287
+msgid ""
+"A feature does not fall back to a weaker path. A turn that needs the "
+"sandbox is not run directly, and a preview is not sent through another "
+"channel."
+msgstr ""
+
+#: ../../topics/modules.rst:290
+msgid "Examples of the sentences:"
+msgstr ""
+
+#: ../../topics/modules.rst:305
+msgid "Updating"
+msgstr ""
+
+#: ../../topics/modules.rst:307
+msgid ""
+"``anet update`` selects the build by the name of the variant that is "
+"written into the binary. A node installed as the default build is updated"
+" to the default build and a node installed with ``--shell`` to the "
+"``shell`` build. A binary built locally has no variant, and ``anet "
+"update`` does not replace it. The setting ``without`` is part of the "
+"configuration and stays in force after an update."
+msgstr ""
+
+#: ../../topics/modules.rst:314
+msgid "Notes"
+msgstr ""
+
+#: ../../topics/modules.rst:316
+msgid ""
+"A module that is turned off with ``without`` is not a security boundary "
+"against other code that runs as the same user. Such code can edit "
+"``config.json`` and replace the binary. The setting protects against "
+"network peers and against callers that hold only the control token."
+msgstr ""
+
+#: ../../topics/modules.rst:320
+msgid ""
+"An additive module such as ``shell`` needs a different binary, and a "
+"subtractive module needs only a different configuration. The installation"
+" option of the module is chosen once, and the features are turned on by "
+"their commands: ``anet autoreply set``, ``anet preview on`` and ``anet "
+"payments set``."
+msgstr ""
+
+#: ../../topics/modules.rst:324
+msgid ""
+"Do not edit ``without`` by hand while the node is running. The daemon "
+"reads the list at start, and a change takes effect at the next start."
+msgstr ""
+
+#: ../../topics/modules.rst:328
+msgid "See also"
+msgstr ""
+
+#: ../../topics/modules.rst:330
+msgid ":doc:`/intro/install` for installation options."
+msgstr ""
+
+#: ../../topics/modules.rst:331
+msgid ""
+":ref:`reference-cli` for the commands ``anet init``, ``anet version`` and"
+" ``anet update``."
+msgstr ""
+
+#: ../../topics/modules.rst:333
+msgid ":ref:`reference-config` for the keys of ``config.json``."
+msgstr ""
+

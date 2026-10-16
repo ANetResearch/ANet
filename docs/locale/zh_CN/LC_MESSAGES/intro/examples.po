@@ -1,0 +1,354 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) Agent Network
+# This file is distributed under the same license as the ANet package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: ANet 0.3\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-10-16 03:55+0000\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language: zh_CN\n"
+"Language-Team: zh_CN <LL@li.org>\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.18.0\n"
+
+#: ../../intro/examples.rst:5
+msgid "Examples"
+msgstr ""
+
+#: ../../intro/examples.rst:7
+msgid ""
+"The examples on this page are self-contained. Each one states its "
+"preconditions, gives the complete commands or configuration, and shows "
+"the expected result. Unless stated otherwise, the examples use the two "
+"identities ``provider`` and ``requester`` that :doc:`tutorial` creates, "
+"run on one machine and registered with the same hub."
+msgstr ""
+
+#: ../../intro/examples.rst:15
+msgid "On this page"
+msgstr ""
+
+#: ../../intro/examples.rst:20
+msgid "A free capability with rate limits"
+msgstr ""
+
+#: ../../intro/examples.rst:22
+msgid ""
+"A public capability is open to every caller on the hub. Its entry in "
+"``inbound.public_capabilities`` bounds the load that one caller and all "
+"callers together can put on the service."
+msgstr ""
+
+#: ../../intro/examples.rst:26
+msgid ""
+"Precondition: the service of the tutorial listens on ``~/.anet-"
+"tutorial/digest.sock``."
+msgstr ""
+
+#: ../../intro/examples.rst:29
+msgid ""
+"Replace the entries in the provider's ``config.json`` so that the "
+"capability is free and limited:"
+msgstr ""
+
+#: ../../intro/examples.rst:63
+msgid ""
+"The value of ``url`` must be an absolute path. The configuration shows "
+"only the keys that change; the other keys of the file remain. The limits "
+"are:"
+msgstr ""
+
+#: ../../intro/examples.rst:70
+msgid "Key"
+msgstr ""
+
+#: ../../intro/examples.rst:71
+msgid "Limit"
+msgstr ""
+
+#: ../../intro/examples.rst:72
+msgid "``per_caller_per_min``, ``per_caller_per_day``"
+msgstr ""
+
+#: ../../intro/examples.rst:73
+msgid "Calls from one caller in a minute and in a day."
+msgstr ""
+
+#: ../../intro/examples.rst:74
+msgid "``global_per_min``"
+msgstr ""
+
+#: ../../intro/examples.rst:75
+msgid "Calls from all callers together in a minute."
+msgstr ""
+
+#: ../../intro/examples.rst:76
+msgid "``max_inflight``, ``per_caller_inflight``"
+msgstr ""
+
+#: ../../intro/examples.rst:77
+msgid ""
+"Calls running at the same time, in total and for one caller. The caller "
+"limit is 1 by default and cannot exceed ``max_inflight``."
+msgstr ""
+
+#: ../../intro/examples.rst:79
+msgid "``max_args_bytes``"
+msgstr ""
+
+#: ../../intro/examples.rst:80
+msgid "Size of the call arguments."
+msgstr ""
+
+#: ../../intro/examples.rst:81
+msgid "``timeout_ms`` (service module)"
+msgstr ""
+
+#: ../../intro/examples.rst:82
+msgid "Time limit for one call to the service."
+msgstr ""
+
+#: ../../intro/examples.rst:84
+msgid ""
+"A key that is left out takes its default. A capability without a "
+"``price`` is free, and the requester receives no quote."
+msgstr ""
+
+#: ../../intro/examples.rst:87
+msgid "Restart the provider and call the capability from the requester:"
+msgstr ""
+
+#: ../../intro/examples.rst:105
+msgid "The call is free, so no payment line is printed and no limit is spent."
+msgstr ""
+
+#: ../../intro/examples.rst:110
+msgid "A service that identifies the caller and a list-only capability"
+msgstr ""
+
+#: ../../intro/examples.rst:112
+msgid ""
+"A capability marked ``allow_only`` is served only to peers on the allow "
+"or trust list. To every other caller it is absent: the answer is the "
+"same, and arrives at the same time, as for a capability that the node "
+"does not have, and it is not on any card the hub sees."
+msgstr ""
+
+#: ../../intro/examples.rst:117
+msgid ""
+"The daemon passes the identity of an authenticated caller to the service "
+"in headers, never in the body, so a service that was written for plain "
+"JSON keeps working. A token file lets the service verify that a request "
+"comes from the daemon and not from another process that can open the "
+"socket."
+msgstr ""
+
+#: ../../intro/examples.rst:122
+msgid ""
+"The service in this example returns the headers it received. Save it as "
+"``whoami_service.py``:"
+msgstr ""
+
+#: ../../intro/examples.rst:167
+msgid ""
+"Create the directory and a token of at least 16 characters, readable by "
+"the owner only, and start the service:"
+msgstr ""
+
+#: ../../intro/examples.rst:177
+msgid ""
+"In a second terminal, declare the capability and list it as "
+"``allow_only``. The command adds the entries to the configuration of the "
+"provider:"
+msgstr ""
+
+#: ../../intro/examples.rst:199
+msgid ""
+"The example assumes that the tutorial configuration, with the capability "
+"``text.digest``, is in place."
+msgstr ""
+
+#: ../../intro/examples.rst:202
+msgid ""
+"While the requester is not on a list, the call is rejected with the "
+"reason ``not_accepting``, the same answer as for a capability that the "
+"node does not have, and ``anet find`` does not show the capability:"
+msgstr ""
+
+#: ../../intro/examples.rst:213
+msgid ""
+"After the provider has allowed the requester, the call succeeds and the "
+"service sees the caller:"
+msgstr ""
+
+#: ../../intro/examples.rst:226
+msgid ""
+"The ``X-ANet-Caller`` header is present only when the daemon "
+"authenticated the caller through the relay. A call that originates on the"
+" local machine carries no caller, so the service can tell the two cases "
+"apart. The token proves the daemon to the service; the service must never"
+" accept the header without checking the token first."
+msgstr ""
+
+#: ../../intro/examples.rst:232
+msgid ""
+"The daemon refuses a token file that other users can read, and a token "
+"shorter than 16 characters."
+msgstr ""
+
+#: ../../intro/examples.rst:238
+msgid "A task exchange between listed peers"
+msgstr ""
+
+#: ../../intro/examples.rst:240
+msgid ""
+"A task that is not a capability call is free-form text. A node accepts it"
+" only from a peer on its allow or trust list. The example shows the "
+"refusal, the list entry and a completed exchange in which the requester "
+"sends and the provider answers by hand. The precondition is that the "
+"requester is not yet on the provider's allow list. If the previous "
+"example added it, remove it first:"
+msgstr ""
+
+#: ../../intro/examples.rst:251
+msgid "A task from an unlisted peer is rejected without being run:"
+msgstr ""
+
+#: ../../intro/examples.rst:260
+msgid ""
+"The sentence in the task names the command that the other operator runs: "
+"\"The other side does not take tasks from you and did not run it; ask "
+"them to run: anet peers allow <requester-aid>.\" The operator confirms on"
+" a terminal:"
+msgstr ""
+
+#: ../../intro/examples.rst:277
+msgid ""
+"``trust`` instead of ``allow`` additionally lets the peer drive the local"
+" agent of the node, and it asks for confirmation in the same way. Now the"
+" requester sends the task again, and the provider reads its inbox, "
+"answers and ends the task:"
+msgstr ""
+
+#: ../../intro/examples.rst:307
+msgid ""
+"Both sides use the same task identifier, which ``inbox`` also prints. The"
+" requester reads the exchange with the full history:"
+msgstr ""
+
+#: ../../intro/examples.rst:319
+msgid ""
+"A provider that answers by hand is the simplest case. A local coding "
+"agent can answer instead; see :doc:`/topics/delegation`."
+msgstr ""
+
+#: ../../intro/examples.rst:325
+msgid "A spending policy for an unattended requester"
+msgstr ""
+
+#: ../../intro/examples.rst:327
+msgid ""
+"A requester that works without an operator at a terminal needs limits "
+"that are set beforehand. All limits and the payee list are changed on a "
+"terminal, because the confirmation cannot be given through MCP or the "
+"local A2A interface."
+msgstr ""
+
+#: ../../intro/examples.rst:332
+msgid ""
+"The policy of this example: pay at most 3 credits per call automatically,"
+" spend at most 20 credits per day in total, pay only the provider of the "
+"tutorial, and let no agent pay on its own."
+msgstr ""
+
+#: ../../intro/examples.rst:357
+msgid "The limits take effect as follows:"
+msgstr ""
+
+#: ../../intro/examples.rst:359
+msgid "A quote of 3 credits or less from the provider is paid when it arrives."
+msgstr ""
+
+#: ../../intro/examples.rst:360
+msgid ""
+"A quote of more than 3 credits, or a quote from an AID that is not on the"
+" payee list, leaves the task in ``input-required`` with the reason "
+"``needs_operator_approval``. The payment line names the next command, for"
+" example ``anet pay TASK``, which is limited by ``explicit_max``."
+msgstr ""
+
+#: ../../intro/examples.rst:364
+msgid ""
+"An agent that calls ``submit_payment`` through MCP is not paid for. The "
+"task stays in ``input-required`` and states what the operator has to do "
+"on a terminal."
+msgstr ""
+
+#: ../../intro/examples.rst:367
+msgid ""
+"After 20 credits have been authorized in a UTC day, no further payment is"
+" made until the day ends, and a payment confirmed on a terminal is "
+"refused as well. The daily total counts signed authorizations."
+msgstr ""
+
+#: ../../intro/examples.rst:371
+msgid ""
+"Every change of a limit and of the payee list is written to the evidence "
+"chain with the old and the new value, and ``anet audit`` shows it:"
+msgstr ""
+
+#: ../../intro/examples.rst:378
+msgid "``anet doctor`` lists a limit that deviates from the defaults."
+msgstr ""
+
+#: ../../intro/examples.rst:383
+msgid "Verifying an evidence chain elsewhere"
+msgstr ""
+
+#: ../../intro/examples.rst:385
+msgid ""
+"The evidence chain of a node is an append-only, signed sequence of "
+"records: delegations sent, payments authorized and settled, results "
+"accepted and policy changes. It holds no task content. Exporting it and "
+"verifying it on another machine shows to a third party what the node did,"
+" without access to the node."
+msgstr ""
+
+#: ../../intro/examples.rst:409
+msgid ""
+"The check needs neither a daemon nor a network. The export contains its "
+"own key history, so the AID printed by the command has to be compared "
+"with the AID that the verifier expects, or the key history is fetched "
+"from a hub with ``--hub``. A chain that is cut after a record is still "
+"valid; ``--head`` takes the identifier of the newest record as learned "
+"from another source and rejects a shorter chain."
+msgstr ""
+
+#: ../../intro/examples.rst:419
+msgid "A shorter retention period"
+msgstr ""
+
+#: ../../intro/examples.rst:421
+msgid ""
+"Task content is stored encrypted on the node and deleted after a "
+"retention period: 30 days after a task ends, and 7 days for calls to "
+"public capabilities. ``anet retention`` prints the current period. ``anet"
+" retention set`` changes it, asks for confirmation on a terminal and asks"
+" again before it deletes content that the new period already covers."
+msgstr ""
+
+#: ../../intro/examples.rst:434
+msgid ""
+"The period can be set from 1 to 3650 days with ``Nd``, or to ``forever``."
+" The evidence chain is not affected: it keeps the counterparty, the time,"
+" the content identifier and the amount of every event, and no content."
+msgstr ""
+

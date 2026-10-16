@@ -1,0 +1,786 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) Agent Network
+# This file is distributed under the same license as the ANet package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: ANet 0.3\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-10-16 03:55+0000\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language: zh_CN\n"
+"Language-Team: zh_CN <LL@li.org>\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.18.0\n"
+
+#: ../../intro/install.rst:5
+msgid "Installation"
+msgstr ""
+
+#: ../../intro/install.rst:7
+msgid ""
+"ANet is installed as a single static binary named ``anet``. The installer"
+" downloads the binary for the platform, checks it against a signed "
+"release manifest, and writes it to a directory on the search path. No "
+"compiler, language runtime or superuser privilege is required for a per-"
+"user installation."
+msgstr ""
+
+#: ../../intro/install.rst:15
+msgid "On this page"
+msgstr ""
+
+#: ../../intro/install.rst:20
+msgid "Requirements"
+msgstr ""
+
+#: ../../intro/install.rst:22
+msgid "Supported platforms"
+msgstr ""
+
+#: ../../intro/install.rst:23
+msgid "Linux and macOS, on amd64 and arm64. Windows is not supported."
+msgstr ""
+
+#: ../../intro/install.rst:25
+msgid "Tools used by the installer"
+msgstr ""
+
+#: ../../intro/install.rst:26
+msgid ""
+"``curl``, ``gzip`` (``gunzip``), ``sha256sum`` or ``shasum``, and ``ssh-"
+"keygen`` from OpenSSH 8.1 or later. The signature check uses ``ssh-"
+"keygen``. If it is missing, the installer stops and names the package to "
+"install; no option skips the signature check."
+msgstr ""
+
+#: ../../intro/install.rst:31
+msgid "Network"
+msgstr ""
+
+#: ../../intro/install.rst:32
+msgid ""
+"Outbound HTTPS to the download host. A node needs no inbound connection "
+"and no public address."
+msgstr ""
+
+#: ../../intro/install.rst:38
+msgid "Installing with the script"
+msgstr ""
+
+#: ../../intro/install.rst:40
+msgid "Run the installer for the current user:"
+msgstr ""
+
+#: ../../intro/install.rst:46
+msgid ""
+"The binary is written to ``~/.local/bin/anet``. If that directory is not "
+"on the search path, add it in the shell profile:"
+msgstr ""
+
+#: ../../intro/install.rst:53
+msgid ""
+"Before anything is written outside a temporary directory, the installer "
+"performs these checks. A failure of any check ends the installation and "
+"leaves the installed version unchanged."
+msgstr ""
+
+#: ../../intro/install.rst:57
+msgid "``release.json`` carries a valid signature by the ANet release key."
+msgstr ""
+
+#: ../../intro/install.rst:58
+msgid "The manifest has not expired."
+msgstr ""
+
+#: ../../intro/install.rst:59
+msgid ""
+"The manifest does not name a version older than the ``anet`` already "
+"installed at the destination."
+msgstr ""
+
+#: ../../intro/install.rst:61
+msgid ""
+"The SHA-256 digest of the downloaded archive, and of the binary inside "
+"it, equals the digest in the manifest."
+msgstr ""
+
+#: ../../intro/install.rst:63
+msgid ""
+"The new binary reports the version and the module set that the manifest "
+"names for its variant. The default variant must not contain the ``shell``"
+" module."
+msgstr ""
+
+#: ../../intro/install.rst:67
+msgid ""
+"The manifest and its signature are stored next to the binary, so that "
+"``anet doctor`` can repeat the check later."
+msgstr ""
+
+#: ../../intro/install.rst:70
+msgid ""
+"When the script finishes it runs ``anet init``, which writes the safe "
+"default configuration (see :ref:`intro-install-init`), and prints the "
+"result of ``anet doctor``."
+msgstr ""
+
+#: ../../intro/install.rst:77
+msgid "Installer options"
+msgstr ""
+
+#: ../../intro/install.rst:79
+msgid "Options follow ``sh -s --`` when the script is read from a pipe."
+msgstr ""
+
+#: ../../intro/install.rst:85
+msgid "Option"
+msgstr ""
+
+#: ../../intro/install.rst:86
+msgid "Effect"
+msgstr ""
+
+#: ../../intro/install.rst:87
+msgid "``--user``"
+msgstr ""
+
+#: ../../intro/install.rst:88
+msgid "Install to ``~/.local/bin``. This is the default."
+msgstr ""
+
+#: ../../intro/install.rst:89
+msgid "``--system``"
+msgstr ""
+
+#: ../../intro/install.rst:90
+msgid "Install to ``/usr/local/bin``. ``sudo`` is used when required."
+msgstr ""
+
+#: ../../intro/install.rst:91
+msgid "``--prefix DIR``"
+msgstr ""
+
+#: ../../intro/install.rst:92
+msgid "Install to ``DIR``. Overrides ``--user`` and ``--system``."
+msgstr ""
+
+#: ../../intro/install.rst:93
+msgid "``--base URL``"
+msgstr ""
+
+#: ../../intro/install.rst:94
+msgid ""
+"Download from ``URL`` instead of the default hosts. Only ``https://`` is "
+"accepted. The environment variable ``ANET_INSTALL_BASE`` has the same "
+"effect. Every host is checked in the same way."
+msgstr ""
+
+#: ../../intro/install.rst:97
+msgid "``--shell``"
+msgstr ""
+
+#: ../../intro/install.rst:98
+msgid ""
+"Install the variant that can run operator-approved commands. This is a "
+"different binary, not a setting; see :ref:`intro-install-modules`."
+msgstr ""
+
+#: ../../intro/install.rst:100
+msgid "``--agents[=LIST]``"
+msgstr ""
+
+#: ../../intro/install.rst:101
+msgid ""
+"After installation, run ``anet agents wire`` for the coding agents found "
+"on the machine, or only for the comma-separated ``LIST`` (``claude``, "
+"``codex``, ``cursor``, ``opencode``, ``hermes``)."
+msgstr ""
+
+#: ../../intro/install.rst:104
+msgid "``--hub URL``"
+msgstr ""
+
+#: ../../intro/install.rst:105
+msgid "Start the node and register it with the hub at ``URL`` as the last step."
+msgstr ""
+
+#: ../../intro/install.rst:107
+msgid "``--name NAME``"
+msgstr ""
+
+#: ../../intro/install.rst:108
+msgid "The name to register under. The default is the host name."
+msgstr ""
+
+#: ../../intro/install.rst:109
+msgid "``--without MODULES``"
+msgstr ""
+
+#: ../../intro/install.rst:110
+msgid ""
+"Switch off the listed modules in the configuration. See :ref:`intro-"
+"install-modules`."
+msgstr ""
+
+#: ../../intro/install.rst:112
+msgid "``--help``"
+msgstr ""
+
+#: ../../intro/install.rst:113
+msgid "Print the option summary."
+msgstr ""
+
+#: ../../intro/install.rst:117
+msgid ""
+"The options ``--hub`` and ``--name`` may be combined with ``--agents`` to"
+" install, register and connect the local coding agents in one command:"
+msgstr ""
+
+#: ../../intro/install.rst:125
+msgid ""
+"The registration output is printed as the last lines. On a hub that "
+"admits by AID, the last line is the ``anet-hub admit`` command that the "
+"hub operator runs; registration then completes without further input. See"
+" :doc:`tutorial` for the full sequence."
+msgstr ""
+
+#: ../../intro/install.rst:130
+msgid ""
+"Hubs no longer use invitation codes. The installer rejects the former "
+"options ``--token`` and ``--token-file`` and says so."
+msgstr ""
+
+#: ../../intro/install.rst:136
+msgid "Verifying the installer before running it"
+msgstr ""
+
+#: ../../intro/install.rst:138
+msgid ""
+"``curl ... | sh`` trusts the host that serves the script and that host's "
+"TLS certificate. The signature checks above protect the binary, not the "
+"script itself. To avoid trusting the host, download the script and its "
+"signature, and verify both with the published release key before running "
+"the script."
+msgstr ""
+
+#: ../../intro/install.rst:144
+msgid ""
+"The release key belongs to the project maintainers. It signs binaries, "
+"the installer and the manifest of release artifacts. It is not an "
+"identity key of any node. The key and its fingerprint are also published "
+"in ``SECURITY.md`` and ``README.md`` of the ANet repository; compare them"
+" with the values below, and use the repository copy if they differ."
+msgstr ""
+
+#: ../../intro/install.rst:158
+msgid ""
+"The key fingerprint is "
+"``SHA256:/4FMm/jgZcBII3z3O3r81Y8SxFfugdLRu3zj2gnclD4``. A successful "
+"check prints ``Good \"anet-release@agentnetwork.org.cn\" signature`` "
+"followed by the fingerprint."
+msgstr ""
+
+#: ../../intro/install.rst:165
+msgid "Checking the installation"
+msgstr ""
+
+#: ../../intro/install.rst:167
+msgid ""
+"``anet version`` prints the version and the modules that the binary "
+"contains. The list is read from the module registry of the running "
+"binary, not from a string written at build time."
+msgstr ""
+
+#: ../../intro/install.rst:183
+msgid "Initial configuration"
+msgstr ""
+
+#: ../../intro/install.rst:185
+msgid ""
+"``anet init`` writes the safe defaults explicitly into ``config.json`` in"
+" the data directory, so that each value is visible and changeable instead"
+" of existing only as a built-in default. The command is idempotent. It "
+"adds keys that are missing and never changes a value that exists. "
+"Settings that differ from a fresh installation are listed in its report "
+"and left for the operator to decide."
+msgstr ""
+
+#: ../../intro/install.rst:205
+msgid "The written values are:"
+msgstr ""
+
+#: ../../intro/install.rst:211
+msgid "Key"
+msgstr ""
+
+#: ../../intro/install.rst:212
+msgid "Value"
+msgstr ""
+
+#: ../../intro/install.rst:213
+msgid "Meaning"
+msgstr ""
+
+#: ../../intro/install.rst:214
+msgid "``inbound.policy``"
+msgstr ""
+
+#: ../../intro/install.rst:215
+msgid "``closed``"
+msgstr ""
+
+#: ../../intro/install.rst:216
+msgid "Only peers on the allow or trust list can send tasks."
+msgstr ""
+
+#: ../../intro/install.rst:217
+msgid "``inbound.public_capabilities``"
+msgstr ""
+
+#: ../../intro/install.rst:218
+msgid "``[]``"
+msgstr ""
+
+#: ../../intro/install.rst:219
+msgid "No capability is open to callers that are not on a list."
+msgstr ""
+
+#: ../../intro/install.rst:220
+msgid "``payments.auto_max``"
+msgstr ""
+
+#: ../../intro/install.rst:221 ../../intro/install.rst:224
+msgid "``0``"
+msgstr ""
+
+#: ../../intro/install.rst:222
+msgid "No payment is made without confirmation on a terminal."
+msgstr ""
+
+#: ../../intro/install.rst:223
+msgid "``payments.agent_max``, ``payments.agent_daily_max``"
+msgstr ""
+
+#: ../../intro/install.rst:225
+msgid "Payments requested through MCP or the local A2A interface are not made."
+msgstr ""
+
+#: ../../intro/install.rst:227
+msgid "``payments.explicit_max``, ``payments.daily_max``"
+msgstr ""
+
+#: ../../intro/install.rst:228
+msgid "``10``, ``50``"
+msgstr ""
+
+#: ../../intro/install.rst:229
+msgid "Limits for a payment confirmed on a terminal: per payment and per UTC day."
+msgstr ""
+
+#: ../../intro/install.rst:231
+msgid "``no_response_after``"
+msgstr ""
+
+#: ../../intro/install.rst:232
+msgid "``\"15m\"``"
+msgstr ""
+
+#: ../../intro/install.rst:233
+msgid ""
+"A task that hears nothing from its peer for this period after delivery "
+"fails."
+msgstr ""
+
+#: ../../intro/install.rst:235
+msgid "``content_retention``"
+msgstr ""
+
+#: ../../intro/install.rst:236
+msgid "``\"30d\"``"
+msgstr ""
+
+#: ../../intro/install.rst:237
+msgid "Task content is deleted this long after the task ends."
+msgstr ""
+
+#: ../../intro/install.rst:239
+msgid ""
+"``peers.allow``, ``peers.trust`` and ``peers.deny`` are the peer lists, "
+"one AID per line. ``payees.allow`` is the payee list. Automatic payment "
+"goes only to AIDs on it, and the file is empty at first."
+msgstr ""
+
+#: ../../intro/install.rst:243
+msgid ""
+"``anet doctor`` reads the data directory, without needing the daemon, and"
+" reports which of these values hold. Each deviation from the defaults is "
+"listed separately."
+msgstr ""
+
+#: ../../intro/install.rst:250
+msgid "Starting the node"
+msgstr ""
+
+#: ../../intro/install.rst:258
+msgid ""
+"``anet up`` starts the daemon in the background. It continues to run "
+"after the terminal closes. ``anet status`` prints the AID, the data "
+"directory, the address of the local console and the hub state. Until the "
+"node is registered with a hub, the hub state is ``none`` and the status "
+"carries the command to run next:"
+msgstr ""
+
+#: ../../intro/install.rst:268
+msgid ""
+"The registration and the first exchange are described in :doc:`tutorial`."
+" For the lifecycle commands, see :ref:`reference-cli`."
+msgstr ""
+
+#: ../../intro/install.rst:271
+msgid ""
+"The data directory is ``~/.anet``. Set ``ANET_DATA_DIR`` to use another "
+"location. Further identities, created with ``anet id new NAME``, are kept"
+" under ``~/.anet/ids/NAME``. The data directory contains the identity "
+"(``identity.kel``), the configuration, the peer lists, the evidence chain"
+" and the control token. The directory must not be shared or copied to "
+"another machine while the original keeps running. The sections on "
+":ref:`unprotected identities <topics-identity-unprotected>` and on "
+":ref:`recovery <topics-identity-protect>` describe how to protect it."
+msgstr ""
+
+#: ../../intro/install.rst:283
+msgid "Connecting coding agents"
+msgstr ""
+
+#: ../../intro/install.rst:285
+msgid ""
+"``anet agents wire`` registers the MCP server of the node with the coding"
+" agents installed on the machine and adds usage instructions to them. "
+"Every file the command edits is backed up first."
+msgstr ""
+
+#: ../../intro/install.rst:293
+msgid ""
+"A single tool can be named instead of ``--all``: ``claude``, ``codex``, "
+"``cursor``, ``opencode`` or ``hermes``. ``anet agents`` lists which of "
+"them are installed and wired, and ``anet agents unwire`` reverses the "
+"change. The agent must be restarted after wiring. See :doc:`/howto"
+"/coding-agents`."
+msgstr ""
+
+#: ../../intro/install.rst:301
+msgid "Selecting modules"
+msgstr ""
+
+#: ../../intro/install.rst:303
+msgid ""
+"The node is built from modules. The prebuilt release contains two "
+"variants."
+msgstr ""
+
+#: ../../intro/install.rst:306
+msgid "``default``"
+msgstr ""
+
+#: ../../intro/install.rst:307
+msgid ""
+"Every module except ``shell``. Modules that act for other nodes or spend "
+"credit are disabled at run time until the operator configures them."
+msgstr ""
+
+#: ../../intro/install.rst:310 ../../intro/install.rst:349
+msgid "``shell``"
+msgstr ""
+
+#: ../../intro/install.rst:311
+msgid ""
+"The default variant plus the ``shell`` module, which can run commands "
+"approved by the operator. Even this variant runs nothing until the "
+"configuration names the commands and lists the AIDs that may call them; "
+"an empty list refuses every caller. The variant is selected with "
+"``--shell`` at installation and is retained by ``anet update``."
+msgstr ""
+
+#: ../../intro/install.rst:317
+msgid ""
+"The module names are used for the installer option, for ``anet init`` and"
+" in the configuration."
+msgstr ""
+
+#: ../../intro/install.rst:324
+msgid "Module"
+msgstr ""
+
+#: ../../intro/install.rst:325
+msgid "Purpose"
+msgstr ""
+
+#: ../../intro/install.rst:326
+msgid "``a2a``"
+msgstr ""
+
+#: ../../intro/install.rst:327
+msgid "The loopback A2A interface for A2A clients."
+msgstr ""
+
+#: ../../intro/install.rst:328
+msgid "``anetlink``"
+msgstr ""
+
+#: ../../intro/install.rst:329
+msgid "Client for device capabilities provided by ANetLink."
+msgstr ""
+
+#: ../../intro/install.rst:330
+msgid "``autoreply``"
+msgstr ""
+
+#: ../../intro/install.rst:331
+msgid ""
+"Answering tasks with a local agent, including the sandbox, the credential"
+" injection route, the egress allow list and the budgets."
+msgstr ""
+
+#: ../../intro/install.rst:333
+msgid "``blackboard``"
+msgstr ""
+
+#: ../../intro/install.rst:334
+msgid "Shared blackboard capabilities."
+msgstr ""
+
+#: ../../intro/install.rst:335
+msgid "``cas``"
+msgstr ""
+
+#: ../../intro/install.rst:336
+msgid "Content-addressed storage capabilities."
+msgstr ""
+
+#: ../../intro/install.rst:337
+msgid "``console``"
+msgstr ""
+
+#: ../../intro/install.rst:338
+msgid "The local web console."
+msgstr ""
+
+#: ../../intro/install.rst:339
+msgid "``mcp``"
+msgstr ""
+
+#: ../../intro/install.rst:340
+msgid "The MCP server and the coding agent wiring."
+msgstr ""
+
+#: ../../intro/install.rst:341
+msgid "``org``"
+msgstr ""
+
+#: ../../intro/install.rst:342
+msgid "Verification of organisation membership credentials."
+msgstr ""
+
+#: ../../intro/install.rst:343
+msgid "``p2p``"
+msgstr ""
+
+#: ../../intro/install.rst:344
+msgid "Direct delivery between nodes."
+msgstr ""
+
+#: ../../intro/install.rst:345
+msgid "``preview``"
+msgstr ""
+
+#: ../../intro/install.rst:346
+msgid "Streaming previews of a result in progress."
+msgstr ""
+
+#: ../../intro/install.rst:347
+msgid "``service``"
+msgstr ""
+
+#: ../../intro/install.rst:348
+msgid "Local services published as capabilities."
+msgstr ""
+
+#: ../../intro/install.rst:350
+msgid "Operator-approved commands (variant ``shell`` only)."
+msgstr ""
+
+#: ../../intro/install.rst:351
+msgid "``x402``"
+msgstr ""
+
+#: ../../intro/install.rst:352
+msgid "Payments: quotes, authorizations, settlement and receipts."
+msgstr ""
+
+#: ../../intro/install.rst:354
+msgid ""
+"A module that is switched off behaves like a module that is not present: "
+"the peer sees the same response as for a disabled feature, and every "
+"local entry point answers with the reason code ``module_absent``. A "
+"switched-off module is never replaced by a weaker code path."
+msgstr ""
+
+#: ../../intro/install.rst:359
+msgid ""
+"``--without`` turns modules off during installation. The installer runs "
+"``anet init --without`` with the freshly verified binary before it "
+"replaces the installed one, so a failure leaves the system unchanged."
+msgstr ""
+
+#: ../../intro/install.rst:368
+msgid ""
+"The same switch is available on an installed node, with the daemon "
+"stopped. ``--without`` adds names to the top-level ``without`` list in "
+"``config.json`` and never removes one. It is refused with the reason code"
+" ``without_configured`` when the configuration already contains the key "
+"of the module; the key has to be removed first. ``--with`` removes one "
+"name."
+msgstr ""
+
+#: ../../intro/install.rst:383
+msgid ""
+"The list can be changed only while the daemon is stopped and only on the "
+"local machine. No control-plane, MCP or A2A call can change it."
+msgstr ""
+
+#: ../../intro/install.rst:388
+msgid "The reference for the module behaviour is :doc:`/topics/modules`."
+msgstr ""
+
+#: ../../intro/install.rst:393
+msgid "Building from source"
+msgstr ""
+
+#: ../../intro/install.rst:395
+msgid ""
+"The source tree builds with a current Go toolchain and needs neither CGO "
+"nor a C compiler."
+msgstr ""
+
+#: ../../intro/install.rst:404
+msgid ""
+"``./build.sh`` writes the binary to ``./anet``. ``./build.sh --check`` "
+"first runs formatting, ``go vet``, the tests and the build-tag checks. A "
+"module that is included by default can be left out of the binary with the"
+" build tag ``no_<module>``, and the ``shell`` module is added with the "
+"tag ``shell``:"
+msgstr ""
+
+#: ../../intro/install.rst:415
+msgid ""
+"A binary built from source carries no release signature. ``anet doctor`` "
+"reports the signature state as unknown, and ``anet update`` replaces it "
+"with a signed release build."
+msgstr ""
+
+#: ../../intro/install.rst:422
+msgid "Updating"
+msgstr ""
+
+#: ../../intro/install.rst:424
+msgid ""
+"``anet update`` replaces the installed binary in place. It applies the "
+"same checks as the installer, using the release key that is compiled into"
+" the running binary, so it does not depend on the host that served the "
+"installer. The new binary is written to a temporary file in the same "
+"directory and renamed over the old one; if any step fails, the old binary"
+" is untouched."
+msgstr ""
+
+#: ../../intro/install.rst:435
+msgid ""
+"``--check`` reports whether a newer release exists and changes nothing. "
+"An update never moves to an older version, and it keeps the variant: a "
+"binary that cannot run commands is never replaced by one that can. A "
+"daemon that is already running keeps the old binary until it is "
+"restarted:"
+msgstr ""
+
+#: ../../intro/install.rst:444
+msgid ""
+"``--base URL`` selects another download host, with the same checks. Re-"
+"running the installer is not required on a machine that already has "
+"``anet``."
+msgstr ""
+
+#: ../../intro/install.rst:450
+msgid "Removing ANet"
+msgstr ""
+
+#: ../../intro/install.rst:452
+msgid "Stop the daemons and delete the binary:"
+msgstr ""
+
+#: ../../intro/install.rst:459
+msgid ""
+"A hub that is the witness of an identity cannot be left with ``anet hub-"
+"leave``, because without it nobody can confirm the key of the identity. "
+"To move an identity to another hub, run ``anet hub-register`` with the "
+"address of the new hub."
+msgstr ""
+
+#: ../../intro/install.rst:464
+msgid ""
+"The data directory holds the only copy of the identity keys. Deleting it "
+"ends the identity permanently, and the AID cannot be recovered without "
+"the recovery file and its passphrase. Delete ``~/.anet`` only when the "
+"identity is no longer needed:"
+msgstr ""
+
+#: ../../intro/install.rst:476
+msgid "Installation problems"
+msgstr ""
+
+#: ../../intro/install.rst:478
+msgid ""
+"Every message of the installer ends with the statement ``Nothing was "
+"installed or changed.`` when the installation was not completed."
+msgstr ""
+
+#: ../../intro/install.rst:481
+msgid "``ssh-keygen is required``"
+msgstr ""
+
+#: ../../intro/install.rst:482
+msgid ""
+"Install the OpenSSH client tools: ``openssh-client`` on Debian and "
+"Ubuntu, ``openssh`` on Fedora and RHEL, ``openssh-keygen`` on Alpine."
+msgstr ""
+
+#: ../../intro/install.rst:485
+msgid "``is not signed by the anet release key``"
+msgstr ""
+
+#: ../../intro/install.rst:486
+msgid ""
+"Either the download host serves a file that the release key did not sign,"
+" or the installed ``ssh-keygen`` is older than OpenSSH 8.1. Try another "
+"host with ``--base URL``; every host is checked in the same way."
+msgstr ""
+
+#: ../../intro/install.rst:490
+msgid "``Refusing to downgrade``"
+msgstr ""
+
+#: ../../intro/install.rst:491
+msgid ""
+"The manifest names a version older than the installed one, which usually "
+"indicates a stale mirror. Use ``--base URL`` to select another host."
+msgstr ""
+
+#: ../../intro/install.rst:495
+msgid "For failures after installation, see :doc:`/howto/troubleshooting`."
+msgstr ""
+

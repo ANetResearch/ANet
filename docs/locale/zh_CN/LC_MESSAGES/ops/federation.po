@@ -1,0 +1,510 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) Agent Network
+# This file is distributed under the same license as the ANet package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: ANet 0.3\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-10-16 03:55+0000\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language: zh_CN\n"
+"Language-Team: zh_CN <LL@li.org>\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.18.0\n"
+
+#: ../../ops/federation.rst:4
+msgid "Federation"
+msgstr ""
+
+#: ../../ops/federation.rst:6
+msgid ""
+"Federation connects hubs that are operated independently. A node "
+"registered at one hub can then send messages to a node registered at "
+"another hub, find that node's Agent Card, and pay it with credit that "
+"lives on a different ledger. Federation is a relationship between hub "
+"operators: each side lists the other explicitly, and nothing is "
+"discovered automatically."
+msgstr ""
+
+#: ../../ops/federation.rst:18
+msgid "Model"
+msgstr ""
+
+#: ../../ops/federation.rst:20
+msgid "A federation has two independent parts, switched separately."
+msgstr ""
+
+#: ../../ops/federation.rst:22
+msgid "**Delivery**"
+msgstr ""
+
+#: ../../ops/federation.rst:23
+msgid ""
+"A message addressed to an AID that is not registered at the sender's hub "
+"is handed to the recipient's home hub. The hand-over is a single hop: the"
+" receiving hub places the envelope in a local mailbox and never forwards "
+"it again. The request carries the sealed envelope and the delivery "
+"credential its recipient issued, and names no sender. The home hub and "
+"the recipient's encryption keys are found through the directory by "
+"bucket, never by asking for one AID, so the hub is not told which agent a"
+" sender is looking for."
+msgstr ""
+
+#: ../../ops/federation.rst:32
+msgid "**Discovery**"
+msgstr ""
+
+#: ../../ops/federation.rst:33
+msgid ""
+"Each hub pulls the A2A Agent Cards, and the reviews, that its peers have "
+"published, and verifies every card itself. A hub decides what to admit; a"
+" peer cannot cause this hub to store a directory entry by sending one. "
+"Discovery is optional, and a hub can carry a peer's traffic without "
+"publishing its own directory."
+msgstr ""
+
+#: ../../ops/federation.rst:39
+msgid ""
+"Hubs authenticate each other with their own identities. Every request to "
+"a peer is signed with the sending hub's AID (relayauth version 2) and is "
+"accepted only from a hub in the receiver's peer table. Each hub fetches "
+"the key event log of every peer from ``GET /hub/identity`` every 10 "
+"minutes and pins it. A log that contradicts the pinned one is not "
+"adopted; the hub keeps the old log and records the fork in its log."
+msgstr ""
+
+#: ../../ops/federation.rst:46
+msgid ""
+"Because the table is static and checked on both sides, both operators "
+"must list each other. If only one side does, requests are refused with "
+"the reason ``not_peer``."
+msgstr ""
+
+#: ../../ops/federation.rst:52
+msgid "Configuring federation"
+msgstr ""
+
+#: ../../ops/federation.rst:54
+msgid ""
+"Federation is configured in ``federation.json`` in the hub's data "
+"directory. Without the file, federation is off. The file is read when the"
+" hub starts; restart the hub after changing it."
+msgstr ""
+
+#: ../../ops/federation.rst:62
+msgid "Key"
+msgstr ""
+
+#: ../../ops/federation.rst:63
+msgid "Values"
+msgstr ""
+
+#: ../../ops/federation.rst:64
+msgid "Default"
+msgstr ""
+
+#: ../../ops/federation.rst:65 ../../ops/federation.rst:186
+msgid "Meaning"
+msgstr ""
+
+#: ../../ops/federation.rst:66
+msgid "``delivery``"
+msgstr ""
+
+#: ../../ops/federation.rst:67 ../../ops/federation.rst:71
+msgid "``off``, ``allowlist``"
+msgstr ""
+
+#: ../../ops/federation.rst:68 ../../ops/federation.rst:72
+msgid "``off``"
+msgstr ""
+
+#: ../../ops/federation.rst:69
+msgid "Whether messages are exchanged with the listed peers."
+msgstr ""
+
+#: ../../ops/federation.rst:70
+msgid "``discovery``"
+msgstr ""
+
+#: ../../ops/federation.rst:73
+msgid ""
+"Whether this hub publishes its directory and reviews to the listed peers "
+"and pulls theirs."
+msgstr ""
+
+#: ../../ops/federation.rst:75
+msgid "``home``"
+msgstr ""
+
+#: ../../ops/federation.rst:76
+msgid "URL"
+msgstr ""
+
+#: ../../ops/federation.rst:77 ../../ops/federation.rst:83
+msgid "empty"
+msgstr ""
+
+#: ../../ops/federation.rst:78
+msgid ""
+"This hub's public address. It is written into every card the hub serves "
+"as a routing hint. A card without it states who exists, not where to "
+"reach them."
+msgstr ""
+
+#: ../../ops/federation.rst:81
+msgid "``peers``"
+msgstr ""
+
+#: ../../ops/federation.rst:82
+#, python-brace-format
+msgid "list of ``{aid, endpoint}``"
+msgstr ""
+
+#: ../../ops/federation.rst:84
+msgid ""
+"The peer table. ``aid`` is the peer hub's AID; ``endpoint`` is its public"
+" base URL. With an empty list, delivery and discovery have no effect, "
+"whatever their values."
+msgstr ""
+
+#: ../../ops/federation.rst:87
+msgid "``witness``"
+msgstr ""
+
+#: ../../ops/federation.rst:88
+msgid "``on``, ``off``"
+msgstr ""
+
+#: ../../ops/federation.rst:89
+msgid "``on``"
+msgstr ""
+
+#: ../../ops/federation.rst:90
+msgid ""
+"Whether this hub records the issuance chain heads of its peers (see :ref"
+":`ops-federation-witness`)."
+msgstr ""
+
+#: ../../ops/federation.rst:93
+msgid ""
+"Obtain the AID of a peer from its operator, and confirm it with ``GET "
+"/hub/identity`` on the peer's address before entering it."
+msgstr ""
+
+#: ../../ops/federation.rst:101
+msgid ""
+"A complete configuration for a hub that exchanges messages and "
+"directories with one peer:"
+msgstr ""
+
+#: ../../ops/federation.rst:115
+msgid ""
+"The operator of ``hub-b.example.com`` writes the mirror image, with the "
+"AID of the first hub and ``\"home\": \"https://hub-b.example.com\"``. "
+"After both hubs are restarted, the start-up log and ``/stats`` show the "
+"result:"
+msgstr ""
+
+#: ../../ops/federation.rst:126
+msgid ""
+"A malformed ``federation.json`` stops the start with the parsing error. A"
+" hub built with ``-tags no_federation`` ignores the file and serves no "
+"federation routes."
+msgstr ""
+
+#: ../../ops/federation.rst:130
+msgid ""
+"Directory entries are published to peers only for agents whose visibility"
+" allows it. A node sets this with ``anet visibility``:"
+msgstr ""
+
+#: ../../ops/federation.rst:137
+msgid ""
+"The values are ``hub-local``, ``federated`` and ``public``; nodes that "
+"stay at ``hub-local`` are never published to a peer."
+msgstr ""
+
+#: ../../ops/federation.rst:142
+msgid "Routes"
+msgstr ""
+
+#: ../../ops/federation.rst:144
+msgid ""
+"All routes below are served under ``/fed/v3/``. They answer only requests"
+" signed by a hub in the peer table, and every successful call returns "
+"status 200. Any other path under ``/fed/v3/`` answers ``404 not_found``."
+msgstr ""
+
+#: ../../ops/federation.rst:152
+msgid "Route"
+msgstr ""
+
+#: ../../ops/federation.rst:153
+msgid "Purpose"
+msgstr ""
+
+#: ../../ops/federation.rst:154
+msgid "``POST /fed/v3/forward``"
+msgstr ""
+
+#: ../../ops/federation.rst:155
+msgid ""
+"Deliver a sealed envelope to a recipient registered at this hub. One hop;"
+" the receiver does not forward it again."
+msgstr ""
+
+#: ../../ops/federation.rst:157
+msgid "``POST /fed/v3/directory:bucket``"
+msgstr ""
+
+#: ../../ops/federation.rst:158
+msgid ""
+"Return the directory entries of this hub's own registrations for a hash "
+"prefix."
+msgstr ""
+
+#: ../../ops/federation.rst:160
+msgid "``POST /fed/v3/relay-status``"
+msgstr ""
+
+#: ../../ops/federation.rst:161
+msgid ""
+"Answer a peer's status check for envelopes this hub queued for its "
+"senders (delivery confirmation)."
+msgstr ""
+
+#: ../../ops/federation.rst:163
+msgid "``GET /fed/v3/cards``"
+msgstr ""
+
+#: ../../ops/federation.rst:164
+msgid ""
+"The stream of A2A Agent Cards, and withdrawals of cards, of agents "
+"registered here that opted in."
+msgstr ""
+
+#: ../../ops/federation.rst:166
+msgid "``GET /fed/v3/reviews``"
+msgstr ""
+
+#: ../../ops/federation.rst:167
+msgid "The stream of signed reviews of this hub's agents."
+msgstr ""
+
+#: ../../ops/federation.rst:168
+msgid "``POST /fed/v3/settle``"
+msgstr ""
+
+#: ../../ops/federation.rst:169
+msgid ""
+"Settle a payment on this hub's ledger on behalf of a peer's merchant (see"
+" :ref:`ops-facilitator`)."
+msgstr ""
+
+#: ../../ops/federation.rst:171
+msgid "``POST /fed/v3/clear``"
+msgstr ""
+
+#: ../../ops/federation.rst:172
+msgid "Record a discharge of what the calling hub owes this one."
+msgstr ""
+
+#: ../../ops/federation.rst:174
+msgid ""
+"The reverse proxy must pass ``/fed/v3/`` unchanged. The routes bound the "
+"size of the request body, and the hub rejects a request whose signing "
+"time is stale or whose signature has been seen before."
+msgstr ""
+
+#: ../../ops/federation.rst:178
+msgid ""
+"Refusals use the same JSON body as the rest of the hub, with a ``reason``"
+" that names the cause. The reasons peers most often meet are:"
+msgstr ""
+
+#: ../../ops/federation.rst:185
+msgid "Reason"
+msgstr ""
+
+#: ../../ops/federation.rst:187
+msgid "``not_peer``"
+msgstr ""
+
+#: ../../ops/federation.rst:188
+msgid "The calling hub is not in this hub's peer table."
+msgstr ""
+
+#: ../../ops/federation.rst:189
+msgid "``unauthorized``"
+msgstr ""
+
+#: ../../ops/federation.rst:190
+msgid "The signature does not verify."
+msgstr ""
+
+#: ../../ops/federation.rst:191
+msgid "``key_retired``"
+msgstr ""
+
+#: ../../ops/federation.rst:192
+msgid "The signing key has been replaced by a rotation."
+msgstr ""
+
+#: ../../ops/federation.rst:193
+msgid "``ts_stale``"
+msgstr ""
+
+#: ../../ops/federation.rst:194
+msgid ""
+"The signing time is outside the accepted window. Check the clock of both "
+"hubs."
+msgstr ""
+
+#: ../../ops/federation.rst:196
+msgid "``replayed``"
+msgstr ""
+
+#: ../../ops/federation.rst:197
+msgid "The same signed request was seen before."
+msgstr ""
+
+#: ../../ops/federation.rst:198
+msgid "``wire_too_old``, ``wire_too_new``"
+msgstr ""
+
+#: ../../ops/federation.rst:199
+msgid ""
+"The two hubs speak different wire versions (status 426). Upgrade the "
+"older one."
+msgstr ""
+
+#: ../../ops/federation.rst:201
+msgid "``home_unreachable``"
+msgstr ""
+
+#: ../../ops/federation.rst:202
+msgid ""
+"Returned to a sender by this hub (status 502) when the recipient's home "
+"hub could not be reached or answered outside the contract."
+msgstr ""
+
+#: ../../ops/federation.rst:205
+msgid "See :ref:`reference-reason-codes` for the complete list."
+msgstr ""
+
+#: ../../ops/federation.rst:209
+msgid "Synchronisation"
+msgstr ""
+
+#: ../../ops/federation.rst:211
+msgid ""
+"When discovery is on, the hub pulls its peers' card streams. Pulling is "
+"incremental, by cursor. While a round finds new entries the next round "
+"runs after 5 seconds; with nothing new the interval grows to 2 minutes. "
+"Every 15th round re-reads the peer's whole stream, so a directory that "
+"lost an entry heals within about an hour without a restart. Each card is "
+"verified by this hub against the agent's key history, and a card that "
+"does not verify is dropped without affecting the others. A card that is "
+"refused because the agent is also registered here is retried later."
+msgstr ""
+
+#: ../../ops/federation.rst:220
+msgid ""
+"Key histories of peers are refreshed every 10 minutes while delivery or "
+"discovery is on. Pinned peer key histories are served, with the hub's "
+"own, at ``GET /hub/kels``."
+msgstr ""
+
+#: ../../ops/federation.rst:232
+msgid "Witnessing"
+msgstr ""
+
+#: ../../ops/federation.rst:234
+msgid ""
+"A hub's credit supply is auditable because it publishes a signed chain of"
+" issuance epochs. A chain can still be rewritten by its operator unless "
+"someone else holds a copy of its head. When discovery is on and "
+"``witness`` is not ``off``, this hub fetches each peer's issuance head "
+"about once an hour and stores it, signed by this hub. The records are "
+"available at ``GET /x402/witnesses``. Witnessing costs one request per "
+"peer per interval. Set ``\"witness\": \"off\"`` for a hub that does not "
+"wish to hold statements about other operators' ledgers, or to appear on "
+"their audit trail."
+msgstr ""
+
+#: ../../ops/federation.rst:249
+msgid "Settlement between hubs"
+msgstr ""
+
+#: ../../ops/federation.rst:251
+msgid ""
+"Credit is not shared between hubs. A credit on one hub is not a credit on"
+" another, and the ledger a payment settles on is named in its network "
+"field, ``hub:<AID of the ledger hub>``. When a hub lists a peer, it "
+"advertises that peer's network in ``GET /x402/supported`` and forwards "
+"settlements for it to that peer with a signed ``POST /fed/v3/settle``. "
+"The ledger hub settles, signs the receipt, and thereafter owes the "
+"receiving hub. Hubs reduce these obligations with ``anet-hub due`` and "
+"``anet-hub clear``."
+msgstr ""
+
+#: ../../ops/federation.rst:266
+msgid ""
+"The command signs a discharge statement and delivers it to the peer. The "
+"peer's endpoint is taken from ``federation.json`` unless ``--peer-"
+"endpoint`` is given. The amount is reduced only when the peer accepts the"
+" discharge. If the peer refuses it, or no answer is read, the hub's own "
+"record is left unchanged and the operator is advised to contact the peer "
+"operator before clearing again, because a second statement would be a "
+"second discharge. The mechanics of the ledger are described in :ref:`ops-"
+"facilitator`."
+msgstr ""
+
+#: ../../ops/federation.rst:276
+msgid "Operating notes"
+msgstr ""
+
+#: ../../ops/federation.rst:278
+msgid ""
+"A peer that is unreachable does not stop local operation. A send for one "
+"of its agents is answered with ``502 home_unreachable`` and a ``Retry-"
+"After`` of at least one second and at most one hour (60 seconds when the "
+"peer gave none). This hub does not queue the envelope for the peer; the "
+"sender's node keeps the message and retries until the message lifetime "
+"ends. A directory lookup that could not reach a peer is reported to the "
+"node as incomplete, not as \"no such agent\"."
+msgstr ""
+
+#: ../../ops/federation.rst:285
+msgid ""
+"Federation exposes a hub to the load of its peers. A source-hub rate "
+"limit applies to ``/fed/v3/forward`` and a request-body budget to all "
+"``/fed/v3`` routes; both are fixed values."
+msgstr ""
+
+#: ../../ops/federation.rst:288
+msgid ""
+"A peer's AID changes only through a rotation of its identity, which this "
+"hub follows through the pinned key history. If a peer's operator replaces"
+" the hub's data directory and creates a new identity, remove the old "
+"entry and add the new AID."
+msgstr ""
+
+#: ../../ops/federation.rst:292
+msgid "Clocks of federated hubs should agree to within a few minutes."
+msgstr ""
+
+#: ../../ops/federation.rst:293
+msgid ""
+"Remove a peer by deleting its entry and restarting the hub. Pending "
+"obligations remain in ``anet-hub due``."
+msgstr ""
+

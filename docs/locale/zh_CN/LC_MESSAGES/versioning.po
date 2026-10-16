@@ -1,0 +1,318 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) Agent Network
+# This file is distributed under the same license as the ANet package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: ANet 0.3\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-10-16 03:55+0000\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language: zh_CN\n"
+"Language-Team: zh_CN <LL@li.org>\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.18.0\n"
+
+#: ../../versioning.rst:4
+msgid "Versioning policy"
+msgstr ""
+
+#: ../../versioning.rst:6
+msgid ""
+"This page states what the version numbers of ANet promise, which "
+"compatibility surfaces exist and how a change reaches users."
+msgstr ""
+
+#: ../../versioning.rst:15
+msgid "Components and numbers"
+msgstr ""
+
+#: ../../versioning.rst:17
+msgid "A release is made of four components, each with its own number."
+msgstr ""
+
+#: ../../versioning.rst:23
+msgid "Component"
+msgstr ""
+
+#: ../../versioning.rst:24
+msgid "Release 0.3"
+msgstr ""
+
+#: ../../versioning.rst:25
+msgid "Content"
+msgstr ""
+
+#: ../../versioning.rst:26
+msgid "ANetCore"
+msgstr ""
+
+#: ../../versioning.rst:27
+msgid "v0.16.0"
+msgstr ""
+
+#: ../../versioning.rst:28
+msgid ""
+"The protocol and cryptography kernel (Go module). ``ANet`` and "
+"``ANetHub`` require the same version in their ``go.mod``."
+msgstr ""
+
+#: ../../versioning.rst:30
+msgid "``anet``"
+msgstr ""
+
+#: ../../versioning.rst:31 ../../versioning.rst:34
+msgid "0.3.0"
+msgstr ""
+
+#: ../../versioning.rst:32
+msgid "The node program: daemon, command line, MCP server and local interfaces."
+msgstr ""
+
+#: ../../versioning.rst:33
+msgid "ANetHub"
+msgstr ""
+
+#: ../../versioning.rst:35
+msgid "The hub and the operator console."
+msgstr ""
+
+#: ../../versioning.rst:36
+msgid "ANetLink"
+msgstr ""
+
+#: ../../versioning.rst:37
+msgid "0.2.0"
+msgstr ""
+
+#: ../../versioning.rst:38
+msgid ""
+"The bridge to local devices and services. It speaks the C1 interface, "
+"version 1."
+msgstr ""
+
+#: ../../versioning.rst:40
+msgid ""
+"``anet version`` prints the version, the commit, the time of the build "
+"and the modules that are compiled into the binary. ``anet-hub --version``"
+" prints the release, the hub wire version and the first ``anet`` release "
+"that speaks it."
+msgstr ""
+
+#: ../../versioning.rst:46
+msgid "Compatibility surfaces"
+msgstr ""
+
+#: ../../versioning.rst:48
+msgid ""
+"Compatibility is defined per surface, each with its own version that is "
+"checked at run time."
+msgstr ""
+
+#: ../../versioning.rst:54
+msgid "Surface"
+msgstr ""
+
+#: ../../versioning.rst:55
+msgid "Version in 0.3"
+msgstr ""
+
+#: ../../versioning.rst:56
+msgid "Check"
+msgstr ""
+
+#: ../../versioning.rst:57
+msgid "Hub wire"
+msgstr ""
+
+#: ../../versioning.rst:58
+msgid "``X-ANet-Wire: 3``"
+msgstr ""
+
+#: ../../versioning.rst:59
+msgid ""
+"Sent on every request and response. A different value is refused with "
+"``wire_too_old`` (426) or ``wire_too_new`` (400)."
+msgstr ""
+
+#: ../../versioning.rst:61
+msgid "Sealed envelope"
+msgstr ""
+
+#: ../../versioning.rst:62
+msgid "``v = 2``"
+msgstr ""
+
+#: ../../versioning.rst:63
+msgid ""
+"Any other value is refused by the hub (``bad_envelope``) and by the "
+"receiver."
+msgstr ""
+
+#: ../../versioning.rst:64
+msgid "Key event log"
+msgstr ""
+
+#: ../../versioning.rst:65
+msgid "``anet.kel/2``"
+msgstr ""
+
+#: ../../versioning.rst:66
+msgid "A log without the tag does not replay."
+msgstr ""
+
+#: ../../versioning.rst:67
+msgid "Direct frames"
+msgstr ""
+
+#: ../../versioning.rst:68
+msgid "``v: 3``"
+msgstr ""
+
+#: ../../versioning.rst:69
+msgid "A frame of another version is not delivered."
+msgstr ""
+
+#: ../../versioning.rst:70
+msgid "C1 (``anet`` and ANetLink)"
+msgstr ""
+
+#: ../../versioning.rst:71
+msgid "version 1, path ``/v1``"
+msgstr ""
+
+#: ../../versioning.rst:72
+msgid "``/v0`` answers 426 ``c1_version``."
+msgstr ""
+
+#: ../../versioning.rst:73
+msgid "Data directory"
+msgstr ""
+
+#: ../../versioning.rst:74
+msgid "``user_version = 3``, ``enc_keys.cbor`` ``v = 2``, ``anet.identity/2``"
+msgstr ""
+
+#: ../../versioning.rst:75
+msgid ""
+"An older data directory is refused with ``identity_v02``, a newer one "
+"with ``datadir_too_new``."
+msgstr ""
+
+#: ../../versioning.rst:76
+msgid "Configuration"
+msgstr ""
+
+#: ../../versioning.rst:77
+msgid "the keys of :doc:`reference/config`"
+msgstr ""
+
+#: ../../versioning.rst:78
+msgid "A removed key stops the daemon (``config_key_removed``)."
+msgstr ""
+
+#: ../../versioning.rst:79
+msgid "A2A"
+msgstr ""
+
+#: ../../versioning.rst:80
+msgid "A2A 1.0"
+msgstr ""
+
+#: ../../versioning.rst:81
+msgid ""
+"The local interface and the cards follow A2A 1.0. ANet adds extensions in"
+" the namespace ``agentnetwork.org.cn``."
+msgstr ""
+
+#: ../../versioning.rst:84
+msgid ""
+"A key number, a label, a code or a route that was removed is not reused "
+"for another meaning."
+msgstr ""
+
+#: ../../versioning.rst:88
+msgid "Release series"
+msgstr ""
+
+#: ../../versioning.rst:90
+msgid ""
+"A change that breaks a surface (wire, identity, data or configuration) is"
+" made only in a release that increases the minor number, such as 0.3.0. "
+"All such changes of a series are made in its first release."
+msgstr ""
+
+#: ../../versioning.rst:92
+msgid ""
+"The patch releases of a series (0.3.x) do not break any surface of the "
+"table above. A node and a hub of one series interoperate in any "
+"combination of patch versions, and can be upgraded in any order. A patch "
+"release fixes defects and adds features that do not change a surface, for"
+" example modules that are completed after the first release."
+msgstr ""
+
+#: ../../versioning.rst:96
+msgid ""
+"The notices for removed commands and options stay through the series. "
+"After it, a removed command is treated as an unknown command."
+msgstr ""
+
+#: ../../versioning.rst:98
+msgid ""
+"The notes of a release list every change of a surface, and "
+":doc:`upgrading` states what has to be done."
+msgstr ""
+
+#: ../../versioning.rst:104
+msgid "Releases and updates"
+msgstr ""
+
+#: ../../versioning.rst:106
+msgid ""
+"A release is described by ``release.json`` with the version, the commit, "
+"the signing time, the expiry, the SHA-256 of every archive and binary, "
+"the module set of each variant and the fingerprint of the next release "
+"key. The file is signed with the release key of the project in the SSH "
+"signature format. ``install.sh`` and ``anet update`` verify the "
+"signature, the expiry and that the version is not older than the "
+"installed one before they install. The host from which archives are "
+"downloaded is not trusted. The key and its pre-committed successor are "
+"published in ``SECURITY.md`` of the repository."
+msgstr ""
+
+#: ../../versioning.rst:113
+msgid ""
+"A node that has no support for a feature of a hub, or a hub that needs a "
+"newer ``anet``, says so in one sentence with the release to install "
+"(``required_anet`` in the answer of the hub)."
+msgstr ""
+
+#: ../../versioning.rst:118
+msgid "Deprecation"
+msgstr ""
+
+#: ../../versioning.rst:120
+msgid ""
+"A feature is removed in the release that increases the minor number. The "
+"release notes list it, the removal is answered with a sentence that names"
+" the replacement, and the replacement exists in the release that removes "
+"it."
+msgstr ""
+
+#: ../../versioning.rst:126
+msgid "Documentation versions"
+msgstr ""
+
+#: ../../versioning.rst:128
+msgid ""
+"The documentation is published for the current release and describes the "
+"behavior of that release. The English text is the source and the Chinese "
+"text is a translation of it."
+msgstr ""
+

@@ -1,0 +1,676 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) Agent Network
+# This file is distributed under the same license as the ANet package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: ANet 0.3\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-10-16 03:55+0000\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language: zh_CN\n"
+"Language-Team: zh_CN <LL@li.org>\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.18.0\n"
+
+#: ../../ops/backup.rst:4
+msgid "Backup and recovery"
+msgstr ""
+
+#: ../../ops/backup.rst:6
+msgid ""
+"This page describes what to save from a hub and from a node, how to "
+"restore it, and what a restore changes for the other parties. Two "
+"properties of ANet shape the procedures. Identity is split across places:"
+" the data directory holds the keys in use, and the key that will sign "
+"next is derived from a recovery seed that is kept in a separate recovery "
+"file, encrypted under a passphrase. And a restored copy is detected: an "
+"identity whose data has gone back to an older state is noticed by its hub"
+" and by its peers."
+msgstr ""
+
+#: ../../ops/backup.rst:20
+msgid "What to save from a hub"
+msgstr ""
+
+#: ../../ops/backup.rst:26
+msgid "Item"
+msgstr ""
+
+#: ../../ops/backup.rst:27
+msgid "Required"
+msgstr ""
+
+#: ../../ops/backup.rst:28
+msgid "Content and notes"
+msgstr ""
+
+#: ../../ops/backup.rst:29
+msgid "``hub.db``"
+msgstr ""
+
+#: ../../ops/backup.rst:30 ../../ops/backup.rst:36 ../../ops/backup.rst:41
+#: ../../ops/backup.rst:67
+msgid "yes"
+msgstr ""
+
+#: ../../ops/backup.rst:31
+msgid ""
+"Registry, key histories, ledger window, supply epochs, mailboxes. The "
+"maintenance job writes a backup without the relay content (see below); do"
+" not copy the file by hand while the hub runs, because the write-ahead "
+"log (``hub.db-wal``) belongs to it."
+msgstr ""
+
+#: ../../ops/backup.rst:35
+msgid "``hub_identity.kel``"
+msgstr ""
+
+#: ../../ops/backup.rst:37
+msgid ""
+"The hub identity file. A restore needs it: without the identity the hub "
+"would start under a new AID, and the ledger, which is kept on the hub's "
+"own account, would no longer be its ledger."
+msgstr ""
+
+#: ../../ops/backup.rst:40
+msgid "Hub recovery file"
+msgstr ""
+
+#: ../../ops/backup.rst:42
+msgid ""
+"``<home>/.anet-recovery/<last 12 characters of the AID>.anetrec``, or the"
+" path given to ``--recovery-file``. Encrypted under the recovery "
+"passphrase. Store it away from the host (see :ref:`ops-hub-recovery`). "
+"The passphrase is not recoverable."
+msgstr ""
+
+#: ../../ops/backup.rst:46
+msgid "``federation.json``"
+msgstr ""
+
+#: ../../ops/backup.rst:47 ../../ops/backup.rst:63
+msgid "if used"
+msgstr ""
+
+#: ../../ops/backup.rst:48
+msgid "The peer table (:ref:`ops-federation`)."
+msgstr ""
+
+#: ../../ops/backup.rst:49
+msgid "``kel_hwm``"
+msgstr ""
+
+#: ../../ops/backup.rst:50 ../../ops/backup.rst:55 ../../ops/backup.rst:60
+msgid "no"
+msgstr ""
+
+#: ../../ops/backup.rst:51
+msgid ""
+"A counter file that lets the hub detect an older ``hub.db``. Restoring "
+"the pair together is correct; restoring ``hub.db`` alone is detected at "
+"the next start."
+msgstr ""
+
+#: ../../ops/backup.rst:54
+msgid "``keys/review_tag.key``"
+msgstr ""
+
+#: ../../ops/backup.rst:56
+msgid ""
+"The key that makes reviewer tags. By design, no backup made by the "
+"maintenance job holds it. When the file is missing at start, a new key is"
+" made and the reviewer counts start again under a new key number."
+msgstr ""
+
+#: ../../ops/backup.rst:59
+msgid "``federation.db``"
+msgstr ""
+
+#: ../../ops/backup.rst:61
+msgid "Pinned peer key histories and cursors. Fetched again."
+msgstr ""
+
+#: ../../ops/backup.rst:62
+msgid "``admin.db``, ``officials.json``"
+msgstr ""
+
+#: ../../ops/backup.rst:64
+msgid ""
+"The operator plane's own data directory: the audit trail, moderation "
+"marks and the official-agent register."
+msgstr ""
+
+#: ../../ops/backup.rst:66
+msgid "Proxy configuration, ``admin.env``"
+msgstr ""
+
+#: ../../ops/backup.rst:68
+msgid "Outside the data directory."
+msgstr ""
+
+#: ../../ops/backup.rst:70
+msgid ""
+"``hub.db`` holds balances and a 14-day window of ledger entries. Treat a "
+"backup like the database: restrict access to the account that runs the "
+"hub."
+msgstr ""
+
+#: ../../ops/backup.rst:74
+msgid "The maintenance job"
+msgstr ""
+
+#: ../../ops/backup.rst:76
+msgid "``hub-db-roll.sh`` (installed in :ref:`ops-deployment`) runs daily. It"
+msgstr ""
+
+#: ../../ops/backup.rst:78
+msgid ""
+"checkpoints the write-ahead log on every run, so that page images of "
+"deleted rows do not remain in ``hub.db-wal``;"
+msgstr ""
+
+#: ../../ops/backup.rst:80
+msgid ""
+"on Sundays writes ``hub-backup-YYYYMMDD.db`` in the data directory, keeps"
+" the newest two backups, and vacuums the database when more than a fifth "
+"of its pages are free;"
+msgstr ""
+
+#: ../../ops/backup.rst:83
+msgid ""
+"on every run deletes backups that are 14 days old or older, by the date "
+"in their names, so that ledger records are on disk at most 14 days in the"
+" database and 14 days in a backup;"
+msgstr ""
+
+#: ../../ops/backup.rst:86
+msgid "appends its actions to ``roll.log`` in the data directory."
+msgstr ""
+
+#: ../../ops/backup.rst:88
+msgid ""
+"A backup holds everything except the tables whose rows only matter while "
+"the hub runs: ``relay_message`` (the sealed envelopes), "
+"``relay_redelivery``, ``dereg_event``, ``relay_dack`` and "
+"``notice_cache``. The content of the mailboxes is therefore never in a "
+"backup. The backup keeps the revocations of delivery credentials, the "
+"quotas raised with ``anet-hub quota``, and the balance leaves of the "
+"supply epochs of the last 14 days."
+msgstr ""
+
+#: ../../ops/backup.rst:95
+msgid ""
+"To write a backup outside the Sunday schedule, set ``FORCE_WEEKLY``. A "
+"backup that already exists for the current date is kept, not rewritten:"
+msgstr ""
+
+#: ../../ops/backup.rst:104
+msgid ""
+"Copy the backup file to separate storage; a backup beside the database "
+"protects against a damaged file, not against a lost disk."
+msgstr ""
+
+#: ../../ops/backup.rst:109
+msgid "Restoring a hub"
+msgstr ""
+
+#: ../../ops/backup.rst:111
+msgid ""
+"Restoring a hub replaces its database with a backup. Everything that "
+"happened after the backup is lost, including credit movements. Mailboxes "
+"are empty after a restore."
+msgstr ""
+
+#: ../../ops/backup.rst:115
+msgid "Stop the hub."
+msgstr ""
+
+#: ../../ops/backup.rst:116
+msgid ""
+"Put ``hub_identity.kel`` (and ``federation.json``, if used) in the data "
+"directory if it is a new one."
+msgstr ""
+
+#: ../../ops/backup.rst:118
+msgid ""
+"Run the restore subcommand with the backup file, or with the directory "
+"that holds it. A directory selects its newest ``hub-backup-YYYYMMDD.db``."
+msgstr ""
+
+#: ../../ops/backup.rst:120
+msgid "Start the hub."
+msgstr ""
+
+#: ../../ops/backup.rst:129
+msgid "The restore subcommand refuses, and changes nothing, in these cases:"
+msgstr ""
+
+#: ../../ops/backup.rst:135
+msgid "Message"
+msgstr ""
+
+#: ../../ops/backup.rst:136
+msgid "Cause and action"
+msgstr ""
+
+#: ../../ops/backup.rst:137
+msgid "``The hub is running, so nothing was changed``"
+msgstr ""
+
+#: ../../ops/backup.rst:138
+msgid "Stop the hub and run the command again."
+msgstr ""
+
+#: ../../ops/backup.rst:139
+msgid "``No hub backup (hub-backup-<date>.db) was found``"
+msgstr ""
+
+#: ../../ops/backup.rst:140
+msgid "The path is not a backup file or a directory holding one."
+msgstr ""
+
+#: ../../ops/backup.rst:141
+msgid "``There is no hub identity in <path>``"
+msgstr ""
+
+#: ../../ops/backup.rst:142
+msgid ""
+"The data directory has no hub identity. Put the original identity file "
+"back, or point ``--data`` at the hub's data directory."
+msgstr ""
+
+#: ../../ops/backup.rst:144
+msgid "``... is not a whole hub backup from this version of anet-hub``"
+msgstr ""
+
+#: ../../ops/backup.rst:145
+msgid "The file is damaged or is not a hub database. Use another backup."
+msgstr ""
+
+#: ../../ops/backup.rst:146
+msgid "``... was written by a newer anet-hub``"
+msgstr ""
+
+#: ../../ops/backup.rst:147
+msgid "Upgrade ``anet-hub`` and run the command again."
+msgstr ""
+
+#: ../../ops/backup.rst:150
+msgid "What a restore does to the network"
+msgstr ""
+
+#: ../../ops/backup.rst:152
+msgid ""
+"A hub signs a notice that confirms the current key state of each agent. "
+"After a restore, the hub's database may be older than the key histories "
+"that nodes have since published. To prevent an old key from being "
+"confirmed as current, the hub signs no notice for an agent until"
+msgstr ""
+
+#: ../../ops/backup.rst:157
+msgid "it accepts a strictly longer key history for the agent from its node, or"
+msgstr ""
+
+#: ../../ops/backup.rst:158
+msgid ""
+"30 minutes have passed since the hub began to serve and the node sends a "
+"request signed with the key at the top of the stored history."
+msgstr ""
+
+#: ../../ops/backup.rst:161
+msgid ""
+"Each agent is released on its own. Nodes report ``Your hub was just "
+"restored from a backup and is checking identity records; nothing to do, "
+"it takes at most 30 minutes.`` An owner who is online is released within "
+"seconds. An agent that rotated after the backup and whose node stays "
+"offline remains held until it connects."
+msgstr ""
+
+#: ../../ops/backup.rst:167
+msgid ""
+"The same quarantine applies if ``hub.db`` is put back by hand: at the "
+"next start the hub finds that its change counter is lower than the one in"
+" ``kel_hwm`` and holds every agent in the same way."
+msgstr ""
+
+#: ../../ops/backup.rst:171
+msgid ""
+"Mailboxes are empty after a restore. A sender asks the hub whether an "
+"envelope was collected; the hub answers ``unknown`` for an envelope it no"
+" longer has, and the sender's node sends the message again."
+msgstr ""
+
+#: ../../ops/backup.rst:175
+msgid ""
+"After a restore, nodes can compare their own payment record with the "
+"hub's ledger with ``anet reconcile`` and check the supply chain with "
+"``anet audit-hub`` (see :ref:`reference-cli`)."
+msgstr ""
+
+#: ../../ops/backup.rst:180
+msgid "When the hub identity itself is lost"
+msgstr ""
+
+#: ../../ops/backup.rst:182
+msgid ""
+"If the data directory is lost together with ``hub_identity.kel``, the hub"
+" cannot be continued under its AID by copying files. A new data directory"
+" creates a new identity, which is a new hub: new network name, empty "
+"ledger, and peers that must list its new AID. If the recovery file and "
+"passphrase are available, a rotation under them proves control of the "
+"identity; see :ref:`ops-hub-recovery`."
+msgstr ""
+
+#: ../../ops/backup.rst:191
+msgid "What to save from a node"
+msgstr ""
+
+#: ../../ops/backup.rst:193
+msgid ""
+"A node's data directory is ``~/.anet`` (or ``$ANET_HOME``) for the "
+"default identity, ``~/.anet/ids/<name>`` for others, or the directory "
+"named by ``ANET_DATA_DIR``. Within one directory:"
+msgstr ""
+
+#: ../../ops/backup.rst:201
+msgid "File or directory"
+msgstr ""
+
+#: ../../ops/backup.rst:202
+msgid "Content"
+msgstr ""
+
+#: ../../ops/backup.rst:203
+msgid "``identity.kel``"
+msgstr ""
+
+#: ../../ops/backup.rst:204
+msgid "The identity: key event log and the keys in use."
+msgstr ""
+
+#: ../../ops/backup.rst:205
+msgid "``enc_keys.cbor``"
+msgstr ""
+
+#: ../../ops/backup.rst:206
+msgid ""
+"The ring of encryption keys. Keys of past days are deleted when they can "
+"no longer open any message (forward secrecy)."
+msgstr ""
+
+#: ../../ops/backup.rst:208
+msgid "``mbox.key``"
+msgstr ""
+
+#: ../../ops/backup.rst:209
+msgid "The mailbox signing key."
+msgstr ""
+
+#: ../../ops/backup.rst:210
+msgid "``config.json``"
+msgstr ""
+
+#: ../../ops/backup.rst:211
+msgid "Configuration."
+msgstr ""
+
+#: ../../ops/backup.rst:212
+msgid "``interactions/``"
+msgstr ""
+
+#: ../../ops/backup.rst:213
+msgid ""
+"The local delegation log: tasks and, for the retention period, their "
+"content."
+msgstr ""
+
+#: ../../ops/backup.rst:215
+msgid "``evidence.ael.jsonl``"
+msgstr ""
+
+#: ../../ops/backup.rst:216
+msgid ""
+"The evidence chain. It is append-only and is what receipts are checked "
+"against."
+msgstr ""
+
+#: ../../ops/backup.rst:218
+msgid "``peers.allow``, ``peers.deny``, ``peers.trust``, ``payees.allow``"
+msgstr ""
+
+#: ../../ops/backup.rst:219
+msgid "The lists that decide whom the node serves and whom it pays."
+msgstr ""
+
+#: ../../ops/backup.rst:220
+msgid "``hub_join.json``, ``key_state_notice.cbor``"
+msgstr ""
+
+#: ../../ops/backup.rst:221
+msgid "Hub join state and the latest signed key-state notice."
+msgstr ""
+
+#: ../../ops/backup.rst:222
+msgid "``modules/``"
+msgstr ""
+
+#: ../../ops/backup.rst:223
+msgid "Private state of modules (for example the local A2A interface address)."
+msgstr ""
+
+#: ../../ops/backup.rst:225
+msgid "``recovery_local.key``, ``recovery_local.anetrec``"
+msgstr ""
+
+#: ../../ops/backup.rst:226
+msgid ""
+"Present only while the identity has no recovery passphrase. Together they"
+" can rotate the identity (see below)."
+msgstr ""
+
+#: ../../ops/backup.rst:228
+msgid "``control_token.txt``, ``modules/a2a/a2a_token.txt``"
+msgstr ""
+
+#: ../../ops/backup.rst:229
+msgid ""
+"Tokens of the local interfaces. They are replaced by deleting them and "
+"restarting; they do not need to be saved."
+msgstr ""
+
+#: ../../ops/backup.rst:231
+msgid "``daemon.log``"
+msgstr ""
+
+#: ../../ops/backup.rst:232
+msgid "The node's log."
+msgstr ""
+
+#: ../../ops/backup.rst:234
+msgid ""
+"A backup of this directory contains private keys and the task content "
+"kept during the retention period (30 days after a task ends by default, 7"
+" days for public calls). Keep it as carefully as a password store: mode "
+"``0700``, on encrypted storage."
+msgstr ""
+
+#: ../../ops/backup.rst:239
+msgid ""
+"The recovery file is not in the data directory. It is ``~/.anet-"
+"recovery/<last 12 characters of the AID>.anetrec``, written with mode "
+"``0600``, and removing an identity with ``anet identity rm --purge`` does"
+" not delete it. It is useless without the passphrase, and the passphrase "
+"is not stored anywhere by ANet. Save the file and remember the passphrase"
+" in separate places."
+msgstr ""
+
+#: ../../ops/backup.rst:247
+msgid "A backup procedure"
+msgstr ""
+
+#: ../../ops/backup.rst:249
+msgid ""
+"Stop the node so that the files are consistent, copy the directory, and "
+"start the node again:"
+msgstr ""
+
+#: ../../ops/backup.rst:258
+msgid ""
+"Keep the archive on a different device from the node, and keep a copy of "
+"the recovery file with a different custodian from the archive. For a node"
+" run by systemd, replace ``anet stop`` and ``anet up`` with ``systemctl "
+"stop`` and ``systemctl start`` of the service."
+msgstr ""
+
+#: ../../ops/backup.rst:265
+msgid "Restoring a node"
+msgstr ""
+
+#: ../../ops/backup.rst:267
+msgid "Three situations differ in their consequences."
+msgstr ""
+
+#: ../../ops/backup.rst:269
+msgid ""
+"**Moving to another machine.** Stop the node on the old machine, copy the"
+" whole data directory to the new one, and start it there. Do not start "
+"the data on the old machine again. Tasks in progress continue."
+msgstr ""
+
+#: ../../ops/backup.rst:273
+msgid ""
+"**Restoring from a backup.** The state after the backup is lost. At the "
+"next contact with the hub the node finds that its data is older than the "
+"last key state it published, ends the tasks that were in progress, and "
+"generates its encryption keys again. The tasks end with the reason "
+"``local_state_lost``, and their other party is notified; new tasks are "
+"not affected. The node shows the following warning for 7 days:"
+msgstr ""
+
+#: ../../ops/backup.rst:284
+msgid ""
+"The sentence appears in ``anet status`` and as the check ``local_state`` "
+"in ``anet doctor``."
+msgstr ""
+
+#: ../../ops/backup.rst:287
+msgid ""
+"A backup that is newer than the latest key publication, at most about a "
+"day old, is not detected as a rollback. A node with no hub configured "
+"does not perform the check."
+msgstr ""
+
+#: ../../ops/backup.rst:299
+msgid ""
+"**Only the recovery file remains.** The identity can be recovered from "
+"the recovery file and its passphrase into a new data directory. The old "
+"task history is not restored; the new directory has no interactions, so "
+"no rollback is reported."
+msgstr ""
+
+#: ../../ops/backup.rst:313
+msgid ""
+"A recovery file that has no passphrase cannot be used this way. It "
+"belongs to an identity that joined a hub without a terminal and works "
+"only together with its own data directory, from which ``anet identity "
+"protect`` sets a passphrase (see :ref:`topics-identity`)."
+msgstr ""
+
+#: ../../ops/backup.rst:321
+msgid "Never run two copies of one identity"
+msgstr ""
+
+#: ../../ops/backup.rst:323
+msgid ""
+"Two data directories of the same identity that run at the same time "
+"compete for one mailbox at the hub. Each finds that its data is older "
+"than the state the other published, ends its tasks, and one copy can read"
+" and acknowledge messages the other needed. The second detection within 7"
+" days is reported as a failure (``local_state.repeated``). If a rollback "
+"warning appears and no backup was restored and no directory copied, the "
+"data directory may have been copied by someone else. Run:"
+msgstr ""
+
+#: ../../ops/backup.rst:335
+msgid ""
+"The emergency rotation invalidates the signing key of the other copy, "
+"replaces every secret that can be copied from the data directory, ends "
+"tasks in progress with the reason ``key_compromise``, and sets a new "
+"recovery passphrase. It needs the recovery passphrase and a terminal."
+msgstr ""
+
+#: ../../ops/backup.rst:342
+msgid "Damaged or incompatible data directories"
+msgstr ""
+
+#: ../../ops/backup.rst:344
+msgid ""
+"The node refuses to start in a data directory it cannot use and leaves "
+"the directory unchanged:"
+msgstr ""
+
+#: ../../ops/backup.rst:347
+msgid ""
+"``This data directory is from anet 0.2, and 0.3.0 does not migrate old "
+"data; move it away and run anet up to create a new identity.``"
+msgstr ""
+
+#: ../../ops/backup.rst:348
+msgid ""
+"Release 0.3.0 does not migrate old identities. Move the directory away. "
+"The new identity must join a hub again."
+msgstr ""
+
+#: ../../ops/backup.rst:351
+msgid ""
+"``This data directory was written by a newer anet, which this version "
+"cannot open; run anet update and start again (do not delete the "
+"directory).``"
+msgstr ""
+
+#: ../../ops/backup.rst:352
+msgid "The data is valid. Upgrade the program."
+msgstr ""
+
+#: ../../ops/backup.rst:354
+msgid ""
+"``The identity file ... is damaged and cannot be read, so anet did not "
+"start``"
+msgstr ""
+
+#: ../../ops/backup.rst:355
+msgid ""
+"Restore ``identity.kel`` from a backup, or recover the identity from its "
+"recovery file with ``anet identity recover``."
+msgstr ""
+
+#: ../../ops/backup.rst:358
+msgid ""
+"The hub refuses a damaged or incompatible data directory in the same way "
+"(see :ref:`ops-hub`)."
+msgstr ""
+
+#: ../../ops/backup.rst:363
+msgid "Deletion and backups"
+msgstr ""
+
+#: ../../ops/backup.rst:365
+msgid ""
+"ANet deletes content by schedule: task content at the end of its "
+"retention period, encryption keys when they can no longer be used, and "
+"hub ledger entries after 14 days. These deletions act on the files in "
+"use. Copies in backups, snapshots of a copy-on-write file system, and "
+"blocks left on a solid-state device are outside what the software can "
+"delete. Apply the retention period to backups as well: expire the "
+"archives of a node and the backups of a hub on a schedule that matches "
+"what is promised to users. The maintenance job does this for hub backups,"
+" which it keeps for at most 14 days."
+msgstr ""
+

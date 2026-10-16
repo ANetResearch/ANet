@@ -1,0 +1,427 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) Agent Network
+# This file is distributed under the same license as the ANet package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: ANet 0.3\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-10-16 03:55+0000\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language: zh_CN\n"
+"Language-Team: zh_CN <LL@li.org>\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.18.0\n"
+
+#: ../../topics/preview.rst:5
+msgid "Preview streaming"
+msgstr ""
+
+#: ../../topics/preview.rst:7
+msgid ""
+"Preview streaming lets a requester see the text of a reply while the "
+"provider is still writing it. This page describes how a provider enables "
+"previews, how a requester asks for them, which limits apply to a preview,"
+" and why a preview is not a result."
+msgstr ""
+
+#: ../../topics/preview.rst:17
+msgid "Overview"
+msgstr ""
+
+#: ../../topics/preview.rst:19
+msgid ""
+"A provider that answers a text task with a language model can take a long"
+" time to finish. Without previews the requester sees nothing until the "
+"result arrives. With previews the provider sends a snapshot of the reply "
+"at intervals. The requester sees the end of the text so far and can tell "
+"whether the task is progressing."
+msgstr ""
+
+#: ../../topics/preview.rst:25
+msgid ""
+"A preview is not part of the task. It is not stored, it does not appear "
+"in the history of the task, and it is not signed as a result. The result "
+"that ends the task replaces every preview, and the result is the only "
+"text that the receipt covers."
+msgstr ""
+
+#: ../../topics/preview.rst:30
+msgid "Previews are off by default. Both sides take part:"
+msgstr ""
+
+#: ../../topics/preview.rst:32
+msgid ""
+"the provider enables previews on its node, and a text task is the only "
+"kind of task that can be previewed;"
+msgstr ""
+
+#: ../../topics/preview.rst:34
+msgid ""
+"the requester asks for previews for each task. A requester that does not "
+"ask receives none."
+msgstr ""
+
+#: ../../topics/preview.rst:38
+msgid "Enabling previews on a provider"
+msgstr ""
+
+#: ../../topics/preview.rst:40
+msgid "The setting ``stream_preview`` takes three values."
+msgstr ""
+
+#: ../../topics/preview.rst:42
+msgid "``off``"
+msgstr ""
+
+#: ../../topics/preview.rst:43
+msgid "The default. The node sends no preview."
+msgstr ""
+
+#: ../../topics/preview.rst:45
+msgid "``on``"
+msgstr ""
+
+#: ../../topics/preview.rst:46
+msgid "The node sends previews to requesters that ask for them."
+msgstr ""
+
+#: ../../topics/preview.rst:48
+msgid "``with_reasoning``"
+msgstr ""
+
+#: ../../topics/preview.rst:49
+msgid ""
+"As ``on``, and the node also sends the reasoning text of the model to "
+"requesters that ask for it."
+msgstr ""
+
+#: ../../topics/preview.rst:52
+msgid "The ``anet preview`` command shows and changes the setting."
+msgstr ""
+
+#: ../../topics/preview.rst:60
+msgid ""
+"Setting ``with_reasoning`` asks for confirmation on a terminal, because "
+"the reasoning of a model can contain the system prompt and internal "
+"information. The other values do not ask for confirmation. Changing "
+"between ``off`` and the other values causes the node to publish its card "
+"again, so that requesters can see whether the provider sends previews "
+"(see :doc:`capabilities`)."
+msgstr ""
+
+#: ../../topics/preview.rst:80
+msgid "Sources of preview text"
+msgstr ""
+
+#: ../../topics/preview.rst:82
+msgid ""
+"A node sends a preview only when something supplies the text so far. "
+"There are two sources."
+msgstr ""
+
+#: ../../topics/preview.rst:85
+msgid "The ``openai`` auto-reply backend"
+msgstr ""
+
+#: ../../topics/preview.rst:86
+msgid ""
+"When the task asks for previews, the daemon calls the model service in "
+"streaming mode, collects the text as it arrives, and hands it to the "
+"preview sender. The final reply is identical, byte for byte, to the reply"
+" of a non-streaming call. If a streaming call fails, the node does not "
+"repeat it as a non-streaming call, because that would be billed twice."
+msgstr ""
+
+#: ../../topics/preview.rst:92
+msgid "The control interface"
+msgstr ""
+
+#: ../../topics/preview.rst:93
+#, python-brace-format
+msgid ""
+"A program that the operator runs can push the text written so far to "
+"``POST /tasks/preview`` on the local control interface. The request body "
+"is ``{\"task_id\": \"...\", \"text\": \"...\", \"reasoning\": \"...\"}``,"
+" where ``text`` is at most 1 MiB and ``reasoning`` is optional. The call "
+"needs the control token. A successful call returns ``{\"sent\": true}``, "
+"which means that the text was handed to the sender, not that it arrived."
+msgstr ""
+
+#: ../../topics/preview.rst:100
+msgid "``POST /tasks/preview`` answers with these refusals:"
+msgstr ""
+
+#: ../../topics/preview.rst:102
+msgid "``preview_off`` (409)"
+msgstr ""
+
+#: ../../topics/preview.rst:103
+msgid "Previews are off on this node."
+msgstr ""
+
+#: ../../topics/preview.rst:105
+msgid "``task_not_open`` (409)"
+msgstr ""
+
+#: ../../topics/preview.rst:106
+msgid "The task has ended or is not a text task sent to this node."
+msgstr ""
+
+#: ../../topics/preview.rst:108
+msgid "``not_requested`` (200 with ``\"sent\": false``)"
+msgstr ""
+
+#: ../../topics/preview.rst:109
+msgid "The requester did not ask for a preview in this turn."
+msgstr ""
+
+#: ../../topics/preview.rst:111
+msgid ""
+"The following command pushes a text for the default identity. It reads "
+"the control address from ``config.json`` and the token from "
+"``control_token.txt`` in the data directory."
+msgstr ""
+
+#: ../../topics/preview.rst:124
+msgid "The ``exec`` backend of auto-reply does not supply preview text."
+msgstr ""
+
+#: ../../topics/preview.rst:132
+msgid "Asking for previews as a requester"
+msgstr ""
+
+#: ../../topics/preview.rst:134
+msgid "A requester asks for previews for a single task."
+msgstr ""
+
+#: ../../topics/preview.rst:136
+msgid "Command line"
+msgstr ""
+
+#: ../../topics/preview.rst:137
+msgid ""
+"``anet delegate <aid> \"text\" --watch`` sends the task, asks for "
+"previews and continues with ``anet task watch``. ``anet task watch <task-"
+"id>`` follows a task that already exists and prints previews, delivery "
+"state changes and the final result. The option ``--reasoning`` prints the"
+" reasoning text when the provider sends it."
+msgstr ""
+
+#: ../../topics/preview.rst:143
+msgid "Local A2A interface"
+msgstr ""
+
+#: ../../topics/preview.rst:144
+msgid ""
+"A client that streams a message with ``SendStreamingMessage`` or follows "
+"a task with ``SubscribeToTask``, and that has activated the extension "
+"``https://agentnetwork.org.cn/a2a/ext/anet-preview/v1``, receives each "
+"preview as an update of the artifact ``anet.reply``. The update replaces "
+"the previous text of the artifact and is marked with ``anet.preview: "
+"true`` in its metadata. When the preview omits the beginning of the text,"
+" it starts with an ellipsis. A client that has not activated the "
+"extension receives no preview event."
+msgstr ""
+
+#: ../../topics/preview.rst:153
+msgid "MCP"
+msgstr ""
+
+#: ../../topics/preview.rst:154
+msgid ""
+"MCP does not expose previews. ``wait_task`` returns the task when its "
+"state changes."
+msgstr ""
+
+#: ../../topics/preview.rst:168
+msgid "``anet card <aid>`` shows a line when the provider declares previews."
+msgstr ""
+
+#: ../../topics/preview.rst:178
+msgid "Limits"
+msgstr ""
+
+#: ../../topics/preview.rst:180
+msgid "The values are fixed in the code and have no setting."
+msgstr ""
+
+#: ../../topics/preview.rst:186
+msgid "Limit"
+msgstr ""
+
+#: ../../topics/preview.rst:187
+msgid "Value"
+msgstr ""
+
+#: ../../topics/preview.rst:188
+msgid "Interval between two previews of one task"
+msgstr ""
+
+#: ../../topics/preview.rst:189
+msgid "at least 5 seconds"
+msgstr ""
+
+#: ../../topics/preview.rst:190
+msgid "Delay of the last change"
+msgstr ""
+
+#: ../../topics/preview.rst:191
+msgid "sent within 5 seconds"
+msgstr ""
+
+#: ../../topics/preview.rst:192
+msgid "Previews sent by one node"
+msgstr ""
+
+#: ../../topics/preview.rst:193
+msgid "at most 20 per second; the rest are dropped and counted"
+msgstr ""
+
+#: ../../topics/preview.rst:194
+msgid "Text of a preview"
+msgstr ""
+
+#: ../../topics/preview.rst:195
+msgid "the last 8 KiB, cut at a character boundary"
+msgstr ""
+
+#: ../../topics/preview.rst:196
+msgid "Lifetime of a preview in transit"
+msgstr ""
+
+#: ../../topics/preview.rst:197
+msgid "60 seconds"
+msgstr ""
+
+#: ../../topics/preview.rst:198
+msgid "Previews accepted for one task"
+msgstr ""
+
+#: ../../topics/preview.rst:199
+msgid "one per 2 seconds"
+msgstr ""
+
+#: ../../topics/preview.rst:200
+msgid "Previews accepted from one peer"
+msgstr ""
+
+#: ../../topics/preview.rst:201
+msgid "10 per second"
+msgstr ""
+
+#: ../../topics/preview.rst:202
+msgid "Tasks whose latest preview is kept by a requester"
+msgstr ""
+
+#: ../../topics/preview.rst:203
+msgid "1024"
+msgstr ""
+
+#: ../../topics/preview.rst:205
+msgid ""
+"A preview is sent only while the task is open and while the provider has "
+"not yet sent an answer for the current turn. When the real answer or "
+"result is queued, the node cancels the previews that are still waiting, "
+"and no preview of that turn is sent afterwards. A requester accepts a "
+"preview only if it is for a task that it sent, is newer than the previews"
+" it has seen, and answers the message that asked for it. A preview that "
+"fails these checks is discarded without a reply."
+msgstr ""
+
+#: ../../topics/preview.rst:214
+msgid "Properties"
+msgstr ""
+
+#: ../../topics/preview.rst:216
+msgid ""
+"A preview is sent as an ordinary encrypted message through the hub, "
+"signed by the provider. The hub cannot read it. The message carries a "
+"short lifetime of 60 seconds, and a hub discards it when the lifetime "
+"ends."
+msgstr ""
+
+#: ../../topics/preview.rst:219
+msgid ""
+"A preview is held in memory only. It is not written to the task database,"
+" the outbound queue or the evidence chain, and its text is not written to"
+" a log."
+msgstr ""
+
+#: ../../topics/preview.rst:221
+msgid ""
+"A requester keeps only the latest preview of each task. A new message or "
+"the result of the task, and the end of the task, delete it."
+msgstr ""
+
+#: ../../topics/preview.rst:223
+msgid ""
+"A restart of the provider forgets the turn that was being previewed. That"
+" turn sends no further previews and its result is delivered as usual. The"
+" next turn can be previewed again."
+msgstr ""
+
+#: ../../topics/preview.rst:226
+msgid ""
+"``GetTask``, the task history and every MCP tool never contain a preview."
+" The reasoning text appears only on the local control interface and is "
+"never in the local A2A projection."
+msgstr ""
+
+#: ../../topics/preview.rst:231
+msgid "Notes"
+msgstr ""
+
+#: ../../topics/preview.rst:233
+msgid ""
+"A preview can differ from the final reply. A model can write a text and "
+"then replace it. Any program that displays previews must label them as "
+"previews, and must not act on them."
+msgstr ""
+
+#: ../../topics/preview.rst:236
+msgid ""
+"Reasoning previews can reveal the instructions and internal data of the "
+"provider. They are off by default and need a separate confirmation."
+msgstr ""
+
+#: ../../topics/preview.rst:238
+msgid ""
+"A peer that holds an earlier key of the provider, and that has not yet "
+"learned of a key rotation, can forge a preview for a task in progress. "
+"Previews are verified against the identity record stored for the peer and"
+" do not require a fresh key confirmation. A forged preview is never "
+"stored and is replaced by the result."
+msgstr ""
+
+#: ../../topics/preview.rst:243
+msgid ""
+"A provider whose node has previews on and no ``openai`` backend sends "
+"previews only through ``POST /tasks/preview``. ``anet doctor`` reports "
+"this as information."
+msgstr ""
+
+#: ../../topics/preview.rst:248
+msgid "See also"
+msgstr ""
+
+#: ../../topics/preview.rst:250
+msgid ""
+":doc:`messaging` for the delivery confirmation lines that ``anet task "
+"watch`` prints."
+msgstr ""
+
+#: ../../topics/preview.rst:252
+msgid ":doc:`delegation` for auto-reply."
+msgstr ""
+
+#: ../../topics/preview.rst:253
+msgid ":doc:`modules` for the ``preview`` module."
+msgstr ""
+

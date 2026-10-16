@@ -1,0 +1,1050 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) Agent Network
+# This file is distributed under the same license as the ANet package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: ANet 0.3\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-10-16 03:55+0000\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language: zh_CN\n"
+"Language-Team: zh_CN <LL@li.org>\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.18.0\n"
+
+#: ../../ops/hub.rst:4
+msgid "Running a hub"
+msgstr ""
+
+#: ../../ops/hub.rst:6
+msgid ""
+"A hub is the server side of an ANet network. Nodes register their "
+"identity and signed Agent Card with a hub, deposit sealed envelopes in it"
+" for other nodes, and settle credit payments through it. A hub relays "
+"envelopes it cannot open and keeps no task content. The concepts are "
+"described in :ref:`topics-hubs`; this page covers installing, starting "
+"and operating the ``anet-hub`` and ``anet-hub-admin`` programs."
+msgstr ""
+
+#: ../../ops/hub.rst:19
+msgid "Components"
+msgstr ""
+
+#: ../../ops/hub.rst:21
+msgid ""
+"ANetHub provides two programs. Each has its own data directory; the "
+"operator plane reads the data directory of the public hub."
+msgstr ""
+
+#: ../../ops/hub.rst:28
+msgid "Program"
+msgstr ""
+
+#: ../../ops/hub.rst:29
+msgid "Role"
+msgstr ""
+
+#: ../../ops/hub.rst:30
+msgid "Default listen address"
+msgstr ""
+
+#: ../../ops/hub.rst:31
+msgid "``anet-hub``"
+msgstr ""
+
+#: ../../ops/hub.rst:32
+msgid ""
+"The public hub: registry, relay, federation, settlement, reviews and the "
+"embedded web interface. Operator subcommands (``admit``, ``grant``, "
+"``restore`` and others) are part of the same program."
+msgstr ""
+
+#: ../../ops/hub.rst:35 ../../ops/hub.rst:125
+msgid "``:8088``"
+msgstr ""
+
+#: ../../ops/hub.rst:36
+msgid "``anet-hub-admin``"
+msgstr ""
+
+#: ../../ops/hub.rst:37
+msgid ""
+"The operator plane: an administration console and API under ``/admin``, "
+"run as a separate process. See :ref:`ops-hub-admin`."
+msgstr ""
+
+#: ../../ops/hub.rst:40 ../../ops/hub.rst:555
+msgid "``127.0.0.1:8078``"
+msgstr ""
+
+#: ../../ops/hub.rst:42
+msgid ""
+"Both programs are static binaries (pure Go, no C library). Nodes need "
+"``anet`` 0.3.0 or later to use a hub of this release; ``anet-hub "
+"-version`` prints the hub wire version and the node version it requires."
+msgstr ""
+
+#: ../../ops/hub.rst:53
+msgid "Building"
+msgstr ""
+
+#: ../../ops/hub.rst:55
+msgid "Build from a checkout of the ANetHub repository:"
+msgstr ""
+
+#: ../../ops/hub.rst:62
+msgid "Without the script, a plain Go build produces the same programs:"
+msgstr ""
+
+#: ../../ops/hub.rst:69
+msgid ""
+"Federation is compiled in by default. A hub for use inside one "
+"organisation, with federation removed entirely, is built with the "
+"``no_federation`` tag:"
+msgstr ""
+
+#: ../../ops/hub.rst:76
+msgid ""
+"A ``no_federation`` build has no ``/fed/v3`` routes and no ``clear`` "
+"subcommand. ``/stats`` reports the modules compiled into a running hub."
+msgstr ""
+
+#: ../../ops/hub.rst:81
+msgid "Starting a hub"
+msgstr ""
+
+#: ../../ops/hub.rst:83
+msgid ""
+"A hub listens on a loopback address and is exposed through a reverse "
+"proxy that terminates TLS (see :ref:`ops-hub-proxy`)."
+msgstr ""
+
+#: ../../ops/hub.rst:92
+msgid ""
+"The first start creates the hub's own identity (an AID and a key event "
+"log) and the review tag key inside the data directory, and prints their "
+"identifiers:"
+msgstr ""
+
+#: ../../ops/hub.rst:104
+msgid ""
+"The hub identity is published at ``GET /hub/identity``. Peer hubs pin it,"
+" and the settlement receipts the hub signs verify against it. A hub that "
+"has no recovery passphrase prints a notice at every start; see :ref:`ops-"
+"hub-recovery`."
+msgstr ""
+
+#: ../../ops/hub.rst:109
+msgid ""
+"The program stops on ``SIGINT`` or ``SIGTERM``, closing the listener "
+"within five seconds."
+msgstr ""
+
+#: ../../ops/hub.rst:113
+msgid "Command-line options"
+msgstr ""
+
+#: ../../ops/hub.rst:115
+msgid "Options may be written with one or two leading dashes."
+msgstr ""
+
+#: ../../ops/hub.rst:121 ../../ops/hub.rst:551
+msgid "Option"
+msgstr ""
+
+#: ../../ops/hub.rst:122 ../../ops/hub.rst:552
+msgid "Default"
+msgstr ""
+
+#: ../../ops/hub.rst:123 ../../ops/hub.rst:553
+msgid "Meaning"
+msgstr ""
+
+#: ../../ops/hub.rst:124 ../../ops/hub.rst:554
+msgid "``--addr``"
+msgstr ""
+
+#: ../../ops/hub.rst:126
+msgid ""
+"HTTP listen address. Use a loopback address when a reverse proxy fronts "
+"the hub."
+msgstr ""
+
+#: ../../ops/hub.rst:128 ../../ops/hub.rst:560
+msgid "``--data``"
+msgstr ""
+
+#: ../../ops/hub.rst:129
+msgid "``./.anet-hub``"
+msgstr ""
+
+#: ../../ops/hub.rst:130
+msgid ""
+"Data directory (SQLite store, hub identity, keys). It must be writable by"
+" the account that runs the hub."
+msgstr ""
+
+#: ../../ops/hub.rst:132
+msgid "``--public-url``"
+msgstr ""
+
+#: ../../ops/hub.rst:133
+msgid "empty"
+msgstr ""
+
+#: ../../ops/hub.rst:134
+msgid ""
+"The hub's public base URL. It is reported as ``homeHub`` in "
+"``/a2a/v1/agents`` and compared with the relay URL of the A2A cards the "
+"hub admits. When empty, the origin of each request is used."
+msgstr ""
+
+#: ../../ops/hub.rst:137 ../../ops/hub.rst:574
+msgid "``--version``"
+msgstr ""
+
+#: ../../ops/hub.rst:138 ../../ops/hub.rst:571 ../../ops/hub.rst:575
+msgid "``false``"
+msgstr ""
+
+#: ../../ops/hub.rst:139 ../../ops/hub.rst:576
+msgid "Print the version line and exit."
+msgstr ""
+
+#: ../../ops/hub.rst:140
+msgid "``--relay-max-envelope``"
+msgstr ""
+
+#: ../../ops/hub.rst:141
+msgid "96 MiB"
+msgstr ""
+
+#: ../../ops/hub.rst:142
+msgid ""
+"Largest sealed envelope ``/relay/send`` accepts, in bytes. Larger "
+"envelopes receive ``413``. The proxy's request-body limit must be at "
+"least this value."
+msgstr ""
+
+#: ../../ops/hub.rst:145
+msgid "``--relay-mailbox-messages``"
+msgstr ""
+
+#: ../../ops/hub.rst:146
+msgid "``5000``"
+msgstr ""
+
+#: ../../ops/hub.rst:147
+msgid ""
+"Undelivered envelopes one recipient may have queued. Further sends "
+"receive ``507``."
+msgstr ""
+
+#: ../../ops/hub.rst:149
+msgid "``--relay-mailbox-bytes``"
+msgstr ""
+
+#: ../../ops/hub.rst:150
+msgid "1 GiB"
+msgstr ""
+
+#: ../../ops/hub.rst:151
+msgid ""
+"Undelivered envelope bytes one recipient may have queued. Further sends "
+"receive ``507``."
+msgstr ""
+
+#: ../../ops/hub.rst:153
+msgid "``--relay-ttl``"
+msgstr ""
+
+#: ../../ops/hub.rst:154
+msgid "``336h`` (14 days)"
+msgstr ""
+
+#: ../../ops/hub.rst:155
+msgid ""
+"How long an undelivered envelope is kept before it is deleted. The "
+"maximum is 14 days 22 hours 55 minutes; a larger value stops the start, "
+"because an envelope kept longer could outlive the only key that opens it."
+msgstr ""
+
+#: ../../ops/hub.rst:159
+msgid "``--relay-poll-budget``"
+msgstr ""
+
+#: ../../ops/hub.rst:160
+msgid "48 MiB"
+msgstr ""
+
+#: ../../ops/hub.rst:161
+msgid ""
+"Cumulative envelope bytes one ``/relay/poll`` response returns. The first"
+" message is always returned."
+msgstr ""
+
+#: ../../ops/hub.rst:163
+msgid "``--register-rate``"
+msgstr ""
+
+#: ../../ops/hub.rst:164
+msgid "``10``"
+msgstr ""
+
+#: ../../ops/hub.rst:165
+msgid ""
+"Per-client-address token refill of ``/register``, per minute. Exhausted "
+"buckets receive ``429``."
+msgstr ""
+
+#: ../../ops/hub.rst:167
+msgid "``--register-burst``"
+msgstr ""
+
+#: ../../ops/hub.rst:168
+msgid "``20``"
+msgstr ""
+
+#: ../../ops/hub.rst:169
+msgid "Per-client-address token bucket size of ``/register``."
+msgstr ""
+
+#: ../../ops/hub.rst:171
+msgid ""
+"The send rate limits, the directory lookup limits and the other sealed-"
+"sender settings are fixed values, not options. A recipient that needs a "
+"larger share of the mailbox is given one with ``anet-hub quota`` (see "
+":ref:`ops-hub-quota`)."
+msgstr ""
+
+#: ../../ops/hub.rst:176
+msgid ""
+"Options of earlier releases that performed an action (``-grant``, "
+"``-invite-new``, ``-clear`` and the like) have become subcommands. A "
+"command line that still uses one is refused with exit status 2 and names "
+"the replacement:"
+msgstr ""
+
+#: ../../ops/hub.rst:185
+msgid "Removed option"
+msgstr ""
+
+#: ../../ops/hub.rst:186
+msgid "Replacement"
+msgstr ""
+
+#: ../../ops/hub.rst:187
+msgid "``-grant``, ``-reason``"
+msgstr ""
+
+#: ../../ops/hub.rst:188
+msgid "``anet-hub grant``"
+msgstr ""
+
+#: ../../ops/hub.rst:189
+msgid "``-invite-required``"
+msgstr ""
+
+#: ../../ops/hub.rst:190
+msgid "``anet-hub admission``"
+msgstr ""
+
+#: ../../ops/hub.rst:191
+msgid "``-invite-new``, ``-label``, ``-invite-uses``, ``-invite-days``"
+msgstr ""
+
+#: ../../ops/hub.rst:192
+msgid "``anet-hub admit``"
+msgstr ""
+
+#: ../../ops/hub.rst:193
+msgid "``-invite-list``"
+msgstr ""
+
+#: ../../ops/hub.rst:194
+msgid "``anet-hub admissions``"
+msgstr ""
+
+#: ../../ops/hub.rst:195
+msgid "``-invite-revoke``"
+msgstr ""
+
+#: ../../ops/hub.rst:196
+msgid "``anet-hub admissions revoke``"
+msgstr ""
+
+#: ../../ops/hub.rst:197
+msgid "``-clear``, ``-amount``, ``-payee``, ``-peer-endpoint``"
+msgstr ""
+
+#: ../../ops/hub.rst:198
+msgid "``anet-hub clear``"
+msgstr ""
+
+#: ../../ops/hub.rst:199
+msgid "``-due``"
+msgstr ""
+
+#: ../../ops/hub.rst:200
+msgid "``anet-hub due``"
+msgstr ""
+
+#: ../../ops/hub.rst:201
+msgid "``-repair-ledger``"
+msgstr ""
+
+#: ../../ops/hub.rst:202
+msgid "none; the ledger keeps 14 days, so no gap remains to repair"
+msgstr ""
+
+#: ../../ops/hub.rst:203
+msgid ""
+"``-relay-send-rate``, ``-relay-send-burst``, ``-keys-lookup-rate``, "
+"``-keys-lookup-burst``"
+msgstr ""
+
+#: ../../ops/hub.rst:205
+msgid "none; these are fixed values"
+msgstr ""
+
+#: ../../ops/hub.rst:209
+msgid "Data directories of other releases"
+msgstr ""
+
+#: ../../ops/hub.rst:211
+msgid ""
+"Release 0.3.0 migrates no data. A data directory written by 0.2 or "
+"earlier is refused with exit status 1 and is left unchanged; move the "
+"directory away and start again to create a new identity. A data directory"
+" written by a newer ``anet-hub`` is refused as well; upgrade the program "
+"and do not delete the directory. A second ``anet-hub`` process on the "
+"same data directory is refused for as long as the first one runs."
+msgstr ""
+
+#: ../../ops/hub.rst:222
+msgid "TLS and the reverse proxy"
+msgstr ""
+
+#: ../../ops/hub.rst:224
+msgid ""
+"The hub does not terminate TLS. Run it on a loopback address and place a "
+"reverse proxy in front. Three requirements apply to the proxy."
+msgstr ""
+
+#: ../../ops/hub.rst:227
+msgid ""
+"**Request-body limit.** The proxy's limit applies before the hub's. Set "
+"``client_max_body_size`` to at least the value of ``--relay-max-"
+"envelope``."
+msgstr ""
+
+#: ../../ops/hub.rst:229
+msgid ""
+"**Client address.** The hub rate-limits registration and enforces its "
+"per-network quotas by client address. It reads the address from the ``X"
+"-Real-IP`` header. A proxy that does not set this header makes every "
+"client share the proxy's bucket."
+msgstr ""
+
+#: ../../ops/hub.rst:233
+msgid ""
+"**No access log.** Request lines name agents (``/agents/<aid>/...``). A "
+"retained access log would reconstruct which address contacted which "
+"agent, long after the hub has deleted the envelope. Disable the access "
+"log and keep the error log at ``crit``."
+msgstr ""
+
+#: ../../ops/hub.rst:238
+msgid ""
+"The following server block satisfies all three and can be used as a "
+"starting point. Certificates are issued here with an ACME client; any "
+"other source works equally."
+msgstr ""
+
+#: ../../ops/hub.rst:284
+msgid ""
+"Plain HTTP is not suitable for a hub reachable from the Internet. Some "
+"networks alter unencrypted traffic, and nodes send their registration and"
+" mailbox requests to the address they were given."
+msgstr ""
+
+#: ../../ops/hub.rst:288
+msgid "Verify the installation from another host:"
+msgstr ""
+
+#: ../../ops/hub.rst:297
+msgid ""
+"A node then joins with ``anet hub-register https://hub.example.com`` (see"
+" :ref:`topics-hubs` for the join states a node reports)."
+msgstr ""
+
+#: ../../ops/hub.rst:304
+msgid "Admission"
+msgstr ""
+
+#: ../../ops/hub.rst:306
+msgid ""
+"Admission decides which identities may register. It has two modes, shown "
+"and changed with ``anet-hub admission``."
+msgstr ""
+
+#: ../../ops/hub.rst:309
+msgid "``closed``"
+msgstr ""
+
+#: ../../ops/hub.rst:310
+msgid ""
+"The mode of a new hub. Only identities on the admission list, and "
+"identities arriving during an open sign-up window, may register."
+msgstr ""
+
+#: ../../ops/hub.rst:313
+msgid "``open``"
+msgstr ""
+
+#: ../../ops/hub.rst:314
+msgid ""
+"Any identity may register after passing three gates: a proof of work of "
+"22 bits, a daily quota per client network (IPv6 clients are counted per "
+"/32), and a 72-hour probation. Registration itself pays no credit; an "
+"account that completes its probation receives 20 trial credits, capped "
+"per network and by a daily budget for the whole hub. These values are "
+"fixed and are the same on every hub. An organisation behind a single "
+"address admits identities by AID instead."
+msgstr ""
+
+#: ../../ops/hub.rst:329
+msgid ""
+"Changing the mode affects new registrations only. Registered nodes remain"
+" registered."
+msgstr ""
+
+#: ../../ops/hub.rst:333
+msgid "Admitting an identity"
+msgstr ""
+
+#: ../../ops/hub.rst:335
+msgid ""
+"A node that is not yet admitted prints the command the operator must run "
+"(``anet hub-register`` reports the state ``hub_pending_admission`` and "
+"retries in the background). The operator admits the AID the node reports:"
+msgstr ""
+
+#: ../../ops/hub.rst:344
+msgid "Further forms:"
+msgstr ""
+
+#: ../../ops/hub.rst:353
+msgid ""
+"``--file`` reads one AID per line. A line that is not a valid AID stops "
+"the import and nothing from the file is admitted. A grant is paid once "
+"per AID; admitting the same AID again does not pay it again. The command "
+"works while the hub is running."
+msgstr ""
+
+#: ../../ops/hub.rst:359
+msgid "Sign-up windows"
+msgstr ""
+
+#: ../../ops/hub.rst:361
+msgid ""
+"A sign-up window admits newcomers without listing their AIDs, for a "
+"limited time and number. A window lasts at most 7 days and admits at most"
+" 10000 identities. Accounts that join through a window are subject to "
+"proof of work and to the 72-hour probation."
+msgstr ""
+
+#: ../../ops/hub.rst:373
+msgid ""
+"Only one window can be open at a time. The duration is written as a Go "
+"duration (``90m``, ``2h``) or in days (``3d``, ``1d12h``)."
+msgstr ""
+
+#: ../../ops/hub.rst:377
+msgid "Inspecting and revoking"
+msgstr ""
+
+#: ../../ops/hub.rst:388
+msgid ""
+"Each line of the list holds the AID, the grant (a trailing ``*`` marks a "
+"grant already paid) and the label, separated by tabs, so the list can be "
+"edited and fed back to ``admit --file``. Revoking removes the admission "
+"and deregisters the account if it is registered; its balance stays on the"
+" ledger. On an open hub the identity can register again; revoking is not "
+"a ban."
+msgstr ""
+
+#: ../../ops/hub.rst:394
+msgid ""
+"Accounts that have registered but never collected their mail for seven "
+"days are deregistered automatically."
+msgstr ""
+
+#: ../../ops/hub.rst:401
+msgid "Quotas for one recipient"
+msgstr ""
+
+#: ../../ops/hub.rst:403
+msgid ""
+"Every recipient has a share of its mailbox reserved for messages from "
+"senders that are not its contacts. The defaults are 30 first contacts per"
+" minute, 500 non-contact messages and 64 MiB of non-contact data. An "
+"operator can raise these for one AID, for example for a popular public "
+"capability; values below the default are refused."
+msgstr ""
+
+#: ../../ops/hub.rst:416
+msgid ""
+"Without options the command shows the current values. The hub applies a "
+"change within a minute. A value must be a whole number from 1 to "
+"2147483647."
+msgstr ""
+
+#: ../../ops/hub.rst:421
+msgid "Credits granted by the operator"
+msgstr ""
+
+#: ../../ops/hub.rst:428
+msgid ""
+"The account must be registered on this hub. Issuance, supply and clearing"
+" are described in :ref:`ops-facilitator`."
+msgstr ""
+
+#: ../../ops/hub.rst:433
+msgid "Operator subcommands"
+msgstr ""
+
+#: ../../ops/hub.rst:435
+msgid ""
+"The operator subcommands open the hub's database directly. All of them "
+"accept ``--data DIR`` and read the same data directory the hub runs with."
+" Except where noted they work while the hub is running."
+msgstr ""
+
+#: ../../ops/hub.rst:443
+msgid "Subcommand"
+msgstr ""
+
+#: ../../ops/hub.rst:444
+msgid "Purpose"
+msgstr ""
+
+#: ../../ops/hub.rst:445
+msgid "``admit``, ``admissions``, ``admission``"
+msgstr ""
+
+#: ../../ops/hub.rst:446
+msgid ""
+"Admission list, sign-up windows and registration mode (:ref:`ops-hub-"
+"admission`)."
+msgstr ""
+
+#: ../../ops/hub.rst:448
+msgid "``quota <AID>``"
+msgstr ""
+
+#: ../../ops/hub.rst:449
+msgid "Raise the non-contact quotas of one recipient."
+msgstr ""
+
+#: ../../ops/hub.rst:450
+msgid "``grant <AID> --amount N [--reason R]``"
+msgstr ""
+
+#: ../../ops/hub.rst:451
+msgid "Issue credits to a registered account."
+msgstr ""
+
+#: ../../ops/hub.rst:452
+msgid "``supply``"
+msgstr ""
+
+#: ../../ops/hub.rst:453
+msgid ""
+"Print issued, redeemed and outstanding credit, the latest published "
+"supply epoch, and the amounts due to and owed by peer hubs."
+msgstr ""
+
+#: ../../ops/hub.rst:455
+msgid "``due [--json]``"
+msgstr ""
+
+#: ../../ops/hub.rst:456
+msgid "Print what this hub owes each peer hub."
+msgstr ""
+
+#: ../../ops/hub.rst:457
+msgid "``clear <peer-aid> --amount N [--peer-endpoint URL]``"
+msgstr ""
+
+#: ../../ops/hub.rst:458
+msgid ""
+"Discharge part of what this hub owes a peer hub. Not available in a "
+"``no_federation`` build."
+msgstr ""
+
+#: ../../ops/hub.rst:460
+msgid "``redemptions [--json]``"
+msgstr ""
+
+#: ../../ops/hub.rst:461
+msgid "List the redemptions of the last 14 days."
+msgstr ""
+
+#: ../../ops/hub.rst:462
+msgid "``identity status|setup-recovery|rotate``"
+msgstr ""
+
+#: ../../ops/hub.rst:463
+msgid ""
+"Inspect and protect the hub identity. ``setup-recovery`` and ``rotate`` "
+"require a stopped hub and a terminal."
+msgstr ""
+
+#: ../../ops/hub.rst:465
+msgid "``restore <backup>``"
+msgstr ""
+
+#: ../../ops/hub.rst:466
+msgid ""
+"Restore the database from a backup. Requires a stopped hub (:ref:`ops-"
+"backup`)."
+msgstr ""
+
+#: ../../ops/hub.rst:469
+msgid ""
+"A subcommand pointed at a directory that holds no hub refuses to run and "
+"changes nothing. The subcommands print sentences in the language selected"
+" by ``LC_ALL``, ``LC_MESSAGES`` or ``LANG`` (the first one set): Chinese "
+"when the value starts with ``zh``, English otherwise. Lists and figures "
+"are printed as tab-separated data and are not translated."
+msgstr ""
+
+#: ../../ops/hub.rst:479
+msgid "Hub identity and recovery passphrase"
+msgstr ""
+
+#: ../../ops/hub.rst:481
+msgid ""
+"The hub signs settlement receipts, the notices that confirm the key state"
+" of its agents, and every request to a peer hub, with its own identity. "
+"As for a node identity, the key that will sign next is not stored in the "
+"data directory: it is derived from a recovery seed that is encrypted "
+"under a passphrase and stored in a recovery file. Until a passphrase is "
+"set, a leak of the data directory would allow someone else to take over "
+"the hub identity and the operator could not take it back. A hub without a"
+" passphrase starts, and prints the following notice at every start and in"
+" ``identity status``:"
+msgstr ""
+
+#: ../../ops/hub.rst:494
+msgid "Set it once, with the hub stopped and from a terminal:"
+msgstr ""
+
+#: ../../ops/hub.rst:504
+msgid ""
+"The passphrase needs at least 12 characters and is read from the terminal"
+" only; it is never accepted on the command line. The recovery file is "
+"written to ``~/.anet-recovery/<last 12 characters of the AID>.anetrec`` "
+"of the account that ran the command, or to the path given with "
+"``--recovery-file``. The file is useless without the passphrase; store a "
+"copy on separate media."
+msgstr ""
+
+#: ../../ops/hub.rst:519
+msgid ""
+"Rotation replaces the hub's signing key. ``identity rotate`` performs one"
+" planned rotation; ``--new-recovery`` also replaces the recovery seed and"
+" passphrase; ``--emergency`` is for a data directory that may have "
+"leaked. It performs the rotation without a grace period for the retired "
+"keys, implies ``--new-recovery`` and regenerates the secrets that live in"
+" the hub data directory. Secrets that the program cannot replace itself, "
+"such as the administration token, are listed for the operator to replace."
+msgstr ""
+
+#: ../../ops/hub.rst:533
+msgid "The operator console"
+msgstr ""
+
+#: ../../ops/hub.rst:535
+msgid ""
+"``anet-hub-admin`` provides the administration console and API for a hub."
+" It runs as a separate process beside the public hub and reads the same "
+"database. It never reads relay payloads, which the hub itself cannot "
+"open, and it holds no channel to any other host."
+msgstr ""
+
+#: ../../ops/hub.rst:556
+msgid "Listen address. Keep it on loopback; a reverse proxy publishes it."
+msgstr ""
+
+#: ../../ops/hub.rst:557
+msgid "``--hub-data``"
+msgstr ""
+
+#: ../../ops/hub.rst:558 ../../ops/hub.rst:561
+msgid "required in practice"
+msgstr ""
+
+#: ../../ops/hub.rst:559
+msgid "The public hub's data directory (``hub.db``)."
+msgstr ""
+
+#: ../../ops/hub.rst:562
+msgid ""
+"The operator plane's own data directory (``admin.db``, "
+"``officials.json``)."
+msgstr ""
+
+#: ../../ops/hub.rst:564
+msgid "``--base``"
+msgstr ""
+
+#: ../../ops/hub.rst:565
+msgid "``/admin``"
+msgstr ""
+
+#: ../../ops/hub.rst:566
+msgid "URL base path."
+msgstr ""
+
+#: ../../ops/hub.rst:567
+msgid "``--snapshot-every``"
+msgstr ""
+
+#: ../../ops/hub.rst:568
+msgid "``5m``"
+msgstr ""
+
+#: ../../ops/hub.rst:569
+msgid "Interval of statistics snapshots; ``0`` turns them off."
+msgstr ""
+
+#: ../../ops/hub.rst:570
+msgid "``--check-token``"
+msgstr ""
+
+#: ../../ops/hub.rst:572
+msgid ""
+"Apply the start-up rules to ``$ADMIN_TOKEN``, exit with status 0 or 1 and"
+" print no value. Deployment scripts use it before a restart."
+msgstr ""
+
+#: ../../ops/hub.rst:578
+msgid ""
+"The built-in defaults of ``--hub-data`` and ``--data`` are paths of one "
+"reference deployment and are unlikely to exist on another host. Pass both"
+" options explicitly."
+msgstr ""
+
+#: ../../ops/hub.rst:583
+msgid "The operator token"
+msgstr ""
+
+#: ../../ops/hub.rst:585
+msgid ""
+"The token is read from the ``ADMIN_TOKEN`` environment variable and has "
+"no default. An unset or empty token, or a placeholder such as "
+"``CHANGE_ME``, stops the start. A token that appears in the project's "
+"published source is accepted, but the process logs a warning at start and"
+" every hour. Generate a random token of at least 32 hexadecimal "
+"characters and keep it in a file readable by the service account only "
+"(see :ref:`ops-deployment`)."
+msgstr ""
+
+#: ../../ops/hub.rst:599
+msgid "Login and API access"
+msgstr ""
+
+#: ../../ops/hub.rst:601
+msgid ""
+"The console page at ``/admin`` is public; the login happens inside it. "
+"The API under ``/admin/api`` is available only with the token as a bearer"
+" credential. Failed credential checks, from the login route and from "
+"bearer authentication alike, are limited to 20 per client address per "
+"minute; further attempts receive ``429``. Requests that carry no "
+"credential are answered with ``401``."
+msgstr ""
+
+#: ../../ops/hub.rst:616
+msgid ""
+"The remote address is taken from ``X-Real-IP`` when present, so publish "
+"the console only through a proxy that sets this header. A location block "
+"for the console, to be placed in the TLS server block before ``location "
+"/``:"
+msgstr ""
+
+#: ../../ops/hub.rst:633
+msgid "Functions"
+msgstr ""
+
+#: ../../ops/hub.rst:639
+msgid "API route (under ``/admin/api``)"
+msgstr ""
+
+#: ../../ops/hub.rst:640
+msgid "Function"
+msgstr ""
+
+#: ../../ops/hub.rst:641
+msgid "``GET /overview``"
+msgstr ""
+
+#: ../../ops/hub.rst:642
+msgid ""
+"Totals, database size, statistics snapshots, the number of official "
+"agents and the last audit entries."
+msgstr ""
+
+#: ../../ops/hub.rst:644
+#, python-brace-format
+msgid "``GET /agents[?q=&tier=]``, ``GET /agents/{aid}``"
+msgstr ""
+
+#: ../../ops/hub.rst:645
+msgid ""
+"Registered agents, including agents that are not listed publicly, with "
+"review counts and mailbox backlog (a row count; payloads are not read)."
+msgstr ""
+
+#: ../../ops/hub.rst:648
+#, python-brace-format
+msgid "``POST /agents/{aid}/moderate``"
+msgstr ""
+
+#: ../../ops/hub.rst:649
+msgid "Mark an agent for attention or clear the mark."
+msgstr ""
+
+#: ../../ops/hub.rst:650
+#, python-brace-format
+msgid "``DELETE /agents/{aid}``"
+msgstr ""
+
+#: ../../ops/hub.rst:651
+msgid ""
+"Revoke the admission of the agent and deregister it. The balance stays on"
+" the ledger. On an open hub the agent can register again."
+msgstr ""
+
+#: ../../ops/hub.rst:653
+#, python-brace-format
+msgid "``GET /official``, ``POST /official``, ``DELETE /official/{id}``"
+msgstr ""
+
+#: ../../ops/hub.rst:654
+msgid ""
+"Register of official agents (``id``, ``aid``, ``hub``, ``caps`` and "
+"descriptive labels)."
+msgstr ""
+
+#: ../../ops/hub.rst:656
+msgid "``GET /capabilities``, ``GET /discover``"
+msgstr ""
+
+#: ../../ops/hub.rst:657
+msgid "Capabilities of registered agents."
+msgstr ""
+
+#: ../../ops/hub.rst:658
+msgid "``GET /reviews``"
+msgstr ""
+
+#: ../../ops/hub.rst:659
+msgid "Reviews as rating, comment and receipt CID only."
+msgstr ""
+
+#: ../../ops/hub.rst:660
+msgid "``GET /audit``"
+msgstr ""
+
+#: ../../ops/hub.rst:661
+msgid "Audit trail of every administrative action."
+msgstr ""
+
+#: ../../ops/hub.rst:662
+msgid "``GET /deleted``"
+msgstr ""
+
+#: ../../ops/hub.rst:663
+msgid ""
+"Deleted accounts, with ``?format=admit`` producing a list that ``anet-hub"
+" admit --file`` accepts, which undoes a batch of deletions."
+msgstr ""
+
+#: ../../ops/hub.rst:666
+msgid ""
+"There is no route that restores a deleted registration from an archive, "
+"because that would write an old key history back into the registry. To "
+"undo a deletion, run ``anet-hub admit <AID>``; the node re-registers the "
+"next time ``anet hub-register`` runs. Other paths under ``/admin/api/`` "
+"answer ``404`` with a JSON body after authentication. The console itself "
+"is served as a single page. ``GET /admin/healthz`` reports the version, "
+"commit and build time of the operator plane without authentication, so "
+"that a deployment can confirm which build is running."
+msgstr ""
+
+#: ../../ops/hub.rst:675
+msgid ""
+"The official-agent register is read at start from ``officials.json`` in "
+"the operator plane's data directory; a missing file means no official "
+"agents. An entry that still carries ``runtime``, ``monitor``, ``ops`` or "
+"``datasets`` fields is refused, and the process does not start. The "
+"operator plane starts, stops or updates no agent; those tasks belong to "
+"separate tooling outside the hub host."
+msgstr ""
+
+#: ../../ops/hub.rst:684
+msgid ""
+"The console is being redesigned as a navigation sidebar with sections for"
+" overview, nodes, registration, federation, settlement and audit, "
+"admission and quota, and logs, with sortable and filterable tables. "
+"Delivery confirmations and admission state (proof of work, quota, "
+"probation) are shown there."
+msgstr ""
+
+#: ../../ops/hub.rst:690
+msgid ""
+"Two options of earlier releases, ``--restore-agents-from`` and ``--keep-"
+"only-agents``, are removed. Each is refused with exit status 2 and names "
+"its replacement (``anet-hub restore`` and the console's delete function "
+"or ``anet-hub admissions revoke``)."
+msgstr ""
+
+#: ../../ops/hub.rst:697
+msgid "Upgrading a hub"
+msgstr ""
+
+#: ../../ops/hub.rst:699
+msgid "Take a backup (:ref:`ops-backup`)."
+msgstr ""
+
+#: ../../ops/hub.rst:700
+msgid "Stop the service."
+msgstr ""
+
+#: ../../ops/hub.rst:701
+msgid ""
+"Replace the binaries. Replace ``anet-hub-admin`` in the same step; the "
+"operator plane refuses a hub data directory written by a newer release."
+msgstr ""
+
+#: ../../ops/hub.rst:703
+msgid "Start the service and check ``/healthz`` for the new version."
+msgstr ""
+
+#: ../../ops/hub.rst:705
+msgid ""
+"Release 0.3.0 uses hub wire 3. A node that declares an older wire version"
+" is refused with status ``426`` and the reason ``wire_too_old``, which "
+"names the required wire version and node release; they cannot use a 0.3.0"
+" hub, and a 0.3.0 node does not use an older hub."
+msgstr ""
+
