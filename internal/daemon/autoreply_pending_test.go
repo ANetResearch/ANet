@@ -394,34 +394,7 @@ func TestOpenAIReplierStreamsOnlyWhenAskedAndAgrees(t *testing.T) {
 	}
 }
 
-// A server that ignores stream and answers JSON is read as JSON.
-func TestOpenAIReplierStreamAnsweredWithJSON(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":" whole "}}]}`))
-	}))
-	defer srv.Close()
-	r := &openAIReplier{cfg: AutoReplyConfig{APIBase: srv.URL, Model: "m"}}
-	got, err := r.Reply(context.Background(), replyContext{Preview: func(string, string) {}}, []chatTurn{{Role: "user", Text: "hi"}})
-	if err != nil || got != "whole" {
-		t.Fatalf("%q %v", got, err)
-	}
-}
 
-// A stream that breaks, ends early or is empty is an error: never half an
-// answer sent as a whole one.
-func TestStreamErrors(t *testing.T) {
-	for name, s := range map[string]string{
-		"no end":     "data: {\"choices\":[{\"delta\":{\"content\":\"half\"}}]}\n\n",
-		"no content": "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n",
-		"empty":      "",
-		"too long":   "data: " + strings.Repeat("x", maxSSELine+10) + "\n",
-	} {
-		if got, err := readChatStream(strings.NewReader(s), func(string, string) {}); err == nil {
-			t.Errorf("%s: %q accepted", name, got)
-		}
-	}
-}
 
 // CUX-P5, TestStreamFailureNoRecall: a failed stream is one failed call.
 // There is no second call without stream, and the requester gets

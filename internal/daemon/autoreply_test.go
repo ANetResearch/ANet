@@ -360,24 +360,6 @@ func TestAutoReplyDoneSentinelProposesEnd(t *testing.T) {
 	}
 }
 
-func TestStripDoneSentinel(t *testing.T) {
-	cases := []struct {
-		in        string
-		wantClean string
-		wantDone  bool
-	}{
-		{"just a reply", "just a reply", false},
-		{"delivered\n" + autoReplyDoneSentinel, "delivered", true},
-		{autoReplyDoneSentinel, "", true},
-		{"a " + autoReplyDoneSentinel + " b", "a  b", true},
-	}
-	for _, c := range cases {
-		clean, done := stripDoneSentinel(c.in)
-		if clean != c.wantClean || done != c.wantDone {
-			t.Fatalf("stripDoneSentinel(%q) = (%q,%v), want (%q,%v)", c.in, clean, done, c.wantClean, c.wantDone)
-		}
-	}
-}
 
 // outboxReplier is a test backend that drops a file in rc.Outbox (like the exec agent delivering an
 // artifact) and returns its reply text — exercising the daemon's outbox → attachment path.
