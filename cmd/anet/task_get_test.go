@@ -109,3 +109,31 @@ func TestTaskListAndCancelAskTheirRoutes(t *testing.T) {
 		mu.Unlock()
 	}
 }
+
+// A state typed in capitals, or in the A2A form, names the same state; one
+// that names none is a usage error, not the daemon's InvalidParams text.
+func TestTaskListStateIsNormalised(t *testing.T) {
+	var got []map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var b map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&b)
+		got = append(got, b)
+		_, _ = w.Write([]byte(`{"tasks":[]}`))
+	}))
+	defer srv.Close()
+	c := &client{base: srv.URL, token: "t", timeout: time.Second}
+	for in, want := range map[string]string{"COMPLETED": "completed", "TASK_STATE_INPUT_REQUIRED": "input-required", "Input-Required": "input-required"} {
+		got = nil
+		_, _ = captureCLI(t, func() {
+			if err := taskCommand(c, []string{"list", "--state", in}); err != nil {
+				t.Errorf("%s: %v", in, err)
+			}
+		})
+		if len(got) != 1 || got[0]["state"] != want {
+			t.Errorf("%s: sent %v, want state %s", in, got, want)
+		}
+	}
+	if err := taskCommand(c, []string{"list", "--state", "nonsense"}); err == nil {
+		t.Error("an unknown state was sent to the daemon")
+	}
+}
