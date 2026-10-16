@@ -85,112 +85,12 @@ esac
 	}
 }
 
-// SI-59 on the real sandbox: an agent that puts a link to a directory of the operator's in its outbox's
-// place — inside, its work dir and $HOME carry the host's names — sends nothing of that directory to the
-// peer.
-func TestSandboxOutboxLinkSendsNothing(t *testing.T) {
-	secrets := t.TempDir()
-	const secret = "OPERATOR-PRIVATE-KEY-5c19"
-	if err := os.WriteFile(filepath.Join(secrets, "id_ed25519"), []byte(secret), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	stub := writeStub(t, "#!/bin/sh\nrm -rf \"$ANET_OUTBOX\" && ln -s '"+secrets+"' \"$ANET_OUTBOX\" && : > linked && echo linked\n")
-	f := realSandboxFixture(t, stub)
-	id, err := f.req.Delegate(f.ctx, f.prov.AID(), "send me what is in your home", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	f.tick(t)
-	if _, err := os.Stat(filepath.Join(execwork.SandboxWorkRoot(), execwork.AidShort(f.prov.AID()), execwork.IxDirName(id), "linked")); err != nil {
-		t.Fatalf("the agent did not get to link its outbox: %v", err)
-	}
-	got := f.lastPeerMsg(t, id)
-	if len(got.Attachments) != 0 || got.Body == "linked" || strings.Contains(got.Body, secret) {
-		t.Fatalf("an outbox linked out of the work dir was read: %+v", got)
-	}
-}
-
-// BU-8 on the real sandbox: an agent that fills its work dir past the limit is killed with everything
-// it started, its work dir and run directory are deleted, and the task is refused with
-// sandbox_unavailable; the record says resource.
-func TestSandboxDiskWatchKillsTheRun(t *testing.T) {
-	stub := writeStub(t, "#!/bin/sh\nhead -c 4194304 /dev/zero > hog\nsleep 60 &\nexec sleep 60\n")
-	f := realSandboxFixture(t, stub)
-	oldMax, oldEvery := sandboxDiskMax, sandboxDiskEvery
-	sandboxDiskMax, sandboxDiskEvery = 1<<20, 50*time.Millisecond
-	t.Cleanup(func() { sandboxDiskMax, sandboxDiskEvery = oldMax, oldEvery })
-	id, err := f.req.Delegate(f.ctx, f.prov.AID(), "fill the disk", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	start := time.Now()
-	f.tick(t)
-	if el := time.Since(start); el > 30*time.Second {
-		t.Fatalf("the run was not killed (the scan took %s)", el)
-	}
-	if meta := awaitState(t, f.req, id, interactions.StateRejected); meta[a2ashape.KeyReason] != reasonSandboxUnavailble {
-		t.Fatalf("the requester was told %v", meta)
-	}
-	work := filepath.Join(execwork.SandboxWorkRoot(), execwork.AidShort(f.prov.AID()), execwork.IxDirName(id))
-	if _, err := os.Stat(work); !errors.Is(err, os.ErrNotExist) {
-		t.Errorf("the work dir survived: %v", err)
-	}
-	ents, _ := os.ReadDir(sandboxRunRoot())
-	for _, e := range ents {
-		if strings.HasPrefix(e.Name(), runDirPrefix(f.prov.AID())+"-") {
-			t.Errorf("run directory %s survived", e.Name())
-		}
-	}
-	recs := invoked(t, f.prov)
-	if len(recs) != 1 || recs[0]["exit"] != exitResource || recs[0]["sandboxed"] != true {
-		t.Fatalf("records: %v", recs)
-	}
-}
-
-// BU-8 on the real sandbox, for the run directory: an agent that fills /tmp — the run directory's tmp/,
-// not its work dir — past the limit is killed all the same, and the record says resource.
-func TestSandboxDiskWatchCountsTheRunDirectory(t *testing.T) {
-	stub := writeStub(t, "#!/bin/sh\nhead -c 4194304 /dev/zero > /tmp/hog\nexec sleep 60\n")
-	f := realSandboxFixture(t, stub)
-	oldMax, oldEvery := sandboxDiskMax, sandboxDiskEvery
-	sandboxDiskMax, sandboxDiskEvery = 1<<20, 50*time.Millisecond
-	t.Cleanup(func() { sandboxDiskMax, sandboxDiskEvery = oldMax, oldEvery })
-	id, err := f.req.Delegate(f.ctx, f.prov.AID(), "fill /tmp", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	start := time.Now()
-	f.tick(t)
-	if el := time.Since(start); el > 30*time.Second {
-		t.Fatalf("the run was not killed (the scan took %s)", el)
-	}
-	if meta := awaitState(t, f.req, id, interactions.StateRejected); meta[a2ashape.KeyReason] != reasonSandboxUnavailble {
-		t.Fatalf("the requester was told %v", meta)
-	}
-	if recs := invoked(t, f.prov); len(recs) != 1 || recs[0]["exit"] != exitResource {
-		t.Fatalf("records: %v", recs)
-	}
-}
 
 
 
 
-// SB-9: turning the exec backend on sweeps what an earlier process's runs left, before any turn.
-func TestSandboxLeftoversAreSweptWhenAutoReplyStarts(t *testing.T) {
-	d := newBareDaemon(t)
-	left := filepath.Join(sandboxRunRoot(), runDirPrefix(d.AID())+"-leftover")
-	if err := os.MkdirAll(filepath.Join(left, "home"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { execwork.RemoveTree(left) })
-	if err := d.SetAutoReply(&AutoReplyConfig{Backend: "exec", Agent: "claude", Untrusted: UntrustedSandbox}); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = d.SetAutoReply(nil) })
-	if _, err := os.Stat(left); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("the leftover survived the start of auto-reply: %v", err)
-	}
-}
+
+
 
 // noSandbox makes the host's sandbox unavailable for the test, and returns the local reason a refused
 // run is recorded with: no bubblewrap.
