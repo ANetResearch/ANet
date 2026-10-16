@@ -468,6 +468,10 @@ type ringInputs struct {
 	gate      clockLevel
 	drainMark uint64
 	heldKids  kidSet
+	// draining says an old hub's mailbox is still read after a hub change
+	// (FS-K6a): that hub's stored set still holds the keys removed since,
+	// so the deletion rule takes A(k) = not_after + D for every key.
+	draining bool
 	// run is unverified_run after this period's update (FS-K14a); nil
 	// keeps the ring's (a maintenance between periods). hold says no set
 	// may be signed now (keysHeld).
@@ -506,7 +510,13 @@ func (r *encKeyRing) maintain(in ringInputs) (bool, error) {
 	// Delete what may go (FS-K7, FS-K12).
 	var keys, gone []*ringKey
 	for _, k := range current {
-		if ok, _ := epochKeyDeletable(k, in.now, in.gate, in.drainMark, in.heldKids); ok {
+		dk := k
+		if in.draining && k.RemovedAt != 0 {
+			c := *k
+			c.RemovedAt = 0
+			dk = &c
+		}
+		if ok, _ := epochKeyDeletable(dk, in.now, in.gate, in.drainMark, in.heldKids); ok {
 			gone = append(gone, k)
 			changed = true
 			continue
@@ -1138,6 +1148,7 @@ func (d *Daemon) maintainRing() (clockLevel, error) {
 	in := d.ringInputsAt(wall)
 	in.gate, in.run, in.hold = level, &run, d.keysHeld()
 	in.drainMark, in.heldKids = d.drainInputs()
+	in.draining = len(d.drainingHubs()) > 0
 	_, err := d.enc.maintain(in)
 	if err != nil {
 		// The ring kept its state, but unverified_run is this process's to

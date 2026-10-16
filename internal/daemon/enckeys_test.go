@@ -205,11 +205,16 @@ func TestPrevEpochKeyStaysPublishedUntilDeadline(t *testing.T) {
 			t.Fatalf("the previous epoch's key left the set at t_e%+d ms, before t_e + D + M", int64(at-(e+seal.EpochMS)))
 		}
 	}
+	if _, ok := d.enc.Key(prev); !ok {
+		t.Fatal("the key went before it left the set")
+	}
 	if listed(deadline) {
 		t.Fatal("the previous epoch's key is still published at t_e + D + M")
 	}
-	if _, ok := d.enc.Key(prev); !ok {
-		t.Fatal("leaving the set deleted the key")
+	// A node without a hub deletes early (FS-K8): at A(k) + M, the moment
+	// the key leaves the set, nothing is held back.
+	if _, ok := d.enc.Key(prev); ok {
+		t.Fatal("the early branch kept the key of a node without a hub at A(k) + M")
 	}
 }
 
