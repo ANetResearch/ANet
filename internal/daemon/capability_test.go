@@ -13,7 +13,6 @@ import (
 	"testing"
 	"time"
 
-	evidence "github.com/ANetResearch/ANet/internal/evidencev1" // v030-todo(PAY-14): evidence v2
 	"github.com/ANetResearch/ANetCore/delegation"
 	"github.com/ANetResearch/ANetCore/effect"
 	"github.com/ANetResearch/ANetCore/seal"
@@ -575,17 +574,7 @@ func TestAResultForDifferentContentIsRefused(t *testing.T) {
 	}
 
 	// A provider signing a real receipt, then delivering other bytes.
-	rc := &evidence.Receipt{
-		InteractionID: id, RequesterAID: req.AID(), ProviderAID: prov.AID(),
-		RequestCID: "bafyrequest", ResultCID: "bafynotwhatwesend", CompletedAt: uint64(nowMillis()),
-	}
-	if err := rc.Sign(prov.self); err != nil {
-		t.Fatal(err)
-	}
-	receipt, err := rc.Marshal()
-	if err != nil {
-		t.Fatal(err)
-	}
+	receipt := receiptOver(t, prov.self, mustIX(t, req, id), mustIX(t, req, id).RequestCID, "bafynotwhatwesend")
 	payload, err := (&delegation.ResultResp{
 		Status: delegation.StatusDone, Deliverable: []byte(`{"status":"OK"}`),
 		Receipt: receipt,

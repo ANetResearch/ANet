@@ -21,9 +21,9 @@ import (
 	"sync"
 	"time"
 
-	evidence "github.com/ANetResearch/ANet/internal/evidencev1" // v030-todo(PAY-14): evidence v2
 	"github.com/ANetResearch/ANetCore/anetcid"
 	"github.com/ANetResearch/ANetCore/delegation"
+	"github.com/ANetResearch/ANetCore/evidence"
 	"github.com/ANetResearch/ANetCore/relayauth"
 	"github.com/ANetResearch/ANetCore/seal"
 
@@ -111,11 +111,11 @@ func (d *Daemon) delegateInWithID(ctx context.Context, id, providerAID, goal str
 		}
 		contextID = c
 	}
-	nonce, err := newTaskNonce()
+	bind, err := d.newTaskBinding()
 	if err != nil {
 		return err
 	}
-	doc, env, err := d.signTaskDoc(goal, nonce)
+	doc, env, err := d.signTaskDoc(goal, bind)
 	if err != nil {
 		return err
 	}
@@ -146,7 +146,8 @@ func (d *Daemon) delegateInWithID(ctx context.Context, id, providerAID, goal str
 	qid, err := d.queueSendAs(ctx, wireSend{to: providerAID, typ: seal.TypeDelegate, ix: id, body: payload, mid: mid,
 		pin: interactions.PinOutbound, strict: true}, func(tx *interactions.Tx) error {
 		if err := tx.Create(interactions.New{ID: id, Role: interactions.RoleOutbound, PeerAID: providerAID,
-			Goal: goal, RequestCID: requestCID, RequestDoc: doc, ContextID: contextID, TaskNonce: nonce}); err != nil {
+			Goal: goal, RequestCID: requestCID, RequestDoc: doc, ContextID: contextID, TaskNonce: bind.nonce,
+			ReviewSeed: bind.seed, ReviewRSalt: bind.rsalt}); err != nil {
 			return err
 		}
 		if err := putOwnIXKeyTx(tx, er); err != nil {
@@ -223,11 +224,11 @@ func (d *Daemon) Results(ctx context.Context) ([]ResultItem, error) {
 	}
 	out := make([]ResultItem, 0, len(list))
 	for _, ix := range list {
-		rc, err := evidence.UnmarshalReceipt(ix.Receipt)
+		rw, err := evidence.UnmarshalReceiptWire(ix.Receipt)
 		if err != nil {
 			return nil, fmt.Errorf("anet: receipt corrupt for %s: %w", ix.ID, err)
 		}
-		receiptCID, err := rc.CID()
+		receiptCID, err := rw.CID()
 		if err != nil {
 			return nil, fmt.Errorf("anet: receipt CID for %s: %w", ix.ID, err)
 		}

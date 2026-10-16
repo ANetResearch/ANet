@@ -38,6 +38,7 @@ func delegateBodyArgs(t testing.TB, c *identity.Controller, ix, capID, argsJSON 
 	if !absent {
 		task.Contexts = []tsir.Context{{Key: "args", Value: argsJSON, Format: "json"}}
 	}
+	task.Contexts = append(task.Contexts, bindingContexts(t, c.AID())...)
 	td := &tsir.TaskDoc{Version: tsir.VersionPair{Major: 1}, Tasks: []tsir.Task{task}}
 	if err := td.Sign(c); err != nil {
 		t.Fatal(err)

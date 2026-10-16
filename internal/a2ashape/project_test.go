@@ -16,8 +16,9 @@ import (
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
 
-	evidence "github.com/ANetResearch/ANet/internal/evidencev1" // v030-todo(PAY-14): evidence v2
 	"github.com/ANetResearch/ANetCore/coredet"
+	"github.com/ANetResearch/ANetCore/evidence"
+	"github.com/ANetResearch/ANetCore/identity/identitytest"
 	"github.com/ANetResearch/ANetCore/tsir"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
@@ -74,8 +75,13 @@ func setState(t *testing.T, st *interactions.Store, ix string, s interactions.St
 
 func receipt(t *testing.T, ix, requester, provider, resultCID string) []byte {
 	t.Helper()
-	b, err := (&evidence.Receipt{InteractionID: ix, RequesterAID: requester, ProviderAID: provider,
-		RequestCID: "bafyrequest", ResultCID: resultCID, CompletedAt: uint64(now)}).Marshal()
+	c, err := identitytest.Agent()
+	must(t, err)
+	fill := func(v byte) []byte { return bytes.Repeat([]byte{v}, 32) }
+	w, err := (&evidence.ReceiptBody{IXCommit: fill(1), RequesterCommit: fill(2), ReviewKey: fill(3),
+		RequestCID: "bafyrequest", ResultCID: resultCID, CompletedDay: uint64(now) / evidence.DayMS}).Sign(c)
+	must(t, err)
+	b, err := w.Marshal()
 	must(t, err)
 	return b
 }
@@ -242,7 +248,7 @@ func TestTextTaskCompleted(t *testing.T) {
 		t.Errorf("reply file %+v", f)
 	}
 	rc, _ := sdk.Metadata[a2ashape.KeyReceipt].(map[string]any)
-	if rc["verified"] != "verified" || rc["result_cid"] != "bafyresult" || rc["provider_aid"] != peer ||
+	if rc["verified"] != "verified" || rc["result_cid"] != "bafyresult" || rc["provider_aid"] == nil || rc["completed_day"] == nil || rc["interaction_id"] != nil || rc["requester_aid"] != nil ||
 		rc["provider_kel"] != "a2VsCg==" || rc["receipt_cid"] == nil || rc["receipt"] == "" {
 		t.Errorf("receipt metadata %v", rc)
 	}

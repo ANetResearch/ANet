@@ -23,7 +23,6 @@ import (
 	"time"
 	"unicode/utf8"
 
-	evidence "github.com/ANetResearch/ANet/internal/evidencev1" // v030-todo(PAY-14): evidence v2
 	"github.com/ANetResearch/ANetCore/anetcid"
 	"github.com/ANetResearch/ANetCore/coredet"
 	"github.com/ANetResearch/ANetCore/delegation"
@@ -182,7 +181,7 @@ func (d *Daemon) delegateCapabilityCtx(ctx context.Context, id, providerAID, cap
 		}
 		contextID = c
 	}
-	nonce, err := newTaskNonce()
+	bind, err := d.newTaskBinding()
 	if err != nil {
 		return "", err
 	}
@@ -190,7 +189,7 @@ func (d *Daemon) delegateCapabilityCtx(ctx context.Context, id, providerAID, cap
 	td := &tsir.TaskDoc{Version: tsir.VersionPair{Major: 1}, Tasks: []tsir.Task{{
 		Intent:   tsir.Intent{Summary: goal, Body: goal},
 		Requires: []tsir.Require{{ID: capID, Type: RequireTypeCapability, Necessity: "must"}},
-		Contexts: []tsir.Context{{Key: "args", Value: argsJSON, Format: "json"}, nonceContext(nonce)},
+		Contexts: append([]tsir.Context{{Key: "args", Value: argsJSON, Format: "json"}}, bind.contexts...),
 	}}}
 	if err := td.Sign(d.self); err != nil {
 		return "", err
@@ -229,7 +228,7 @@ func (d *Daemon) delegateCapabilityCtx(ctx context.Context, id, providerAID, cap
 		pin: interactions.PinOutbound, strict: true}, func(tx *interactions.Tx) error {
 		if err := tx.Create(interactions.New{ID: id, Role: interactions.RoleOutbound, PeerAID: providerAID,
 			Goal: goal, RequestCID: requestCID, RequestDoc: doc, ContextID: contextID, IsCapability: true,
-			TaskNonce: nonce}); err != nil {
+			TaskNonce: bind.nonce, ReviewSeed: bind.seed, ReviewRSalt: bind.rsalt}); err != nil {
 			return err
 		}
 		if err := putOwnIXKeyTx(tx, er); err != nil {
@@ -658,20 +657,9 @@ func (d *Daemon) deliverCapabilityResult(_ context.Context, interactionID, capID
 	if err != nil {
 		return false
 	}
-	rc := &evidence.Receipt{
-		InteractionID: interactionID,
-		RequesterAID:  ix.PeerAID,
-		ProviderAID:   d.AID(),
-		RequestCID:    ix.RequestCID,
-		ResultCID:     resultCID,
-		CompletedAt:   uint64(nowMillis()),
-	}
-	if err := rc.Sign(d.self); err != nil {
-		log.Printf("anet: capability %s: sign receipt: %v", capID, err)
-		return false
-	}
-	receiptBytes, err := rc.Marshal()
+	receiptBytes, err := d.signReceipt(ix, resultCID)
 	if err != nil {
+		log.Printf("anet: capability %s: sign receipt: %v", capID, err)
 		return false
 	}
 	// The key that signed the receipt travels in the sealed envelope (inner

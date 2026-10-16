@@ -507,7 +507,8 @@ func TestARefusedCapabilityResultIsUnverified(t *testing.T) {
 		t.Fatal(err)
 	}
 	// A receipt over other bytes than the deliverable.
-	stand := &interactions.Interaction{ID: id, PeerAID: req.AID(), RequestCID: mustIX(t, req, id).RequestCID}
+	stand := &interactions.Interaction{ID: id, PeerAID: req.AID(), RequestCID: mustIX(t, req, id).RequestCID,
+		RequestDoc: mustIX(t, req, id).RequestDoc}
 	signed, err := prov.signResult(stand, []byte(`{"status":"FAILED"}`))
 	if err != nil {
 		t.Fatal(err)

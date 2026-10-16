@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	evidence "github.com/ANetResearch/ANet/internal/evidencev1" // v030-todo(PAY-14): evidence v2
 	"github.com/ANetResearch/ANetCore/ael"
 	"github.com/ANetResearch/ANetCore/anetcid"
+	"github.com/ANetResearch/ANetCore/evidence"
 	"github.com/ANetResearch/ANetCore/identity"
 
 	"github.com/ANetResearch/ANet/internal/daemon"
@@ -76,7 +76,7 @@ func verify(layout daemon.Layout, rest []string) error {
 		return fmt.Errorf("verify <interaction-id>\n" +
 			"       verify --receipt <base64> --kel <base64> [--result FILE] [--request FILE]\n" +
 			"       verify --receipt <base64> --hub <url>    [--result FILE] [--request FILE]\n" +
-			"       verify --attestation <base64> --hub <url>\n" +
+			"       verify --attestation <base64url> --hub <url>\n" +
 			"       verify --chain DIR [--kel <base64>|--hub <url>] [--head ID]\n\n" +
 			"The second form needs nothing at all: a receipt and the signer's key\n" +
 			"history are enough, offline. The third fetches that key history from a\n" +
@@ -169,7 +169,7 @@ func report(receiptB64, kelB64, expectResultCID, resultPath, expectRequestCID, r
 	if err != nil {
 		return fmt.Errorf("verify: kel is not base64: %w", err)
 	}
-	rc, err := evidence.UnmarshalReceipt(rb)
+	w, err := evidence.UnmarshalReceiptWire(rb)
 	if err != nil {
 		return fmt.Errorf("verify: undecodable receipt: %w", err)
 	}
@@ -177,22 +177,33 @@ func report(receiptB64, kelB64, expectResultCID, resultPath, expectRequestCID, r
 	if err != nil {
 		return fmt.Errorf("verify: undecodable key history: %w", err)
 	}
-
-	if err := rc.Verify(kel, uint64(time.Now().UnixMilli())); err != nil {
+	// A receipt is judged by the provider's keys as they stood at the start of the day it was
+	// signed (SI-36): a key retired before that day signs nothing for it.
+	body, err := w.Open()
+	if err != nil {
+		return fmt.Errorf("verify: undecodable receipt: %w", err)
+	}
+	at, ok := evidence.DayStart(body.CompletedDay)
+	if !ok {
+		return fmt.Errorf("verify: the receipt's day %d is not a day", body.CompletedDay)
+	}
+	rc, err := w.Verify(kel, at)
+	if err != nil {
 		fmt.Printf("✗ receipt does NOT verify: %v\n", err)
 		return errQuiet
 	}
-	cid, err := rc.CID()
+	cid, err := w.CID()
 	if err != nil {
 		return err
 	}
 
-	fmt.Printf("✓ signature verifies under %s\n", rc.ProviderAID)
-	fmt.Printf("  interaction  %s\n", rc.InteractionID)
-	fmt.Printf("  requester    %s\n", rc.RequesterAID)
+	// The receipt names neither the requester nor the interaction (core §2.9).
+	fmt.Printf("✓ signature verifies under %s\n", rc.Provider)
 	fmt.Printf("  request cid  %s\n", rc.RequestCID)
 	fmt.Printf("  result cid   %s\n", rc.ResultCID)
-	fmt.Printf("  completed    %s\n", time.UnixMilli(int64(rc.CompletedAt)).UTC().Format(time.RFC3339))
+	if ms, ok := evidence.DayStart(rc.CompletedDay); ok {
+		fmt.Printf("  completed    %s\n", time.UnixMilli(int64(ms)).UTC().Format("2006-01-02"))
+	}
 	fmt.Printf("  receipt cid  %s\n", cid)
 
 	switch {
@@ -253,14 +264,15 @@ func fetchKEL(layout daemon.Layout, hubURL, receiptB64 string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("verify: receipt is not base64: %w", err)
 	}
-	rc, err := evidence.UnmarshalReceipt(rb)
+	w, err := evidence.UnmarshalReceiptWire(rb)
 	if err != nil {
 		return "", fmt.Errorf("verify: undecodable receipt: %w", err)
 	}
-	if rc.ProviderAID == "" {
-		return "", fmt.Errorf("verify: the receipt names no signer")
+	rc, err := w.Open()
+	if err != nil {
+		return "", fmt.Errorf("verify: undecodable receipt: %w", err)
 	}
-	return fetchKELThrough(layout, hubURL, rc.ProviderAID,
+	return fetchKELThrough(layout, hubURL, rc.Provider,
 		"(a receipt alone proves nothing without the key that signed it)")
 }
 
@@ -367,9 +379,10 @@ func fetchKELFor(hubURL, aid string) (string, error) {
 // record at sequence N, this signed statement contradicts it and nobody
 // has to take anyone's word for which came first.
 func verifyAttestation(layout daemon.Layout, attB64, kelB64, hubURL string) error {
-	raw, err := base64.StdEncoding.DecodeString(strings.TrimSpace(attB64))
+	// The hub gives its attestations in base64url without padding (core CORE-E5).
+	raw, err := base64.RawURLEncoding.Strict().DecodeString(strings.TrimSpace(attB64))
 	if err != nil {
-		return fmt.Errorf("verify: attestation is not base64: %w", err)
+		return fmt.Errorf("verify: attestation is not base64url: %w", err)
 	}
 	att, err := ael.UnmarshalHeadAttestation(raw)
 	if err != nil {

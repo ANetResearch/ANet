@@ -195,6 +195,11 @@ type Interaction struct {
 	// JSON of an a2ashape.PayNote, nil before the first decision. Every
 	// surface renders it as it is; nothing is computed again (PAY-U6).
 	PayNote []byte
+	// ReviewSeed and ReviewRSalt (32 bytes each) are the one-time inputs of
+	// the review of an outbound delegation: the seed of the key whose public
+	// half the TaskDoc carried, and the salt of requester_commit. Nil once
+	// spent (HPP PAY-V6, PAY-V9).
+	ReviewSeed, ReviewRSalt []byte
 	// PeerKEL and PeerKeys hold the requester's KEL and SignedEncKeySet for
 	// a public or public_cap interaction, whose peer is not recorded in
 	// peer_identity (A2A-DESIGN §3.8). They are deleted when the
@@ -397,6 +402,7 @@ var schema = [][]string{
 	capsSchema,
 	outboxSchema,
 	extCardSchema,
+	reviewOutboxSchema,
 }
 
 // createSchema gives a file with no schema the whole of schema and user_version SchemaVersion, in
@@ -480,7 +486,12 @@ var interactionSchema = []string{
 	   peer_rk BLOB,
 	   -- The payment decision as it was taken (HPP PAY-U5, §3.5): JSON, or
 	   -- NULL before the first one.
-	   pay_note BLOB
+	   pay_note BLOB,
+	   -- The one-time inputs of this task's review (HPP §3.5, PAY-V6): the
+	   -- seed of the review key and the salt of requester_commit. NULL on a
+	   -- task that is not an outbound delegation and once they are spent.
+	   review_seed BLOB,
+	   review_rsalt BLOB
 	 )`,
 	// The per-interaction conversation log.
 	`CREATE TABLE message (
@@ -568,8 +579,10 @@ type New struct {
 	Trust        string
 	IsCapability bool
 	TaskNonce    string
-	PeerKEL      []byte // public / public_cap only
-	PeerKeys     []byte // public / public_cap only
+	// ReviewSeed and ReviewRSalt are set on an outbound delegation (PAY-V6).
+	ReviewSeed, ReviewRSalt []byte
+	PeerKEL                 []byte // public / public_cap only
+	PeerKeys                []byte // public / public_cap only
 	// PeerRK is the rk the delegation carried (coredet(RK)), or nil: the provider records it with the task,
 	// and an approved held delegation brings it from pending.peer_rk (FS-R4).
 	PeerRK []byte
@@ -613,10 +626,11 @@ func create(e execer, n New, nowMS int64) error {
 	}
 	_, err = e.Exec(
 		`INSERT OR IGNORE INTO interaction(id,role,peer_aid,goal,state,state_at,state_seq,request_cid,request_doc,
-		   context_id,trust,is_capability,task_nonce,peer_kel,peer_keys,peer_rk,created_at,updated_at)
-		 VALUES(?,?,?,?,?,?,1,?,?,?,?,?,?,?,?,?,?,?)`,
+		   context_id,trust,is_capability,task_nonce,peer_kel,peer_keys,peer_rk,review_seed,review_rsalt,created_at,updated_at)
+		 VALUES(?,?,?,?,?,?,1,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		n.ID, string(n.Role), n.PeerAID, goal, string(StateSubmitted), nowMS, n.RequestCID, doc,
-		n.ContextID, n.Trust, capFlag, n.TaskNonce, n.PeerKEL, n.PeerKeys, nilIfEmpty(n.PeerRK), now, now)
+		n.ContextID, n.Trust, capFlag, n.TaskNonce, n.PeerKEL, n.PeerKeys, nilIfEmpty(n.PeerRK),
+		nilIfEmpty(n.ReviewSeed), nilIfEmpty(n.ReviewRSalt), now, now)
 	return err
 }
 
@@ -915,7 +929,7 @@ func (s *Store) SetReview(id string, review []byte) error {
 // ixColumns is the shared SELECT column list for scanning an Interaction (keep in sync with scanRows).
 const ixColumns = `seq,id,role,peer_aid,goal,state,state_at,state_seq,request_cid,request_doc,result_cid,result,receipt,review,
 receipt_verified,end_req_by,end_acc_by,context_id,trust,is_capability,task_nonce,pay_state,pay_required,pay_auth_ids,
-pay_payload,pay_receipts,quote_expires_at,peer_kel,peer_keys,result_meta,peer_rk,pay_note,created_at,updated_at`
+pay_payload,pay_receipts,quote_expires_at,peer_kel,peer_keys,result_meta,peer_rk,pay_note,review_seed,review_rsalt,created_at,updated_at`
 
 // Get returns one interaction by id.
 func (s *Store) Get(id string) (*Interaction, error) {
@@ -1624,7 +1638,7 @@ func scanRows(sc scanner) (*Interaction, error) {
 		&ix.RequestCID, &ix.RequestDoc, &ix.ResultCID, &ix.Result, &ix.Receipt, &ix.Review,
 		&verified, &ix.EndReqBy, &ix.EndAccBy, &ix.ContextID, &ix.Trust, &capFlag, &ix.TaskNonce,
 		&ix.PayState, &ix.PayRequired, &authIDs, &ix.PayPayload, &ix.PayReceipts, &ix.QuoteExpiresAt,
-		&ix.PeerKEL, &ix.PeerKeys, &ix.ResultMeta, &ix.PeerRK, &ix.PayNote, &ix.CreatedAt, &ix.UpdatedAt); err != nil {
+		&ix.PeerKEL, &ix.PeerKeys, &ix.ResultMeta, &ix.PeerRK, &ix.PayNote, &ix.ReviewSeed, &ix.ReviewRSalt, &ix.CreatedAt, &ix.UpdatedAt); err != nil {
 		return nil, err
 	}
 	ix.Role = Role(role)

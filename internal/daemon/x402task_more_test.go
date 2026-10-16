@@ -124,16 +124,14 @@ func TestAPricedCallWithoutATaskNonceIsRejected(t *testing.T) {
 	work := &meteredWork{price: 10}
 	_, req, prov := paidPair(t, work)
 	const id = "ix_nononce"
-	env := sealFrom(t, req, prov, seal.TypeDelegate, id, delegateBody(t, req.self, id, "work.do", "work.do"))
-	if r := receive(t, prov, env); r.class != rxAccepted {
-		t.Fatalf("delegate: %+v", r)
+	// The task binding carries the nonce (core §2.4.3), so a TaskDoc without one is refused as a bad
+	// request at step 9, before anything is stored or quoted.
+	env := sealFrom(t, req, prov, seal.TypeDelegate, id, delegateBodyBound(t, req.self, id, "work.do", "work.do", nil))
+	if r := receive(t, prov, env); r.class == rxAccepted || r.reason != dropRefusedPrefix+reasonBadRequest {
+		t.Fatalf("delegate: %+v, want refused %s", r, reasonBadRequest)
 	}
-	waitUntil(t, "the call to be answered", func() bool { return getIX(t, prov, id).IsTerminal() })
-	pix := getIX(t, prov, id)
-	meta := decodeMeta([]byte(pix.ResultMeta))
-	if pix.State != interactions.StateRejected || meta[x402a2a.KeyReason] != x402a2a.ReasonTaskNonceRequired ||
-		pix.PayState != interactions.PayNone || len(pix.PayRequired) != 0 {
-		t.Fatalf("provider: %s / %v / pay_state %q", pix.State, meta, pix.PayState)
+	if _, err := prov.ix.Get(id); err == nil {
+		t.Fatal("a call without its binding was stored")
 	}
 	if n := chainEvents(t, prov, EvPaymentQuoted); n != 0 || work.invoked.Load() != 0 {
 		t.Errorf("quoted %d times, ran %d", n, work.invoked.Load())

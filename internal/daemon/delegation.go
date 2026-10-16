@@ -35,7 +35,6 @@ import (
 	"log"
 	"strings"
 
-	evidence "github.com/ANetResearch/ANet/internal/evidencev1" // v030-todo(PAY-14): evidence v2
 	"github.com/ANetResearch/ANetCore/anetcid"
 	"github.com/ANetResearch/ANetCore/delegation"
 	"github.com/ANetResearch/ANetCore/effect"
@@ -97,13 +96,6 @@ type ResultItem struct {
 	// way to check", and those differ most exactly where a caller is
 	// about to act on the result.
 	ReceiptVerified string `json:"receipt_verified,omitempty"`
-}
-
-// ReviewResult is the outcome of signing a review.
-type ReviewResult struct {
-	InteractionID string
-	Subject       string
-	Rating        int
 }
 
 // ThreadMsg is one conversation entry rendered for the chat console. From is "me"/"them" (placement).
@@ -269,12 +261,6 @@ func newTaskNonce() (string, error) {
 		return "", err
 	}
 	return base64.RawURLEncoding.EncodeToString(b[:]), nil
-}
-
-// nonceContext is the TaskDoc context entry for a nonce. It is private: it
-// is for the two parties and for no one they later show a receipt to.
-func nonceContext(nonce string) tsir.Context {
-	return tsir.Context{Key: NonceContextKey, Value: nonce, Visibility: "private"}
 }
 
 // taskNonce reads the nonce a TaskDoc carries, or "".
@@ -635,18 +621,7 @@ func (d *Daemon) signResult(ix *interactions.Interaction, tr []byte) (signedResu
 	if err != nil {
 		return signedResult{}, err
 	}
-	rc := &evidence.Receipt{
-		InteractionID: ix.ID,
-		RequesterAID:  ix.PeerAID,
-		ProviderAID:   d.AID(),
-		RequestCID:    ix.RequestCID,
-		ResultCID:     resultCID,
-		CompletedAt:   uint64(nowMillis()),
-	}
-	if err := rc.Sign(d.self); err != nil {
-		return signedResult{}, err
-	}
-	receiptBytes, err := rc.Marshal()
+	receiptBytes, err := d.signReceipt(ix, resultCID)
 	if err != nil {
 		return signedResult{}, err
 	}
@@ -1003,91 +978,6 @@ func (d *Daemon) SendStatus(ctx context.Context, interactionID string, state int
 	d.publishState(ix.ID)
 	if err := d.deliverQueued(ctx, id); err != nil {
 		log.Printf("anet: %s: status %s queued for delivery (%v)", ix.ID, state, err)
-	}
-	return nil
-}
-
-// SubmitReview signs a rating of the provider for a completed outbound interaction, anchored to the
-// provider's receipt, and stores it locally (upload happens in the control handler).
-func (d *Daemon) SubmitReview(interactionID string, rating int, comment string) (ReviewResult, error) {
-	var zero ReviewResult
-	ix, err := d.ix.Get(interactionID)
-	if err != nil {
-		return zero, err
-	}
-	if ix.Role != interactions.RoleOutbound {
-		return zero, fmt.Errorf("anet: %s is not an outbound delegation", interactionID)
-	}
-	if len(ix.Receipt) == 0 {
-		return zero, fmt.Errorf("anet: no receipt for %s yet (run `results` first)", interactionID)
-	}
-	if ix.ReceiptVerified == interactions.VerificationMismatch {
-		// The receipt covers a conversation that changes what this node
-		// said: a review would vouch for it (CUX-R6 item 4).
-		return zero, a2ashape.Refuse(reasonReceiptMismatch, nil)
-	}
-	rc, err := evidence.UnmarshalReceipt(ix.Receipt)
-	if err != nil {
-		return zero, fmt.Errorf("anet: receipt corrupt: %w", err)
-	}
-	if err := receiptBindsTask(rc, ix, d.AID()); err != nil {
-		return zero, err
-	}
-	receiptCID, err := rc.CID()
-	if err != nil {
-		return zero, err
-	}
-	rv := &evidence.Review{
-		InteractionID: interactionID,
-		SubjectAID:    ix.PeerAID,
-		ReviewerAID:   d.AID(),
-		Rating:        rating,
-		Comment:       comment,
-		ReceiptCID:    receiptCID,
-		CreatedAt:     uint64(nowMillis()),
-	}
-	if !rv.ValidRating() {
-		return zero, fmt.Errorf("anet: rating must be %d..%d", evidence.RatingMin, evidence.RatingMax)
-	}
-	if err := rv.Sign(d.self); err != nil {
-		return zero, err
-	}
-	rvBytes, err := rv.Marshal()
-	if err != nil {
-		return zero, err
-	}
-	if err := d.ix.SetReview(interactionID, rvBytes); err != nil {
-		return zero, err
-	}
-	return ReviewResult{InteractionID: interactionID, Subject: ix.PeerAID, Rating: rating}, nil
-}
-
-// receiptBindsTask checks, before this node signs a review anchored to it,
-// that a stored receipt is about the task it is stored on: this
-// interaction, this node as requester, the provider it delegated to, the
-// request it sent and the result it holds. ingestResult checked the same
-// when the result arrived; a row stored before it bound the request (or by
-// any path that did not check) is checked here too, because the review is
-// what vouches for the receipt to a third party (evidence.VerifyInterlock)
-// — a review of a receipt for a request never made would vouch for that
-// request (redteam F15). An empty stored request CID (a row from before
-// request CIDs were kept) skips that one binding, as ingestResult does.
-func receiptBindsTask(rc *evidence.Receipt, ix *interactions.Interaction, self string) error {
-	switch {
-	case rc.InteractionID != ix.ID:
-		return fmt.Errorf("anet: the receipt stored on %s is for interaction %s; not reviewing it", ix.ID, rc.InteractionID)
-	case rc.RequesterAID != self:
-		return fmt.Errorf("anet: the receipt stored on %s names requester %s, not this node; not reviewing it",
-			ix.ID, rc.RequesterAID)
-	case rc.ProviderAID != ix.PeerAID:
-		return fmt.Errorf("anet: the receipt stored on %s is signed for provider %s, not %s; not reviewing it",
-			ix.ID, rc.ProviderAID, ix.PeerAID)
-	case ix.RequestCID != "" && rc.RequestCID != ix.RequestCID:
-		return fmt.Errorf("anet: the receipt stored on %s is for request %s, not the request this node sent (%s); "+
-			"not reviewing it", ix.ID, rc.RequestCID, ix.RequestCID)
-	case ix.ResultCID != "" && rc.ResultCID != ix.ResultCID:
-		return fmt.Errorf("anet: the receipt stored on %s covers result %s, not the result held (%s); not reviewing it",
-			ix.ID, rc.ResultCID, ix.ResultCID)
 	}
 	return nil
 }
@@ -1892,11 +1782,12 @@ func (d *Daemon) ingestResult(ctx context.Context, m *rxMsg) rxResult {
 	//
 	// A failed check refuses the result rather than storing it.
 	verified := false
-	// v030-todo(PAY-14): the 0.2 receipt check; evidence v2 is delegation.VerifyResultForRequest.
-	switch _, verr := evidence.VerifyResultForRequest(rr, m.kel, m.ix, d.AID(), ix.PeerAID, ix.RequestCID, m.ts); {
+	check := delegation.ResultCheck{IX: m.ix, Provider: ix.PeerAID, TaskDoc: ix.RequestDoc,
+		DelegatedDay: dayOf(ixCreatedMS(ix)), Today: dayOf(d.nowMS())}
+	switch _, verr := delegation.VerifyResultForRequest(rr, m.kel, check, m.ts); {
 	case verr == nil:
 		verified = true
-	case errors.Is(verr, evidence.ErrUnverifiable):
+	case errors.Is(verr, delegation.ErrUnverifiable):
 		log.Printf("anet: %s: result accepted UNVERIFIED (no provider KEL)", m.ix)
 	default:
 		log.Printf("anet: %s: REFUSING result: %v", m.ix, verr)

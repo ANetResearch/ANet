@@ -109,7 +109,7 @@ func capabilityDocSigned(t *testing.T, c *identity.Controller, capID string) ([]
 	td := &tsir.TaskDoc{Version: tsir.VersionPair{Major: 1}, Tasks: []tsir.Task{{
 		Intent:   tsir.Intent{Summary: goal, Body: goal},
 		Requires: []tsir.Require{{ID: capID, Type: RequireTypeCapability, Necessity: "must"}},
-		Contexts: []tsir.Context{{Key: "args", Value: "{}", Format: "json"}},
+		Contexts: append([]tsir.Context{{Key: "args", Value: "{}", Format: "json"}}, bindingContexts(t, c.AID())...),
 	}}}
 	if err := td.Sign(c); err != nil {
 		t.Fatal(err)

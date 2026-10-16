@@ -14,9 +14,9 @@ import (
 	"testing"
 	"time"
 
-	evidence "github.com/ANetResearch/ANet/internal/evidencev1" // v030-todo(PAY-14): evidence v2
 	"github.com/ANetResearch/ANetCore/ael"
 	"github.com/ANetResearch/ANetCore/dirbox"
+	"github.com/ANetResearch/ANetCore/evidence"
 	"github.com/ANetResearch/ANetCore/identity"
 	"github.com/ANetResearch/ANetCore/identity/identitytest"
 
@@ -83,23 +83,27 @@ func TestOfflineVerification(t *testing.T) {
 	}
 }
 
-func receiptFor(t *testing.T, c *identity.Controller, body []byte) *evidence.Receipt {
+func receiptFor(t *testing.T, c *identity.Controller, body []byte, requestCID ...string) *evidence.ReceiptWire {
 	t.Helper()
 	cid, err := anetcidSum(body)
 	if err != nil {
 		t.Fatal(err)
 	}
-	rc := &evidence.Receipt{
-		InteractionID: "ix-1", RequesterAID: "did:anet:requester", ProviderAID: c.AID(),
-		RequestCID: "bafyrequest", ResultCID: cid, CompletedAt: 1767225600000,
+	fill := func(v byte) []byte { return []byte(strings.Repeat(string([]byte{v}), 32)) }
+	rc := &evidence.ReceiptBody{IXCommit: fill(1), RequesterCommit: fill(2), ReviewKey: fill(3),
+		RequestCID: "bafyrequest", ResultCID: cid, CompletedDay: uint64(time.Now().UnixMilli()) / evidence.DayMS,
 	}
-	if err := rc.Sign(c); err != nil {
+	if len(requestCID) > 0 {
+		rc.RequestCID = requestCID[0]
+	}
+	w, err := rc.Sign(c)
+	if err != nil {
 		t.Fatal(err)
 	}
-	return rc
+	return w
 }
 
-func b64(t *testing.T, rc *evidence.Receipt) string {
+func b64(t *testing.T, rc *evidence.ReceiptWire) string {
 	t.Helper()
 	b, err := rc.Marshal()
 	if err != nil {
@@ -142,7 +146,7 @@ func TestVerifyingAWitnessAttestation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	attB64 := base64.StdEncoding.EncodeToString(raw)
+	attB64 := base64.RawURLEncoding.EncodeToString(raw)
 	kelRaw, err := identity.MarshalKEL(witness.KEL())
 	if err != nil {
 		t.Fatal(err)
@@ -309,13 +313,11 @@ func TestOfflineVerificationBindsTheRequest(t *testing.T) {
 	if err := os.WriteFile(other, never, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	rc := receiptFor(t, provider, body)
-	if rc.RequestCID, err = anetcidSum(asked); err != nil {
+	askedCID, err := anetcidSum(asked)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := rc.Sign(provider); err != nil {
-		t.Fatal(err)
-	}
+	rc := receiptFor(t, provider, body, askedCID)
 	if err := verifyOffline(b64(t, rc), kelOf(t, provider), result, sent); err != nil {
 		t.Fatalf("a receipt for the request checked: %v", err)
 	}
@@ -340,13 +342,12 @@ func TestStoredVerificationBindsTheRequestThisNodeSent(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := []byte(`{"answer":42}`)
-	rc := receiptFor(t, provider, body)
-	if rc.RequestCID, err = anetcidSum([]byte("a request never made")); err != nil {
+	never, err := anetcidSum([]byte("a request never made"))
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := rc.Sign(provider); err != nil {
-		t.Fatal(err)
-	}
+	rc := receiptFor(t, provider, body, never)
+	rcb, _ := rc.Open()
 	sent, _ := anetcidSum([]byte("the request that was sent"))
 	var storedRequest atomic.Value // the request CID the fake daemon stored
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -359,8 +360,8 @@ func TestStoredVerificationBindsTheRequestThisNodeSent(t *testing.T) {
 			return
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"results": []any{map[string]any{
-			"interaction_id": rc.InteractionID, "provider": provider.AID(),
-			"request_cid": storedRequest.Load(), "result_cid": rc.ResultCID,
+			"interaction_id": "ix-1", "provider": provider.AID(),
+			"request_cid": storedRequest.Load(), "result_cid": rcb.ResultCID,
 			"receipt": b64(t, rc), "provider_kel": kelOf(t, provider),
 		}}})
 	}), ReadHeaderTimeout: 5 * time.Second}
@@ -376,13 +377,13 @@ func TestStoredVerificationBindsTheRequestThisNodeSent(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	storedRequest.Store(rc.RequestCID)
-	captureStdout(t, func() { err = verifyStored(layout, rc.InteractionID) })
+	storedRequest.Store(rcb.RequestCID)
+	captureStdout(t, func() { err = verifyStored(layout, "ix-1") })
 	if err != nil {
 		t.Fatalf("a receipt for the request this node stored did not check: %v", err)
 	}
 	storedRequest.Store(sent)
-	captureStdout(t, func() { err = verifyStored(layout, rc.InteractionID) })
+	captureStdout(t, func() { err = verifyStored(layout, "ix-1") })
 	if err == nil {
 		t.Fatal("`anet verify <ix>` passed a receipt for a request this node did not send")
 	}
