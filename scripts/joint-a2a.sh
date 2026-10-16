@@ -331,8 +331,14 @@ c_origin=$(status_with "$A2A_TOK" "$A2A_CARD" -H 'Origin: http://example.com')
   || no "foreign Host $c_host (want 421), Origin $c_origin (want 403)"
 
 # The provider's agent: answers every text task "echo: <text>" (not those saying [hold]).
-( cd "$RUN" && exec setsid "$PROBE" responder --ctl "$PC" --token-file "$PROV/.anet/control_token.txt" ) \
-  >"$RUN/responder.log" 2>&1 </dev/null 9>&- &
+if [ "${JOINT_A2A_TCK:-0}" = 1 ]; then
+  # a2a-tck follows its scenarios by messageId prefix: the record needs the scenario responder (0019 §3.3).
+  ( cd "$RUN" && exec setsid python3 "$SCRIPTS/a2a-tck-responder.py" "$PC" "$PROV/.anet/control_token.txt" ) \
+    >"$RUN/responder.log" 2>&1 </dev/null 9>&- &
+else
+  ( cd "$RUN" && exec setsid "$PROBE" responder --ctl "$PC" --token-file "$PROV/.anet/control_token.txt" ) \
+    >"$RUN/responder.log" 2>&1 </dev/null 9>&- &
+fi
 
 # Does this hub publish A2A network cards (§10.5)? If it does, the provider's must be there and verify.
 REGISTRY=""
