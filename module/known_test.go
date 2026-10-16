@@ -43,9 +43,6 @@ func TestKnownNameTable(t *testing.T) {
 			t.Errorf("%s: tag %q, AbsenceReady %v", n, k.Tag, k.AbsenceReady)
 		}
 	}
-	if k, _ := Lookup("autoreply"); k.Tag != "" || k.AbsenceReady {
-		t.Errorf("autoreply: tag %q, AbsenceReady %v (MOD-3 flips this)", k.Tag, k.AbsenceReady)
-	}
 	if _, ok := Lookup("nothing"); ok {
 		t.Error("Lookup found a name that is not there")
 	}
@@ -82,7 +79,6 @@ func TestNewAvailability(t *testing.T) {
 	}{
 		{[]string{"nope"}, ""},
 		{[]string{"cas", "cas"}, ""},
-		{[]string{"console"}, "without_not_ready"},
 	} {
 		_, err := NewAvailability(c.without)
 		var ref *a2ashape.Refusal

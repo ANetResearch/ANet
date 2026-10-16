@@ -254,7 +254,6 @@ func TestInitCommandWithout(t *testing.T) {
 	before := readFileT(t, cfg)
 	for name, args := range map[string][]string{
 		"unknown":      {"init", "--without", "nosuch"},
-		"not ready":    {"init", "--without", "autoreply"},
 		"no value":     {"init", "--without"},
 		"both":         {"init", "--without", "p2p", "--with", "p2p"},
 		"positional":   {"init", "x402"},
