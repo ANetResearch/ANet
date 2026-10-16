@@ -187,6 +187,13 @@ func TestAQuarantineAnswerPushesTheLongerKEL(t *testing.T) {
 	fh.mu.Unlock()
 	// The quarantined hub still answers the poll it can verify (its old
 	// key's grace), with the quarantine.
+	// A check that the rotation set going drops a trigger that arrives while it runs (the next answer
+	// brings another), so let it end first.
+	waitUntil(t, "no check is running", func() bool {
+		d.idOps.mu.Lock()
+		defer d.idOps.mu.Unlock()
+		return !d.idOps.checking
+	})
 	d.noteHubNotice("", noticeErrQuarantine)
 	waitUntil(t, "the longer KEL was pushed", func() bool {
 		fh.mu.Lock()
