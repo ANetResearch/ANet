@@ -614,3 +614,46 @@ func TestTheWorkDirStaysOutOfTheSandboxRoot(t *testing.T) {
 		t.Fatalf("the configured work_dir %s is not on the never-bind list", elsewhere)
 	}
 }
+
+// LEC AV-4 (EXE-6): an agent the sandbox does not run, and a configuration whose model service does not
+// carry the agent's API, fail closed at run time. The inbound task is answered status{rejected,
+// anet.reason=sandbox_unavailable}, the local detail is agent_unsupported, and the agent never starts.
+func TestUnsupportedAgentsFailClosedInTheSandbox(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		cfg  AutoReplyConfig
+		base string
+	}{
+		{"cursor", AutoReplyConfig{Agent: agentCursor, APIKey: "k"}, ""},
+		// a local model service: codex speaks only the Responses API, which the custom route does not carry;
+		// claude only the Anthropic API, which only api.anthropic.com's route carries
+		{"codex-custom", AutoReplyConfig{Agent: agentCodex, APIKey: "k", Model: "qwen3"}, "http://127.0.0.1:11434/v1"},
+		{"claude-custom", AutoReplyConfig{Agent: agentClaude, APIKey: "k", Model: "qwen3"}, "http://127.0.0.1:11434/v1"},
+		{"opencode-anthropic", AutoReplyConfig{Agent: agentOpenCode, APIKey: "k", Model: "m"}, "https://api.anthropic.com"},
+		{"hermes-anthropic", AutoReplyConfig{Agent: agentHermes, APIKey: "k", Model: "m"}, "https://api.anthropic.com"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			runs := execStub(t)
+			cfg := tc.cfg
+			cfg.Backend, cfg.Untrusted, cfg.APIBase = "exec", UntrustedSandbox, tc.base
+			fx := newTurnFx(t, cfg, nil)
+			if _, err := resolveEgressUpstream(fx.cfg); err == nil {
+				t.Fatalf("%+v resolves", fx.cfg)
+			} else if pe := (*sandboxProbeError)(nil); !errors.As(err, &pe) || pe.Code != "agent_unsupported" {
+				t.Fatalf("%+v: %v", fx.cfg, err)
+			}
+			ix := fx.deliver(fxPeerA, false, "run something")
+			fx.tick()
+			if n := runs(); n != 0 {
+				t.Fatalf("the agent ran %d times", n)
+			}
+			if x := fx.ix(ix); x.state != "rejected" || x.reason != module.ReasonSandboxUnavailable || len(x.sent) != 0 {
+				t.Fatalf("inbound task: %+v", x)
+			}
+			recs := fx.invoked()
+			if len(recs) != 1 || recs[0]["exit"] != exitSandboxUnavailable || recs[0]["unavailable"] != "agent_unsupported" {
+				t.Fatalf("invocation evidence %v", recs)
+			}
+		})
+	}
+}

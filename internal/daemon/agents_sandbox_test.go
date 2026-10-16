@@ -147,63 +147,6 @@ func yamlJSONValues(t *testing.T, s string) map[string]string {
 
 
 
-// LEC AV-4 (EXE-6): an agent the sandbox does not run, and a configuration whose model service does not
-// carry the agent's API, fail closed at run time. The inbound task is answered status{rejected,
-// anet.reason=sandbox_unavailable}, the local detail is agent_unsupported, and the agent never starts.
-func TestUnsupportedAgentsFailClosedInTheSandbox(t *testing.T) {
-	for _, tc := range []struct {
-		name string
-		cfg  AutoReplyConfig
-	}{
-		{"cursor", AutoReplyConfig{Agent: agentCursor, APIKey: "k"}},
-		{"codex-custom", AutoReplyConfig{Agent: agentCodex, APIKey: "k", Model: "qwen3"}},
-		{"claude-custom", AutoReplyConfig{Agent: agentClaude, APIKey: "k", Model: "qwen3"}},
-		{"opencode-anthropic", AutoReplyConfig{Agent: agentOpenCode, APIKey: "k", Model: "m"}},
-		{"hermes-anthropic", AutoReplyConfig{Agent: agentHermes, APIKey: "k", Model: "m"}},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			runs := execStub(t)
-			cfg := tc.cfg
-			cfg.Backend, cfg.Untrusted = "exec", UntrustedSandbox
-			f := newAutoReplyFixture(t, cfg, nil)
-			// The fixture sets a loopback api_base; each case sets the one it is about.
-			switch tc.name {
-			case "cursor":
-				f.cfg.APIBase = ""
-			case "codex-custom", "claude-custom":
-				// a local model service: codex speaks only the Responses API, which the custom route does not
-				// carry; claude only the Anthropic API, which only api.anthropic.com's route carries
-				f.cfg.APIBase = "http://127.0.0.1:11434/v1"
-			default:
-				f.cfg.APIBase = "https://api.anthropic.com"
-			}
-			if _, err := resolveEgressUpstream(f.cfg); err == nil {
-				t.Fatalf("%+v resolves", f.cfg)
-			} else if pe := (*sandboxProbeError)(nil); !errors.As(err, &pe) || pe.Code != "agent_unsupported" {
-				t.Fatalf("%+v: %v", f.cfg, err)
-			}
-			id, err := f.req.Delegate(f.ctx, f.prov.AID(), "run something", nil)
-			if err != nil {
-				t.Fatal(err)
-			}
-			f.tick(t)
-			if n := runs(); n != 0 {
-				t.Fatalf("the agent ran %d times", n)
-			}
-			if st := stateOf(t, f.prov, id); st != interactions.StateRejected {
-				t.Fatalf("inbound task: %s", st)
-			}
-			if meta := awaitState(t, f.req, id, interactions.StateRejected); meta["anet.reason"] != reasonSandboxUnavailble {
-				t.Fatalf("requester told %v", meta)
-			}
-			_, recs := f.prov.ledger.Evidence(EvidenceQuery{EventType: EvAutoReplyInvoked})
-			ev := string(mustJSON(t, recs))
-			if len(recs) != 1 || !strings.Contains(ev, `"exit":"sandbox_unavailable"`) || !strings.Contains(ev, `"unavailable":"agent_unsupported"`) {
-				t.Fatalf("invocation evidence %s", ev)
-			}
-		})
-	}
-}
 
 // openCodeArgsStub parses its arguments as opencode run does (what follows "--" joins the message): --model takes a
 // value, any other argument starting with "-" before "--" is an option it does not know (an error), the

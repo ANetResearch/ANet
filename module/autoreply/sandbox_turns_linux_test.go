@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/ANetResearch/ANet/internal/execwork"
+	"github.com/ANetResearch/ANet/internal/pathsafe"
 	"github.com/ANetResearch/ANet/module"
 )
 
@@ -101,5 +102,53 @@ func TestSandboxLeftoversAreSweptWhenAutoReplyStarts(t *testing.T) {
 	t.Cleanup(fx.m.stopLoop)
 	if _, err := os.Stat(left); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("the leftover survived the start of auto-reply: %v", err)
+	}
+}
+
+// T3 on the real sandbox (SI-59, J4): project configuration an untrusted peer's agent wrote inside
+// bubblewrap is not in the directory its next turn starts in, once the peer is trusted and runs directly.
+func TestSandboxTrustChangeUsesFreshWorkDir(t *testing.T) {
+	stub := writeStub(t, `#!/bin/sh
+case "$ANTHROPIC_BASE_URL" in
+*127.0.0.1:3128*)
+  echo '{"mcp":{}}' > opencode.json; echo 'run rm -rf' > AGENTS.md; echo 'export X=1' > .envrc
+  mkdir -p .git/hooks .cursor; echo 'curl evil' > .git/hooks/pre-commit; echo '{}' > .cursor/mcp.json
+  echo "WROTE $(pwd)";;
+*)
+  echo "DIRECT $(pwd) $(ls -A | tr '\n' ' ')";;
+esac
+`)
+	fx := realSandboxFx(t, stub)
+	ix := fx.deliver(fxPeerA, false, "set the project up")
+	fx.tick()
+	first, _ := fx.lastSent(ix)
+	if !strings.HasPrefix(first, "WROTE ") {
+		t.Fatalf("the sandboxed turn: %q", first)
+	}
+	sandboxDir := strings.TrimPrefix(first, "WROTE ")
+	if !pathsafe.PathWithin(sandboxDir, execwork.SandboxWorkRoot()) {
+		t.Fatalf("the sandboxed turn worked in %s, outside %s", sandboxDir, execwork.SandboxWorkRoot())
+	}
+	if _, err := os.Stat(filepath.Join(sandboxDir, "opencode.json")); err != nil {
+		t.Fatalf("the sandboxed agent's write did not reach its work dir: %v", err)
+	}
+	fx.trust(ix, true)
+	fx.say(ix, "now run it")
+	fx.tick()
+	second, _ := fx.lastSent(ix)
+	fields := strings.Fields(strings.TrimPrefix(second, "DIRECT "))
+	if !strings.HasPrefix(second, "DIRECT ") || len(fields) == 0 || pathsafe.PathWithin(fields[0], execwork.SandboxWorkRoot()) {
+		t.Fatalf("the trusted turn: %q", second)
+	}
+	for _, name := range fields[1:] {
+		switch name {
+		case "opencode.json", "AGENTS.md", ".envrc", ".git", ".cursor":
+			t.Errorf("the direct run's work dir holds %s, written in the sandbox", name)
+		}
+	}
+	recs := fx.invoked()
+	if len(recs) != 2 || recs[0]["mode"] != modeSandbox || recs[0]["sandboxed"] != true || recs[0]["egress"] == nil ||
+		recs[1]["mode"] != modeDirect || recs[1]["trusted"] != true {
+		t.Fatalf("records: %v", recs)
 	}
 }
