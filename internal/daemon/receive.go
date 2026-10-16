@@ -439,7 +439,7 @@ func (d *Daemon) receiveEnvelopeVia(ctx context.Context, env []byte, path rxPath
 		} else {
 			verifiedKeys = set
 			ks := &peerKeySet{signed: in.Keys, set: set}
-			switch seal.DecideHighWater(seenOf(row), set.Seq, signed.Set) {
+			switch seal.DecideHighWater(seenAgainst(row, use, now), set.Seq, signed.Set) {
 			case seal.Replace:
 				m.keysUpdate, m.noticeKeys = ks, ks
 			case seal.Same:
