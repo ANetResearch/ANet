@@ -353,6 +353,39 @@ func TestACopyThatSignedFirstIsFound(t *testing.T) {
 	}
 }
 
+// TestHubReplayingAnOlderCopySetAfterARollbackEndsNothing (FS-B2, FS-B4a):
+// once a rollback to stored_seq is handled, a set of the other copy from
+// before it is no new rollback. A hub that keeps the other copy's earlier
+// sets could otherwise replay one and make the second, "repeated" finding
+// by itself.
+func TestHubReplayingAnOlderCopySetAfterARollbackEndsNothing(t *testing.T) {
+	h, srv, _, prov, _ := rollbackPair(t)
+	ctx := context.Background()
+	base := prov.enc.Seq()
+	older, newer := otherCopySet(t, prov, base+1000), otherCopySet(t, prov, base+2000)
+	hubHolds(h, prov.AID(), newer)
+	if err := prov.publishKeys(ctx, srv.URL); err != nil {
+		t.Fatal(err)
+	}
+	m := prov.enc.rollbackMark()
+	if m == nil || m.StoredSeq != base+2000 || m.PrevAt != 0 {
+		t.Fatalf("setup: the first rollback's mark: %+v", m)
+	}
+	hubHolds(h, prov.AID(), older)
+	h.mu.Lock()
+	h.forgedRollback = []uint64{base + 1000}
+	h.mu.Unlock()
+	if err := prov.publishKeys(ctx, srv.URL); err != nil {
+		t.Fatal(err)
+	}
+	if m2 := prov.enc.rollbackMark(); m2 == nil || *m2 != *m {
+		t.Fatalf("the replay of an older set changed the mark: %+v -> %+v", m, m2)
+	}
+	if n := len(localStateEvents(prov)); n != 1 {
+		t.Fatalf("%d local_state.lost records, want 1", n)
+	}
+}
+
 // TestRecoverOnFreshDirIsSilent (core G25, FS-B2 item 1; mutation 28; J9):
 // the identity alone on a new machine — no task ever — follows the hub's
 // set without a word: no evidence, nothing shown, nothing counted; a silent
