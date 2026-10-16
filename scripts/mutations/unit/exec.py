@@ -1021,13 +1021,8 @@ MUTS += [
   tests=[(DAEMON, 'TestBoundConversation')],
   full=[DAEMON],
  ),
- dict(
-  id='m-av-8d', group='§2.3.4', repo='ANet',
-  desc='/autoreply 的读取、合并与保存不串行(同时发出的两项设置互相覆盖)',
-  edits=[('module/autoreply/autoreply.go', '\tm.write.Lock()\n\tdefer m.write.Unlock()\n', '')],
-  tests=[(KERNEL, 'TestAutoReplySettingsSentAtOnceAllLand')],
-  full=[KERNEL, DAEMON],
- ),
+# m-av-8d (the module's own write lock around read, merge and save) was dropped in T-1: UpdateModuleConfig holds the
+# kernel's configuration lock across fn, so the module's lock adds nothing observable to the serialisation.
  dict(
   id='m-av-8e', group='§2.3.4', repo='ANet',
   desc='/autoreply 的 off 不是布尔值时当作 false(自动回复仍在运行)',
