@@ -1,7 +1,8 @@
-package a2ashape_test
+package stored_test
 
 import (
 	"bytes"
+	"github.com/ANetResearch/ANet/internal/a2ashape/stored"
 	"testing"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
@@ -34,7 +35,7 @@ func TestInlineFilesStopAtTheLimit(t *testing.T) {
 		Receipt: receipt(t, ix, self, peer, "bafyr"), Verified: interactions.VerificationVerified}, interactions.CausePeerEnded))
 
 	loaded := map[string]int{}
-	opt := a2ashape.Options{Artifacts: true, InlineFiles: true, InlineLimit: 4, SafeName: safe,
+	opt := stored.Options{Artifacts: true, InlineFiles: true, InlineLimit: 4, SafeName: safe,
 		LoadFile: func(cid string) ([]byte, error) {
 			loaded[cid]++
 			a, err := st.AttachmentData(ix, cid)
@@ -43,7 +44,7 @@ func TestInlineFilesStopAtTheLimit(t *testing.T) {
 			}
 			return a.Data, nil
 		}}
-	task, err := a2ashape.ProjectStored(st, ix, opt)
+	task, err := stored.ProjectStored(st, ix, opt)
 	must(t, err)
 	parts := task.Artifacts[0].Parts
 	if len(parts) != 3 || parts[1].Kind != a2ashape.PartRaw || !bytes.Equal(parts[1].Raw, []byte("aaa")) {

@@ -1,4 +1,4 @@
-package a2ashape_test
+package stored_test
 
 // readable_test.go pins an internal note item (the Hermes contract gaps P1–P4): what a
 // client that reads only text — the first artifact with text, else the
@@ -6,6 +6,7 @@ package a2ashape_test
 
 import (
 	"encoding/json"
+	"github.com/ANetResearch/ANet/internal/a2ashape/stored"
 	"strings"
 	"testing"
 	"time"
@@ -71,7 +72,7 @@ func TestReplyFilesAndReceiptPlacement(t *testing.T) {
 	st := openStore(t)
 	completedText(t, st, "ix_file", &transcript.Message{From: "provider",
 		Attachments: []transcript.Attachment{{Name: "cat.png", Mime: "image/png", Size: 2, CID: "bafkcat"}}})
-	task, err := a2ashape.ProjectStored(st, "ix_file", a2ashape.Options{Artifacts: true, SafeName: safe})
+	task, err := stored.ProjectStored(st, "ix_file", stored.Options{Artifacts: true, SafeName: safe})
 	must(t, err)
 	sdk := contract(t, task)
 	if len(sdk.Artifacts) != 1 || sdk.Artifacts[0].ID != a2ashape.ArtifactReply || len(sdk.Artifacts[0].Parts) != 1 ||
@@ -87,7 +88,7 @@ func TestReplyFilesAndReceiptPlacement(t *testing.T) {
 
 	st = openStore(t)
 	completedText(t, st, "ix_silent", nil)
-	task, err = a2ashape.ProjectStored(st, "ix_silent", a2ashape.Options{Artifacts: true})
+	task, err = stored.ProjectStored(st, "ix_silent", stored.Options{Artifacts: true})
 	must(t, err)
 	sdk = contract(t, task)
 	if sdk.Artifacts != nil {
@@ -137,11 +138,11 @@ func TestPaymentStatusMessagesHaveText(t *testing.T) {
 	msg(t, st, "ix_row", peer, interactions.MsgPayment, "", "pay_1", map[string]any{
 		a2ashape.KeyX402Status: a2ashape.PaymentRequired, a2ashape.KeyX402Required: json.RawMessage(readableQuote)})
 	setState(t, st, "ix_row", interactions.StateInputRequired)
-	src, err := a2ashape.Load(st, "ix_row")
+	src, err := stored.Load(st, "ix_row")
 	must(t, err)
 	src.Interaction.PayState = interactions.PayRequired
 	src.Interaction.PayRequired = []byte(readableQuote)
-	sdk := contract(t, a2ashape.Project(src, a2ashape.Options{}))
+	sdk := contract(t, stored.Project(src, stored.Options{}))
 	m := sdk.Status.Message
 	if m == nil || m.ID != "pay_1" || len(m.Parts) != 1 || m.Metadata[a2ashape.KeyX402Required] == nil {
 		t.Fatalf("payment row status: %+v", m)
@@ -151,7 +152,7 @@ func TestPaymentStatusMessagesHaveText(t *testing.T) {
 	// The same row as the provider sees it: the quote, no hint.
 	src.Interaction.Role = interactions.RoleInbound
 	src.Messages[len(src.Messages)-1].SenderAID = self
-	sdk = contract(t, a2ashape.Project(src, a2ashape.Options{}))
+	sdk = contract(t, stored.Project(src, stored.Options{}))
 	wantQuote(t, "provider side", firstText(sdk), false)
 
 	// The same-task flow after a failed payment: the quote stands, and the
@@ -160,13 +161,13 @@ func TestPaymentStatusMessagesHaveText(t *testing.T) {
 	st = openStore(t)
 	capTask(t, st, "ix_failed", "", "", "")
 	setState(t, st, "ix_failed", interactions.StateInputRequired)
-	src, err = a2ashape.Load(st, "ix_failed")
+	src, err = stored.Load(st, "ix_failed")
 	must(t, err)
 	src.Interaction.PayState = interactions.PayFailed
 	src.Interaction.PayRequired = []byte(readableQuote)
 	src.Payment = map[string]any{a2ashape.KeyX402Status: a2ashape.PaymentFailed,
 		a2ashape.KeyX402Required: json.RawMessage(readableQuote)}
-	sdk = contract(t, a2ashape.Project(src, a2ashape.Options{}))
+	sdk = contract(t, stored.Project(src, stored.Options{}))
 	text := firstText(sdk)
 	wantQuote(t, "failed payment", text, true)
 	if !strings.Contains(text, "does not pay again") || strings.Contains(text, "anet pays by itself") {
@@ -182,7 +183,7 @@ func TestPaymentStatusMessagesHaveText(t *testing.T) {
 			deliverable = `{"capability":"cas.put","status":"PAYMENT_REQUIRED","message":"costs 5","payment_required":` + readableQuote + `}`
 		}
 		capTask(t, st, "ix_q", interactions.StateInputRequired, deliverable, `{"anet.effect_status":"PAYMENT_REQUIRED"}`)
-		task, err := a2ashape.ProjectStored(st, "ix_q", a2ashape.Options{Artifacts: true})
+		task, err := stored.ProjectStored(st, "ix_q", stored.Options{Artifacts: true})
 		must(t, err)
 		sdk := contract(t, task)
 		m := sdk.Status.Message
@@ -206,7 +207,7 @@ func TestReasonsBecomeText(t *testing.T) {
 	msg(t, st, ix, self, interactions.MsgText, "g", "m1", nil)
 	must(t, st.Finish(ix, interactions.Finish{State: interactions.StateFailed, Verified: interactions.VerificationUnknown,
 		Meta: []byte(`{"anet.reason":"undeliverable"}`)}, interactions.CausePeerEnded))
-	task, err := a2ashape.ProjectStored(st, ix, a2ashape.Options{Artifacts: true})
+	task, err := stored.ProjectStored(st, ix, stored.Options{Artifacts: true})
 	must(t, err)
 	sdk := contract(t, task)
 	if got := firstText(sdk); got != "failed: undeliverable" {
@@ -218,7 +219,7 @@ func TestReasonsBecomeText(t *testing.T) {
 	st = openStore(t)
 	capTask(t, st, "ix_r", "", "", "")
 	setState(t, st, "ix_r", interactions.StateRejected)
-	task, err = a2ashape.ProjectStored(st, "ix_r", a2ashape.Options{})
+	task, err = stored.ProjectStored(st, "ix_r", stored.Options{})
 	must(t, err)
 	if got, want := firstText(contract(t, task)), a2ashape.Sentence(a2ashape.ReasonUnavailable, a2ashape.Lang(), nil); got != want {
 		t.Fatalf("rejected capability reads %q, want the reason's sentence %q", got, want)
@@ -228,7 +229,7 @@ func TestReasonsBecomeText(t *testing.T) {
 	st = openStore(t)
 	capTask(t, st, "ix_p", "", "", "")
 	msg(t, st, "ix_p", peer, interactions.MsgStatus, "", "st_q", map[string]any{a2ashape.KeyInbound: "pending_approval"})
-	task, err = a2ashape.ProjectStored(st, "ix_p", a2ashape.Options{})
+	task, err = stored.ProjectStored(st, "ix_p", stored.Options{})
 	must(t, err)
 	sdk = contract(t, task)
 	if m := sdk.Status.Message; m == nil || len(m.Parts) != 1 || m.Parts[0].Text() != "submitted: pending_approval" {
@@ -259,7 +260,7 @@ func TestRejectedTasksSayTheirSentence(t *testing.T) {
 				msg(t, st, ix, self, interactions.MsgText, "g", "m1", nil)
 				must(t, st.Finish(ix, interactions.Finish{State: interactions.StateRejected, Verified: interactions.VerificationUnknown,
 					Meta: []byte(`{"anet.reason":"` + r.Code + `","anet.retry_after_ms":5000}`)}, interactions.CausePeerEnded))
-				task, err := a2ashape.ProjectStored(st, ix, a2ashape.Options{SelfAID: self})
+				task, err := stored.ProjectStored(st, ix, stored.Options{SelfAID: self})
 				must(t, err)
 				want := a2ashape.Sentence(r.Code, a2ashape.Lang(), a2ashape.Args{"peer": peer, "aid": self, "retry": 5 * time.Second})
 				if got := firstText(contract(t, task)); got != want {
@@ -286,7 +287,7 @@ func TestRejectedTasksSayTheirSentence(t *testing.T) {
 				msg(t, st, ix, self, interactions.MsgText, "g", "m1", nil)
 				must(t, st.Finish(ix, interactions.Finish{State: c.state, Verified: interactions.VerificationUnknown,
 					Meta: []byte(`{"anet.reason":"` + c.reason + `"}`)}, interactions.CausePeerEnded))
-				task, err := a2ashape.ProjectStored(st, ix, a2ashape.Options{SelfAID: self})
+				task, err := stored.ProjectStored(st, ix, stored.Options{SelfAID: self})
 				must(t, err)
 				if got, want := firstText(contract(t, task)), string(c.state)+": "+c.reason; got != want {
 					t.Errorf("%s with %s reads %q, want %q", c.state, c.reason, got, want)
@@ -306,7 +307,7 @@ func TestRejectedTaskWithHugeWaitDoesNotWrap(t *testing.T) {
 	msg(t, st, ix, self, interactions.MsgText, "g", "m1", nil)
 	must(t, st.Finish(ix, interactions.Finish{State: interactions.StateRejected, Verified: interactions.VerificationUnknown,
 		Meta: []byte(`{"anet.reason":"busy","anet.retry_after_ms":9000000000000000}`)}, interactions.CausePeerEnded))
-	task, err := a2ashape.ProjectStored(st, ix, a2ashape.Options{SelfAID: self})
+	task, err := stored.ProjectStored(st, ix, stored.Options{SelfAID: self})
 	must(t, err)
 	if got := firstText(contract(t, task)); strings.Contains(got, " 0 second") || strings.Contains(got, "later") {
 		t.Errorf("wrapped wait: %q", got)
@@ -320,7 +321,7 @@ func TestReplyArtifactBeforeTheTaskEnds(t *testing.T) {
 	st := openStore(t)
 	must(t, st.Create(interactions.New{ID: "ix_q", Role: interactions.RoleOutbound, PeerAID: peer, Goal: "g", ContextID: "c", TaskNonce: "n"}))
 	msg(t, st, "ix_q", self, interactions.MsgText, "g", "m1", nil)
-	task, err := a2ashape.ProjectStored(st, "ix_q", a2ashape.Options{Artifacts: true, SafeName: safe})
+	task, err := stored.ProjectStored(st, "ix_q", stored.Options{Artifacts: true, SafeName: safe})
 	must(t, err)
 	if len(task.Artifacts) != 0 {
 		t.Fatalf("before the provider spoke: %+v", task.Artifacts)
@@ -330,7 +331,7 @@ func TestReplyArtifactBeforeTheTaskEnds(t *testing.T) {
 		_, err := st.SetState("ix_q", interactions.StateInputRequired, interactions.CauseNotTerminal)
 		return err
 	}())
-	task, err = a2ashape.ProjectStored(st, "ix_q", a2ashape.Options{Artifacts: true, SafeName: safe})
+	task, err = stored.ProjectStored(st, "ix_q", stored.Options{Artifacts: true, SafeName: safe})
 	must(t, err)
 	sdk := contract(t, task)
 	if len(sdk.Artifacts) != 1 || sdk.Artifacts[0].ID != a2ashape.ArtifactReply || sdk.Artifacts[0].Parts[0].Text() != "which language?" {
@@ -341,7 +342,7 @@ func TestReplyArtifactBeforeTheTaskEnds(t *testing.T) {
 	}
 	// The newest message wins.
 	msg(t, st, "ix_q", peer, interactions.MsgText, "and which dialect?", "m3", nil)
-	task, err = a2ashape.ProjectStored(st, "ix_q", a2ashape.Options{Artifacts: true, SafeName: safe})
+	task, err = stored.ProjectStored(st, "ix_q", stored.Options{Artifacts: true, SafeName: safe})
 	must(t, err)
 	if got := contract(t, task).Artifacts[0].Parts[0].Text(); got != "and which dialect?" {
 		t.Fatalf("anet.reply = %q", got)

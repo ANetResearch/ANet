@@ -1,4 +1,4 @@
-package a2ashape_test
+package stored_test
 
 // hermes_contract_test.go is the Hermes row of the A2A-DESIGN §17 contract
 // table (plan an internal note item, B5-03): Hermes' A2A client, pointed at this node's
@@ -35,6 +35,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/ANetResearch/ANet/internal/a2ashape/stored"
 	"io"
 	"math"
 	"os"
@@ -715,7 +716,7 @@ const (
 // hermesOpts is how the A2A interface projects a task it returns (the
 // daemon's taskseam: artifacts, attachment bytes inline, safe names, the
 // provider KEL beside the receipt).
-var hermesOpts = a2ashape.Options{Artifacts: true, InlineFiles: true, SafeName: safe, ProviderKEL: "a2VsCg=="}
+var hermesOpts = stored.Options{Artifacts: true, InlineFiles: true, SafeName: safe, ProviderKEL: "a2VsCg=="}
 
 // sendMessageResponse is the body module/a2a answers a blocking
 // SendMessage with: the projection, read and written by a2a-go (contract),
@@ -810,7 +811,7 @@ type hermesCase struct {
 }
 
 func hermesCases() []hermesCase {
-	quote := func(src *a2ashape.Source) {
+	quote := func(src *stored.Source) {
 		src.Interaction.PayState = interactions.PayRequired
 		src.Interaction.PayRequired = []byte(hermesQuote)
 	}
@@ -823,7 +824,7 @@ func hermesCases() []hermesCase {
 				finishText(t, st, "ix", interactions.StateCompleted, []transcript.Message{
 					{From: "requester", Body: "write a haiku"}, {From: "provider", Body: "waves fold\nsalt remembers\nthe shore"}},
 					`{"anet.state":"completed"}`)
-				task, err := a2ashape.ProjectStored(st, "ix", hermesOpts)
+				task, err := stored.ProjectStored(st, "ix", hermesOpts)
 				must(t, err)
 				return task
 			}},
@@ -835,7 +836,7 @@ func hermesCases() []hermesCase {
 				tr, _ := transcript.EncodeV2("n", []transcript.Message{{From: "requester", Body: "g"}, {From: "provider", Body: "ok"}})
 				must(t, st.Finish("ix", interactions.Finish{State: interactions.StateCompleted, Result: tr, ResultCID: "bafyresult",
 					Receipt: receipt(t, "ix", self, peer, "bafyresult"), Verified: interactions.VerificationUnverified}, interactions.CausePeerEnded))
-				task, err := a2ashape.ProjectStored(st, "ix", hermesOpts)
+				task, err := stored.ProjectStored(st, "ix", hermesOpts)
 				must(t, err)
 				return task
 			}},
@@ -850,7 +851,7 @@ func hermesCases() []hermesCase {
 				finishText(t, st, "ix", interactions.StateCompleted, []transcript.Message{
 					{From: "requester", Body: "draw a cat"},
 					{From: "provider", Body: "here it is", Attachments: []transcript.Attachment{{Name: "cat.png", Mime: "image/png", Size: 2, CID: "bafkcat"}}}}, "")
-				task, err := a2ashape.ProjectStored(st, "ix", hermesOpts)
+				task, err := stored.ProjectStored(st, "ix", hermesOpts)
 				must(t, err)
 				return task
 			}},
@@ -866,7 +867,7 @@ func hermesCases() []hermesCase {
 				finishText(t, st, "ix", interactions.StateCompleted, []transcript.Message{
 					{From: "requester", Body: "draw a cat"},
 					{From: "provider", Attachments: []transcript.Attachment{{Name: "cat.png", Mime: "image/png", Size: 2, CID: "bafkcat"}}}}, "")
-				task, err := a2ashape.ProjectStored(st, "ix", hermesOpts)
+				task, err := stored.ProjectStored(st, "ix", hermesOpts)
 				must(t, err)
 				return task
 			}},
@@ -879,7 +880,7 @@ func hermesCases() []hermesCase {
 				hermesTextTask(t, st, "ix", "ping")
 				msg(t, st, "ix", self, interactions.MsgEndRequest, "", "msg_2", nil)
 				finishText(t, st, "ix", interactions.StateCompleted, []transcript.Message{{From: "requester", Body: "ping"}}, "")
-				task, err := a2ashape.ProjectStored(st, "ix", hermesOpts)
+				task, err := stored.ProjectStored(st, "ix", hermesOpts)
 				must(t, err)
 				return task
 			}},
@@ -891,7 +892,7 @@ func hermesCases() []hermesCase {
 				finishText(t, st, "ix", interactions.StateFailed, []transcript.Message{
 					{From: "requester", Body: "hack the planet"}, {From: "provider", Body: "I cannot do that: out of scope"}},
 					`{"anet.state":"failed"}`)
-				task, err := a2ashape.ProjectStored(st, "ix", hermesOpts)
+				task, err := stored.ProjectStored(st, "ix", hermesOpts)
 				must(t, err)
 				return task
 			}},
@@ -900,7 +901,7 @@ func hermesCases() []hermesCase {
 				st := openStore(t)
 				hermesTextTask(t, st, "ix", "g")
 				must(t, st.SetFailed("ix", []byte("provider error: model quota exhausted"), interactions.CausePeerEnded))
-				task, err := a2ashape.ProjectStored(st, "ix", hermesOpts)
+				task, err := stored.ProjectStored(st, "ix", hermesOpts)
 				must(t, err)
 				return task
 			}},
@@ -911,7 +912,7 @@ func hermesCases() []hermesCase {
 				msg(t, st, "ix", peer, interactions.MsgStatus, "this node did not accept the task: not_allowed", "st_1",
 					map[string]any{a2ashape.KeyReason: "not_allowed"})
 				setState(t, st, "ix", interactions.StateRejected)
-				task, err := a2ashape.ProjectStored(st, "ix", hermesOpts)
+				task, err := stored.ProjectStored(st, "ix", hermesOpts)
 				must(t, err)
 				return task
 			}},
@@ -924,7 +925,7 @@ func hermesCases() []hermesCase {
 					"this node runs its agent for untrusted peers only inside a sandbox, and the sandbox is unavailable", "st_1",
 					map[string]any{a2ashape.KeyReason: "sandbox_unavailable"})
 				setState(t, st, "ix", interactions.StateRejected)
-				task, err := a2ashape.ProjectStored(st, "ix", hermesOpts)
+				task, err := stored.ProjectStored(st, "ix", hermesOpts)
 				must(t, err)
 				return task
 			}},
@@ -934,7 +935,7 @@ func hermesCases() []hermesCase {
 				hermesTextTask(t, st, "ix", "g")
 				msg(t, st, "ix", self, interactions.MsgCancel, "", "msg_2", nil)
 				setState(t, st, "ix", interactions.StateCanceled)
-				task, err := a2ashape.ProjectStored(st, "ix", hermesOpts)
+				task, err := stored.ProjectStored(st, "ix", hermesOpts)
 				must(t, err)
 				return task
 			}},
@@ -944,7 +945,7 @@ func hermesCases() []hermesCase {
 				hermesTextTask(t, st, "ix", "write a haiku")
 				msg(t, st, "ix", peer, interactions.MsgText, "about what?", "msg_2", nil)
 				setState(t, st, "ix", interactions.StateInputRequired)
-				task, err := a2ashape.ProjectStored(st, "ix", hermesOpts)
+				task, err := stored.ProjectStored(st, "ix", hermesOpts)
 				must(t, err)
 				return task
 			}},
@@ -956,7 +957,7 @@ func hermesCases() []hermesCase {
 				seq := msg(t, st, "ix", peer, interactions.MsgText, "like this?", "msg_2", nil)
 				must(t, st.AddAttachment("ix", seq, interactions.Attachment{Name: "cat.png", Mime: "image/png", Size: 2, CID: "bafkcat", Data: []byte{9, 9}}))
 				setState(t, st, "ix", interactions.StateInputRequired)
-				task, err := a2ashape.ProjectStored(st, "ix", hermesOpts)
+				task, err := stored.ProjectStored(st, "ix", hermesOpts)
 				must(t, err)
 				return task
 			}},
@@ -968,10 +969,10 @@ func hermesCases() []hermesCase {
 				msg(t, st, "ix", peer, interactions.MsgPayment, "this costs 5 credits", "msg_2", map[string]any{
 					a2ashape.KeyX402Status: a2ashape.PaymentRequired, a2ashape.KeyX402Required: json.RawMessage(hermesQuote)})
 				setState(t, st, "ix", interactions.StateInputRequired)
-				src, err := a2ashape.Load(st, "ix")
+				src, err := stored.Load(st, "ix")
 				must(t, err)
 				quote(&src)
-				return a2ashape.Project(src, hermesOpts)
+				return stored.Project(src, hermesOpts)
 			}},
 		// Q21 P3: a stored row with only metadata gets synthesized text.
 		{name: "capability input-required, payment message", state: "input-required",
@@ -982,10 +983,10 @@ func hermesCases() []hermesCase {
 				msg(t, st, "ix", peer, interactions.MsgPayment, "", "msg_2", map[string]any{
 					a2ashape.KeyX402Status: a2ashape.PaymentRequired, a2ashape.KeyX402Required: json.RawMessage(hermesQuote)})
 				setState(t, st, "ix", interactions.StateInputRequired)
-				src, err := a2ashape.Load(st, "ix")
+				src, err := stored.Load(st, "ix")
 				must(t, err)
 				quote(&src)
-				return a2ashape.Project(src, hermesOpts)
+				return stored.Project(src, hermesOpts)
 			}},
 		{name: "capability input-required, quote with a message", state: "input-required",
 			check: hermesPaymentHint("costs 5\n"),
@@ -994,7 +995,7 @@ func hermesCases() []hermesCase {
 				hermesCapTask(t, st, "ix", interactions.StateInputRequired,
 					`{"capability":"cas.put","status":"PAYMENT_REQUIRED","message":"costs 5","payment_required":`+hermesQuote+`}`,
 					`{"anet.effect_status":"PAYMENT_REQUIRED","anet.state":"input-required"}`)
-				task, err := a2ashape.ProjectStored(st, "ix", hermesOpts)
+				task, err := stored.ProjectStored(st, "ix", hermesOpts)
 				must(t, err)
 				return task
 			}},
@@ -1005,7 +1006,7 @@ func hermesCases() []hermesCase {
 				hermesCapTask(t, st, "ix", interactions.StateInputRequired,
 					`{"capability":"cas.put","status":"PAYMENT_REQUIRED","payment_required":`+hermesQuote+`}`,
 					`{"anet.effect_status":"PAYMENT_REQUIRED","anet.state":"input-required"}`)
-				task, err := a2ashape.ProjectStored(st, "ix", hermesOpts)
+				task, err := stored.ProjectStored(st, "ix", hermesOpts)
 				must(t, err)
 				return task
 			}},
@@ -1017,7 +1018,7 @@ func hermesCases() []hermesCase {
 				hermesCapTask(t, st, "ix", interactions.StateCompleted,
 					`{"capability":"cas.put","status":"OK","nonce":"n","verifiable":true,"value":{"size":3,"etag":"e1"}}`,
 					`{"anet.effect_status":"OK","anet.state":"completed"}`)
-				task, err := a2ashape.ProjectStored(st, "ix", hermesOpts)
+				task, err := stored.ProjectStored(st, "ix", hermesOpts)
 				must(t, err)
 				return task
 			}},
@@ -1029,7 +1030,7 @@ func hermesCases() []hermesCase {
 				hermesCapTask(t, st, "ix", interactions.StateCompleted,
 					`{"capability":"cas.put","status":"UNVERIFIED","verifiable":false,"message":"sent, no readback"}`,
 					`{"anet.effect_status":"UNVERIFIED","anet.state":"completed"}`)
-				task, err := a2ashape.ProjectStored(st, "ix", hermesOpts)
+				task, err := stored.ProjectStored(st, "ix", hermesOpts)
 				must(t, err)
 				return task
 			}},
@@ -1039,7 +1040,7 @@ func hermesCases() []hermesCase {
 				st := openStore(t)
 				hermesCapTask(t, st, "ix", interactions.StateFailed, `{"capability":"cas.put","status":"FAILED","message":"boom"}`,
 					`{"anet.effect_status":"FAILED","anet.state":"failed"}`)
-				task, err := a2ashape.ProjectStored(st, "ix", hermesOpts)
+				task, err := stored.ProjectStored(st, "ix", hermesOpts)
 				must(t, err)
 				return task
 			}},
@@ -1049,7 +1050,7 @@ func hermesCases() []hermesCase {
 				st := openStore(t)
 				hermesCapTask(t, st, "ix", interactions.StateRejected, `{"capability":"cas.put","status":"UNAVAILABLE","message":"busy"}`,
 					`{"anet.effect_status":"UNAVAILABLE","anet.retry_after_ms":60000,"anet.state":"rejected"}`)
-				task, err := a2ashape.ProjectStored(st, "ix", hermesOpts)
+				task, err := stored.ProjectStored(st, "ix", hermesOpts)
 				must(t, err)
 				return task
 			}},
@@ -1060,7 +1061,7 @@ func hermesCases() []hermesCase {
 				msg(t, st, "ix", peer, interactions.MsgStatus, "this node did not accept the task: denied", "st_1",
 					map[string]any{a2ashape.KeyReason: "denied"})
 				setState(t, st, "ix", interactions.StateRejected)
-				task, err := a2ashape.ProjectStored(st, "ix", hermesOpts)
+				task, err := stored.ProjectStored(st, "ix", hermesOpts)
 				must(t, err)
 				return task
 			}},

@@ -1,0 +1,1345 @@
+package stored
+
+// project.go turns a stored interaction into an A2A Task (A2A-DESIGN §11.5,
+// "Task 表示"; SI-6). It is the one place the mapping is written: the
+// control plane's /tasks/* routes, MCP (which forwards the control plane's
+// JSON unchanged) and the TaskSeam behind module/a2a all return what
+// Project returns, so a rule fixed here is fixed for every door.
+//
+// It lives here rather than in the daemon because it is a pure function of
+// what the store holds — a row, its message log, its attachments' metadata —
+// and because the contract tests that pin it against a2a-go belong next to
+// the types they pin. It reads the store's types and never writes.
+//
+// The rules, in the order the Task is assembled:
+//
+//   - status.state is the stored state (§4.1), translated and nothing else.
+//     In particular a COMPLETED capability task stays COMPLETED whatever its
+//     effect status says, and a COMPLETED text task whatever became of its
+//     receipt: the two facts are carried in metadata beside the state, not
+//     folded into it (SI-6).
+//   - status.message says why the task is where it is: the provider's latest
+//     message for input-required, the x402 payment-required message when a
+//     quote is what it waits for, progress for working, the reason for
+//     failed, rejected and canceled, the settlement for a paid completion.
+//     It always has text a client that reads only text can use
+//     (readable.go, an internal note item): a payment message states the quote and how
+//     to get it paid, a row with no body says what its metadata records,
+//     and an ended task with only a reason says "<state>: <reason>".
+//   - history is the message log without its control rows (end requests,
+//     cancels, status updates, payment messages, and text carrying x402.* or
+//     anet.state metadata); the requester is the user and the provider the
+//     agent, on both sides of the task. A capability call carries no
+//     conversation, so its history is the one request, as the DataPart
+//     {skill, args} a client would have sent.
+//   - artifacts are the task's output and nothing else, and appear once a
+//     receipt covers a result: anet.reply for a text task — the provider's
+//     last message in the transcript the receipt covers, its text (when it
+//     has any) and then its files, in one artifact — or anet.result, the
+//     deliverable as a DataPart, for a capability call. A PAYMENT_REQUIRED
+//     answer is a quote, not a result: it has none. (an internal note item P1/P2: a
+//     client that takes the first artifact with text as the answer must
+//     find the reply's files there, and must never take the receipt.)
+//   - metadata carries anet.effect_status (capability tasks; always present
+//     once one is terminal), anet.receipt_verified (every completed task and
+//     every task with a receipt), the CIDs, the peer, this node's side, the
+//     state sequence number, and the trust, reason, retry hint, cancel
+//     request and x402 keys when there are any. With the artifacts it also
+//     carries anet.receipt, the signed receipt that covers them: evidence,
+//     not output.
+
+import (
+	"encoding/base64"
+	"encoding/json"
+	"errors"
+	"strconv"
+	"strings"
+	"time"
+	"unicode/utf8"
+
+	"github.com/ANetResearch/ANet/internal/a2ashape"
+
+	evidence "github.com/ANetResearch/ANet/internal/evidencev1" // v030-todo(PAY-14): evidence v2
+	"github.com/ANetResearch/ANetCore/coredet"
+	"github.com/ANetResearch/ANetCore/effect"
+	"github.com/ANetResearch/ANetCore/tsir"
+
+	"github.com/ANetResearch/ANet/internal/jsonread"
+	"github.com/ANetResearch/ANet/internal/runtime/interactions"
+)
+
+// Source is what a projection reads: one stored interaction, its message
+// log (oldest first) and its attachments' metadata, without bytes.
+type Source struct {
+	Interaction *interactions.Interaction
+	Messages    []interactions.Message
+	Attachments []interactions.Attachment
+	// Payment is the x402 part of the task's current status as the kernel
+	// derives it from the stored payment columns (the daemon's
+	// PaymentStatusMeta, A2A-DESIGN §8.2): x402.payment.status, .required
+	// and anet.quote_expires_at while a quote waits, .receipts, .error
+	// after a failure, and on the requester's side anet.reason
+	// (needs_operator_approval) and anet.cancel_requested. The payment
+	// flow owns those rules; the projection places what it says.
+	//
+	// nil means nobody derived it (a reader with only the store): the
+	// projection then reads the columns itself. Non-nil, even empty, it is
+	// authoritative for anet.cancel_requested, and for the x402 keys
+	// whenever it has any; a task with nothing quoted in the same-task flow
+	// gives an empty map, and the x402 keys of an older PAYMENT_REQUIRED
+	// answer are still read from the answer.
+	Payment map[string]any
+}
+
+// Options says how much of a task to project and how its files travel.
+type Options struct {
+	// HistoryLength keeps the most recent n history messages; nil keeps
+	// all of them and 0 none (A2A historyLength).
+	HistoryLength *int
+	// Artifacts includes the artifacts and the receipt that covers them
+	// (metadata anet.receipt). GetTask asks for them; ListTasks leaves them
+	// out unless includeArtifacts is set, which keeps a page of tasks free
+	// of receipts and key histories.
+	Artifacts bool
+	// InlineFiles carries attachment bytes in raw parts, read through
+	// LoadFile, in the artifacts and then in status.message, up to
+	// InlineLimit bytes in all for the task (an internal note item). The history never
+	// carries bytes: its files are metadata. Otherwise, and for every file
+	// past the limit, a file part is a placeholder: a url part naming the
+	// attachment (AttachmentURI) with its content id in
+	// metadata["anet.attachment_cid"] (KeyAttachmentCID), its name, type
+	// and size — which keeps a task with large files small enough to hand
+	// to a model, and one peer's files from costing this node more than
+	// the limit to read. An attachment whose bytes cannot be read is given
+	// by reference either way.
+	InlineFiles bool
+	// InlineLimit bounds the bytes InlineFiles carries in one task; 0 is
+	// MaxInlineBytes.
+	InlineLimit int64
+	LoadFile    func(cid string) ([]byte, error)
+	// SafeName makes an attachment's name safe to save to disk (the
+	// daemon's safeName). The peer chose the name; with no SafeName a file
+	// part has no filename at all rather than the peer's.
+	SafeName func(string) string
+	// ProviderKEL is the provider key history the receipt was checked
+	// against, base64, carried in anet.receipt so a holder can check it
+	// again rather than take this node's word for it.
+	ProviderKEL string
+	// IdentityNote, when set, is anet.identity_note (KeyIdentityNote): the
+	// node's reminder that its identity has no recovery passphrase yet.
+	IdentityNote string
+	// SpendCheck, when set, is anet.spend_check (KeySpendCheck): the daemon
+	// worked it out from the limits and the cached signed price; the
+	// projection places it.
+	SpendCheck *a2ashape.SpendCheck
+	// ForBackend says the projection is for a local backend that answers
+	// the task on this node's behalf (modules.a2a.backends[], the
+	// auto-reply), not for the operator's own clients. It never carries
+	// IdentityNote: the reminder is for the operator, and a model answering
+	// a stranger could repeat it, telling the stranger the identity can be
+	// taken over.
+	ForBackend bool
+	// SelfAID is this node's AID: the {aid} of a refusal's sentence that
+	// asks the other side to let this node in (not_accepting: "ask them
+	// to run anet peers allow {aid}").
+	SelfAID string
+	// Retention is the content retention in force (FS-U4): with it a task
+	// that has ended carries anet.content_expires_at, unless its class keeps
+	// its content for ever. The zero value is no setting and gives none.
+	Retention interactions.Retention
+}
+
+// Load reads what Project needs for one interaction.
+func Load(st *interactions.Store, id string) (Source, error) {
+	ix, err := st.Get(id)
+	if err != nil {
+		return Source{}, err
+	}
+	msgs, err := st.Messages(id)
+	if err != nil {
+		return Source{}, err
+	}
+	atts, err := st.Attachments(id)
+	if err != nil {
+		return Source{}, err
+	}
+	return Source{Interaction: ix, Messages: msgs, Attachments: atts}, nil
+}
+
+// ProjectStored loads one interaction and projects it. An absent
+// interaction is ErrTaskNotFound. With InlineFiles and no LoadFile, the
+// bytes are read from the same store.
+func ProjectStored(st *interactions.Store, id string, opt Options) (a2ashape.Task, error) {
+	src, err := Load(st, id)
+	if errors.Is(err, interactions.ErrNotFound) {
+		return a2ashape.Task{}, a2ashape.Errorf(a2ashape.ErrTaskNotFound, "%s", id)
+	}
+	if err != nil {
+		return a2ashape.Task{}, err
+	}
+	if opt.InlineFiles && opt.LoadFile == nil {
+		opt.LoadFile = func(cid string) ([]byte, error) {
+			a, err := st.AttachmentData(id, cid)
+			if err != nil {
+				return nil, err
+			}
+			return a.Data, nil
+		}
+	}
+	return Project(src, opt), nil
+}
+
+// Project maps one stored interaction to an A2A Task.
+func Project(src Source, opt Options) a2ashape.Task {
+	ix := src.Interaction
+	if ix == nil {
+		return a2ashape.Task{}
+	}
+	p := newProjector(src, opt)
+	// The artifacts are projected first: they are the task's output, and
+	// what is left of the inline limit goes to them before status.message
+	// (an internal note item). The history carries no bytes at all.
+	var artifacts []a2ashape.Artifact
+	if opt.Artifacts {
+		artifacts = p.artifacts()
+	}
+	msg, why := p.statusMessage()
+	t := a2ashape.Task{
+		ID:        ix.ID,
+		ContextID: p.contextID,
+		Status:    a2ashape.TaskStatus{State: a2ashape.StateOf(ix.State), Message: msg, Timestamp: p.timestamp()},
+		Metadata:  p.metadata(why),
+	}
+	t.History = p.history()
+	if at, ok := p.contentExpiresAt(); ok {
+		t.Metadata[a2ashape.KeyContentExpiresAt] = at
+	}
+	if opt.IdentityNote != "" && !opt.ForBackend {
+		t.Metadata[a2ashape.KeyIdentityNote] = opt.IdentityNote
+	}
+	if opt.SpendCheck != nil && !opt.ForBackend {
+		t.Metadata[a2ashape.KeySpendCheck] = opt.SpendCheck.Map()
+	}
+	if opt.Artifacts {
+		t.Artifacts = artifacts
+		if p.hasOutputReceipt() {
+			t.Metadata[a2ashape.KeyReceipt] = p.receiptData()
+		}
+	}
+	return t
+}
+
+// capResult is the part of a capability deliverable the projection reads
+// (the daemon's capabilityResult).
+//
+// Its "paid" is not read. It is the provider's statement that it was
+// paid, written into the deliverable it signs; it stays in the artifact as
+// part of what the provider delivered, and whether this node paid is its
+// pay_state's to say [redteam:F11].
+type capResult struct {
+	Status  string          `json:"status"`
+	Message string          `json:"message"`
+	Payment json.RawMessage `json:"payment_required"`
+}
+
+type projector struct {
+	ix        *interactions.Interaction
+	msgs      []interactions.Message
+	metas     []map[string]any // decoded metadata of msgs, by index
+	bySeq     map[int64][]interactions.Attachment
+	opt       Options
+	contextID string
+	// outbound is true when this node is the requester.
+	outbound bool
+	// cap is the capability deliverable, when there is one.
+	cap *capResult
+	// resultMeta is the metadata the result carried.
+	resultMeta map[string]any
+	// payment is Source.Payment.
+	payment map[string]any
+	// note is the latest payment decision on a task this node started
+	// (pay_note, HPP PAY-U5), with the task's id to render it; nil when
+	// there is none or it does not read (ParsePayNote).
+	note *a2ashape.PayNote
+	// inlineLeft is what is left of the inline limit (Options.InlineLimit).
+	inlineLeft int64
+}
+
+func newProjector(src Source, opt Options) *projector {
+	ix := src.Interaction
+	p := &projector{ix: ix, msgs: src.Messages, opt: opt, contextID: ix.ContextID,
+		outbound: ix.Role == interactions.RoleOutbound, bySeq: map[int64][]interactions.Attachment{},
+		inlineLeft: opt.InlineLimit}
+	if p.inlineLeft <= 0 {
+		p.inlineLeft = a2ashape.MaxInlineBytes
+	}
+	if p.contextID == "" {
+		// A row written before context ids were kept. A2A requires one;
+		// the task is its own context.
+		p.contextID = ix.ID
+	}
+	p.metas = make([]map[string]any, len(src.Messages))
+	for i, m := range src.Messages {
+		p.metas[i] = a2ashape.DecodeObject([]byte(m.Metadata))
+	}
+	for _, a := range src.Attachments {
+		p.bySeq[a.MsgSeq] = append(p.bySeq[a.MsgSeq], a)
+	}
+	if ix.IsCapability && len(ix.Result) > 0 {
+		// Taken only as it reads to everyone else: Go's decoder would read
+		// {"status":"FAILED","Status":"OK"} as OK, where the client, a2a-go
+		// and anyone checking the receipt over these bytes read FAILED
+		// (an internal note). A deliverable that reads two ways states no
+		// effect of its own; the task says what is known without it.
+		var r capResult
+		if json.Unmarshal(ix.Result, &r) == nil && r.Status != "" && jsonread.ReadsAlike(ix.Result, &r) {
+			p.cap = &r
+		}
+	}
+	p.resultMeta = a2ashape.DecodeObject([]byte(ix.ResultMeta))
+	if p.outbound && len(ix.PayNote) > 0 {
+		if n, err := a2ashape.ParsePayNote(ix.PayNote); err == nil {
+			n.Task = ix.ID
+			p.note = &n
+		}
+	}
+	if src.Payment != nil {
+		// Re-read as the projection's own JSON values: the quote in it is
+		// the peer's, and is held to the same rules (finite numbers) as
+		// anything read from the store.
+		p.payment = make(map[string]any, len(src.Payment))
+		for k, v := range src.Payment {
+			b, err := json.Marshal(v)
+			if err != nil {
+				continue
+			}
+			if g, err := a2ashape.DecodeJSON(b); err == nil && g != nil {
+				p.payment[k] = g
+			}
+		}
+	}
+	return p
+}
+
+// x402Keys are the keys Source.Payment decides when it has any.
+var x402Keys = []string{a2ashape.KeyX402Status, a2ashape.KeyX402Required, a2ashape.KeyX402Receipts, a2ashape.KeyX402Error, a2ashape.KeyQuoteExpiresAt}
+
+// kernelPayment reports whether the kernel's payment derivation has x402
+// keys to give: the task took part in the same-task flow.
+func (p *projector) kernelPayment() bool {
+	for _, k := range x402Keys {
+		if _, ok := p.payment[k]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+// fromProvider reports whether sender is the task's provider: the peer of
+// an outbound task, this node on an inbound one.
+func (p *projector) fromProvider(sender string) bool {
+	return (sender == p.ix.PeerAID) == p.outbound
+}
+
+func (p *projector) role(sender string) a2ashape.Role {
+	if p.fromProvider(sender) {
+		return a2ashape.RoleAgent
+	}
+	return a2ashape.RoleUser
+}
+
+// msgID is a message's A2A id: the local client's own id when it gave one
+// (on a message this node wrote: a peer's a2a.messageId is not taken
+// [redteam:F33]), otherwise the id both sides recorded it under (the
+// envelope's message id in hex, an internal note item), otherwise (a row from before
+// messages kept one) one derived from the row, stable across reads.
+func (p *projector) msgID(i int) string {
+	if id, ok := p.metas[i][a2ashape.KeyMessageID].(string); ok && id != "" && p.msgs[i].SenderAID != p.ix.PeerAID {
+		return id
+	}
+	if p.msgs[i].MsgID != "" {
+		return p.msgs[i].MsgID
+	}
+	return p.ix.ID + ".m" + strconv.FormatInt(p.msgs[i].Seq, 10)
+}
+
+func (p *projector) timestamp() *time.Time {
+	ms := p.ix.StateAt
+	if ms <= 0 {
+		if t, err := time.Parse(time.RFC3339Nano, p.ix.UpdatedAt); err == nil {
+			ms = t.UnixMilli()
+		}
+	}
+	if ms <= 0 {
+		return nil
+	}
+	t := time.UnixMilli(ms).UTC()
+	return &t
+}
+
+// message builds an agent or user message of this task.
+func (p *projector) message(id string, role a2ashape.Role, parts []a2ashape.Part, meta map[string]any) *a2ashape.Message {
+	return &a2ashape.Message{ID: id, ContextID: p.contextID, Metadata: meta, Parts: parts, Role: role, TaskID: p.ix.ID}
+}
+
+// synthesized is an agent message the projection writes itself (there is
+// no stored row saying it). Its id is tied to the state write, so it is the
+// same on every read until the state changes. Empty texts are left out.
+func (p *projector) synthesized(text string, meta map[string]any, more ...string) *a2ashape.Message {
+	id := p.ix.ID + ".status." + strconv.FormatInt(p.ix.StateSeq, 10)
+	var parts []a2ashape.Part
+	for _, s := range append([]string{text}, more...) {
+		if s != "" {
+			parts = append(parts, a2ashape.TextPart(s))
+		}
+	}
+	if len(parts) == 0 {
+		parts = []a2ashape.Part{a2ashape.TextPart(text)} // a message needs a part
+	}
+	return p.message(id, a2ashape.RoleAgent, parts, meta)
+}
+
+// fromRow renders stored message i with its attachments, their bytes
+// inline when inline is set and the limit allows (filePart). A payment row
+// that asks for payment gets the quote and how to pay it as a further text
+// part; a row with neither body nor file gets a sentence saying what its
+// metadata records (readable.go), never an empty text part.
+func (p *projector) fromRow(i int, inline bool) *a2ashape.Message {
+	return p.fromRowWith(i, p.metas[i], inline)
+}
+
+// fromRowWith is fromRow with the row's metadata as given: the stored
+// row's own, or statusRow's.
+func (p *projector) fromRowWith(i int, meta map[string]any, inline bool) *a2ashape.Message {
+	m := p.msgs[i]
+	var parts []a2ashape.Part
+	if m.Body != "" {
+		parts = append(parts, a2ashape.TextPart(m.Body))
+	}
+	for _, a := range p.bySeq[m.Seq] {
+		parts = append(parts, p.filePart(a, inline))
+	}
+	if len(parts) == 0 {
+		// A status carrying only metadata. A message needs a part.
+		parts = []a2ashape.Part{a2ashape.TextPart(p.placeholder(meta))}
+	} else if note := p.paymentNote(meta); note != "" {
+		parts = append(parts, a2ashape.TextPart(note))
+	}
+	return p.message(p.msgID(i), p.role(m.SenderAID), parts, meta)
+}
+
+// statusRow is stored message i as the task's status.message.
+//
+// On a task this node started, the row is the provider's, and what it says
+// about settlement is the provider's word: x402.payment.receipts and a
+// payment-completed status are this node's to state, from its own check of
+// the hub receipts (§8.3; SI-6). A provider row that carries receipts gets
+// this node's list in their place, and one that says payment-completed
+// when this node has not verified a settlement says this node's status
+// instead. What the provider says of its own part — a quote, a failure,
+// a payment-verified of a payment this node submitted — stays as it wrote
+// it [redteam:F11]. A payment-verified while this node has no payment
+// out (a free call, a quote still unpaid) is a claim about a payment it
+// never made, and gets its status too.
+//
+// Its files are inline, as status.message's are (fromRow's inline, 0017
+// Q12).
+func (p *projector) statusRow(i int) *a2ashape.Message {
+	meta := p.metas[i]
+	if !p.outbound || meta == nil {
+		return p.fromRow(i, true)
+	}
+	_, hasRc := meta[a2ashape.KeyX402Receipts]
+	own := p.nodeX402Status()
+	claimsPaid := meta[a2ashape.KeyX402Status] == a2ashape.PaymentCompleted ||
+		(meta[a2ashape.KeyX402Status] == a2ashape.PaymentVerified && own != a2ashape.PaymentSubmitted)
+	// The quote as this node hands it on: the same options, the ones it
+	// can pay first (an internal note item).
+	_, hasReq := meta[a2ashape.KeyX402Required]
+	ordered, haveOrdered := p.payment[a2ashape.KeyX402Required]
+	swapReq := hasReq && haveOrdered
+	if !hasRc && (!claimsPaid || own == a2ashape.PaymentCompleted) && !swapReq {
+		return p.fromRow(i, true)
+	}
+	cp := make(map[string]any, len(meta))
+	for k, v := range meta {
+		cp[k] = v
+	}
+	if hasRc {
+		if p.ix.PayState == interactions.PayNone {
+			// Outside the payment flow this node states no settlement at
+			// all, not an empty list: a free call's provider row that
+			// carried receipts read x402.payment.receipts=[] (§8.2)
+			// [redteam:F11].
+			delete(cp, a2ashape.KeyX402Receipts)
+		} else {
+			rc := p.nodeReceipts()
+			if rc == nil {
+				rc = []any{}
+			}
+			cp[a2ashape.KeyX402Receipts] = rc
+		}
+	}
+	if claimsPaid && own != a2ashape.PaymentCompleted {
+		if own != "" {
+			cp[a2ashape.KeyX402Status] = own
+		} else {
+			delete(cp, a2ashape.KeyX402Status)
+		}
+	}
+	if swapReq {
+		cp[a2ashape.KeyX402Required] = ordered
+	}
+	return p.fromRowWith(i, cp, true)
+}
+
+// filePart is an attachment as a file part: inline bytes or a placeholder,
+// the name made safe, the content id and size in the part's metadata.
+// Bytes are inline only where inline is set (the artifacts and
+// status.message, never the history), with InlineFiles, and while the
+// task's inline limit has room for them; the size is checked before the
+// bytes are read, so a file past the limit costs nothing to project. A
+// placeholder is a url part naming the attachment, with KeyAttachmentCID
+// (an internal note item): the metadata of the file, and where to fetch it.
+func (p *projector) filePart(a interactions.Attachment, inline bool) a2ashape.Part {
+	part := a2ashape.Part{MediaType: a.Mime, Metadata: map[string]any{a2ashape.KeyCID: a.CID, a2ashape.KeySize: a.Size}}
+	if p.opt.SafeName != nil {
+		part.Filename = p.opt.SafeName(a.Name)
+	}
+	if inline && p.opt.InlineFiles && p.opt.LoadFile != nil && a.Size >= 0 && a.Size <= p.inlineLeft {
+		if b, err := p.opt.LoadFile(a.CID); err == nil && int64(len(b)) <= p.inlineLeft {
+			p.inlineLeft -= int64(len(b))
+			part.Kind, part.Raw = a2ashape.PartRaw, b
+			return part
+		}
+	}
+	return a2ashape.Placeholder(part, p.ix.ID, a.CID)
+}
+
+// conversational reports whether stored message i is a conversation turn.
+func (p *projector) conversational(i int) bool {
+	m := p.msgs[i]
+	if m.Kind != interactions.MsgText || a2ashape.ControlMetadata(p.metas[i]) {
+		return false
+	}
+	return m.Body != "" || len(p.bySeq[m.Seq]) > 0
+}
+
+// lastProvider is the index of the provider's latest message that can
+// explain the task's status, or -1. A capability call has no conversation:
+// the provider's text rows there are its deliverable, which the artifacts
+// carry, so only status and payment messages count.
+func (p *projector) lastProvider() int {
+	for i := len(p.msgs) - 1; i >= 0; i-- {
+		m := p.msgs[i]
+		if !p.fromProvider(m.SenderAID) {
+			continue
+		}
+		switch m.Kind {
+		case interactions.MsgStatus, interactions.MsgPayment:
+			return i
+		case interactions.MsgText:
+			if !p.ix.IsCapability {
+				return i
+			}
+		}
+	}
+	return -1
+}
+
+// lastRequesterSeq is the seq of the requester's latest message of any
+// kind, or 0.
+func (p *projector) lastRequesterSeq() int64 {
+	for i := len(p.msgs) - 1; i >= 0; i-- {
+		if !p.fromProvider(p.msgs[i].SenderAID) {
+			return p.msgs[i].Seq
+		}
+	}
+	return 0
+}
+
+// requesterCanceled reports a cancel the requester sent.
+func (p *projector) requesterCanceled() bool {
+	for _, m := range p.msgs {
+		if m.Kind == interactions.MsgCancel && !p.fromProvider(m.SenderAID) {
+			return true
+		}
+	}
+	return false
+}
+
+// paymentRequired reports a task that waits for a payment: quoted in the
+// same-task flow (pay_state=required, or failed with the quote still open
+// for another attempt), or answered PAYMENT_REQUIRED.
+func (p *projector) paymentRequired() bool {
+	switch p.ix.PayState {
+	case interactions.PayRequired:
+		return true
+	case interactions.PayFailed:
+		if !p.ix.IsTerminal() && len(p.ix.PayRequired) > 0 {
+			return true
+		}
+	}
+	return p.quoted()
+}
+
+// quoted reports a capability answer that is a quote (PAYMENT_REQUIRED).
+// It is signed and stored like any answer, but it asks for input and
+// delivers nothing: it is not the task's output, and its message is not why
+// a task that later ended (canceled, say) ended.
+func (p *projector) quoted() bool {
+	return p.cap != nil && p.cap.Status == string(effect.PaymentRequired)
+}
+
+// statusMessage picks status.message for the current state. why is the
+// metadata of the stored row it came from, from which the reason keys are
+// lifted into the task's metadata; nil when the message was synthesized.
+func (p *projector) statusMessage() (msg *a2ashape.Message, why map[string]any) {
+	ix := p.ix
+	prov := p.lastProvider()
+	// A provider message explains the state only if the requester has not
+	// spoken since: after that, the state is the requester's doing.
+	fresh := prov >= 0 && p.msgs[prov].Seq > p.lastRequesterSeq()
+	var provStatus bool
+	if prov >= 0 {
+		provStatus = p.msgs[prov].Kind == interactions.MsgStatus
+	}
+	switch ix.State {
+	case interactions.StateSubmitted:
+		// An approval queue's notice (anet.inbound=pending_approval).
+		if fresh && provStatus {
+			return p.statusRow(prov), p.metas[prov]
+		}
+	case interactions.StateWorking:
+		if fresh && (provStatus || p.metas[prov][a2ashape.KeyState] == string(interactions.StateWorking)) {
+			return p.statusRow(prov), p.metas[prov]
+		}
+	case interactions.StateInputRequired:
+		if p.paymentRequired() {
+			if p.waitingNote() {
+				// The decision's own sentence, word for word what the CLI's
+				// payment line and MCP show, whether or not the client
+				// activated a2a-x402 (HPP PAY-D9, SI-79).
+				return p.paymentNoteMessage(), nil
+			}
+			if fresh && p.metas[prov][a2ashape.KeyX402Status] != nil {
+				return p.statusRow(prov), p.metas[prov]
+			}
+			return p.paymentRequiredMessage(), nil
+		}
+		if fresh {
+			return p.statusRow(prov), p.metas[prov]
+		}
+	case interactions.StateCompleted:
+		if ix.PayState != interactions.PayNone {
+			// A task in the payment flow ends with the receipts this node
+			// states — possibly none (a2a-x402 §7, an internal note item) — and
+			// "Payment completed." only when its own payment state says
+			// so: on a task it started, that is its own check of the hub
+			// receipt, never the provider's list or the deliverable's
+			// "paid" [redteam:F11]. A quote that simply ended unpaid gets
+			// no payment status.
+			rc := p.nodeReceipts()
+			if rc == nil {
+				rc = []any{}
+			}
+			meta := map[string]any{a2ashape.KeyX402Receipts: rc}
+			text := "The task completed; no payment settled."
+			if st := p.finalX402Status(); st != "" {
+				meta[a2ashape.KeyX402Status] = st
+				switch {
+				case st == a2ashape.PaymentCompleted:
+					text = "Payment completed."
+				case st == a2ashape.PaymentSubmitted && p.outbound:
+					// Paid and not verified: the provider may say it was
+					// settled (anet.unverified_receipts), and this node has
+					// no hub receipt that shows it. "No payment settled"
+					// stated as fact what this node does not know, on the
+					// very tasks where money may have moved [redteam:F11].
+					text = "The task completed; this node has not verified a settlement of the payment it submitted."
+				}
+			}
+			return p.synthesized(text, meta), nil
+		}
+	case interactions.StateFailed, interactions.StateRejected, interactions.StateCanceled:
+		switch {
+		case p.endedByKeyEvent() != "":
+			// A task a rollback or an emergency rotation ended says so in
+			// the table's own words, whichever side ended it (FS-U6).
+			k := p.endedByKeyEvent()
+			msg, why = p.synthesized(a2ashape.Sentence(k, a2ashape.Lang(), nil), nil), map[string]any{a2ashape.KeyReason: a2ashape.ReasonOf(k)}
+		case p.cap != nil && !p.quoted() && p.cap.Message != "":
+			msg = p.synthesized(p.cap.Message, nil)
+		case fresh && provStatus:
+			msg, why = p.statusRow(prov), p.metas[prov]
+		case ix.State == interactions.StateFailed && !ix.IsCapability && len(ix.Receipt) == 0 &&
+			len(ix.Result) > 0 && utf8.Valid(ix.Result):
+			// A failure without a receipt stores the provider's detail
+			// as the result.
+			msg = p.synthesized(string(ix.Result), nil)
+		}
+		if msg == nil {
+			// an internal note item P4: an ended task with a reason says so, for a
+			// client that reads only the status text. The reason is the
+			// one the task's metadata carries.
+			meta := p.metadata(nil)
+			if r, _ := meta[a2ashape.KeyReason].(string); strings.TrimSpace(r) != "" {
+				msg = p.synthesized(p.endText(r, meta[a2ashape.KeyRetryAfterMS]), nil)
+			}
+		}
+		// a2a-x402 §7: the final message of a task that took part in the
+		// payment flow carries the receipts — the whole history, possibly
+		// empty: a declined quote, a lapsed one, a cancel before paying
+		// (§8.2, an internal note item).
+		rc := p.nodeReceipts()
+		if rc == nil && ix.PayState != interactions.PayNone {
+			rc = []any{}
+		}
+		if rc != nil {
+			if msg == nil {
+				text := "The task ended after a payment settled."
+				if !anySettled(rc) {
+					text = "The task ended; nothing was paid."
+				}
+				msg = p.synthesized(text, nil)
+			}
+			// A copy: a stored row's metadata is also why.
+			meta := make(map[string]any, len(msg.Metadata)+2)
+			for k, v := range msg.Metadata {
+				meta[k] = v
+			}
+			msg.Metadata = meta
+			if _, ok := msg.Metadata[a2ashape.KeyX402Receipts]; !ok {
+				msg.Metadata[a2ashape.KeyX402Receipts] = rc
+			}
+			if _, ok := msg.Metadata[a2ashape.KeyX402Status]; !ok {
+				if st := p.finalX402Status(); st != "" {
+					msg.Metadata[a2ashape.KeyX402Status] = st
+				}
+			}
+			// A payment failure's code goes in the message as well as
+			// the task's metadata (a2a-x402 §9).
+			v := p.resultMeta[a2ashape.KeyX402Error]
+			if v == nil {
+				v = p.payment[a2ashape.KeyX402Error]
+			}
+			if v != nil {
+				if _, ok := msg.Metadata[a2ashape.KeyX402Error]; !ok {
+					msg.Metadata[a2ashape.KeyX402Error] = v
+				}
+			}
+		}
+		return msg, why
+	}
+	return nil, nil
+}
+
+// waitingNote reports a task this node started that waits on a payment
+// with a decision that did not pay: a sentence of ux D1 (a person
+// decides) or D3 (the last payment did not settle). A paid.* snapshot is
+// not why a task waits.
+func (p *projector) waitingNote() bool {
+	return p.note != nil && p.ix.State == interactions.StateInputRequired && p.paymentRequired() &&
+		!strings.HasPrefix(p.note.Code, "paid.")
+}
+
+// paymentNoteMessage is status.message of a task waiting on a payment
+// decision (HPP PAY-D9, PAY-U6): the payment sentence and nothing else, so
+// a client that reads only text reads what the CLI's payment line says,
+// with the quote's a2a-x402 keys and anet.reason in its metadata for a
+// client that answers it.
+func (p *projector) paymentNoteMessage() *a2ashape.Message {
+	meta := map[string]any{a2ashape.KeyX402Status: a2ashape.PaymentRequired}
+	if p.kernelPayment() {
+		for _, k := range x402Keys {
+			if v, ok := p.payment[k]; ok {
+				meta[k] = v
+			}
+		}
+	} else {
+		if p.ix.PayState == interactions.PayFailed {
+			meta[a2ashape.KeyX402Status] = a2ashape.PaymentFailed
+			if rc := p.x402Receipts(); rc != nil {
+				meta[a2ashape.KeyX402Receipts] = rc
+			}
+		}
+		if req := p.x402Required(); req != nil {
+			meta[a2ashape.KeyX402Required] = req
+		}
+	}
+	if r, ok := p.payment[a2ashape.KeyReason]; ok {
+		meta[a2ashape.KeyReason] = r
+	}
+	return p.synthesized(a2ashape.PaymentNote(*p.note, a2ashape.Lang()), meta)
+}
+
+// paymentRequiredMessage is the a2a-x402 payment-required message, built
+// from the stored quote. After a failed attempt it says payment-failed,
+// with the code and the receipts, and still carries the quote. Its text
+// states the quote and how to get it paid (readable.go), after the
+// provider's own words when its answer had any.
+func (p *projector) paymentRequiredMessage() *a2ashape.Message {
+	text := "Payment is required."
+	if p.cap != nil && p.cap.Message != "" {
+		text = p.cap.Message
+	}
+	meta := map[string]any{a2ashape.KeyX402Status: a2ashape.PaymentRequired}
+	if p.kernelPayment() {
+		for _, k := range x402Keys {
+			if v, ok := p.payment[k]; ok {
+				meta[k] = v
+			}
+		}
+		if meta[a2ashape.KeyX402Status] == a2ashape.PaymentFailed {
+			text = "The payment failed; the quote can be paid again."
+		}
+		return p.synthesized(text, meta, p.paymentNote(meta))
+	}
+	if p.ix.PayState == interactions.PayFailed {
+		meta[a2ashape.KeyX402Status] = a2ashape.PaymentFailed
+		text = "The payment failed; the quote can be paid again."
+		if rc := p.x402Receipts(); rc != nil {
+			meta[a2ashape.KeyX402Receipts] = rc
+		}
+	}
+	if req := p.x402Required(); req != nil {
+		meta[a2ashape.KeyX402Required] = req
+	}
+	return p.synthesized(text, meta, p.paymentNote(meta))
+}
+
+// x402Required is the stored quote: the same-task flow's pay_required, or
+// the PaymentRequired a PAYMENT_REQUIRED answer carried.
+func (p *projector) x402Required() any {
+	for _, b := range [][]byte{p.ix.PayRequired, p.capPayment()} {
+		if len(b) == 0 {
+			continue
+		}
+		if v, err := a2ashape.DecodeJSON(b); err == nil && v != nil {
+			return v
+		}
+	}
+	return nil
+}
+
+func (p *projector) capPayment() []byte {
+	if p.cap == nil {
+		return nil
+	}
+	return p.cap.Payment
+}
+
+// x402Status is x402.payment.status as the task's payment state says it.
+func (p *projector) x402Status() string {
+	switch p.ix.PayState {
+	case interactions.PayRequired:
+		return a2ashape.PaymentRequired
+	case interactions.PaySubmitted:
+		return a2ashape.PaymentSubmitted
+	case interactions.PayCompleted:
+		return a2ashape.PaymentCompleted
+	case interactions.PayFailed:
+		return a2ashape.PaymentFailed
+	case interactions.PayRejected:
+		return a2ashape.PaymentRejected
+	}
+	// A PAYMENT_REQUIRED answer asks to be paid; that is the provider's
+	// to say. The deliverable's "paid" is not read: it is the provider's
+	// statement that it was paid, and on a task this node started a
+	// settlement is this node's to state once it has checked the hub
+	// receipt (pay_state completed), never the provider's [redteam:F11].
+	if p.cap != nil && p.cap.Status == string(effect.PaymentRequired) {
+		return a2ashape.PaymentRequired
+	}
+	return ""
+}
+
+// nodeX402Status is x402.payment.status as this node states it: the
+// kernel's reading when it gave one, else the stored pay_state's.
+func (p *projector) nodeX402Status() string {
+	if p.kernelPayment() {
+		st, _ := p.payment[a2ashape.KeyX402Status].(string)
+		return st
+	}
+	return p.x402Status()
+}
+
+// nodeReceipts is x402.payment.receipts as this node states it: the
+// kernel's reading when it gave one, else the stored list (x402Receipts).
+func (p *projector) nodeReceipts() []any {
+	if p.kernelPayment() {
+		if rc, ok := p.payment[a2ashape.KeyX402Receipts].([]any); ok {
+			return rc
+		}
+		return nil
+	}
+	return p.x402Receipts()
+}
+
+// finalX402Status is x402.payment.status on a terminal task's final
+// message: the kernel's reading when it gave one, else the stored
+// pay_state's; none for a quote that ended unpaid (nothing is due).
+func (p *projector) finalX402Status() string {
+	if p.kernelPayment() {
+		st, _ := p.payment[a2ashape.KeyX402Status].(string)
+		return st
+	}
+	if p.ix.PayState == interactions.PayRequired {
+		return ""
+	}
+	return p.x402Status()
+}
+
+// anySettled reports whether a receipt list holds a successful settlement.
+func anySettled(rc []any) bool {
+	for _, r := range rc {
+		if m, ok := r.(map[string]any); ok && m["success"] == true {
+			return true
+		}
+	}
+	return false
+}
+
+// x402Receipts is x402.payment.receipts read from the store: the stored
+// settlement responses this node stands behind (SplitReceipts), nil when
+// there are none. A task outside the payment flow (pay_state "") has none,
+// whatever its deliverable or the provider's list says [redteam:F11].
+func (p *projector) x402Receipts() []any {
+	own, _ := p.storedReceipts()
+	return own
+}
+
+// unverifiedReceipts is anet.unverified_receipts read from the store.
+func (p *projector) unverifiedReceipts() []any {
+	_, un := p.storedReceipts()
+	return un
+}
+
+// storedReceipts splits pay_receipts (SplitReceipts), decoded.
+func (p *projector) storedReceipts() (own, unverified []any) {
+	if len(p.ix.PayReceipts) == 0 {
+		return nil, nil
+	}
+	var list []json.RawMessage
+	if json.Unmarshal(p.ix.PayReceipts, &list) != nil {
+		return nil, nil
+	}
+	o, u := a2ashape.SplitReceipts(list, p.outbound, p.ix.PayState)
+	decode := func(raw []json.RawMessage) []any {
+		var out []any
+		for _, r := range raw {
+			if v, err := a2ashape.DecodeJSON(r); err == nil && v != nil {
+				out = append(out, v)
+			}
+		}
+		return out
+	}
+	if p.ix.PayState != interactions.PayNone {
+		own = decode(o)
+	}
+	return own, decode(u)
+}
+
+// metadata assembles the task's metadata. why is the stored status row
+// that explains the state, if one does.
+func (p *projector) metadata(why map[string]any) map[string]any {
+	ix := p.ix
+	m := map[string]any{a2ashape.KeyPeerAID: ix.PeerAID, a2ashape.KeyRole: a2ashape.RoleProvider, a2ashape.KeyStateSeq: ix.StateSeq}
+	if p.outbound {
+		m[a2ashape.KeyRole] = a2ashape.RoleRequester
+	}
+	if ix.Trust != "" {
+		m[a2ashape.KeyTrust] = ix.Trust
+	}
+	if ix.RequestCID != "" {
+		m[a2ashape.KeyRequestCID] = ix.RequestCID
+	}
+	if ix.ResultCID != "" {
+		m[a2ashape.KeyResultCID] = ix.ResultCID
+	}
+	if len(ix.Receipt) > 0 || ix.State == interactions.StateCompleted {
+		m[a2ashape.KeyReceiptVerified] = receiptVerified(ix.ReceiptVerified)
+	}
+	// The reason keys come from what set the state: the result when there
+	// is one, otherwise the provider's status message.
+	for _, k := range []string{a2ashape.KeyReason, a2ashape.KeyRetryAfterMS, a2ashape.KeyA2AError, a2ashape.KeyInbound, a2ashape.KeyX402Error} {
+		if v := p.resultMeta[k]; v != nil {
+			m[k] = v
+		} else if v := why[k]; v != nil {
+			m[k] = v
+		}
+	}
+	if ix.IsCapability {
+		if s := p.skill(); s != "" {
+			m[a2ashape.KeySkill] = s
+		}
+		es := p.effectStatus()
+		if es != "" {
+			m[a2ashape.KeyEffectStatus] = es
+		}
+		// §4.3: an UNAVAILABLE answer says either when to retry or why
+		// not. One that said neither is given the generic reason.
+		if es == string(effect.Unavailable) && ix.IsTerminal() && m[a2ashape.KeyReason] == nil && m[a2ashape.KeyRetryAfterMS] == nil {
+			m[a2ashape.KeyReason] = a2ashape.ReasonUnavailable
+		}
+	}
+	switch {
+	case p.payment != nil:
+		// The kernel's rule (an internal note item): the requester's cancel sent while
+		// its payment is submitted or settled.
+		if v, ok := p.payment[a2ashape.KeyCancelRequested]; ok {
+			m[a2ashape.KeyCancelRequested] = v
+		}
+	case !ix.IsTerminal() && p.requesterCanceled():
+		// A cancel after a payment was submitted leaves the task open
+		// (§4.2); the client is told its request is pending.
+		m[a2ashape.KeyCancelRequested] = true
+	}
+	if p.kernelPayment() {
+		// The same-task flow, as the payment flow reads its own columns.
+		for _, k := range x402Keys {
+			if v, ok := p.payment[k]; ok {
+				m[k] = v
+			}
+		}
+	} else {
+		if s := p.x402Status(); s != "" {
+			m[a2ashape.KeyX402Status] = s
+		}
+		if rc := p.x402Receipts(); rc != nil {
+			m[a2ashape.KeyX402Receipts] = rc
+		}
+	}
+	// What the provider claimed was settled and this node could not
+	// verify: shown, and apart from what this node states [redteam:F11].
+	if p.outbound {
+		if v, ok := p.payment[a2ashape.KeyUnverifiedReceipts]; ok {
+			m[a2ashape.KeyUnverifiedReceipts] = v
+		} else if p.payment == nil {
+			if un := p.unverifiedReceipts(); len(un) > 0 {
+				m[a2ashape.KeyUnverifiedReceipts] = un
+			}
+		}
+	}
+	// Why a task waits on a payment (needs_operator_approval) is the
+	// state's reason while it waits; once the task has ended, the reason
+	// that ended it stays, and the payment's is only a fallback.
+	if v, ok := p.payment[a2ashape.KeyReason]; ok {
+		if !ix.IsTerminal() || m[a2ashape.KeyReason] == nil {
+			m[a2ashape.KeyReason] = v
+		}
+	}
+	if p.note != nil {
+		// From the first decision on, ended or not (HPP §2.7).
+		m[a2ashape.KeyPaymentNote] = a2ashape.PaymentNote(*p.note, a2ashape.Lang())
+	}
+	if next := p.next(m); next != "" {
+		m[a2ashape.KeyNext] = next
+	}
+	return m
+}
+
+// next is anet.next (core §2.13 revision 7): the command of the row that
+// says why the task is where it is — the payment note's own key while the
+// task waits on it (the variant decides the command: manual_limit asks for
+// anet payments set first), otherwise anet.reason's row — when the row's
+// next step is a command and every value it needs is known. A code whose
+// rows differ by variant and that has no row of its own gives none: the
+// projection does not guess a variant.
+func (p *projector) next(m map[string]any) string {
+	key, _ := m[a2ashape.KeyReason].(string)
+	if k := p.endedByKeyEvent(); k != "" && key == a2ashape.ReasonOf(k) {
+		key = k
+	}
+	args := a2ashape.Args{"task": p.ix.ID, "peer": p.ix.PeerAID}
+	if p.opt.SelfAID != "" {
+		// {aid} is this node's own AID in every row that names it, as in
+		// the refusal's sentence (endText).
+		args["aid"] = p.opt.SelfAID
+	}
+	if p.waitingNote() {
+		key, args = p.note.Code, a2ashape.PayNoteArgs(*p.note)
+		if args["peer"] == "" {
+			args["peer"] = p.ix.PeerAID
+		}
+	}
+	if key == "" {
+		return ""
+	}
+	r, ok := a2ashape.Lookup(key)
+	if !ok || r.NextKind != a2ashape.NextCommand {
+		return ""
+	}
+	return a2ashape.Next(key, a2ashape.Lang(), args)
+}
+
+func receiptVerified(v interactions.Verification) string {
+	switch v {
+	case interactions.VerificationVerified:
+		return a2ashape.ReceiptVerified
+	case interactions.VerificationUnverified:
+		return a2ashape.ReceiptUnverified
+	case interactions.VerificationMismatch:
+		return a2ashape.ReceiptMismatch
+	}
+	return a2ashape.ReceiptUnknown
+}
+
+// effectStatus is the capability's effect status: the deliverable's (it is
+// what the receipt covers), else the result's metadata. A terminal task
+// with neither — canceled before any answer, refused by the provider's
+// policy, a result lost — still says something, because SI-6 does not let
+// a terminal capability task be silent about its effect: a refusal means
+// nothing was attempted (UNAVAILABLE), and anything else means this node
+// does not know whether the effect happened (UNVERIFIED). Never OK.
+func (p *projector) effectStatus() string {
+	if p.cap != nil {
+		return p.cap.Status
+	}
+	if s, ok := p.resultMeta[a2ashape.KeyEffectStatus].(string); ok && s != "" {
+		return s
+	}
+	switch {
+	case !p.ix.IsTerminal():
+		return ""
+	case p.ix.State == interactions.StateRejected:
+		return string(effect.Unavailable)
+	}
+	return string(effect.Unverified)
+}
+
+// skill is the capability a capability task invokes.
+func (p *projector) skill() string {
+	if id, _, ok := capabilityRequest(p.ix.RequestDoc); ok {
+		return id
+	}
+	return strings.TrimPrefix(p.ix.Goal, "invoke capability ")
+}
+
+// history is the conversation, oldest first, cut to HistoryLength.
+func (p *projector) history() []a2ashape.Message {
+	if n := p.opt.HistoryLength; n != nil && *n <= 0 {
+		return nil
+	}
+	var out []a2ashape.Message
+	if p.ix.IsCapability {
+		out = p.capabilityHistory()
+	} else {
+		for i := range p.msgs {
+			if p.conversational(i) {
+				out = append(out, *p.fromRow(i, false))
+			}
+		}
+	}
+	if n := p.opt.HistoryLength; n != nil && len(out) > *n {
+		out = out[len(out)-*n:]
+	}
+	return out
+}
+
+// capabilityHistory is a capability call's one request, as the DataPart
+// {skill, args} a client sends to ask for one (§11.5). The request is read
+// from the signed TaskDoc, which both sides keep; the opening row's id is
+// used when there is one.
+func (p *projector) capabilityHistory() []a2ashape.Message {
+	capID, args, ok := capabilityRequest(p.ix.RequestDoc)
+	if !ok {
+		var out []a2ashape.Message
+		for i, m := range p.msgs {
+			if !p.fromProvider(m.SenderAID) && p.conversational(i) {
+				out = append(out, *p.fromRow(i, false))
+			}
+		}
+		return out
+	}
+	id := p.ix.ID + ".request"
+	for i, m := range p.msgs {
+		if m.Kind == interactions.MsgText && !p.fromProvider(m.SenderAID) {
+			id = p.msgID(i)
+			break
+		}
+	}
+	data := map[string]any{"skill": capID, "args": args}
+	return []a2ashape.Message{*p.message(id, a2ashape.RoleUser, []a2ashape.Part{a2ashape.DataPart(data)}, nil)}
+}
+
+// requireTypeCapability marks a TaskDoc requirement as a capability call
+// (the daemon's RequireTypeCapability; the TaskDoc convention is in
+// docs/CONTRACTS-zh.md).
+const requireTypeCapability = "capability"
+
+// capabilityRequest reads the capability id and arguments from a stored
+// request TaskDoc. The signature is not checked; it was checked when the
+// delegation was made or accepted.
+func capabilityRequest(doc []byte) (capID string, args any, ok bool) {
+	if len(doc) == 0 {
+		return "", nil, false
+	}
+	var td tsir.TaskDoc
+	if err := coredet.Unmarshal(doc, &td); err != nil || len(td.Tasks) == 0 {
+		return "", nil, false
+	}
+	t := td.Tasks[0]
+	for _, r := range t.Requires {
+		if r.Type == requireTypeCapability && r.ID != "" {
+			capID = r.ID
+			break
+		}
+	}
+	if capID == "" {
+		return "", nil, false
+	}
+	args = map[string]any{}
+	for _, c := range t.Contexts {
+		if c.Key == "args" && c.Value != "" {
+			if v, err := a2ashape.DecodeJSON([]byte(c.Value)); err == nil {
+				args = v
+			}
+			break
+		}
+	}
+	return capID, args, true
+}
+
+// hasOutputReceipt reports a receipt that covers the task's output: any
+// stored receipt but a quote's, which covers the quote (the status message
+// carries it).
+func (p *projector) hasOutputReceipt() bool {
+	return len(p.ix.Receipt) > 0 && !p.quoted()
+}
+
+// artifacts are the task's outputs. A text task's is anet.reply, the
+// provider's newest conversation message (replyArtifact). A capability
+// task's is its deliverable, and nothing is one until a receipt covers it:
+// the receipt's result CID is what binds the deliverable to the provider,
+// and a result without one — a failure detail, a result that did not
+// verify — is reported in the status, not offered as the work. The receipt
+// itself is evidence and travels in the task's metadata (anet.receipt), so
+// that a client taking the first artifact with text as the answer never
+// takes the receipt (an internal note item P2).
+func (p *projector) artifacts() []a2ashape.Artifact {
+	ix := p.ix
+	if !ix.IsCapability {
+		// A text task's anet.reply is the provider's newest conversation
+		// message, wherever the task stands (CUX-A1): a stream replaces the
+		// artifact as a preview and as each message is stored, so a task
+		// aggregated from the stream matches what GetTask returns. When
+		// the task is completed this is the final reply (CUX-R2).
+		return p.replyArtifact()
+	}
+	if !p.hasOutputReceipt() {
+		// A quote's receipt covers the quote; the quote is in the status
+		// message, and a stream must not hand it over as the result.
+		return nil
+	}
+	var out []a2ashape.Artifact
+	if v, err := a2ashape.DecodeJSON(ix.Result); err == nil && v != nil {
+		name := p.skill()
+		if name == "" {
+			name = a2ashape.ArtifactResult
+		}
+		out = append(out, a2ashape.Artifact{ID: a2ashape.ArtifactResult, Name: name, Parts: []a2ashape.Part{a2ashape.DataPart(v)}})
+	}
+	return out
+}
+
+// replyArtifact is anet.reply of a text task: the newest conversation
+// message the provider stored, its text and then its files (an internal note item P1;
+// an empty text part would be read as "no answer here"). Nil when the
+// provider has said nothing, as on a task that ended at the requester's
+// end request.
+func (p *projector) replyArtifact() []a2ashape.Artifact {
+	for i := len(p.msgs) - 1; i >= 0; i-- {
+		m := p.msgs[i]
+		if !p.fromProvider(m.SenderAID) || !p.conversational(i) {
+			continue
+		}
+		var parts []a2ashape.Part
+		if m.Body != "" {
+			parts = append(parts, a2ashape.TextPart(m.Body))
+		}
+		for _, a := range p.bySeq[m.Seq] {
+			parts = append(parts, p.filePart(a, true))
+		}
+		if len(parts) == 0 {
+			return nil
+		}
+		return []a2ashape.Artifact{{ID: a2ashape.ArtifactReply, Name: a2ashape.ArtifactReply, Parts: parts}}
+	}
+	return nil
+}
+
+// receiptData is the anet.receipt metadata value: the signed receipt as
+// stored, its fields decoded for a reader that does not parse CoreDet-CBOR,
+// and whether this node could check it.
+func (p *projector) receiptData() map[string]any {
+	ix := p.ix
+	d := map[string]any{
+		"receipt":  base64.StdEncoding.EncodeToString(ix.Receipt),
+		"verified": receiptVerified(ix.ReceiptVerified),
+	}
+	if rc, err := evidence.UnmarshalReceipt(ix.Receipt); err == nil {
+		d["interaction_id"] = rc.InteractionID
+		d["requester_aid"] = rc.RequesterAID
+		d["provider_aid"] = rc.ProviderAID
+		d["request_cid"] = rc.RequestCID
+		d["result_cid"] = rc.ResultCID
+		d["completed_at"] = rc.CompletedAt
+		if cid, err := rc.CID(); err == nil {
+			d["receipt_cid"] = cid
+		}
+	}
+	if p.opt.ProviderKEL != "" {
+		d["provider_kel"] = p.opt.ProviderKEL
+	}
+	return d
+}
+
+// endedByKeyEvent is the table key of the sentence for a task that a
+// rollback or an emergency rotation ended, or "" for any other task (FS-U6).
+// The key has the .peer variant when the reason came with a message the
+// other side sent, and none when this node's own state wrote it: it is
+// worked out from the message rows, no column holds it.
+func (p *projector) endedByKeyEvent() string {
+	if p.ix.State != interactions.StateFailed {
+		return ""
+	}
+	reason, _ := p.resultMeta[a2ashape.KeyReason].(string)
+	var fromPeerRow bool
+	for i := len(p.msgs) - 1; i >= 0; i-- {
+		m := p.msgs[i]
+		if m.SenderAID == "" || m.SenderAID != p.ix.PeerAID {
+			continue
+		}
+		if r, _ := p.metas[i][a2ashape.KeyReason].(string); r == a2ashape.ReasonLocalStateLost || r == a2ashape.ReasonKeyCompromise {
+			if reason == "" {
+				reason = r
+			}
+			fromPeerRow = r == reason
+			break
+		}
+	}
+	if reason != a2ashape.ReasonLocalStateLost && reason != a2ashape.ReasonKeyCompromise {
+		return ""
+	}
+	if fromPeerRow {
+		return reason + ".peer"
+	}
+	return reason
+}
+
+// contentExpiresAt is anet.content_expires_at (FS-U4): when the sweep may
+// delete the content of an ended task, as RFC 3339 UTC. A task that has not
+// ended, one whose class keeps its content for ever, a projection for a
+// backend and one made without a retention give none.
+func (p *projector) contentExpiresAt() (string, bool) {
+	ix := p.ix
+	if p.opt.ForBackend || !p.opt.Retention.Valid() || !ix.IsTerminal() || ix.StateAt <= 0 {
+		return "", false
+	}
+	at, ok := interactions.ContentExpiresAt(ix.StateAt, interactions.ContentClass(ix.Role, ix.Trust), p.opt.Retention)
+	if !ok {
+		return "", false
+	}
+	return time.UnixMilli(at).UTC().Format(time.RFC3339), true
+}

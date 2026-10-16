@@ -1,4 +1,4 @@
-package a2ashape_test
+package stored_test
 
 // Fuzz targets for the projection of what a peer controls (an internal note):
 // its message metadata and bodies, its deliverable and result metadata, the
@@ -8,6 +8,7 @@ package a2ashape_test
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/ANetResearch/ANet/internal/a2ashape/stored"
 	"reflect"
 	"strings"
 	"testing"
@@ -44,7 +45,7 @@ type fuzzInput struct {
 	kernelStatus, kernelReceipts string // the kernel's payment derivation, when kernel
 }
 
-func (in fuzzInput) source(peerMeta string) a2ashape.Source {
+func (in fuzzInput) source(peerMeta string) stored.Source {
 	role := interactions.RoleInbound
 	if in.outbound {
 		role = interactions.RoleOutbound
@@ -72,7 +73,7 @@ func (in fuzzInput) source(peerMeta string) a2ashape.Source {
 	_ = provider
 	atts := []interactions.Attachment{{Seq: 1, InteractionID: ix.ID, MsgSeq: 2, Name: in.attName, Mime: in.attMime,
 		Size: 5, CID: "bafkreiattachment"}}
-	src := a2ashape.Source{Interaction: ix, Messages: msgs, Attachments: atts}
+	src := stored.Source{Interaction: ix, Messages: msgs, Attachments: atts}
 	if in.kernel {
 		src.Payment = map[string]any{}
 		if in.kernelStatus != "" {
@@ -100,7 +101,7 @@ func safeName(s string) string {
 	}, s)
 }
 
-var fuzzOpts = a2ashape.Options{Artifacts: true, InlineFiles: true, SafeName: safeName,
+var fuzzOpts = stored.Options{Artifacts: true, InlineFiles: true, SafeName: safeName,
 	LoadFile: func(string) ([]byte, error) { return []byte("bytes"), nil }}
 
 // nodeKeys are the task-level metadata keys that state this node's own
@@ -154,7 +155,7 @@ func FuzzProject(f *testing.F) {
 			verif: verif, result: result, resultMeta: resultMeta, peerMeta: peerMeta, peerBody: peerBody,
 			peerID: peerID, attName: attName, attMime: attMime, payRequired: payRequired, payReceipts: payReceipts,
 			localMeta: localMeta, kernelStatus: kernelStatus, kernelReceipts: kernelReceipts}
-		task := a2ashape.Project(in.source(peerMeta), fuzzOpts)
+		task := stored.Project(in.source(peerMeta), fuzzOpts)
 		ours, err := json.Marshal(task)
 		if err != nil {
 			t.Fatalf("the projection does not encode: %v", err)
@@ -197,7 +198,7 @@ func FuzzProject(f *testing.F) {
 		}
 
 		// The same task with the peer's message carrying no metadata.
-		plain := a2ashape.Project(in.source(""), fuzzOpts)
+		plain := stored.Project(in.source(""), fuzzOpts)
 		if task.Status.State != plain.Status.State {
 			t.Fatalf("the peer's metadata moved the state: %s, without it %s", task.Status.State, plain.Status.State)
 		}

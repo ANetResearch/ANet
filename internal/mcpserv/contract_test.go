@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/ANetResearch/ANet/internal/a2ashape/stored"
 	"testing"
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
@@ -175,7 +176,7 @@ func TestTasksThroughMCPAreA2ATasksThatKeepSI6(t *testing.T) {
 				if ans != "" {
 					ix.Result, ix.Receipt = []byte(ans), receipt(t)
 				}
-				task := a2ashape.Project(a2ashape.Source{Interaction: ix}, a2ashape.Options{Artifacts: true})
+				task := stored.Project(stored.Source{Interaction: ix}, stored.Options{Artifacts: true})
 				raw, err := json.Marshal(task)
 				if err != nil {
 					t.Fatal(err)

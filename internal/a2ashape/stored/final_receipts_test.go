@@ -1,7 +1,8 @@
-package a2ashape_test
+package stored_test
 
 import (
 	"encoding/json"
+	"github.com/ANetResearch/ANet/internal/a2ashape/stored"
 	"testing"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
@@ -43,12 +44,12 @@ func TestTheFinalMessageOfAQuotedTaskCarriesTheReceipts(t *testing.T) {
 			st := openStore(t)
 			capTask(t, st, "ix_f", interactions.StateInputRequired, "", "")
 			setState(t, st, "ix_f", c.state)
-			src, err := a2ashape.Load(st, "ix_f")
+			src, err := stored.Load(st, "ix_f")
 			must(t, err)
 			src.Interaction.PayState = c.payState
 			src.Interaction.PayRequired = []byte(quote)
 			src.Payment = c.kernel
-			sdk := contract(t, a2ashape.Project(src, a2ashape.Options{}))
+			sdk := contract(t, stored.Project(src, stored.Options{}))
 			m := sdk.Status.Message
 			if m == nil {
 				t.Fatalf("no final message: %+v", sdk.Status)
@@ -66,10 +67,10 @@ func TestTheFinalMessageOfAQuotedTaskCarriesTheReceipts(t *testing.T) {
 	st := openStore(t)
 	capTask(t, st, "ix_n", interactions.StateInputRequired, "", "")
 	setState(t, st, "ix_n", interactions.StateCanceled)
-	src, err := a2ashape.Load(st, "ix_n")
+	src, err := stored.Load(st, "ix_n")
 	must(t, err)
 	src.Payment = map[string]any{}
-	sdk := contract(t, a2ashape.Project(src, a2ashape.Options{}))
+	sdk := contract(t, stored.Project(src, stored.Options{}))
 	if m := sdk.Status.Message; m != nil {
 		if _, ok := m.Metadata[a2ashape.KeyX402Receipts]; ok {
 			t.Errorf("receipts on a task nothing was quoted for: %v", m.Metadata)

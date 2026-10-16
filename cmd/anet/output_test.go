@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"github.com/ANetResearch/ANet/internal/a2ashape/stored"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -128,7 +129,7 @@ func TestTaskLinesOrder(t *testing.T) {
 	ix := &interactions.Interaction{ID: "ix_1", Role: interactions.RoleOutbound, PeerAID: wholeAID,
 		State: interactions.StateRejected, StateSeq: 3, ContextID: "c", PayState: interactions.PayCompleted,
 		ResultMeta: `{"anet.reason":"no_local_task"}`, PayNote: note}
-	task := a2ashape.Project(a2ashape.Source{Interaction: ix, Payment: map[string]any{}}, a2ashape.Options{})
+	task := stored.Project(stored.Source{Interaction: ix, Payment: map[string]any{}}, stored.Options{})
 	b, _ := json.Marshal(task)
 	var top map[string]any
 	_ = json.Unmarshal(b, &top)
@@ -160,8 +161,8 @@ func TestTaskLinesOrder(t *testing.T) {
 	waiting := &interactions.Interaction{ID: "ix_2", Role: interactions.RoleOutbound, PeerAID: wholeAID,
 		State: interactions.StateInputRequired, StateSeq: 2, ContextID: "c", PayState: interactions.PayRequired,
 		PayRequired: quote, IsCapability: true, PayNote: note}
-	wt := a2ashape.Project(a2ashape.Source{Interaction: waiting, Payment: map[string]any{"anet.reason": "needs_operator_approval"}},
-		a2ashape.Options{})
+	wt := stored.Project(stored.Source{Interaction: waiting, Payment: map[string]any{"anet.reason": "needs_operator_approval"}},
+		stored.Options{})
 	b, _ = json.Marshal(wt)
 	if ml := answerLines(b, true, a2ashape.English, time.Now()); len(ml) != 2 || ml[1] != nextPrefix+"anet payments set explicit_max=12" {
 		t.Errorf("manual_limit: %q", ml)

@@ -1,6 +1,7 @@
-package a2ashape_test
+package stored_test
 
 import (
+	"github.com/ANetResearch/ANet/internal/a2ashape/stored"
 	"testing"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
@@ -23,7 +24,7 @@ func TestADeliverableThatReadsTwoWaysDoesNotStateItsEffect(t *testing.T) {
 		ix := &interactions.Interaction{ID: "ix_1", Role: interactions.RoleOutbound, PeerAID: peer,
 			Goal: "invoke capability text.echo", State: interactions.StateCompleted, StateAt: now, StateSeq: 3,
 			IsCapability: true, Result: []byte(result), ReceiptVerified: interactions.VerificationVerified}
-		task := a2ashape.Project(a2ashape.Source{Interaction: ix}, a2ashape.Options{Artifacts: true})
+		task := stored.Project(stored.Source{Interaction: ix}, stored.Options{Artifacts: true})
 		if es := task.Metadata[a2ashape.KeyEffectStatus]; es != "UNVERIFIED" {
 			t.Errorf("%s: effect_status %v, want UNVERIFIED", name, es)
 		}
@@ -31,7 +32,7 @@ func TestADeliverableThatReadsTwoWaysDoesNotStateItsEffect(t *testing.T) {
 	ix := &interactions.Interaction{ID: "ix_2", Role: interactions.RoleOutbound, PeerAID: peer,
 		Goal: "invoke capability text.echo", State: interactions.StateCompleted, StateAt: now, StateSeq: 3,
 		IsCapability: true, Result: []byte(`{"status":"OK","message":"done","output":{"Status":"x"}}`)}
-	if es := a2ashape.Project(a2ashape.Source{Interaction: ix}, a2ashape.Options{}).Metadata[a2ashape.KeyEffectStatus]; es != "OK" {
+	if es := stored.Project(stored.Source{Interaction: ix}, stored.Options{}).Metadata[a2ashape.KeyEffectStatus]; es != "OK" {
 		t.Errorf("a deliverable that reads one way: effect_status %v, want OK", es)
 	}
 }

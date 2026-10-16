@@ -1,4 +1,4 @@
-package a2ashape
+package stored
 
 // readable.go keeps the projection readable by a generic A2A client
 // (an internal note item, from the Hermes contract test 0018): a client that reads only
@@ -25,9 +25,8 @@ import (
 	"math"
 	"strings"
 	"time"
-	"unicode"
-	"unicode/utf8"
 
+	"github.com/ANetResearch/ANet/internal/a2ashape"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 )
 
@@ -39,27 +38,7 @@ const (
 	maxQuotedOptions = 3
 )
 
-// clean makes a peer-written string safe to put in a sentence: control
-// characters (newlines included) become spaces, invisible format
-// characters (bidirectional overrides and isolates, zero-width joiners) are
-// dropped so that a payee or an amount reads as it is, and it is cut to max
-// runes.
-func clean(s string, max int) string {
-	s = strings.Map(func(r rune) rune {
-		switch {
-		case r == utf8.RuneError || unicode.IsControl(r):
-			return ' '
-		case unicode.Is(unicode.Cf, r):
-			return -1
-		}
-		return r
-	}, s)
-	s = strings.TrimSpace(s)
-	if utf8.RuneCountInString(s) <= max {
-		return s
-	}
-	return string([]rune(s)[:max]) + "…"
-}
+func clean(s string, max int) string { return a2ashape.Clean(s, max) }
 
 // reasonText is the sentence of P4: the stored state name (the spelling
 // Hermes and the CLI show) and the reason.
@@ -76,11 +55,11 @@ func reasonText(st interactions.State, reason string) string {
 // show (UX-T1). Anything else is "<state>: <reason>" (P4).
 func (p *projector) endText(reason string, retryMS any) string {
 	st := p.ix.State
-	r, ok := Lookup(reason)
-	if st != interactions.StateRejected || !ok || r.Code != reason || r.Class&ClassR == 0 || r.NoSentence {
+	r, ok := a2ashape.Lookup(reason)
+	if st != interactions.StateRejected || !ok || r.Code != reason || r.Class&a2ashape.ClassR == 0 || r.NoSentence {
 		return reasonText(st, reason)
 	}
-	args := Args{}
+	args := a2ashape.Args{}
 	if p.ix.PeerAID != "" {
 		args["peer"] = p.ix.PeerAID
 	}
@@ -92,7 +71,7 @@ func (p *projector) endText(reason string, retryMS any) string {
 		// wrapped around would say "0 seconds": cap it before scaling.
 		args["retry"] = time.Duration(min(ms, int64(math.MaxInt64/int64(time.Millisecond)))) * time.Millisecond
 	}
-	return Sentence(reason, Lang(), args)
+	return a2ashape.Sentence(reason, a2ashape.Lang(), args)
 }
 
 // wholeMS is a stored anet.retry_after_ms as a count of milliseconds: the
@@ -121,17 +100,17 @@ func wholeMS(v any) int64 {
 // to the payment; any other row names the state it asks for (or the
 // task's) and the reason or inbound outcome it carries.
 func (p *projector) placeholder(meta map[string]any) string {
-	if s, _ := meta[KeyX402Status].(string); s != "" {
+	if s, _ := meta[a2ashape.KeyX402Status].(string); s != "" {
 		if note := p.paymentNote(meta); note != "" {
 			return paymentStatusText(s) + " " + note
 		}
 		return paymentStatusText(s)
 	}
 	st := p.ix.State
-	if s, _ := meta[KeyState].(string); interactions.State(s).Valid() {
+	if s, _ := meta[a2ashape.KeyState].(string); interactions.State(s).Valid() {
 		st = interactions.State(s)
 	}
-	for _, k := range []string{KeyReason, KeyInbound} {
+	for _, k := range []string{a2ashape.KeyReason, a2ashape.KeyInbound} {
 		if r, _ := meta[k].(string); strings.TrimSpace(r) != "" {
 			return reasonText(st, r)
 		}
@@ -142,17 +121,17 @@ func (p *projector) placeholder(meta map[string]any) string {
 // paymentStatusText is a sentence for an x402.payment.status value.
 func paymentStatusText(status string) string {
 	switch status {
-	case PaymentRequired:
+	case a2ashape.PaymentRequired:
 		return "Payment is required."
-	case PaymentSubmitted:
+	case a2ashape.PaymentSubmitted:
 		return "A payment was submitted; waiting for it to settle."
-	case PaymentVerified:
+	case a2ashape.PaymentVerified:
 		return "The payment was verified."
-	case PaymentCompleted:
+	case a2ashape.PaymentCompleted:
 		return "Payment completed."
-	case PaymentFailed:
+	case a2ashape.PaymentFailed:
 		return "The payment failed."
-	case PaymentRejected:
+	case a2ashape.PaymentRejected:
 		return "The payment was rejected."
 	}
 	return "Payment status: " + clean(status, maxShortRunes) + "."
@@ -163,14 +142,14 @@ func paymentStatusText(status string) string {
 // the quote and, on the requester's side, how to get it paid. Empty for
 // any other payment status, and when no quote can be read.
 func (p *projector) paymentNote(meta map[string]any) string {
-	switch s, _ := meta[KeyX402Status].(string); s {
-	case PaymentRequired, PaymentFailed:
+	switch s, _ := meta[a2ashape.KeyX402Status].(string); s {
+	case a2ashape.PaymentRequired, a2ashape.PaymentFailed:
 	default:
 		return ""
 	}
-	req := meta[KeyX402Required]
+	req := meta[a2ashape.KeyX402Required]
 	if req == nil {
-		req = p.payment[KeyX402Required]
+		req = p.payment[a2ashape.KeyX402Required]
 	}
 	if req == nil {
 		req = p.x402Required()
@@ -183,8 +162,8 @@ func (p *projector) paymentNote(meta map[string]any) string {
 		// This node is the provider: its own quote, nothing to pay.
 		return "Quoted: " + summary + "."
 	}
-	s, _ := meta[KeyX402Status].(string)
-	return "The provider asks to be paid " + summary + ". " + payHint(p.ix.ID, s == PaymentFailed)
+	s, _ := meta[a2ashape.KeyX402Status].(string)
+	return "The provider asks to be paid " + summary + ". " + payHint(p.ix.ID, s == a2ashape.PaymentFailed)
 }
 
 // payHint tells a client how a quote on this node's task gets paid
