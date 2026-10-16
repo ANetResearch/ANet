@@ -565,6 +565,7 @@ func collectDoctor(layout daemon.Layout, env doctorEnv) (*doctorReport, error) {
 	add("payments", stOK, payDetail, "")
 	paymentsCardCheck(say, add, rep, env, layout) // doctor_payments.go
 	paymentsAuditCheck(say, add, rep, env, layout)
+	paymentsReviewsCheck(say, add, rep, env, layout)
 	hubProbationCheck(say, add, rep, env, layout)
 	clockRetriesCheck(say, add, rep, env, layout)
 

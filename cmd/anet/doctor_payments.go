@@ -94,6 +94,33 @@ func paymentsAuditCheck(say func(id, status, key string, args a2ashape.Args),
 	}
 }
 
+// paymentsReviewsCheck is payments.reviews (HPP §5.6): reviews signed and not yet uploaded are
+// told as information; a review that waited more than seven days, or was given up, is a warning.
+// The daemon answers from GET /status (doctor): absent when nothing waits and nothing was given up.
+func paymentsReviewsCheck(say func(id, status, key string, args a2ashape.Args),
+	add func(id, status, detail, hint string), rep *doctorReport, env doctorEnv, layout daemon.Layout) {
+	st, ok := runtimeStatus(env, rep, say, "payments.reviews", layout)
+	if !ok {
+		return
+	}
+	r, _ := st["payments_reviews"].(map[string]any)
+	if r == nil {
+		return
+	}
+	n, _ := r["pending"].(float64)
+	given, _ := r["given_up"].(float64)
+	stuck := given > 0
+	if oldest := jsonTime(r["oldest"]); !oldest.IsZero() && time.Since(oldest) > 7*24*time.Hour {
+		stuck = true
+	}
+	switch {
+	case stuck:
+		say("payments.reviews", stWarn, "payments.reviews_stuck", nil)
+	case n > 0:
+		say("payments.reviews", stInfo, "payments.reviews_pending", a2ashape.Args{"n": fmt.Sprint(int(n))})
+	}
+}
+
 // jsonTime reads a unix-millisecond time out of a decoded JSON number.
 func jsonTime(v any) time.Time {
 	switch x := v.(type) {

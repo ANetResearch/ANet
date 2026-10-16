@@ -19,7 +19,6 @@ import (
 	"testing"
 	"time"
 
-	evidence "github.com/ANetResearch/ANet/internal/evidencev1" // v030-todo(PAY-14): evidence v2
 	"github.com/ANetResearch/ANetCore/anetcid"
 	"github.com/ANetResearch/ANetCore/delegation"
 	"github.com/ANetResearch/ANetCore/seal"
@@ -61,15 +60,7 @@ func pvResult(t *testing.T, req, prov *Daemon, id string, deliverable []byte, me
 	if err != nil {
 		t.Fatal(err)
 	}
-	rc := &evidence.Receipt{InteractionID: id, RequesterAID: req.AID(), ProviderAID: prov.AID(),
-		RequestCID: ix.RequestCID, ResultCID: cid, CompletedAt: uint64(nowMillis())}
-	if err := rc.Sign(prov.self); err != nil {
-		t.Fatal(err)
-	}
-	receipt, err := rc.Marshal()
-	if err != nil {
-		t.Fatal(err)
-	}
+	receipt := receiptOver(t, prov.self, ix, ix.RequestCID, cid)
 	mb, _ := json.Marshal(meta)
 	payload := mustMarshal(t, &delegation.ResultResp{Status: delegation.StatusDone, Deliverable: deliverable,
 		Receipt: receipt, Metadata: mb})

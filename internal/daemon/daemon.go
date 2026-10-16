@@ -153,6 +153,8 @@ type Daemon struct {
 	// outboxHold, set by a test (setOutboxHold), skips the passes of the
 	// outbox loop and of the no-response sweep.
 	outboxHold atomic.Bool
+	// reviewsGivenUp counts the reviews this daemon gave up uploading since it started (review.go).
+	reviewsGivenUp atomic.Int64
 	// previewer is the stream_preview coalescer and preview cache
 	// (preview.go, set with setPreviewer); none leaves previews
 	// unavailable (previewsUnavailable).
@@ -408,6 +410,7 @@ func New(layout Layout) (*Daemon, error) {
 	d.startPayments(ctx)
 	d.goBackground(func() { d.outboxLoop(ctx) })
 	d.goBackground(func() { d.noResponseLoop(ctx) }) // no_response.go
+	d.goBackground(func() { d.reviewLoop(ctx) })     // review.go
 	// The join loop registers again at every start (hubjoin_daemon.go,
 	// LEC AD-5); the relay loop polls once the hub has registered this
 	// node.
@@ -543,13 +546,11 @@ func (d *Daemon) config() Config {
 	return d.cfg
 }
 
-// signTaskDoc builds a minimal signed TaskDoc for a goal (the delegation request object). nonce is
-// the task nonce (A2A-DESIGN §2 X4), carried as a private context inside the signed preimage.
-func (d *Daemon) signTaskDoc(goal, nonce string) ([]byte, *aobj.Envelope, error) {
-	task := tsir.Task{Intent: tsir.Intent{Summary: goal, Body: goal}}
-	if nonce != "" {
-		task.Contexts = []tsir.Context{nonceContext(nonce)}
-	}
+// signTaskDoc builds a minimal signed TaskDoc for a goal (the delegation request object). The
+// task binding (the nonce, the requester commitment and the review key; core §2.4.3) is carried as
+// three private contexts inside the signed preimage.
+func (d *Daemon) signTaskDoc(goal string, b *taskBinding) ([]byte, *aobj.Envelope, error) {
+	task := tsir.Task{Intent: tsir.Intent{Summary: goal, Body: goal}, Contexts: b.contexts}
 	td := &tsir.TaskDoc{Version: tsir.VersionPair{Major: 1}, Tasks: []tsir.Task{task}}
 	if err := td.Sign(d.self); err != nil {
 		return nil, nil, err

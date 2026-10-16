@@ -1047,6 +1047,12 @@ func (d *Daemon) authorizeDelegate(m *rxMsg, now uint64) *rxResult {
 		return &r
 	}
 	form := readDelegateForm(m.td, m.dr.Attachments...)
+	// The task binding (core §2.4.3, CORE-K7): a delegation without it, a text task or a capability
+	// call alike, is a bad request (step 2 of CUX-Q1a, after the policy). The receipt this node
+	// would sign for it could not carry the requester's commitments.
+	if delegation.CheckTaskBinding(m.td) != nil {
+		form.bad = true
+	}
 	dec := d.decideDelegate(m.from, form)
 	switch dec.action {
 	case actRefuse:

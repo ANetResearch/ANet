@@ -653,6 +653,9 @@ func (d *Daemon) hStatus(w http.ResponseWriter, r *http.Request) {
 				out["payments_audit"] = a
 			}
 		}
+		if rs := d.reviewsStatus(); rs != nil {
+			out["payments_reviews"] = rs
+		}
 		if cfg.HubURL != "" {
 			ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 			if acct, err := d.HubAccount(ctx); err == nil {
@@ -1513,8 +1516,9 @@ func (d *Daemon) hResults(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"results": res})
 }
 
-// hReview signs a review of a completed delegation (anchored to the provider's receipt), stores it, and
-// uploads the receipt + review + verified content to the configured Hub.
+// hReview signs a review of a finished delegation (anchored to the provider's receipt) and queues
+// it for upload (HPP PAY-V9). The answer is {status: "queued", due_at}; its sentence is
+// review.queued, or probation when the account's probation has not ended.
 func (d *Daemon) hReview(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		InteractionID string `json:"interaction_id"`
@@ -1535,18 +1539,12 @@ func (d *Daemon) hReview(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	out := map[string]any{"interaction_id": res.InteractionID, "subject": res.Subject, "rating": res.Rating}
-	if hub := d.config().HubURL; hub != "" {
-		ctx, cancel := context.WithTimeout(r.Context(), hubCallTimeout)
-		defer cancel()
-		if err := d.UploadReview(ctx, hub, req.InteractionID); err != nil {
-			out["hub_error"] = err.Error()
-		} else {
-			out["hub"] = hub
-			out["uploaded"] = true
-		}
+	msg := a2ashape.Sentence("review.queued", a2ashape.Lang(), nil)
+	if res.ProbationUntil > 0 {
+		msg = a2ashape.Sentence("probation", a2ashape.Lang(), a2ashape.Args{"time": time.UnixMilli(res.ProbationUntil).UTC()})
 	}
-	writeJSON(w, http.StatusOK, out)
+	writeJSON(w, http.StatusOK, map[string]any{"status": "queued", "interaction_id": res.InteractionID,
+		"subject": res.Subject, "rating": res.Rating, "due_at": res.DueAt, "message": msg})
 }
 
 // hEvidence serves this node's own evidence chain.

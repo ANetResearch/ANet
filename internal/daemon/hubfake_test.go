@@ -39,6 +39,7 @@ package daemon
 import (
 	"bytes"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -54,10 +55,10 @@ import (
 	"testing"
 	"time"
 
-	evidence "github.com/ANetResearch/ANet/internal/evidencev1" // v030-todo(PAY-14): evidence v2
 	"github.com/ANetResearch/ANetCore/a2acard"
 	"github.com/ANetResearch/ANetCore/coredet"
 	"github.com/ANetResearch/ANetCore/dirbox"
+	"github.com/ANetResearch/ANetCore/evidence"
 	"github.com/ANetResearch/ANetCore/identity"
 	"github.com/ANetResearch/ANetCore/identity/identitytest"
 	"github.com/ANetResearch/ANetCore/payment"
@@ -122,7 +123,12 @@ type fakeHub struct {
 	nextID  int64
 	agents  map[string]*fakeHubAgent
 	mailbox []*fakeHubMsg
-	reviews map[string]hubapi.ReviewView // interaction_id → stored review (one per interaction)
+	reviews map[string]hubapi.ReviewView // hex(ix_commit) → stored review (one per interaction)
+	// reviewRefuse, when set, is the reason code POST /reviews answers 400 with; reviewUploads counts
+	// the reviews it stored.
+	reviewRefuse   string
+	lastReviewBody []byte
+	reviewUploads  int
 	// The credit side. Balances are the hub's, which is the whole point of
 	// the custody note in pay.go — the fake holds them the same way.
 	self    *identity.Controller
@@ -1544,77 +1550,93 @@ func (h *fakeHub) hAgent(w http.ResponseWriter, r *http.Request) {
 			reviews = append(reviews, rv)
 		}
 	}
-	sort.Slice(reviews, func(i, j int) bool { return reviews[i].CreatedAt > reviews[j].CreatedAt })
+	sort.Slice(reviews, func(i, j int) bool { return reviews[i].CreatedDay > reviews[j].CreatedDay })
 	fakeHubJSON(w, http.StatusOK, map[string]any{"agent": h.viewWithAggregates(a), "reviews": reviews})
 }
 
-// hUploadReview mirrors POST /reviews after the content removal (A2A-DESIGN §9, ANetHub
-// hUploadReview): the body is the receipt and the review and nothing else; a body that still carries
-// request_doc or deliverable is refused with 400, as the hub refuses it. It keeps the structural
-// checks (interlock, rating range, comment length, one review per interaction) and skips the two
-// signature verifications. The stored view carries no content and says so.
+// hUploadReview mirrors POST /reviews of the v0.3.0 hub (HPP §2.5, PAY-V1): a signed request whose
+// body is {receipt, review, rsalt} in base64url and nothing else. It keeps the checks that need no
+// key history of the provider (shapes, the review's signature under the receipt's review key, the
+// interlock, the requester commitment against the uploader, one review per ix_commit) and skips
+// the provider's signature. The stored view names no reviewer and no time but days. The answer is
+// {status: "stored", attestation}, signed by the fake hub's key.
 func (h *fakeHub) hUploadReview(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		hubapi.UploadReviewRequest
-		RequestDoc  string `json:"request_doc"`
-		Deliverable string `json:"deliverable"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Receipt == "" || req.Review == "" {
-		fakeHubJSON(w, http.StatusBadRequest, map[string]string{"error": "receipt + review required"})
+	body, ok := h.readBody(w, r, 16<<10)
+	if !ok {
 		return
 	}
-	if req.RequestDoc != "" || req.Deliverable != "" {
-		fakeHubJSON(w, http.StatusBadRequest, map[string]string{"error": "this hub takes no task content with a review"})
-		return
-	}
-	rcBytes, err1 := base64.StdEncoding.DecodeString(req.Receipt)
-	rvBytes, err2 := base64.StdEncoding.DecodeString(req.Review)
-	if err1 != nil || err2 != nil {
-		fakeHubJSON(w, http.StatusBadRequest, map[string]string{"error": "receipt/review not base64"})
-		return
-	}
-	rc, err := evidence.UnmarshalReceipt(rcBytes)
-	if err != nil {
-		fakeHubJSON(w, http.StatusBadRequest, map[string]string{"error": "receipt undecodable"})
-		return
-	}
-	rv, err := evidence.UnmarshalReview(rvBytes)
-	if err != nil {
-		fakeHubJSON(w, http.StatusBadRequest, map[string]string{"error": "review undecodable"})
-		return
-	}
-	if !rv.ValidRating() {
-		fakeHubJSON(w, http.StatusBadRequest, map[string]string{"error": "rating out of range"})
-		return
-	}
-	if len([]rune(rv.Comment)) > 280 {
-		fakeHubJSON(w, http.StatusBadRequest, map[string]string{"error": "comment over 280 characters"})
-		return
-	}
-	if rc.InteractionID != rv.InteractionID || rv.ReviewerAID != rc.RequesterAID || rv.SubjectAID != rc.ProviderAID {
-		fakeHubJSON(w, http.StatusBadRequest, map[string]string{"error": "receipt/review interlock mismatch"})
+	aid := h.verifyAuth(w, r, body, relayauth.ActionReview, nil)
+	if aid == "" {
 		return
 	}
 	h.mu.Lock()
-	defer h.mu.Unlock()
-	if _, dup := h.reviews[rv.InteractionID]; dup {
-		fakeHubJSON(w, http.StatusBadRequest, map[string]string{"error": "interaction already reviewed"})
+	refuse := h.reviewRefuse
+	h.lastReviewBody = append([]byte(nil), body...)
+	h.mu.Unlock()
+	if refuse != "" {
+		fakeHubRefuse(w, http.StatusBadRequest, refuse, nil)
 		return
 	}
-	h.reviews[rv.InteractionID] = hubapi.ReviewView{
-		InteractionID:  rv.InteractionID,
-		SubjectAID:     rv.SubjectAID,
-		ReviewerAID:    rv.ReviewerAID,
-		Rating:         rv.Rating,
-		Comment:        rv.Comment,
-		ReceiptCID:     rv.ReceiptCID,
-		RequestCID:     rc.RequestCID,
-		ResultCID:      rc.ResultCID,
-		ContentBinding: hubapi.ContentBindingUnverified,
-		CompletedAt:    rc.CompletedAt,
-		CreatedAt:      rv.CreatedAt,
+	var req hubapi.UploadReviewRequest
+	dec := json.NewDecoder(bytes.NewReader(body))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&req); err != nil || req.Receipt == "" || req.Review == "" || req.RSalt == "" {
+		fakeHubRefuse(w, http.StatusBadRequest, "bad_request", nil)
+		return
 	}
-	fakeHubJSON(w, http.StatusOK, map[string]any{"interaction_id": rv.InteractionID, "status": "accepted"})
+	rcBytes, err1 := hubapi.DecodeB64(req.Receipt, -1)
+	rvBytes, err2 := hubapi.DecodeB64(req.Review, -1)
+	rsalt, err3 := hubapi.DecodeB64(req.RSalt, 32)
+	if err1 != nil || err2 != nil || err3 != nil {
+		fakeHubRefuse(w, http.StatusBadRequest, "bad_request", nil)
+		return
+	}
+	rw, err1 := evidence.UnmarshalReceiptWire(rcBytes)
+	rvw, err2 := evidence.UnmarshalReviewWire(rvBytes)
+	if err1 != nil || err2 != nil {
+		fakeHubRefuse(w, http.StatusBadRequest, "receipt_not_reviewable", nil)
+		return
+	}
+	rc, _ := rw.Open()
+	rv, err := rvw.Verify(rc.ReviewKey)
+	rcCID, _ := rw.CID()
+	if err != nil || rv.ReceiptCID != rcCID || rv.Subject != rc.Provider {
+		fakeHubRefuse(w, http.StatusBadRequest, "receipt_not_reviewable", nil)
+		return
+	}
+	if want, err := evidence.RequesterCommit(aid, rsalt); err != nil || !bytes.Equal(want, rc.RequesterCommit) {
+		fakeHubRefuse(w, http.StatusBadRequest, "requester_commit_mismatch", nil)
+		return
+	}
+	today := uint64(time.Now().UnixMilli()) / evidence.DayMS
+	if rv.CreatedDay < rc.CompletedDay || rv.CreatedDay > rc.CompletedDay+30 || today > rc.CompletedDay+37 {
+		fakeHubRefuse(w, http.StatusBadRequest, "review_window_closed", nil)
+		return
+	}
+	key := hex.EncodeToString(rc.IXCommit)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if _, dup := h.reviews[key]; dup {
+		fakeHubRefuse(w, http.StatusConflict, "review_exists", nil)
+		return
+	}
+	h.reviews[key] = hubapi.ReviewView{SubjectAID: rv.Subject, Rating: int(rv.Rating), Comment: rv.Comment,
+		ReceiptCID: rv.ReceiptCID, CompletedDay: rc.CompletedDay, CreatedDay: rv.CreatedDay}
+	h.reviewUploads++
+	rvCID, _ := rvw.CID()
+	tag := sha256.Sum256([]byte(aid + "|" + rv.Subject))
+	att, err := (&evidence.ReviewAttBody{ReviewCID: rvCID, ReceiptCID: rcCID, Subject: rv.Subject,
+		Tag: tag[:evidence.TagSize], TagKeyID: 1, Day: today}).Sign(h.self)
+	if err != nil {
+		fakeHubJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	attRaw, err := att.Marshal()
+	if err != nil {
+		fakeHubJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	fakeHubJSON(w, http.StatusOK, hubapi.UploadReviewResponse{Status: "stored", Attestation: hubapi.B64(attRaw)})
 }
 
 // hRelaySession mirrors POST /relay/session (sealed-sender §4.2.3, core

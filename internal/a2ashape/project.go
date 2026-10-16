@@ -59,10 +59,10 @@ import (
 	"time"
 	"unicode/utf8"
 
-	evidence "github.com/ANetResearch/ANet/internal/evidencev1" // v030-todo(PAY-14): evidence v2
 	"github.com/ANetResearch/ANetCore/anetcid"
 	"github.com/ANetResearch/ANetCore/coredet"
 	"github.com/ANetResearch/ANetCore/effect"
+	"github.com/ANetResearch/ANetCore/evidence"
 	"github.com/ANetResearch/ANetCore/tsir"
 
 	"github.com/ANetResearch/ANet/internal/jsonread"
@@ -1344,14 +1344,16 @@ func (p *projector) receiptData() map[string]any {
 		"receipt":  base64.StdEncoding.EncodeToString(ix.Receipt),
 		"verified": receiptVerified(ix.ReceiptVerified),
 	}
-	if rc, err := evidence.UnmarshalReceipt(ix.Receipt); err == nil {
-		d["interaction_id"] = rc.InteractionID
-		d["requester_aid"] = rc.RequesterAID
-		d["provider_aid"] = rc.ProviderAID
-		d["request_cid"] = rc.RequestCID
-		d["result_cid"] = rc.ResultCID
-		d["completed_at"] = rc.CompletedAt
-		if cid, err := rc.CID(); err == nil {
+	// The receipt names neither the requester nor the interaction (core §2.9): what a reader gets
+	// is the provider, the two CIDs, the day it was signed and the receipt's own CID.
+	if w, err := evidence.UnmarshalReceiptWire(ix.Receipt); err == nil {
+		if rc, err := w.Open(); err == nil {
+			d["provider_aid"] = rc.Provider
+			d["request_cid"] = rc.RequestCID
+			d["result_cid"] = rc.ResultCID
+			d["completed_day"] = rc.CompletedDay
+		}
+		if cid, err := w.CID(); err == nil {
 			d["receipt_cid"] = cid
 		}
 	}

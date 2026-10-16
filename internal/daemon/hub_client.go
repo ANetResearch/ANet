@@ -10,7 +10,6 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -279,32 +278,6 @@ func (d *Daemon) PublishProfile(ctx context.Context, hubURL, summary, readme str
 		return err
 	}
 	return d.hubSigned(ctx, hubURL, http.MethodPost, "/profile", relayauth.ActionProfile, body, nil)
-}
-
-// UploadReview sends the provider-signed receipt and this agent's signed review for a completed
-// outbound interaction to the Hub, which verifies both signatures and that the review is anchored to
-// the receipt. No task content is sent: the request TaskDoc and the deliverable stay with the two
-// parties (A2A-DESIGN §9, row 评价), and the hub reports the content binding of every review as
-// UNVERIFIED.
-func (d *Daemon) UploadReview(ctx context.Context, hubURL, interactionID string) error {
-	if d.ix == nil {
-		return fmt.Errorf("anet: interactions store unavailable")
-	}
-	ix, err := d.ix.Get(interactionID)
-	if err != nil {
-		return err
-	}
-	if len(ix.Receipt) == 0 {
-		return fmt.Errorf("anet: no receipt for %s (run `results` first)", interactionID)
-	}
-	if len(ix.Review) == 0 {
-		return fmt.Errorf("anet: no review for %s (run `review` first)", interactionID)
-	}
-	body := hubapi.UploadReviewRequest{
-		Receipt: base64.StdEncoding.EncodeToString(ix.Receipt),
-		Review:  base64.StdEncoding.EncodeToString(ix.Review),
-	}
-	return d.hubPost(ctx, hubURL, "/reviews", body, nil)
 }
 
 // hubPost POSTs a JSON body to hubURL+path without authentication, treats

@@ -377,7 +377,7 @@ func TestDiscardRecoveryInterrupted(t *testing.T) {
 		td := &tsir.TaskDoc{Version: tsir.VersionPair{Major: 1}, Tasks: []tsir.Task{{
 			Intent:   tsir.Intent{Summary: "s", Body: "b"},
 			Requires: []tsir.Require{{ID: filesCap, Type: RequireTypeCapability, Necessity: "must"}},
-			Contexts: []tsir.Context{{Key: "args", Value: string(argsJSON), Format: "json"}},
+			Contexts: append([]tsir.Context{{Key: "args", Value: string(argsJSON), Format: "json"}}, bindingContexts(t, req.AID())...),
 		}}}
 		if err := td.Sign(req.self); err != nil {
 			t.Fatal(err)
