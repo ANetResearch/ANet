@@ -291,3 +291,20 @@ func TestRejectedTasksSayTheirSentence(t *testing.T) {
 		})
 	}
 }
+
+// A stored wait far beyond what the protocol allows must not wrap around to
+// a negative duration and read as "0 seconds".
+func TestRejectedTaskWithHugeWaitDoesNotWrap(t *testing.T) {
+	t.Setenv("LC_ALL", "C")
+	st := openStore(t)
+	const ix = "ix_huge"
+	must(t, st.Create(interactions.New{ID: ix, Role: interactions.RoleOutbound, PeerAID: peer, Goal: "g", ContextID: "c"}))
+	msg(t, st, ix, self, interactions.MsgText, "g", "m1", nil)
+	must(t, st.Finish(ix, interactions.Finish{State: interactions.StateRejected, Verified: interactions.VerificationUnknown,
+		Meta: []byte(`{"anet.reason":"busy","anet.retry_after_ms":9000000000000000}`)}, interactions.CausePeerEnded))
+	task, err := a2ashape.ProjectStored(st, ix, a2ashape.Options{SelfAID: self})
+	must(t, err)
+	if got := firstText(contract(t, task)); strings.Contains(got, " 0 second") || strings.Contains(got, "later") {
+		t.Errorf("wrapped wait: %q", got)
+	}
+}

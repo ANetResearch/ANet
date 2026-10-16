@@ -22,6 +22,7 @@ package a2ashape
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 	"unicode"
@@ -87,7 +88,9 @@ func (p *projector) endText(reason string, retryMS any) string {
 		args["aid"] = p.opt.SelfAID
 	}
 	if ms := wholeMS(retryMS); ms > 0 {
-		args["retry"] = time.Duration(ms) * time.Millisecond
+		// A stored value is clamped when written, but a Duration that
+		// wrapped around would say "0 seconds": cap it before scaling.
+		args["retry"] = time.Duration(min(ms, int64(math.MaxInt64/int64(time.Millisecond)))) * time.Millisecond
 	}
 	return Sentence(reason, Lang(), args)
 }
