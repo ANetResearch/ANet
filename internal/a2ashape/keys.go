@@ -82,6 +82,11 @@ const (
 	// next_kind is command. The CLI prints it on its "→" line; it never
 	// guesses a variant itself.
 	KeyNext = "anet.next"
+	// KeySpendCheck is the live forecast of who can pay the quote a task of
+	// this node's waits on (CUX-S3, core §2.13): a SpendCheck. It is on the
+	// operator's clients' view of a task whose pay_state is required, never
+	// on one for a local backend, and never travels to a peer.
+	KeySpendCheck = "anet.spend_check"
 	// KeyDeduplicated marks the answer to a local client's retry of a
 	// message it sent: the task its first attempt made, and nothing was
 	// sent again (correctness-ux CUX-D3). Its value is true; it is on that

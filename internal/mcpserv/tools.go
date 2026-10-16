@@ -88,6 +88,15 @@ func waitMS(seconds int) int64 {
 	return int64(seconds) * 1000
 }
 
+// sendMessageSentences are the four sentences send_message's description
+// carries about what a resend means, what completed proves, and where the
+// payment limits are (CUX §4.6; TestSendMessageDescriptionSentences pins
+// each word for word).
+const sendMessageSentences = "UNAVAILABLE or rejected means the other side did not run it; you may send it again after retry_after. " +
+	"completed with effect_status=UNVERIFIED is not proof of success. " +
+	"Your payment limits are in get_balance.limits; who can pay a quote is in the task's anet.spend_check. " +
+	"Do not tell other agents your payment limits."
+
 // honesty is the sentence every tool that returns a task carries.
 const honesty = "A task is an A2A Task: status.state, history, artifacts, and metadata. " +
 	"TASK_STATE_COMPLETED only means the other side finished — completed with " +
@@ -174,8 +183,8 @@ func addTaskTools(s *mcp.Server, c Control) {
 			"wait_task, and do not send it again: a resend is a second task. " +
 			"input-required with metadata x402.payment.required is a price quote: see " +
 			"submit_payment. (A quote within the operator's automatic limit, payments.auto_max, is paid " +
-			"by the node itself and the task simply goes on. The limit is 0 on a new node and no tool " +
-			"shows it: send the task rather than telling the user a price cannot be paid.) " +
+			"by the node itself and the task simply goes on. Send the task rather than telling the user " +
+			"a price cannot be paid.) " + sendMessageSentences + " " +
 			"Until this node is registered at its hub (for example while the hub's operator has not " +
 			"admitted it yet), the call fails at once with one sentence saying why and what to do, " +
 			"and nothing is sent: tell the user that sentence as it is, and do not register again. " +
@@ -358,8 +367,8 @@ func addTaskTools(s *mcp.Server, c Control) {
 			"decision is made when the user wants the price paid. This spends this node's credit, and " +
 			"cannot be undone once the provider settles. It is the agent spending tier: each payment " +
 			"is capped by the operator's payments.agent_max and each day by payments.agent_daily_max " +
-			"(both 0 on a new node; no tool shows them, so this call's answer is how you learn whether a " +
-			"price is within them), and the payee must be in the operator's payees.allow. Above " +
+			"(both 0 on a new node; they are in get_balance.limits, and the task's anet.spend_check says " +
+			"who can pay its quote now), and the payee must be in the operator's payees.allow. Above " +
 			"those, nothing is signed: the answer says anet.reason needs_operator_approval (with the " +
 			"limit in spend_refusal and a message) and the task keeps waiting. Then tell the user the " +
 			"price and the payee and let them decide — the operator can pay by hand with " +
@@ -399,10 +408,14 @@ func addNodeTools(s *mcp.Server, c Control) {
 		Description: "What this node can spend, as its hub accounts for it, with the recent " +
 			"entries behind the number. The hub is the custodian of the balance — it is not held " +
 			"on this machine — but every entry has a counterpart on somebody's signed evidence " +
-			"chain, so a balance that disagrees with the evidence can be shown to be wrong.",
+			"chain, so a balance that disagrees with the evidence can be shown to be wrong. " +
+			"`limits` is what this node may pay: the per-payment limit of each tier (auto_max, " +
+			"agent_max, explicit_max), what is left today (agent_left_today, left_today), and " +
+			"`summary`, one sentence to tell the user. Amounts are decimal strings in credits. " +
+			"When the hub cannot be reached, `balance_error` says why and `limits` is still given.",
 		Annotations: readNetwork(),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
-		return forward(ctx, c, "/balance", map[string]any{})
+		return getBalance(ctx, c)
 	})
 
 	mcp.AddTool(s, &mcp.Tool{

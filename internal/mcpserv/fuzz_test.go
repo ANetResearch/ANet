@@ -92,7 +92,7 @@ func FuzzTools(f *testing.F) {
 			t.Fatal("no result and no error")
 		}
 		for _, c := range calls {
-			if !allowedPaths[c.path] {
+			if _, ok := allowedPaths[c.path]; !ok {
 				t.Fatalf("%s called %s, outside the allowlist", name, c.path)
 			}
 			if c.path == "/tasks/pay" {

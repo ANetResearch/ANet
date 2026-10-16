@@ -198,6 +198,10 @@ type Options struct {
 	// IdentityNote, when set, is anet.identity_note (KeyIdentityNote): the
 	// node's reminder that its identity has no recovery passphrase yet.
 	IdentityNote string
+	// SpendCheck, when set, is anet.spend_check (KeySpendCheck): the daemon
+	// worked it out from the limits and the cached signed price; the
+	// projection places it.
+	SpendCheck *SpendCheck
 	// ForBackend says the projection is for a local backend that answers
 	// the task on this node's behalf (modules.a2a.backends[], the
 	// auto-reply), not for the operator's own clients. It never carries
@@ -275,6 +279,9 @@ func Project(src Source, opt Options) Task {
 	t.History = p.history()
 	if opt.IdentityNote != "" && !opt.ForBackend {
 		t.Metadata[KeyIdentityNote] = opt.IdentityNote
+	}
+	if opt.SpendCheck != nil && !opt.ForBackend {
+		t.Metadata[KeySpendCheck] = opt.SpendCheck.Map()
 	}
 	if opt.Artifacts {
 		t.Artifacts = artifacts

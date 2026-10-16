@@ -40,11 +40,13 @@ import (
 	"log"
 	"math"
 	"sync"
+	"time"
 
 	"github.com/ANetResearch/ANetCore/ael"
 	"github.com/ANetResearch/ANetCore/coredet"
 	"github.com/ANetResearch/ANetCore/payment"
 
+	"github.com/ANetResearch/ANet/internal/a2ashape"
 	"github.com/ANetResearch/ANet/module"
 )
 
@@ -245,11 +247,15 @@ func (d *Daemon) readPayees() (map[string]bool, error) {
 	return readPeerFile(d.peerFile(payeesFile))
 }
 
-// AdmitSpend is the policy (see the file comment). On a yes it records the
-// payment before returning, under the same lock as the check.
-func (d *Daemon) AdmitSpend(payTo string, amount uint64, purpose string) error {
-	lim := d.config().Payments.limits()
-	refuse := func(r SpendRefusal, format string, args ...any) error {
+// evalSpend is the policy as a pure function (CUX-S1): whether a payment of
+// amount to payTo for purpose passes lim, given the payments admitted so far
+// (records, those before local midnight ignored), the payee list (payees,
+// or payeesErr when it cannot be read; both unused by a purpose the list
+// does not bind) and the time. nil is a yes. It writes nothing: AdmitSpend
+// records the payment after it, under the same lock, and CheckSpend does not.
+func evalSpend(lim SpendLimits, records []spendRecord, payees map[string]bool, payeesErr error, now time.Time,
+	payTo string, amount uint64, purpose string) *SpendRefusal {
+	refuse := func(r SpendRefusal, format string, args ...any) *SpendRefusal {
 		r.Purpose, r.Amount, r.PayTo, r.Detail = purpose, amount, payTo, fmt.Sprintf(format, args...)
 		return &r
 	}
@@ -265,14 +271,40 @@ func (d *Daemon) AdmitSpend(payTo string, amount uint64, purpose string) error {
 			"%d is above the %s limit of %d per payment", amount, purpose, single)
 	}
 	if purpose == module.PurposeTaskAuto || purpose == module.PurposeTaskAgent {
-		payees, err := d.readPayees()
-		if err != nil {
-			return refuse(SpendRefusal{Code: SpendPayeesUnread}, "the payee list %s cannot be read: %v", payeesFile, err)
+		if payeesErr != nil {
+			return refuse(SpendRefusal{Code: SpendPayeesUnread}, "the payee list %s cannot be read: %v", payeesFile, payeesErr)
 		}
 		if !payees[payTo] {
 			return refuse(SpendRefusal{Code: SpendPayeeNotAllowed}, "%s is not on the payee list %s", payTo, payeesFile)
 		}
 	}
+	start, _ := localDayBounds(now)
+	all, agent := spentSince(records, start.UnixMilli())
+	if countsAgentDaily(purpose) && spendSum(agent, amount) > lim.AgentDailyMax {
+		return refuse(SpendRefusal{Code: SpendOverAgentDaily, Spent: agent, Daily: lim.AgentDailyMax,
+			Need: spendSum(agent, amount)}, "%d more would bring agent payments today to %d, above %d",
+			amount, spendSum(agent, amount), lim.AgentDailyMax)
+	}
+	if spendSum(all, amount) > lim.DailyMax {
+		return refuse(SpendRefusal{Code: SpendOverDaily, Spent: all, Daily: lim.DailyMax, Need: spendSum(all, amount)},
+			"%d more would bring payments today to %d, above %d", amount, spendSum(all, amount), lim.DailyMax)
+	}
+	return nil
+}
+
+// payeesFor reads the payee list when purpose is bound by it.
+func (d *Daemon) payeesFor(purpose string) (map[string]bool, error) {
+	if purpose == module.PurposeTaskAuto || purpose == module.PurposeTaskAgent {
+		return d.readPayees()
+	}
+	return nil, nil
+}
+
+// AdmitSpend is the policy (see the file comment). On a yes it records the
+// payment before returning, under the same lock as the check.
+func (d *Daemon) AdmitSpend(payTo string, amount uint64, purpose string) error {
+	lim := d.config().Payments.limits()
+	payees, perr := d.payeesFor(purpose)
 	b := &d.spend
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -287,18 +319,26 @@ func (d *Daemon) AdmitSpend(payTo string, amount uint64, purpose string) error {
 		}
 	}
 	b.records = kept
-	all, agent := spentSince(b.records, from)
-	if countsAgentDaily(purpose) && spendSum(agent, amount) > lim.AgentDailyMax {
-		return refuse(SpendRefusal{Code: SpendOverAgentDaily, Spent: agent, Daily: lim.AgentDailyMax,
-			Need: spendSum(agent, amount)}, "%d more would bring agent payments today to %d, above %d",
-			amount, spendSum(agent, amount), lim.AgentDailyMax)
-	}
-	if spendSum(all, amount) > lim.DailyMax {
-		return refuse(SpendRefusal{Code: SpendOverDaily, Spent: all, Daily: lim.DailyMax, Need: spendSum(all, amount)},
-			"%d more would bring payments today to %d, above %d", amount, spendSum(all, amount), lim.DailyMax)
+	if r := evalSpend(lim, b.records, payees, perr, now, payTo, amount, purpose); r != nil {
+		return r
 	}
 	b.records = append(b.records, spendRecord{at: now.UnixMilli(), amount: amount, purpose: purpose})
 	return nil
+}
+
+// CheckSpend is AdmitSpend without the admitting (CUX-S1): the refusal the
+// payment would meet now, nil when it would pass. It copies the records
+// under the lock and judges them outside it; it writes no record and no
+// evidence.
+func (d *Daemon) CheckSpend(payTo string, amount uint64, purpose string) *SpendRefusal {
+	lim := d.config().Payments.limits()
+	payees, perr := d.payeesFor(purpose)
+	b := &d.spend
+	b.mu.Lock()
+	d.loadSpendLocked()
+	records := append([]spendRecord(nil), b.records...)
+	b.mu.Unlock()
+	return evalSpend(lim, records, payees, perr, d.now(), payTo, amount, purpose)
 }
 
 // AdmitSpend implements module.PaymentSeam.
@@ -395,6 +435,19 @@ type SpendStatus struct {
 	// read, which PayeesError then says.
 	Payees      uint64 `json:"payees"`
 	PayeesError string `json:"payees_error,omitempty"`
+}
+
+// LimitsSummary is the one sentence that states the limits at a glance (ux
+// D5): limits_summary, or its .off variant while the automatic and the agent
+// tier are both off. The CLI, MCP's get_balance.limits.summary and
+// /payments/status.summary carry this same sentence.
+func (st SpendStatus) LimitsSummary(lang a2ashape.Language) string {
+	key := "limits_summary"
+	if st.AutoMax == 0 && st.AgentMax == 0 {
+		key += ".off"
+	}
+	return a2ashape.Sentence(key, lang, a2ashape.Args{"auto_max": st.AutoMax, "agent_max": st.AgentMax,
+		"agent_left": st.AgentLeftToday, "explicit_max": st.ExplicitMax, "left": st.LeftToday, "n": st.Payees})
 }
 
 // tierLeft is what a tier may still pay today (HPP §0.3).
