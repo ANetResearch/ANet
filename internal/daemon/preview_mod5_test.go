@@ -40,6 +40,7 @@ func turnPreviewOff(t *testing.T, d *Daemon) {
 // not answered, on an inbound text task that has not ended, while this
 // node's stream_preview is on; the outbox is not touched.
 func TestPreviewSendFrameEnforces(t *testing.T) {
+	needPreviewModule(t)
 	req, prov, co, clk, id, log := previewPair(t, previewModeOn)
 	_ = req
 	seam := previewSeam{prov}
@@ -97,11 +98,12 @@ func TestPreviewSendFrameEnforces(t *testing.T) {
 // MOD-5 (1), mutation mpv-k2: the facts come before the Previewer is
 // asked; a frame that fails them never reaches it.
 func TestPreviewArrivedChecksFactsFirst(t *testing.T) {
+	needPreviewModule(t)
 	req, prov, co, clk, id, _ := previewPair(t, previewModeOn)
 	spy := &spyPreviewer{arriveAs: true}
 	req.setPreviewer(spy)
 	answers := lastOwnText(t, req, id)
-	co.offer(id, "first", "", previewModeOn)
+	offerAs(co, id, "first", "", previewModeOn)
 	// A frame for a round it does not answer.
 	env := craftPreview(t, prov, req, id, previewFrameMsg("not-the-round", clk.now(), "x"), nil)
 	if r := receive(t, req, env); taken(r) || spy.arrived != 0 {
@@ -123,6 +125,7 @@ func TestPreviewArrivedChecksFactsFirst(t *testing.T) {
 // kernel; a value that is no mode is no request, and the Previewer is not
 // told of a round.
 func TestPreviewModeNormalizedInKernel(t *testing.T) {
+	needPreviewModule(t)
 	req, prov, _, _ := quietPairWithPreviewSpy(t)
 	spy := prov.previews().(*spyPreviewer)
 	id := previewDelegation(t, req, prov, "future")
@@ -200,6 +203,7 @@ func TestNoPreviewNeverRequests(t *testing.T) {
 // MOD-5 (2), TestNoPreviewCards: the card contributions, with stream_preview
 // on in the file, never declare the extension while the module is off.
 func TestNoPreviewCards(t *testing.T) {
+	needPreviewModule(t)
 	d := newTestDaemon(t, "", true)
 	d.streamPreviewFn = func() string { return "on" }
 	if exts, _ := d.cardContributions(module.CardContext{}); len(exts) != 1 {
@@ -246,6 +250,7 @@ func TestStreamPreviewNeedsModule(t *testing.T) {
 // With the module available the Previewer is the node's, and the seam is
 // granted to the preview Host alone.
 func TestPreviewHostIsGrantedTheSeam(t *testing.T) {
+	needPreviewModule(t)
 	d := newTestDaemon(t, "", true)
 	h, _ := newModuleHost(d, "preview")
 	ph, ok := h.(module.PreviewHost)

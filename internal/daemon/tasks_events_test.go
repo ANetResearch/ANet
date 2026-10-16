@@ -94,6 +94,7 @@ func nextEvent(t *testing.T, ch <-chan sseEvent, name string) sseEvent {
 }
 
 func TestTasksEventsStreamsTaskPreviewAndDelivery(t *testing.T) {
+	needPreviewModule(t)
 	_, req, prov := quietPair(t)
 	clk := frozenClock(req)
 	id := previewDelegation(t, req, prov, previewModeWithReasoning)
@@ -228,6 +229,7 @@ func TestTasksEventsNotInSessionOrMCPRoutes(t *testing.T) {
 // artifact and is not final; one that comes late is given the current
 // preview after the snapshot; reasoning is never in it.
 func TestWatchPreviewIsForOptedInWatchersOnly(t *testing.T) {
+	needPreviewModule(t)
 	_, req, prov := quietPair(t)
 	clk := frozenClock(req)
 	id := previewDelegation(t, req, prov, previewModeWithReasoning)

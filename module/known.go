@@ -53,7 +53,7 @@ const (
 	GrantSensitivePaths  Grant = "SensitivePathsHost"
 
 	// The interfaces of the first three are in turn.go (MOD-3); PreviewHost
-	// arrives with MOD-5.
+	// is in preview.go (MOD-5).
 	GrantTurnHost         Grant = "TurnHost"
 	GrantOwnEvidenceHost  Grant = "OwnEvidenceHost"
 	GrantModuleConfigHost Grant = "ModuleConfigHost"
@@ -66,8 +66,8 @@ type Info struct {
 	// the word in `anet version`, in `without`, in `--without`.
 	Name string
 	// Tag is the build tag that removes (`no_<name>`) or adds (`shell`) the
-	// module; empty while the module has no tag yet (autoreply and preview
-	// until they move out, console until v0.3.x).
+	// module; empty while the module has no tag yet (autoreply until it moves
+	// out, console until v0.3.x).
 	Tag string
 	// Additive is true for a module a tag adds (shell); every other module
 	// is in the default build and a tag removes it.
@@ -211,7 +211,7 @@ var known = []Info{
 	{Name: "p2p", Tag: "no_p2p", Packages: []string{"module/p2p"}, ConfigKey: "modules.p2p",
 		Zh: "直连", En: "direct delivery",
 		Grants: []Grant{GrantTransportHost}, AbsenceReady: true},
-	{Name: "preview", ConfigKey: "stream_preview", Zh: "预览", En: "preview",
+	{Name: "preview", Tag: "no_preview", Packages: []string{"module/preview"}, ConfigKey: "stream_preview", Zh: "预览", En: "preview",
 		Routes:      []string{"POST /preview", "POST /tasks/preview"},
 		CLICommands: []string{"preview"},
 		DoctorIDs:   []string{"preview"},

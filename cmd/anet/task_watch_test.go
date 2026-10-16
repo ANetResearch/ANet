@@ -3,9 +3,12 @@ package main
 import (
 	"encoding/json"
 	"io"
+	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/ANetResearch/ANet/module"
 )
 
 // UX-10: `anet task watch` and `anet delegate --watch` read /tasks/events;
@@ -122,6 +125,9 @@ func TestTaskWatchRefusals(t *testing.T) {
 }
 
 func TestDelegateWatchSendsThenWatches(t *testing.T) {
+	if !slices.Contains(module.Compiled(), "preview") {
+		t.Skip("the preview module is not in this build (-tags no_preview): --watch asks for no preview")
+	}
 	h := newCLIHome(t, "C")
 	sc := newScriptedControl(t, h, func(path string, _ map[string]any) (int, string) {
 		switch path {
@@ -154,6 +160,37 @@ func TestDelegateWatchSendsThenWatches(t *testing.T) {
 	}
 	if _, ok := sc2.lastBody("/tasks/send")["preview"]; ok {
 		t.Error("a plain delegate asked for previews")
+	}
+}
+
+// MOD-6, -tags no_preview: the watch asks for no preview, waits for the final
+// answer as ever, and says once on stderr that there is no preview.
+func TestDelegateWatchWithoutPreviewModule(t *testing.T) {
+	if slices.Contains(module.Compiled(), "preview") {
+		t.Skip("the preview module is in this build")
+	}
+	h := newCLIHome(t, "C")
+	sc := newScriptedControl(t, h, func(path string, _ map[string]any) (int, string) {
+		switch path {
+		case "/tasks/send":
+			return 200, watchTaskJSON("TASK_STATE_WORKING", "", "")
+		case "/tasks/events":
+			return 200, sse([2]string{"task", watchTaskJSON("TASK_STATE_COMPLETED", "", "hello")})
+		}
+		return 404, `{"error":"no such route"}`
+	})
+	stdout, stderr, code := runCLIWithin(t, h, 30*time.Second, []string{"delegate", wholeAID, "--watch", "say", "hello"}, "LC_ALL=C", "LANG=C")
+	if code != 0 {
+		t.Fatalf("exit %d, stderr %q", code, stderr)
+	}
+	if _, ok := sc.lastBody("/tasks/send")["preview"]; ok {
+		t.Error("the send asked for a preview of a build without previews")
+	}
+	if strings.Count(stderr, "does not include the preview module") != 1 {
+		t.Errorf("stderr should say once that there is no preview module, got %q", stderr)
+	}
+	if !strings.Contains(stdout, "TASK_STATE_COMPLETED") {
+		t.Errorf("the final answer was not printed: %q", stdout)
 	}
 }
 

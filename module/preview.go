@@ -137,6 +137,13 @@ type PreviewSeam interface {
 	// round, the reasoning gate, ValidatePreview) and sends nothing when
 	// one fails. The frame is not queued, stored or retried.
 	SendFrame(ctx context.Context, ix string, o PreviewOut) PreviewSendResult
+	// NowMS is the node's clock (unix ms), the one frames and stream_seq
+	// are taken from.
+	NowMS() uint64
+	// Dropped counts a frame the implementation did not send (over the
+	// node's frames per second, CUX-P6); the count is the node's preview-
+	// dropped counter and carries no task or text.
+	Dropped()
 	// Published says task ix has a new preview to show. The kernel
 	// publishes an event that carries no text: a subscriber reads the
 	// preview with Previewer.Current.

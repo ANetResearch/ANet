@@ -34,16 +34,16 @@ cd "$(dirname "$0")/.."
 export CGO_ENABLED=0
 
 # In by default, removed with -tags no_<m>.
-SUBTRACTIVE="anetlink p2p blackboard org cas service mcp x402 a2a"
+SUBTRACTIVE="anetlink p2p blackboard org cas service mcp x402 a2a preview"
 # Absent by default, added with -tags <m>. shell executes commands on the
 # host (A2A-DESIGN §16): the build nobody asked about is the one that must
 # lack it.
 ADDITIVE="shell"
 # In the name table (module/known.go) with no tag: build.sh --without says
-# build_tag_pending for these. autoreply and preview get a tag when they move
-# out (MOD-4, MOD-6), console in v0.3.x; each then moves from here to
-# SUBTRACTIVE. A test keeps both lists equal to the table.
-PENDING="autoreply preview console"
+# build_tag_pending for these. autoreply gets a tag when it moves out (MOD-4),
+# console in v0.3.x; each then moves from here to SUBTRACTIVE (preview did, with
+# MOD-6). A test keeps both lists equal to the table.
+PENDING="autoreply console"
 
 # pattern <m> — what the module's code is called in `go tool nm` output.
 #
@@ -80,8 +80,8 @@ intree() {
 # recipes — the self-build recipes (min, standard, paid, agent, p2p, full), the
 # one place they are written down. Each is "the modules it keeps"; its tag
 # set is every other subtractive module as no_<m>, in the alphabetical order
-# of the names, so that a module added to SUBTRACTIVE (no_autoreply and
-# no_preview once they have tags) is removed by every recipe that does not
+# of the names, so that a module added to SUBTRACTIVE (no_autoreply
+# once it has a tag) is removed by every recipe that does not
 # name it. min keeps nothing, full keeps everything (an empty tag set). They
 # are examples for `build.sh --without`, not release variants.
 # docs/DISTRIBUTIONS-zh.md, scripts/onboard.sh and the pluggable job of

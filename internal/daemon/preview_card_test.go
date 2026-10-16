@@ -13,6 +13,7 @@ import (
 // stream_preview is not off — the same for on and with_reasoning, not
 // required, no params — and a fresh install does not.
 func TestPublicCardPreviewDeclaration(t *testing.T) {
+	needPreviewModule(t)
 	h := newFakeHub(t)
 	d := lampNode(t)
 	extOf := func() []map[string]any {
@@ -65,6 +66,7 @@ func TestPublicCardPreviewDeclaration(t *testing.T) {
 // The declaration is in the extended cards too (it is made in
 // cardContributions, which both use).
 func TestPreviewDeclarationInContributions(t *testing.T) {
+	needPreviewModule(t)
 	d := lampNode(t)
 	cc := module.CardContext{AID: d.AID(), Skills: []string{lampCap}}
 	if exts, _ := d.cardContributions(cc); len(exts) != 0 {
@@ -94,6 +96,7 @@ func TestStreamPreviewChangeRepublishesOnlyAcrossOff(t *testing.T) {
 // the round (anet.preview_mode on the message it sends); off and a
 // capability call do not; an unknown value is refused.
 func TestTasksSendPreviewField(t *testing.T) {
+	needPreviewModule(t)
 	_, req, prov := registeredPair(t)
 	p := newPlaneFor(t, req, "tok")
 	send := func(body string) (int, map[string]any) {
