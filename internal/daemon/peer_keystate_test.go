@@ -292,6 +292,31 @@ func TestApproveRejectsAfterPeerEmergencyRotation(t *testing.T) {
 	}
 }
 
+// TestApprovalJudgesTheMessageKeyStateToo: the key state the held message
+// was signed under is judged by itself (KEL D-25), not only the TaskDoc's
+// envelope; a delegation without an envelope has nothing else.
+func TestApprovalJudgesTheMessageKeyStateToo(t *testing.T) {
+	_, _, prov := registeredPair(t)
+	setPolicy(t, prov, PolicyApprove)
+	s := newStranger(t)
+	const ix = "ix_held_message_state"
+	env := craft(t, s, prov, seal.TypeDelegate, ix, delegateBody(t, s.ctrl, ix, "please", ""), nil)
+	if r := receive(t, prov, env); r.class != rxAccepted {
+		t.Fatalf("held: %+v", r)
+	}
+	item, err := prov.ix.GetPending(ix)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, _, _, err := prov.reverifyPending(item); err != nil {
+		t.Fatalf("the untouched item: %v", err)
+	}
+	item.KeyState = 99
+	if _, _, _, _, _, err := prov.reverifyPending(item); err == nil {
+		t.Fatal("a message key state beyond the KEL was accepted")
+	}
+}
+
 // decodeHubKELs reads every /hub/kels answer without panicking, and what it
 // returns replays to the AID it is listed under.
 func FuzzDecodeHubKELs(f *testing.F) {
