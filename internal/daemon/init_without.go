@@ -128,6 +128,9 @@ func InitWithout(l Layout, add, remove []string) (InitReport, WithoutChange, err
 		return rep, ch, err
 	}
 	rep.Wrote = true
+	// The Kept list was made before this edit: it would show the value from
+	// before the change next to the line that tells the new one.
+	rep.Kept = slices.DeleteFunc(rep.Kept, func(k InitChange) bool { return k.Key == "without" })
 	for _, n := range ch.Added {
 		rep.Changes = append(rep.Changes, InitChange{Key: "without", Action: "added", Value: n})
 	}
