@@ -83,6 +83,7 @@ func helpSections() []helpSection {
 			{"autoreply set --backend openai --api-base URL --model M --api-key-stdin", "用 OpenAI 兼容的接口自动答复（key 从标准输入读入）", "answer tasks with an OpenAI-compatible API (the key is read from stdin)", false},
 			{"autoreply set --egress-allow host[,host…]", "沙箱可连接的主机；增加主机要在终端确认", "the hosts the sandbox may reach; adding one asks on the terminal", false},
 			{"autoreply show|off|test [\"q\"]", "查看、关闭或在本机试一次自动答复", "show, turn off, or try the auto-reply on this machine", false},
+			{"preview [off|on|with_reasoning]", "要预览的请求方能在你写答复时看到片段（缺省关）；with_reasoning 同时给推理，要在自己的终端确认", "let requesters that ask see your reply as you write it (off unless you turn it on); with_reasoning also gives the reasoning and is confirmed in your own terminal", false},
 		}},
 		{"付款", "Payments", []helpEntry{
 			{"pay <task> [--option N] [--reject]", "付（或 --reject 拒付）对方的报价；要在终端确认", "pay (or --reject) a quote; asks on the terminal", false},

@@ -20,17 +20,16 @@ package daemon
 //     no cursor/state file is needed.
 //   - Runaway guard: max_auto_replies caps how many messages we auto-send per interaction; at the cap we
 //     propose `end` instead of replying, so two autopilot agents can't ping-pong (and burn tokens) forever.
-//   - Input contract: if the input does not fit (e.g. a vision-only service got no image and
-//     require_image is set), the loop replies with the configured usage hint INSTEAD of calling the
-//     backend — the requester immediately learns how to use this service.
-//   - Backend failures are reported to the requester as a normal reply (error_reply + detail) and the
-//     loop moves on; since that reply is ours, there is no retry storm.
+//   - Backend failures are reported to the requester as a status, input-required with the reason
+//     backend_failed and no text (UX-R3); the requester renders the sentence itself. The turn is not
+//     tried again until the peer writes, so there is no retry storm.
 //   - End negotiation: when the peer proposes ending, the loop accepts — the daemon then issues the
 //     signed receipt and the requester can review us.
 //   - The autoReplier seam is deliberately tiny so future backends (e.g. "exec": spawn a local coding
 //     agent like cursor/claude to compose the reply) plug in without touching the loop.
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/base64"
@@ -49,17 +48,12 @@ import (
 )
 
 const (
-	autoReplyDefaultInterval   = 5 * time.Second
+	// autoReplyInterval is how often the loop scans for owed turns. A constant: there is nothing to tune.
+	autoReplyInterval          = 5 * time.Second
 	autoReplyDefaultMaxHistory = 20
 	autoReplyDefaultAPITimeout = 180 * time.Second
-	// autoReplyDefaultMaxReplies caps how many messages WE auto-send in one interaction before proposing
-	// `end` instead of replying again. This is the runaway guard: two autopilot agents talking to each
-	// other (I delegate to you, you reply, I reply, …) would otherwise ping-pong forever and burn tokens.
-	autoReplyDefaultMaxReplies = 30
 
 	autoReplyDefaultSystemPrompt = "You are a helpful assistant serving requests delegated over AgentNetwork. Reply in the language of the request."
-	autoReplyDefaultUsageHint    = "你好！这个 agent 是一个自动化服务，我目前无法处理这条输入。请查看我在 Hub 上的自述（readme）了解正确的使用方式。"
-	autoReplyDefaultErrorReply   = "抱歉，我这边的服务暂时出错了，请稍后重试。"
 
 	// autoReplyDoneSentinel is the marker a completion-aware backend appends to its reply when the task is
 	// finished and no further exchange is needed. The loop strips it, sends whatever text remains, then
@@ -67,6 +61,14 @@ const (
 	// until the runaway cap. Both roles may emit it; the peer's autopilot auto-accepts the end proposal.
 	autoReplyDoneSentinel = "<<ANET_TASK_DONE>>"
 )
+
+// autoReplyMaxReplies is how many messages WE auto-send in one interaction before proposing `end`
+// instead of replying again: the runaway guard, a constant in effect. A variable only so a test can
+// lower it.
+//
+// This is the runaway guard: two autopilot agents talking to each other (I delegate to you, you reply,
+// I reply, …) would otherwise ping-pong forever and burn tokens.
+var autoReplyMaxReplies = 30
 
 // replyContext tells a completion-aware backend WHERE it stands in the interaction so it can decide
 // whether the task is finished: our role (are we the requester who set the goal, or the provider serving
@@ -79,6 +81,10 @@ type replyContext struct {
 	// to deliver here (instead of calling `anet message` itself); the daemon sends them WITH the reply
 	// text as one message and owns end negotiation. Empty if the daemon could not create it.
 	Outbox string
+	// Preview, when set, is where a backend that writes its answer piece by piece gives what it has
+	// written so far — the whole text and the whole reasoning, not a delta (CUX-P5, previewOffer). It is
+	// set only when CUX-P4 holds for the turn; a backend that cannot stream ignores it.
+	Preview func(text, reasoning string)
 }
 
 // stripDoneSentinel reports whether reply carries the completion marker and returns the reply with the
@@ -149,10 +155,7 @@ func (d *Daemon) startAutoReply(cfg AutoReplyConfig) {
 	if cfg.Backend == "exec" {
 		d.sweepSandboxLeftovers()
 	}
-	interval := autoReplyDefaultInterval
-	if cfg.PollIntervalSeconds > 0 {
-		interval = time.Duration(cfg.PollIntervalSeconds) * time.Second
-	}
+	interval := autoReplyInterval
 	backend := cfg.Backend
 	if backend == "" {
 		backend = "openai"
@@ -399,7 +402,7 @@ func (d *Daemon) autoReplyThread(ctx context.Context, cfg AutoReplyConfig, repli
 		return nil // this turn already failed closed; wait for a new message
 	}
 
-	turns, hasImage, err := d.conversationTurns(th, cfg.MaxHistory)
+	turns, err := d.conversationTurns(th, cfg.MaxHistory)
 	if err != nil {
 		return err
 	}
@@ -410,11 +413,8 @@ func (d *Daemon) autoReplyThread(ctx context.Context, cfg AutoReplyConfig, repli
 	// Runaway guard: cap how many times we auto-send in one interaction. Without this, two autopilot
 	// agents (each auto-replying in both directions) would ping-pong forever and burn tokens. At the cap
 	// we propose `end` once instead of replying, so the interaction concludes gracefully (a peer autopilot
-	// accepts the end; a human can review the transcript). See autoReplyDefaultMaxReplies.
-	maxReplies := cfg.MaxAutoReplies
-	if maxReplies <= 0 {
-		maxReplies = autoReplyDefaultMaxReplies
-	}
+	// accepts the end; a human can review the transcript). See autoReplyMaxReplies.
+	maxReplies := autoReplyMaxReplies
 	ourReplies := 0
 	for _, m := range th.Messages {
 		if m.Kind == interactions.MsgText && m.From == "me" && (m.Body != "" || len(m.Attachments) > 0) &&
@@ -433,17 +433,6 @@ func (d *Daemon) autoReplyThread(ctx context.Context, cfg AutoReplyConfig, repli
 			log.Printf("anet: auto-reply %s: reached auto-reply cap (%d) — proposed end", th.InteractionID, maxReplies)
 		}
 		return nil
-	}
-
-	// Input contract: a vision-only service without any image replies with usage instructions instead of
-	// burning a backend call it cannot serve.
-	if cfg.RequireImage && !hasImage {
-		hint := cfg.UsageHint
-		if hint == "" {
-			hint = autoReplyDefaultUsageHint
-		}
-		log.Printf("anet: auto-reply %s: input misses the contract (no image) — sending usage hint", th.InteractionID)
-		return d.sendAutoReply(ctx, th.InteractionID, hint)
 	}
 
 	if !gate.counted {
@@ -495,6 +484,12 @@ func (d *Daemon) replyTurn(ctx context.Context, cfg AutoReplyConfig, replier aut
 
 	rctx, cancel := context.WithTimeout(ctx, timeout)
 	rc := replyContext{Role: th.Role, Goal: th.Goal, InteractionID: th.InteractionID, Outbox: outbox}
+	if th.Role == string(interactions.RoleInbound) && gate.mode != modeSandbox {
+		// CUX-P5: the openai backend streams when this round is previewed (CUX-P4), and only then.
+		if _, ok := d.previewWanted(th.InteractionID); ok {
+			rc.Preview = func(text, reasoning string) { d.previewOffer(th.InteractionID, text, reasoning) }
+		}
+	}
 	announced := d.announceSlowTurn(th)
 	reply, run, err := d.invokeReplier(rctx, cfg, replier, gate, th, rc, turns)
 	cancel()
@@ -515,10 +510,7 @@ func (d *Daemon) replyTurn(ctx context.Context, cfg AutoReplyConfig, replier aut
 		return d.refuseTurn(ctx, th, run, 0)
 	}
 	if err != nil {
-		// Report the failure to the requester as a normal message. That reply is ours, so the loop will
-		// not retry this turn — no error storm; the requester can simply ask again. The peer gets the
-		// configured error reply and a reference id; the detail goes to the local log only.
-		return d.sendAutoReply(ctx, th.InteractionID, autoReplyFailureReply(cfg, th.InteractionID, err))
+		return d.backendFailed(ctx, th, err)
 	}
 
 	// Completion-aware backends append autoReplyDoneSentinel when the task is finished. Send whatever text
@@ -527,7 +519,7 @@ func (d *Daemon) replyTurn(ctx context.Context, cfg AutoReplyConfig, replier aut
 	reply, done := stripDoneSentinel(reply)
 	atts, oerr := collectOutbox(outbox)
 	if oerr != nil {
-		return d.sendAutoReply(ctx, th.InteractionID, autoReplyFailureReply(cfg, th.InteractionID, fmt.Errorf("outbox: %w", oerr)))
+		return d.backendFailed(ctx, th, fmt.Errorf("outbox: %w", oerr))
 	}
 	// A provider's reply that completes the task goes in the result, one
 	// write with the completion (completeWithReply, CUX-R4, R5).
@@ -566,23 +558,28 @@ func (d *Daemon) replyTurn(ctx context.Context, cfg AutoReplyConfig, replier aut
 	return nil
 }
 
-func (d *Daemon) sendAutoReply(ctx context.Context, interactionID, body string) error {
-	return d.sendAutoReplyAtts(ctx, interactionID, body, nil)
-}
-
-// sendAutoReplyAtts sends the auto-reply text plus any local files the backend produced (outbox) as a
-// single relayed message.
-func (d *Daemon) sendAutoReplyAtts(ctx context.Context, interactionID, body string, attachPaths []string) error {
-	sctx, cancel := context.WithTimeout(ctx, relayCallTimeout)
+// backendFailed is how a turn whose backend failed ends (UX-R3): an inbound task is answered
+// status{input-required} with anet.reason backend_failed and no text, which the requester renders in its
+// own words, and the task stays open for another try; an outbound one (this node is the requester) has
+// nobody to tell. The failure's detail — agent stderr, paths, the model API's answer — goes to the local
+// log only; the peer never gets it. The turn is not tried again until the peer writes, so a backend that
+// keeps failing costs one call per message, not one per scan.
+func (d *Daemon) backendFailed(ctx context.Context, th Thread, err error) error {
+	log.Printf("anet: auto-reply %s: backend failed: %v", th.InteractionID, err)
+	d.sbRefused.holdFailed(th)
+	if th.Role != string(interactions.RoleInbound) {
+		return nil
+	}
+	sctx, cancel := context.WithTimeout(ctx, hubCallTimeout)
 	defer cancel()
-	return d.SendMessage(sctx, interactionID, body, attachPaths)
+	return d.SendStatus(sctx, th.InteractionID, interactions.StateInputRequired, "",
+		map[string]any{a2ashape.KeyReason: reasonBackendFailed})
 }
 
 // conversationTurns renders a thread's text messages as backend-agnostic chat turns (peer → user, us →
-// assistant), loading image attachment bytes from the local store onto their user turns. hasImage reports
-// whether ANY peer turn carried an image (drives the require_image contract). maxHistory caps how many
+// assistant), loading image attachment bytes from the local store onto their user turns. maxHistory caps how many
 // trailing turns are kept (0 ⇒ default).
-func (d *Daemon) conversationTurns(th Thread, maxHistory int) (turns []chatTurn, hasImage bool, err error) {
+func (d *Daemon) conversationTurns(th Thread, maxHistory int) (turns []chatTurn, err error) {
 	if maxHistory <= 0 {
 		maxHistory = autoReplyDefaultMaxHistory
 	}
@@ -600,10 +597,9 @@ func (d *Daemon) conversationTurns(th Thread, maxHistory int) (turns []chatTurn,
 				}
 				_, mime, data, aerr := d.AttachmentBytes(th.InteractionID, a.CID)
 				if aerr != nil {
-					return nil, false, fmt.Errorf("load attachment %s: %w", a.CID, aerr)
+					return nil, fmt.Errorf("load attachment %s: %w", a.CID, aerr)
 				}
 				turn.Images = append(turn.Images, chatImage{Mime: mime, Data: data})
-				hasImage = true
 			}
 		}
 		if turn.Text == "" && len(turn.Images) == 0 {
@@ -614,7 +610,7 @@ func (d *Daemon) conversationTurns(th Thread, maxHistory int) (turns []chatTurn,
 	if len(turns) > maxHistory {
 		turns = turns[len(turns)-maxHistory:]
 	}
-	return turns, hasImage, nil
+	return turns, nil
 }
 
 // --- "openai" backend ---
@@ -626,7 +622,7 @@ type openAIReplier struct {
 	cfg AutoReplyConfig
 }
 
-func (r *openAIReplier) Reply(ctx context.Context, _ replyContext, turns []chatTurn) (string, error) {
+func (r *openAIReplier) Reply(ctx context.Context, rc replyContext, turns []chatTurn) (string, error) {
 	_, turns = boundConversation("", turns) // LEC AV-9, as for the exec backend
 	system := r.cfg.SystemPrompt
 	if system == "" {
@@ -650,7 +646,11 @@ func (r *openAIReplier) Reply(ctx context.Context, _ replyContext, turns []chatT
 		}
 		msgs = append(msgs, map[string]any{"role": t.Role, "content": parts})
 	}
-	body, err := json.Marshal(map[string]any{"model": r.cfg.Model, "messages": msgs})
+	req0 := map[string]any{"model": r.cfg.Model, "messages": msgs}
+	if rc.Preview != nil {
+		req0["stream"] = true // CUX-P5: asked only when a preview is wanted; otherwise the call is as ever
+	}
+	body, err := json.Marshal(req0)
 	if err != nil {
 		return "", err
 	}
@@ -668,6 +668,10 @@ func (r *openAIReplier) Reply(ctx context.Context, _ replyContext, turns []chatT
 		return "", err
 	}
 	defer resp.Body.Close()
+	if rc.Preview != nil && resp.StatusCode/100 == 2 && !strings.HasPrefix(resp.Header.Get("Content-Type"), "application/json") {
+		// One call, never repeated without stream: a failure here is a failed call (CUX-P5).
+		return readChatStream(resp.Body, rc.Preview)
+	}
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
 	if err != nil {
 		return "", err
@@ -859,14 +863,40 @@ type sandboxRefused struct {
 	mu    sync.Mutex
 	m     map[string]int             // interaction id -> message count at an outbound refusal
 	noted map[string]map[string]bool // interaction id -> the exits already logged and recorded
+	// failed: interaction id -> the peer's message count when its backend failed on the turn (UX-R3).
+	failed map[string]int
 }
 
-// before reports whether this turn of th was already turned away.
+// before reports whether this turn of th was already turned away, or its backend already failed on it.
 func (s *sandboxRefused) before(th Thread) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	n, ok := s.m[th.InteractionID]
-	return ok && n == len(th.Messages)
+	if n, ok := s.m[th.InteractionID]; ok && n == len(th.Messages) {
+		return true
+	}
+	n, ok := s.failed[th.InteractionID]
+	return ok && n == peerMessages(th)
+}
+
+// peerMessages is how many messages the peer has sent on th: a failed turn is tried again when it grows.
+func peerMessages(th Thread) int {
+	n := 0
+	for _, m := range th.Messages {
+		if m.From == "them" {
+			n++
+		}
+	}
+	return n
+}
+
+// holdFailed keeps the turn th, whose backend failed, from being tried again until the peer writes.
+func (s *sandboxRefused) holdFailed(th Thread) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.failed == nil {
+		s.failed = map[string]int{}
+	}
+	s.failed[th.InteractionID] = peerMessages(th)
 }
 
 // hold keeps the outbound turn th from being tried again until the peer writes.
@@ -908,6 +938,11 @@ func (s *sandboxRefused) prune(active map[string]bool) {
 	for ix := range s.noted {
 		if !active[ix] {
 			delete(s.noted, ix)
+		}
+	}
+	for ix := range s.failed {
+		if !active[ix] {
+			delete(s.failed, ix)
 		}
 	}
 }
@@ -1028,4 +1063,93 @@ func init() {
 		}
 		return checkWorkDir(c.AutoReply, "")
 	})
+}
+
+// --- streaming (CUX-P5) ---
+
+const (
+	// maxChatStream bounds what one streamed answer may hold, text and reasoning together, like the
+	// non-streamed answer's 8 MiB.
+	maxChatStream = 8 << 20
+	// maxSSELine bounds one line of the stream.
+	maxSSELine = 1 << 20
+	// previewOfferEvery is the least time between two offers to the coalescer while a stream is read; the
+	// last change is always offered when the stream ends or stops.
+	previewOfferEvery = 250 * time.Millisecond
+)
+
+// readChatStream reads an OpenAI-compatible SSE answer (data: lines, [DONE]; delta.content, and
+// delta.reasoning_content or delta.reasoning for the reasoning), gives what has accumulated to offer as
+// it grows, and returns the answer as the non-streamed call would have: the text, trimmed. A line that
+// does not parse is ignored; a stream that breaks or ends before [DONE] or a finish_reason, or that holds
+// no text, is an error.
+func readChatStream(body io.Reader, offer func(text, reasoning string)) (string, error) {
+	var text, reasoning strings.Builder
+	sc := bufio.NewScanner(io.LimitReader(body, maxChatStream+maxSSELine))
+	sc.Buffer(make([]byte, 0, 64<<10), maxSSELine)
+	var last time.Time
+	pending, finished := false, false
+	flush := func() {
+		offer(text.String(), reasoning.String())
+		last, pending = time.Now(), false
+	}
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		data, ok := strings.CutPrefix(line, "data:")
+		if !ok {
+			continue
+		}
+		data = strings.TrimSpace(data)
+		if data == "[DONE]" {
+			finished = true
+			break
+		}
+		var ev struct {
+			Choices []struct {
+				Delta struct {
+					Content          string `json:"content"`
+					ReasoningContent string `json:"reasoning_content"`
+					Reasoning        string `json:"reasoning"`
+				} `json:"delta"`
+				FinishReason *string `json:"finish_reason"`
+			} `json:"choices"`
+		}
+		if json.Unmarshal([]byte(data), &ev) != nil || len(ev.Choices) == 0 {
+			continue
+		}
+		if fr := ev.Choices[0].FinishReason; fr != nil && *fr != "" {
+			finished = true
+		}
+		d := ev.Choices[0].Delta
+		r := d.ReasoningContent
+		if r == "" {
+			r = d.Reasoning
+		}
+		if d.Content == "" && r == "" {
+			continue
+		}
+		if text.Len()+reasoning.Len()+len(d.Content)+len(r) > maxChatStream {
+			return "", fmt.Errorf("model API stream over the %d MiB limit", maxChatStream>>20)
+		}
+		text.WriteString(d.Content)
+		reasoning.WriteString(r)
+		pending = true
+		if time.Since(last) >= previewOfferEvery {
+			flush()
+		}
+	}
+	if err := sc.Err(); err != nil {
+		return "", fmt.Errorf("model API stream: %w", err)
+	}
+	if pending {
+		flush()
+	}
+	if !finished {
+		return "", fmt.Errorf("model API stream ended before it finished")
+	}
+	out := strings.TrimSpace(text.String())
+	if out == "" {
+		return "", fmt.Errorf("model API returned no content")
+	}
+	return out, nil
 }

@@ -713,16 +713,13 @@ func collectDoctor(layout daemon.Layout, env doctorEnv) (*doctorReport, error) {
 
 // removedConfigCheck is config.removed (ux §5.2, §2.3): each removed key in
 // config.json fails, as it stops the daemon, and ANET_INVITE in the
-// environment warns (it is ignored). Shown only when there is one. The keys
-// a work item still writes itself are left to it (daemon.RemovedSetting).
+// environment warns (it is ignored). Shown only when there is one.
 func removedConfigCheck(say func(id, status, key string, args a2ashape.Args), path string, env doctorEnv) {
 	if raw, err := os.ReadFile(path); err == nil {
 		found, _ := daemon.FindRemovedSettings(raw) // a file that does not parse fails the config check
 		for _, f := range found {
-			if f.Pending == "" {
-				r := daemon.RemovedSettingRefusal(f)
-				say("config.removed", stFail, r.Key, r.Args)
-			}
+			r := daemon.RemovedSettingRefusal(f)
+			say("config.removed", stFail, r.Key, r.Args)
 		}
 	}
 	if env.env(daemon.InviteEnv) != "" {

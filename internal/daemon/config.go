@@ -78,6 +78,13 @@ type Config struct {
 	// neither a number of days nor forever stops the daemon from starting
 	// (retention_invalid).
 	ContentRetention RetentionValue `json:"content_retention,omitempty"`
+	// StreamPreview is whether this node, as a provider, sends the requester
+	// a snapshot of its reply while it writes it (CUX §2.10, CUX-P4): "off"
+	// (the default), "on", or "with_reasoning", which also sends the
+	// reasoning to a requester that asks for it. A fresh config.json says
+	// "off"; a config without the key gets it. `anet preview` changes it;
+	// any other value stops the daemon from starting (config_invalid).
+	StreamPreview string `json:"stream_preview,omitempty"`
 }
 
 // AutoReplyConfig configures the daemon's built-in auto-reply loop (see autoreply.go). Backend selects
@@ -108,15 +115,9 @@ type AutoReplyConfig struct {
 	Command       string   `json:"command,omitempty"`        // override agent binary path
 	ExtraArgs     []string `json:"extra_args,omitempty"`     // extra CLI args passed to the agent
 	OpenClawAgent string   `json:"openclaw_agent,omitempty"` // openclaw --agent value (default main)
-	// --- input contract ---
-	RequireImage bool   `json:"require_image,omitempty"` // vision-only service: no image ⇒ reply UsageHint, skip the API
-	UsageHint    string `json:"usage_hint,omitempty"`    // reply when the input does not fit the contract
-	ErrorReply   string `json:"error_reply,omitempty"`   // reply when the backend call fails
 	// --- tuning (0 ⇒ default) ---
-	PollIntervalSeconds int `json:"poll_interval_seconds,omitempty"` // scan cadence (default 5)
-	MaxHistory          int `json:"max_history,omitempty"`           // max conversation turns sent to the backend (default 20)
-	APITimeoutSeconds   int `json:"api_timeout_seconds,omitempty"`   // one backend call (default 180)
-	MaxAutoReplies      int `json:"max_auto_replies,omitempty"`      // runaway guard: max messages we auto-send per interaction before proposing end (default 30)
+	MaxHistory        int `json:"max_history,omitempty"`         // max conversation turns sent to the backend (default 20)
+	APITimeoutSeconds int `json:"api_timeout_seconds,omitempty"` // one backend call (default 180)
 	// Sandbox configures the sandbox's network and its run budget (LEC §3.2, ux §2.2); absent, the
 	// defaults apply: no network beyond the model route, and the default budget.
 	Sandbox *AutoReplySandboxConfig `json:"sandbox,omitempty"`
@@ -196,7 +197,8 @@ func DefaultConfig() Config {
 	in := defaultInbound()
 	pay := defaultPayments()
 	return Config{ControlAddr: "127.0.0.1:39811", Inbound: &in, Payments: &pay, NoResponseAfter: defaultNoResponseAfterText,
-		ContentRetention: RetentionValue(interactions.DefaultRetention().String())}
+		ContentRetention: RetentionValue(interactions.DefaultRetention().String()),
+		StreamPreview:    streamPreviewOff}
 }
 
 // freshConfig is the config a data dir with no config.json is created with: DefaultConfig, but with a
@@ -333,10 +335,6 @@ type RemovedSetting struct {
 	// "inbound.public_capabilities[].evidence".
 	Key     string
 	Instead string
-	// Pending is the work item that still writes this key itself, as the
-	// marker of an open work item (wire.TodoMarker); until it deletes its code,
-	// the key does not stop the daemon. Empty: the key is refused.
-	Pending string
 }
 
 // removedSettings is ux §2.3: each removed key, where it sits in config.json
@@ -377,21 +375,6 @@ var removedSettings = []struct{ key, instead string }{
 // ignored); doctor's config.removed warns about it (ux §2.3).
 const InviteEnv = "ANET_INVITE"
 
-// removedStillWritten are the removed keys this binary still writes itself
-// (the defaults of a fresh config.json, or a command that is still there), or
-// whose replacement does not work yet. A daemon refusing them would refuse
-// its own files, so each waits for the work item that deletes its code,
-// which also deletes its line here (R-5).
-var removedStillWritten = map[string]string{
-	// `anet autoreply set --require-image|--usage-hint|--error-reply|
-	// --poll-interval|--max-auto-replies` still write these.
-	"auto_reply.require_image":         "v030-todo(UX-9)",
-	"auto_reply.usage_hint":            "v030-todo(UX-9)",
-	"auto_reply.error_reply":           "v030-todo(UX-9)",
-	"auto_reply.poll_interval_seconds": "v030-todo(UX-9)",
-	"auto_reply.max_auto_replies":      "v030-todo(UX-9)",
-}
-
 // FindRemovedSettings lists the removed keys a config.json holds, in the
 // order of ux §2.3; a key that is there with any value counts, null too. A
 // file that is not a JSON object is an error.
@@ -408,7 +391,7 @@ func FindRemovedSettings(raw []byte) ([]RemovedSetting, error) {
 	var out []RemovedSetting
 	for _, rs := range removedSettings {
 		for _, path := range findKey(top, strings.Split(rs.key, "."), "") {
-			out = append(out, RemovedSetting{Path: path, Key: rs.key, Instead: rs.instead, Pending: removedStillWritten[rs.key]})
+			out = append(out, RemovedSetting{Path: path, Key: rs.key, Instead: rs.instead})
 		}
 	}
 	return out, nil
@@ -518,9 +501,7 @@ func CheckConfigForStart(l Layout) error {
 	}
 	var refusals []*a2ashape.Refusal
 	for _, f := range found {
-		if f.Pending == "" {
-			refusals = append(refusals, RemovedSettingRefusal(f))
-		}
+		refusals = append(refusals, RemovedSettingRefusal(f))
 	}
 	if len(configChecks) > 0 {
 		var c Config
@@ -668,4 +649,53 @@ func SetContentRetentionInFile(l Layout, r interactions.Retention) error {
 		return err
 	}
 	return writeFileAtomic(l.ConfigPath(), out, 0o600)
+}
+
+// --- stream_preview (CUX §2.10) ---
+
+// The settings of stream_preview.
+const (
+	streamPreviewOff = "off"
+	streamPreviewOn  = previewModeOn
+	streamPreviewWR  = previewModeWithReasoning
+)
+
+// validStreamPreview reports whether v is a setting of stream_preview.
+func validStreamPreview(v string) bool {
+	switch v {
+	case streamPreviewOff, streamPreviewOn, streamPreviewWR:
+		return true
+	}
+	return false
+}
+
+// streamPreview is the setting in force: the configured one, off when
+// config.json has none or a running daemon holds a value that is not a
+// setting (the start check refuses one).
+func (c Config) streamPreview() string {
+	if validStreamPreview(c.StreamPreview) {
+		return c.StreamPreview
+	}
+	return streamPreviewOff
+}
+
+// StreamPreviewModes are the values `anet preview` accepts.
+func StreamPreviewModes() []string {
+	return []string{streamPreviewOff, streamPreviewOn, streamPreviewWR}
+}
+
+// The setting is checked when the daemon starts (CUX §2.10): a value that
+// is not off, on or with_reasoning does not start, and says so
+// (config_invalid). An absent key, or null, is off.
+func init() { configChecks = append(configChecks, checkStreamPreview) }
+
+func checkStreamPreview(_ Config, raw map[string]any) *a2ashape.Refusal {
+	v, ok := raw["stream_preview"]
+	if !ok || v == nil {
+		return nil
+	}
+	if s, isText := v.(string); isText && validStreamPreview(s) {
+		return nil
+	}
+	return a2ashape.Refuse("config_invalid", a2ashape.Args{"key": "stream_preview", "rule": "off, on or with_reasoning"})
 }

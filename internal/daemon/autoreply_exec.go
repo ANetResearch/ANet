@@ -25,7 +25,6 @@ package daemon
 
 import (
 	"context"
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -33,7 +32,6 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -950,25 +948,6 @@ func (d *Daemon) sendAutoReplyAttachments(ctx context.Context, interactionID, bo
 	sctx, cancel := context.WithTimeout(ctx, relayCallTimeout)
 	defer cancel()
 	return d.SendMessageOpts(sctx, interactionID, body, atts, meta)
-}
-
-// --- failure reporting ---
-
-// autoReplyFailureReply logs a failed auto-reply turn locally under a random correlation id and returns
-// the text the peer receives: the configured error reply and that id, nothing else. The error detail
-// (agent stderr, command, paths, model API answers) stays in the local log, where the operator can find
-// it by the id the peer quotes. It used to be appended to the reply, which sent local paths, the
-// system prompt and conversation fragments to the peer.
-func autoReplyFailureReply(cfg AutoReplyConfig, interactionID string, err error) string {
-	var raw [6]byte
-	_, _ = rand.Read(raw[:])
-	ref := hex.EncodeToString(raw[:])
-	log.Printf("anet: auto-reply %s: backend failed [ref %s]: %v", interactionID, ref, err)
-	msg := cfg.ErrorReply
-	if msg == "" {
-		msg = autoReplyDefaultErrorReply
-	}
-	return msg + "\n\n(ref " + ref + ")"
 }
 
 // --- sandbox entry point ---

@@ -44,7 +44,6 @@ var pendingCommands = map[string]string{
 	"identity recover":    "KEL-10", // v030-todo(KEL-10)
 	"identity deactivate": "KEL-10", // v030-todo(KEL-10)
 	"task watch":          "UX-10",  // v030-todo(UX-10)
-	"preview":             "UX-9",   // v030-todo(UX-9)
 }
 
 // helpForms reads the invocations a help text lists: "anet <word>", and "anet <word> <sub>" for the

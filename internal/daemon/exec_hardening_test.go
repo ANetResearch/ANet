@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 )
 
 // setExecCommand points every agent at a stub binary for the duration of the test.
@@ -200,28 +202,20 @@ func TestCollectOutboxRefusesLinksAndSpecialFiles(t *testing.T) {
 	}
 }
 
-// The peer gets the configured error reply and a reference; the detail goes to the local log under the
-// same reference.
-func TestFailureReplyIsGenericAndLoggedLocally(t *testing.T) {
+// The detail of a failed turn goes to the local log only; nothing of it is sent (UX-R3).
+func TestFailureDetailIsLoggedLocallyOnly(t *testing.T) {
 	var buf bytes.Buffer
 	prev := log.Writer()
 	log.SetOutput(&buf)
 	defer log.SetOutput(prev)
 	detail := errors.New("claude: /home/u/.anet/work/secret-path: permission denied; prompt=You are an AgentNetwork autopilot")
-	reply := autoReplyFailureReply(AutoReplyConfig{}, "ix-fail", detail)
-	if strings.Contains(reply, "secret-path") || strings.Contains(reply, "autopilot") || strings.Contains(reply, "permission") {
-		t.Fatalf("the peer-facing reply carries the error detail: %q", reply)
+	d := newBareDaemon(t)
+	th := Thread{InteractionID: "ix-fail", Role: string(interactions.RoleOutbound)}
+	if err := d.backendFailed(context.Background(), th, detail); err != nil {
+		t.Fatal(err) // an outbound turn has nobody to tell: nothing is sent
 	}
-	i := strings.Index(reply, "(ref ")
-	if i < 0 || !strings.HasPrefix(reply, autoReplyDefaultErrorReply) {
-		t.Fatalf("reply %q", reply)
-	}
-	ref := strings.TrimSuffix(reply[i+len("(ref "):], ")")
-	if !strings.Contains(buf.String(), ref) || !strings.Contains(buf.String(), "secret-path") {
-		t.Fatalf("the local log lacks the reference or the detail: %q", buf.String())
-	}
-	if got := autoReplyFailureReply(AutoReplyConfig{ErrorReply: "custom"}, "ix", detail); !strings.HasPrefix(got, "custom\n\n(ref ") {
-		t.Fatalf("configured error reply not used: %q", got)
+	if !strings.Contains(buf.String(), "secret-path") {
+		t.Fatalf("the local log lacks the detail: %q", buf.String())
 	}
 	// cmdError, which produces that detail, does not include the prompt.
 	e := cmdError("/usr/bin/claude", []string{"-p", "THE-WHOLE-PROMPT"}, nil, []byte("boom"), errors.New("exit 1"))

@@ -57,6 +57,7 @@ func (d *Daemon) registerTaskRoutes(api *routeMux) {
 	api.HandleFunc("POST /tasks/cancel", d.hTasksCancel)
 	api.HandleFunc("POST /tasks/wait", d.hTasksWait)
 	api.HandleFunc("POST /tasks/reply", d.hTasksReply)
+	api.HandleFunc("POST /tasks/preview", d.hTasksPreview) // bearer only (preview_source.go)
 	api.HandleFunc("POST /agents/list", d.hAgentsList)
 	api.HandleFunc("POST /agents/card", d.hAgentsCard)
 	api.HandleFunc("POST /agents/kel", d.hAgentsKEL)

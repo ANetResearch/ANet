@@ -356,6 +356,9 @@ func (d *Daemon) ControlHandler(token string) http.Handler {
 	// Changing the retention is the CLI's alone (FS-U3): bearer only, never
 	// in sessionRoutes, MCP's allowedPaths or the local A2A interface.
 	api.HandleFunc("POST /retention", d.hRetention)
+	// stream_preview is `anet preview`'s alone: bearer only, never in
+	// sessionRoutes, MCP's allowedPaths or the local A2A interface.
+	api.HandleFunc("POST /preview", d.hPreview)
 	return d.secureControlPlane(auth, api)
 }
 

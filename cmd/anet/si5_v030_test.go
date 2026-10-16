@@ -142,21 +142,7 @@ var si5Items = []struct {
 			return err
 		}
 		for _, r := range found {
-			if r.Pending == "" {
-				return errors.New(r.Path + " is in a fresh config.json")
-			}
-		}
-		return nil
-	}},
-	{"the keys a work item still writes are gone", "", func(f freshSI5) error {
-		b, _ := json.Marshal(f.config)
-		found, _ := daemon.FindRemovedSettings(b)
-		if len(found) > 0 {
-			var p []string
-			for _, r := range found {
-				p = append(p, r.Path+" ("+r.Pending+")")
-			}
-			return errors.New(strings.Join(p, ", "))
+			return errors.New(r.Path + " is in a fresh config.json")
 		}
 		return nil
 	}},
@@ -221,9 +207,6 @@ func TestRemovedKeysStopAnetDaemon(t *testing.T) {
 				found, err := daemon.FindRemovedSettings(b)
 				if err != nil || len(found) != 1 {
 					t.Fatalf("%v %+v", err, found)
-				}
-				if found[0].Pending != "" {
-					t.Skip(found[0].Pending + ": this binary still writes " + key)
 				}
 				if err := os.WriteFile(layout.ConfigPath(), b, 0o600); err != nil {
 					t.Fatal(err)

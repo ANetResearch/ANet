@@ -132,7 +132,7 @@ func (f *autoReplyFixture) lastPeerMsg(t *testing.T, id string) ThreadMsg {
 func TestAutoReplyVisionRoundTrip(t *testing.T) {
 	api := &fakeOpenAI{reply: "a yellow circle on blue"}
 	f := newAutoReplyFixture(t, AutoReplyConfig{
-		Model: "test-vl", SystemPrompt: "you are a vision service", RequireImage: true,
+		Model: "test-vl", SystemPrompt: "you are a vision service",
 	}, api)
 
 	img := filepath.Join(t.TempDir(), "pic.png")
@@ -191,45 +191,52 @@ func TestAutoReplyVisionRoundTrip(t *testing.T) {
 	}
 }
 
-// TestAutoReplyUsageHintWithoutImage verifies the input contract: with require_image set, a delegation
-// carrying no image gets the configured usage hint and the backend is never called.
-func TestAutoReplyUsageHintWithoutImage(t *testing.T) {
-	api := &fakeOpenAI{reply: "should never be used"}
-	f := newAutoReplyFixture(t, AutoReplyConfig{
-		Model: "test-vl", RequireImage: true, UsageHint: "please attach an image",
-	}, api)
-
-	id, err := f.req.Delegate(f.ctx, f.prov.AID(), "write me a poem", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	f.tick(t)
-	if got := f.lastPeerMsg(t, id); got.Body != "please attach an image" {
-		t.Fatalf("reply = %q, want the usage hint", got.Body)
-	}
-	if got := api.calls.Load(); got != 0 {
-		t.Fatalf("backend called %d times, want 0", got)
-	}
-}
-
-// TestAutoReplyBackendFailure verifies a failing backend is reported to the requester as a normal reply
-// (error_reply + detail) exactly once — the loop does not retry-storm.
+// TestAutoReplyBackendFailure verifies a failing backend is reported to the requester as a status,
+// input-required with anet.reason backend_failed and no text (UX-R3), exactly once: the loop does not
+// retry-storm, and nothing of the failure's detail reaches the peer.
 func TestAutoReplyBackendFailure(t *testing.T) {
 	api := &fakeOpenAI{fail: true}
-	f := newAutoReplyFixture(t, AutoReplyConfig{Model: "test", ErrorReply: "backend is down"}, api)
+	f := newAutoReplyFixture(t, AutoReplyConfig{Model: "test"}, api)
 
 	id, err := f.req.Delegate(f.ctx, f.prov.AID(), "hello?", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	f.tick(t)
-	got := f.lastPeerMsg(t, id)
-	if !strings.HasPrefix(got.Body, "backend is down") {
-		t.Fatalf("reply = %q, want it to start with the configured error text", got.Body)
-	}
 	f.tick(t)
 	if calls := api.calls.Load(); calls != 1 {
 		t.Fatalf("backend called %d times, want exactly 1", calls)
+	}
+	if err := f.req.pollOnce(f.ctx); err != nil {
+		t.Fatal(err)
+	}
+	ix, err := f.req.ix.Get(id)
+	if err != nil || ix.State != interactions.StateInputRequired {
+		t.Fatalf("requester's task: %+v %v", ix, err)
+	}
+	msgs, err := f.req.ix.Messages(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reason := false
+	for _, m := range msgs {
+		if m.SenderAID == f.prov.AID() {
+			if m.Body != "" {
+				t.Fatalf("the provider's status carries text: %q", m.Body)
+			}
+			reason = reason || strings.Contains(string(m.Metadata), "backend_failed")
+		}
+	}
+	if !reason {
+		t.Fatalf("no backend_failed reason in %+v", msgs)
+	}
+	// The requester writes again: that is a new turn, and the backend is called once more.
+	if err := f.req.SendMessage(f.ctx, id, "again?", nil); err != nil {
+		t.Fatal(err)
+	}
+	f.tick(t)
+	if calls := api.calls.Load(); calls != 2 {
+		t.Fatalf("backend called %d times after the follow-up, want 2", calls)
 	}
 }
 
@@ -263,12 +270,15 @@ func TestAutoReplyOutbound(t *testing.T) {
 	}
 }
 
-// TestAutoReplyCapProposesEnd verifies the runaway guard: once we have auto-sent max_auto_replies messages
+// TestAutoReplyCapProposesEnd verifies the runaway guard: once we have auto-sent the most messages one interaction allows
 // in one interaction, the provider completes the task instead of replying again — so two autopilots
 // cannot loop forever. (Before wire 2 it proposed an end the requester had to accept.)
 func TestAutoReplyCapProposesEnd(t *testing.T) {
+	prev := autoReplyMaxReplies
+	autoReplyMaxReplies = 1
+	defer func() { autoReplyMaxReplies = prev }()
 	api := &fakeOpenAI{reply: "reply"}
-	f := newAutoReplyFixture(t, AutoReplyConfig{Model: "test", MaxAutoReplies: 1}, api)
+	f := newAutoReplyFixture(t, AutoReplyConfig{Model: "test"}, api)
 
 	id, err := f.req.Delegate(f.ctx, f.prov.AID(), "q1", nil)
 	if err != nil {

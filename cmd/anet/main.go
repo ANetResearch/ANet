@@ -856,9 +856,9 @@ func absPath(p string) string {
 func runAutoReply(c *client, rest []string) error {
 	usage := "autoreply <show|set|test|off>\n" +
 		"  set --backend exec  --agent <" + agentChoices() + "> [--model M] [--work-dir DIR] [--system-prompt S]\n" +
-		"  set --backend openai --api-base URL --model M [--system-prompt S] [--require-image[=false]] [--usage-hint H]\n" +
+		"  set --backend openai --api-base URL --model M [--system-prompt S]\n" +
 		"  set --api-key-stdin < FILE   # the model API key: from a file, or typed on the terminal (never on the command line)\n" +
-		"  common: [--poll-interval SEC] [--max-history N] [--api-timeout SEC] [--max-auto-replies N]\n" +
+		"  common: [--max-history N] [--api-timeout SEC]\n" +
 		"  set --egress-allow host[,host…]   # hosts the sandbox may reach on 443 (\"\" clears; adding asks on the terminal)\n" +
 		"  test [\"question\"]    # run the configured backend once on this machine (no hub, no identity)\n" +
 		"  off"
@@ -916,28 +916,14 @@ func runAutoReply(c *client, rest []string) error {
 			"agent": "agent", "work-dir": "work_dir", "command": "command",
 			"openclaw-agent": "openclaw_agent", "model": "model", "api-base": "api_base",
 			"system-prompt": "system_prompt", "untrusted": "untrusted",
-			"usage-hint": "usage_hint", "error-reply": "error_reply",
 		}
 		for cliKey, jsonKey := range strFlags {
 			if v, ok := flags[cliKey]; ok && v != "true" {
 				body[jsonKey] = v
 			}
 		}
-		// The daemon merges what set names, so a setting that is on stays on until set turns it off:
-		// --require-image turns it on, --require-image=false off.
-		if v, ok := flags["require-image"]; ok {
-			switch strings.TrimSpace(v) {
-			case "true":
-				body["require_image"] = true
-			case "false":
-				body["require_image"] = false
-			default:
-				return usageError{usage}
-			}
-		}
 		for cliKey, jsonKey := range map[string]string{
-			"poll-interval": "poll_interval_seconds", "max-history": "max_history", "api-timeout": "api_timeout_seconds",
-			"max-auto-replies": "max_auto_replies",
+			"max-history": "max_history", "api-timeout": "api_timeout_seconds",
 		} {
 			if v, ok := flags[cliKey]; ok && v != "true" {
 				n, err := strconv.Atoi(strings.TrimSpace(v))
@@ -1095,15 +1081,16 @@ var knownFlags = map[string][]string{
 	"pay":          {"option", "reject"},
 	"payments":     {}, // --payees-file: cli_removed (removed.go)
 	"payees":       {},
+	"preview":      {"json"},
 	"autoreply": {
 		"backend", "agent", "api-base", "api-key-stdin", "model", "system-prompt", "work-dir", "untrusted",
-		"openclaw-agent", "require-image", "usage-hint", "error-reply", "command",
-		"poll-interval", "max-history", "api-timeout", "max-auto-replies", "egress-allow",
+		"openclaw-agent", "command",
+		"max-history", "api-timeout", "egress-allow",
 	},
 	"auto-reply": {
 		"backend", "agent", "api-base", "api-key-stdin", "model", "system-prompt", "work-dir", "untrusted",
-		"openclaw-agent", "require-image", "usage-hint", "error-reply", "command",
-		"poll-interval", "max-history", "api-timeout", "max-auto-replies", "egress-allow",
+		"openclaw-agent", "command",
+		"max-history", "api-timeout", "egress-allow",
 	},
 	"profile": {"summary", "readme"},
 	"console": {"url", "print"},
@@ -1240,6 +1227,8 @@ func runClient(layout daemon.Layout, cmd string, rest []string, explicit bool) e
 		return runPayees(c, rest)
 	case "autoreply", "auto-reply":
 		return runAutoReply(c, rest)
+	case "preview":
+		return runPreview(c, rest)
 	case "profile":
 		sub := arg(0)
 		switch sub {
