@@ -573,6 +573,9 @@ func (s *server) listAgents(w http.ResponseWriter, r *http.Request) {
 			// and its proxy card is the one made from the AID.
 			e.Name, e.HubVerification, e.HomeHub, e.LastSeen = a.Name, a.HubVerification, a.HomeHub, a.LastSeen
 			e.Quiet, e.ReviewCount, e.AvgRating = a.Quiet, a.ReviewCount, a.AvgRating
+			// The public card's charge (HPP PAY-C15): a list never asks
+			// for an extended card.
+			e.Charge = a.Charge
 		}
 		out.Agents = append(out.Agents, e)
 	}
@@ -611,6 +614,10 @@ type agentEntry struct {
 	// stale otherwise (module.RemoteAgent.KeyState, KEL D-28). A stale one
 	// does not stop a send.
 	KeyState string `json:"keyState"`
+	// Charge is free, partial or paid as the agent's public card declares
+	// a2a-x402 (module.RemoteAgent.Charge, HPP PAY-C15); only of a verified
+	// agent, as anet find and MCP list_agents show it.
+	Charge string `json:"charge,omitempty"`
 }
 
 func (s *server) baseURL(aid string) string {
