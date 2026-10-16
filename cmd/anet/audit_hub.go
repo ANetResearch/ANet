@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
+	"github.com/ANetResearch/ANet/internal/daemon"
 )
 
 // auditHubAnswer is the part of the payment module's AuditReport the lines
@@ -116,6 +117,14 @@ func runBalance(c *client) error {
 	out, code, err := c.fetch("/balance", map[string]any{})
 	if err != nil {
 		return diagnoseNoDaemon(c.base, c.dataDir, err)
+	}
+	if code < 200 || code >= 300 {
+		// Neither the account state nor a balance to give, and the payment
+		// module is why: say module_absent and exit 2 like the other payment
+		// commands (MOD-F3), not the generic exit 1.
+		if aerr := requireModule(daemon.Layout{Root: c.dataDir}, "x402"); aerr != nil {
+			return aerr
+		}
 	}
 	if err := printAnswer(out, code, false); err != nil {
 		return err

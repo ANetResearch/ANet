@@ -226,6 +226,7 @@ echo "  ports:    $PORT_BASE-$((PORT_BASE + 9))   work dir: $J"
 
 ( cd "$RUN" && exec setsid "$BIN/anet-hub" --addr "$HUB_ADDR" --data "$RUN/hub" ) >"$RUN/hub.log" 2>&1 </dev/null 9>&- &
 for _ in $(seq 1 40); do curl -sf -m 2 "$HUB_URL/healthz" >/dev/null 2>&1 && break; sleep 0.25; done
+"$BIN/anet-hub" --data "$RUN/hub" admission open >/dev/null 2>&1
 curl -sf -m 5 "$HUB_URL/healthz" >/dev/null && ok "hub up on an empty data directory" \
   || { no "hub down: $(tail -2 "$RUN/hub.log")"; exit 1; }
 
@@ -243,7 +244,7 @@ import json, sys
 path, addr, amax, adaily = sys.argv[1], sys.argv[2], int(sys.argv[3]), int(sys.argv[4])
 json.dump({"control_addr": addr,
            "payments": {"auto_max": 0, "agent_max": amax, "agent_daily_max": adaily,
-                        "explicit_max": 10, "daily_max": 50, "payees_file": "payees.allow"}},
+                        "explicit_max": 10, "daily_max": 50}},
           open(path, "w"), indent=1)
 PY
 # The provider: the closed default (text tasks only from peers.allow), two priced capabilities behind the
@@ -282,12 +283,14 @@ wait_up "$RC" 30 && ok "requester up" || { no "requester down: $(tail -3 "$RUN/r
 wait_up "$PC" 30 && ok "provider up"  || { no "provider down: $(tail -3 "$RUN/prov.log")"; exit 1; }
 REQ_AID=$(rc /status '{}' | jget aid); PROV_AID=$(pc /status '{}' | jget aid)
 [ -n "$REQ_AID" ] && [ -n "$PROV_AID" ] || { no "no AIDs: req=$REQ_AID prov=$PROV_AID"; exit 1; }
-REG_R=$(rc /hub-register "{\"hub\":\"$HUB_URL\",\"name\":\"JointA2ARequester\"}" | jget status)
-REG_P=$(pc /hub-register "{\"hub\":\"$HUB_URL\",\"name\":\"JointA2AProvider\"}" | jget status)
+reg(){ ( cd "$RUN" && HOME="$(home_of "$1")" XDG_RUNTIME_DIR="$RUN/xdg" ANET_DATA_DIR="$(home_of "$1")/.anet" setsid -w "$BIN/anet" hub-register "$HUB_URL" --name "$2" </dev/null >"$RUN/reg-$1.out" 2>&1 ); }
+reg req JointA2ARequester; reg prov JointA2AProvider
+REG_R=$(rc /status '{}' | jget hub state); REG_P=$(pc /status '{}' | jget hub state)
 [ "$REG_R" = registered ] && [ "$REG_P" = registered ] && ok "both registered at the hub" \
   || { no "registration failed: req=$REG_R prov=$REG_P"; exit 1; }
 # Written directly (the CLI asks on a terminal); both files are read on every decision. payees.allow has
 # the format of the peer lists, so lib.sh's writer for them serves.
+"$BIN/anet-hub" --data "$RUN/hub" grant "$REQ_AID" --amount 100 --reason joint >/dev/null 2>&1
 peer_allow "$PROV/.anet" "$REQ_AID"
 _peer_add "$REQ/.anet/payees.allow" "$PROV_AID"
 printf '  requester %s\n  provider  %s\n' "$REQ_AID" "$PROV_AID"
