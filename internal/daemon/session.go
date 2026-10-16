@@ -326,7 +326,7 @@ func (d *Daemon) hConsoleTicket(cs *consoleSessions) http.HandlerFunc {
 		_ = readJSON(r, &req) // an empty body asks for no launcher
 		t, exp, err := cs.issueTicket()
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "ticket: " + err.Error()})
+			writeLocalWriteFailed(w, err)
 			return
 		}
 		u := "http://" + consoleHost(d.config().ControlAddr) + ":" + requestPort(r) + "/console#t=" + t
@@ -336,7 +336,7 @@ func (d *Daemon) hConsoleTicket(cs *consoleSessions) http.HandlerFunc {
 		if req.Launcher {
 			p, err := cs.writeLauncher(t, u)
 			if err != nil {
-				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "console launcher: " + err.Error()})
+				writeLocalWriteFailed(w, err)
 				return
 			}
 			out["launcher"] = p
@@ -375,7 +375,7 @@ func (d *Daemon) hConsoleSession(cs *consoleSessions) http.HandlerFunc {
 		}
 		id, csrf, exp, err := cs.createSession()
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "session: " + err.Error()})
+			writeLocalWriteFailed(w, err)
 			return
 		}
 		http.SetCookie(w, &http.Cookie{

@@ -12,6 +12,8 @@ package daemon
 // seen (C35).
 
 import (
+	"errors"
+
 	"github.com/ANetResearch/ANet/internal/a2ashape"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 )
@@ -42,16 +44,24 @@ type viewOpts struct {
 
 // taskView renders ix as an A2A task.
 func (d *Daemon) taskView(ix *interactions.Interaction, o viewOpts) (a2ashape.Task, error) {
+	// A retention sweep may delete the task between the read that found it
+	// and these: the same answer as for a task that is not there (FS-L4).
 	msgs, err := d.ix.Messages(ix.ID)
+	if errors.Is(err, interactions.ErrNotFound) {
+		return a2ashape.Task{}, d.noLocalTask(ix.ID)
+	}
 	if err != nil {
 		return a2ashape.Task{}, err
 	}
 	atts, err := d.ix.Attachments(ix.ID)
+	if errors.Is(err, interactions.ErrNotFound) {
+		return a2ashape.Task{}, d.noLocalTask(ix.ID)
+	}
 	if err != nil {
 		return a2ashape.Task{}, err
 	}
 	opt := a2ashape.Options{HistoryLength: o.historyLen, Artifacts: o.artifacts, InlineFiles: o.inline, SafeName: safeName,
-		IdentityNote: d.identityNote(a2ashape.Lang()), ForBackend: o.backend, SelfAID: d.AID()}
+		IdentityNote: d.identityNote(a2ashape.Lang()), ForBackend: o.backend, SelfAID: d.AID(), Retention: d.ContentRetention()}
 	if !o.backend {
 		opt.SpendCheck = d.spendCheckFor(ix)
 	}

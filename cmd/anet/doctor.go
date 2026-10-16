@@ -52,6 +52,9 @@ type doctorCheck struct {
 	Reason string `json:"reason,omitempty"`
 	Detail string `json:"detail"`
 	Hint   string `json:"hint,omitempty"`
+	// Deletion is /status.privacy.deletion on the clock warnings: how far
+	// deleting expired keys and content is slowed (FS §5.4).
+	Deletion string `json:"deletion,omitempty"`
 }
 
 // sayCheck is a finding told by a sentence of the reason table: the detail
@@ -574,7 +577,6 @@ func collectDoctor(layout daemon.Layout, env doctorEnv) (*doctorReport, error) {
 	if !haveProbation {
 		hubProbationCheck(say, add, rep, env, layout)
 	}
-	clockRetriesCheck(say, add, rep, env, layout)
 
 	// Tasks this node sends (§4.2): how long one may hear nothing at all
 	// from its peer before it fails as no_response.
@@ -594,6 +596,10 @@ func collectDoctor(layout daemon.Layout, env doctorEnv) (*doctorReport, error) {
 	// Sender privacy (sealed-sender §5.4) and p2p.lan.
 	senderPrivacyChecks(say, add, rep, env, layout, cfg) // doctor_sender.go
 	p2pLANCheck(say, cfg)
+
+	// Forward secrecy (FS §5.4): the clock, the encryption keys, how long content is kept and a
+	// rollback of the data.
+	privacyChecks(say, rep, env, layout, cfg, time.Now())
 
 	// Auto-reply and the sandbox (§6).
 	if ar := cfg.AutoReply; ar != nil {

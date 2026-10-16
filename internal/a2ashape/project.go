@@ -212,6 +212,10 @@ type Options struct {
 	// asks the other side to let this node in (not_accepting: "ask them
 	// to run anet peers allow {aid}").
 	SelfAID string
+	// Retention is the content retention in force (FS-U4): with it a task
+	// that has ended carries anet.content_expires_at, unless its class keeps
+	// its content for ever. The zero value is no setting and gives none.
+	Retention interactions.Retention
 }
 
 // Load reads what Project needs for one interaction.
@@ -276,6 +280,9 @@ func Project(src Source, opt Options) Task {
 		Metadata:  p.metadata(why),
 	}
 	t.History = p.history()
+	if at, ok := p.contentExpiresAt(); ok {
+		t.Metadata[KeyContentExpiresAt] = at
+	}
 	if opt.IdentityNote != "" && !opt.ForBackend {
 		t.Metadata[KeyIdentityNote] = opt.IdentityNote
 	}
@@ -746,6 +753,11 @@ func (p *projector) statusMessage() (msg *Message, why map[string]any) {
 		}
 	case interactions.StateFailed, interactions.StateRejected, interactions.StateCanceled:
 		switch {
+		case p.endedByKeyEvent() != "":
+			// A task a rollback or an emergency rotation ended says so in
+			// the table's own words, whichever side ended it (FS-U6).
+			k := p.endedByKeyEvent()
+			msg, why = p.synthesized(Sentence(k, Lang(), nil), nil), map[string]any{KeyReason: ReasonOf(k)}
 		case p.cap != nil && !p.quoted() && p.cap.Message != "":
 			msg = p.synthesized(p.cap.Message, nil)
 		case fresh && provStatus:
@@ -1126,6 +1138,9 @@ func (p *projector) metadata(why map[string]any) map[string]any {
 // projection does not guess a variant.
 func (p *projector) next(m map[string]any) string {
 	key, _ := m[KeyReason].(string)
+	if k := p.endedByKeyEvent(); k != "" && key == ReasonOf(k) {
+		key = k
+	}
 	args := Args{"task": p.ix.ID, "peer": p.ix.PeerAID}
 	if p.opt.SelfAID != "" {
 		// {aid} is this node's own AID in every row that names it, as in
@@ -1471,4 +1486,66 @@ func partsByReference(parts []Part, taskID string) []Part {
 		return parts
 	}
 	return out
+}
+
+// The reasons a rollback of this node's data or an emergency rotation gives
+// the tasks it ends (FS-X, ux §1.4 E1).
+const (
+	ReasonLocalStateLost = "local_state_lost"
+	ReasonKeyCompromise  = "key_compromise"
+)
+
+// ReasonOf is the code of a reason table key: the key without its variant.
+func ReasonOf(key string) string {
+	code, _, _ := strings.Cut(key, ".")
+	return code
+}
+
+// endedByKeyEvent is the table key of the sentence for a task that a
+// rollback or an emergency rotation ended, or "" for any other task (FS-U6).
+// The key has the .peer variant when the reason came with a message the
+// other side sent, and none when this node's own state wrote it: it is
+// worked out from the message rows, no column holds it.
+func (p *projector) endedByKeyEvent() string {
+	if p.ix.State != interactions.StateFailed {
+		return ""
+	}
+	reason, _ := p.resultMeta[KeyReason].(string)
+	var fromPeerRow bool
+	for i := len(p.msgs) - 1; i >= 0; i-- {
+		m := p.msgs[i]
+		if m.SenderAID == "" || m.SenderAID != p.ix.PeerAID {
+			continue
+		}
+		if r, _ := p.metas[i][KeyReason].(string); r == ReasonLocalStateLost || r == ReasonKeyCompromise {
+			if reason == "" {
+				reason = r
+			}
+			fromPeerRow = r == reason
+			break
+		}
+	}
+	if reason != ReasonLocalStateLost && reason != ReasonKeyCompromise {
+		return ""
+	}
+	if fromPeerRow {
+		return reason + ".peer"
+	}
+	return reason
+}
+
+// contentExpiresAt is anet.content_expires_at (FS-U4): when the sweep may
+// delete the content of an ended task, as RFC 3339 UTC. A task that has not
+// ended, one whose class keeps its content for ever, a projection for a
+// backend and one made without a retention give none.
+func (p *projector) contentExpiresAt() (string, bool) {
+	ix := p.ix
+	if p.opt.ForBackend || !p.opt.Retention.Valid() || !ix.IsTerminal() || ix.StateAt <= 0 {
+		return "", false
+	}
+	at, ok := interactions.ContentExpiresAt(ix.StateAt, interactions.ContentClass(ix.Role, ix.Trust), p.opt.Retention)
+	if !ok {
+		return "", false
+	}
+	return time.UnixMilli(at).UTC().Format(time.RFC3339), true
 }

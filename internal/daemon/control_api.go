@@ -576,6 +576,13 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
+// writeLocalWriteFailed answers a failed read or write of the data directory
+// with a 500 and the sentence of local_write_failed (ux §1.4 G; FS-11): the
+// Go error is shortened to a few words inside it, never the whole body.
+func writeLocalWriteFailed(w http.ResponseWriter, err error) {
+	writeRefusal(w, http.StatusInternalServerError, a2ashape.Refuse("local_write_failed", a2ashape.Args{"error": err.Error()}))
+}
+
 func readJSON(r *http.Request, v any) error { return json.NewDecoder(r.Body).Decode(v) }
 
 // hubCallTimeout bounds a single Hub HTTP round-trip made on the operator's behalf.
@@ -632,9 +639,10 @@ func (d *Daemon) hStatus(w http.ResponseWriter, r *http.Request) {
 	// Receive outcomes by reason since start (receive.go): every envelope
 	// dropped or held back, and why.
 	out["receive"] = d.ReceiveStats()
-	// How long task content is kept (FS §2.10): `anet retention` reads it
+	// How long task content is kept, the clock, the encryption keys and a
+	// rollback of the data (FS §2.10): `anet retention` and doctor read it
 	// here while the daemon runs.
-	out["privacy"] = d.privacyRetention()
+	out["privacy"] = d.privacy().body
 	// What doctor's sender_privacy checks decide on (SS §4.8 SSR-U2); the
 	// status summary has no line of it (ux §4.7).
 	out["sender_privacy"] = d.senderPrivacyStatus(d.nowMS())
@@ -672,13 +680,6 @@ func (d *Daemon) hStatus(w http.ResponseWriter, r *http.Request) {
 	// The status summary, last: it reads the members above (ux UX-C6).
 	out["summary"] = d.statusSummary(out, a2ashape.Lang())
 	writeJSON(w, http.StatusOK, out)
-}
-
-// privacyRetention is the retention part of /status.privacy (FS §2.10):
-// content_retention in force and what it leaves public tasks.
-func (d *Daemon) privacyRetention() map[string]any {
-	r := d.ContentRetention()
-	return map[string]any{"content_retention": r.String(), "public_retention": r.Public().String()}
 }
 
 // maxRetentionBody bounds a POST /retention body: one short member and a
@@ -763,7 +764,7 @@ func (d *Daemon) hRetention(w http.ResponseWriter, r *http.Request) {
 	if dry {
 		k, err := d.RetentionWouldDelete(ret)
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			writeLocalWriteFailed(w, err)
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"value": ret.String(), "would_delete": k})
@@ -771,7 +772,7 @@ func (d *Daemon) hRetention(w http.ResponseWriter, r *http.Request) {
 	}
 	n, err := d.SetContentRetention(ret)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		writeLocalWriteFailed(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"value": ret.String(), "deleted": n,

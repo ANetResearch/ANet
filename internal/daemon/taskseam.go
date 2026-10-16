@@ -234,9 +234,19 @@ func (d *Daemon) scopedTask(sc taskScope, id string) (*interactions.Interaction,
 		err = interactions.ErrNotFound
 	}
 	if errors.Is(err, interactions.ErrNotFound) {
-		return nil, a2ashape.Errorf(a2ashape.ErrTaskNotFound, "%s", id)
+		return nil, d.noLocalTask(id)
 	}
 	return ix, err
+}
+
+// noLocalTask is the answer for a task this node does not have, whether it
+// never did, belongs to another agent's scope, or was deleted by the
+// retention (or by the loss of its data key): one sentence, no_local_task
+// (FS-U5), that says it may have been deleted and where the evidence is.
+// It is a TaskNotFoundError on the local A2A interface and a 404 on the
+// control plane (errors.Is(err, a2ashape.ErrTaskNotFound) holds).
+func (d *Daemon) noLocalTask(id string) error {
+	return a2ashape.Refuse("no_local_task", a2ashape.Args{"task": id, "retention": d.ContentRetention().String()})
 }
 
 func (d *Daemon) getTask(sc taskScope, id string, historyLen *int) (a2ashape.Task, error) {
@@ -962,6 +972,9 @@ func (d *Daemon) listTasks(sc taskScope, r taskListReq) (a2ashape.TaskPage, erro
 		// A page carries no file bytes: up to a hundred tasks, each with
 		// files a peer chose (an internal note item). A client reads one with GetTask.
 		t, err := d.taskView(ix, viewOpts{historyLen: f.HistoryLen, artifacts: f.IncludeArtifacts})
+		if errors.Is(err, a2ashape.ErrTaskNotFound) {
+			continue // deleted by the retention since the page was read
+		}
 		if err != nil {
 			return a2ashape.TaskPage{}, err
 		}

@@ -61,7 +61,7 @@ func (d *Daemon) peersGrant(w http.ResponseWriter, r *http.Request, list string)
 		return
 	}
 	if err := d.withdrawAfterListEdit(aid, listEditAllow); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		writeLocalWriteFailed(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, res)
@@ -80,7 +80,7 @@ func (d *Daemon) hPeersDeny(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := d.withdrawAfterListEdit(aid, listEditDeny); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		writeLocalWriteFailed(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, res)
@@ -97,7 +97,7 @@ func (d *Daemon) hPeersRemove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := d.withdrawAfterListEdit(aid, listEditRemove); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		writeLocalWriteFailed(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, res)
@@ -154,7 +154,7 @@ func policyErrorCode(err error) int {
 func (d *Daemon) hInboundPending(w http.ResponseWriter, _ *http.Request) {
 	items, err := d.PendingList()
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		writeLocalWriteFailed(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"pending": items})
@@ -196,11 +196,11 @@ func (d *Daemon) hInboundReject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := d.RejectPending(strings.TrimSpace(req.InteractionID)); err != nil {
-		code := http.StatusInternalServerError
-		if errors.Is(err, ErrNotPending) {
-			code = http.StatusNotFound
+		if !errors.Is(err, ErrNotPending) {
+			writeLocalWriteFailed(w, err)
+			return
 		}
-		writeJSON(w, code, map[string]string{"error": err.Error()})
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"interaction_id": req.InteractionID, "status": "rejected"})

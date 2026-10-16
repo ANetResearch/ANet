@@ -503,7 +503,7 @@ func TestTaskRoutesOverTheControlPlane(t *testing.T) {
 		return resp.StatusCode, out
 	}
 	code, out := call(req, "/tasks/get", map[string]any{"task_id": "ix_nope"})
-	if code != http.StatusNotFound || out["code"] != "TaskNotFoundError" {
+	if code != http.StatusNotFound || out["reason"] != "no_local_task" || out["next"] != "anet audit --interaction ix_nope" {
 		t.Fatalf("get unknown: %d %v", code, out)
 	}
 	code, out = call(req, "/tasks/send", map[string]any{"to": prov.AID(), "text": "hi", "context_id": "cp-ctx", "return_immediately": true})
