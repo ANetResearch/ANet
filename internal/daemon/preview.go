@@ -16,7 +16,7 @@ package daemon
 // or the evidence chain, and no preview text reaches a log (CUX-P15,
 // SI-73). A restart forgets all of it: the round a provider was previewing
 // sends no more frames, its result still goes, and the next round can be
-// previewed again (CUX-P0, the release plan); stream_seq is taken from
+// previewed again (CUX-P0); stream_seq is taken from
 // the clock so the frames after a restart are not mistaken for old ones
 // (CUX-P9a).
 

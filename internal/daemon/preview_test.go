@@ -983,7 +983,7 @@ func restartWithPreviews(t *testing.T, prov *Daemon, clk *previewClock) (*Daemon
 	return p, manualPreviews(p, clk)
 }
 
-// CUX-P0, the release plan (J-CUX8): the provider restarts in the
+// CUX-P0 (J-CUX8): the provider restarts in the
 // middle of a previewed round. The round sends no more frames — the
 // request lived in memory only — and its result still arrives; the
 // requester shows no preview once it has the result.
@@ -1028,7 +1028,7 @@ func TestPreviewRoundAfterRestartSendsNoFrames(t *testing.T) {
 	}
 }
 
-// CUX-P9a (mutation M33, as the release plan rewrote it): after the
+// CUX-P9a (mutation M33, as rewritten for CUX-P0): after the
 // provider restarted mid-round, the frames of the interaction's next round
 // are taken — the restarted process starts stream_seq from the clock, not
 // from 1, so they rise above the frames the requester saw before.

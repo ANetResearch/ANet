@@ -1866,7 +1866,7 @@ MUTS += [
  ),
 ]
 
-# EXE-9: the agents in the macOS sandbox, the half that runs on Linux (LEC §8 EXE-9; the release plan). UP-2's
+# EXE-9: the agents in the macOS sandbox, the half that runs on Linux (LEC §8 EXE-9). UP-2's
 # combinations fail closed when the configuration is resolved; on macOS the configuration file of codex, opencode,
 # hermes and openclaw names the keyed route (EG-3, 2026-10-10), tested through the stand-in for sandbox-exec; an
 # operator's system_prompt starting with "-" stays opencode's and hermes's message; the profile's 2026-10-10
