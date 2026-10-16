@@ -25,6 +25,7 @@ import (
 	"golang.org/x/term"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
+	"github.com/ANetResearch/ANet/internal/daemon"
 	"github.com/ANetResearch/ANet/internal/localpeer"
 )
 
@@ -71,7 +72,13 @@ func taskWatchCommand(c *client, rest []string) error {
 // watchDelegate is `anet delegate … --watch`: the send asks for previews and
 // returns at once, and the task is then watched. Only the watch prints.
 func watchDelegate(c *client, body map[string]any) error {
-	body["preview"] = "on"
+	if err := requireModule(daemon.Layout{Root: c.dataDir}, "preview"); err != nil {
+		// Without the preview module the watch waits for the final answer
+		// alone; one line says so (11-modularity §5.4).
+		fmt.Fprintln(os.Stderr, err.Error())
+	} else {
+		body["preview"] = "on"
+	}
 	out, code, err := c.fetch("/tasks/send", body)
 	if err != nil {
 		return diagnoseNoDaemon(c.base, c.dataDir, err)

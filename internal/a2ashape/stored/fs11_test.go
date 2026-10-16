@@ -1,4 +1,4 @@
-package a2ashape_test
+package stored_test
 
 // The visible surface of forward secrecy (FS §5, FS-U4 to FS-U7): the
 // privacy line's order, anet.content_expires_at, the kept line and the
@@ -6,6 +6,7 @@ package a2ashape_test
 
 import (
 	"errors"
+	"github.com/ANetResearch/ANet/internal/a2ashape/stored"
 	"strings"
 	"testing"
 	"time"
@@ -84,28 +85,28 @@ func TestContentExpiresAt(t *testing.T) {
 	at := time.Date(2026, 10, 1, 15, 30, 0, 0, time.UTC)
 	r30, _ := interactions.ParseRetention("30d")
 	forever, _ := interactions.ParseRetention("forever")
-	get := func(ix *interactions.Interaction, o a2ashape.Options) any {
-		return a2ashape.Project(a2ashape.Source{Interaction: ix}, o).Metadata[a2ashape.KeyContentExpiresAt]
+	get := func(ix *interactions.Interaction, o stored.Options) any {
+		return stored.Project(stored.Source{Interaction: ix}, o).Metadata[a2ashape.KeyContentExpiresAt]
 	}
-	if got, want := get(ended(interactions.RoleOutbound, "", interactions.StateCompleted, at), a2ashape.Options{Retention: r30}), "2026-11-01T00:00:00Z"; got != want {
+	if got, want := get(ended(interactions.RoleOutbound, "", interactions.StateCompleted, at), stored.Options{Retention: r30}), "2026-11-01T00:00:00Z"; got != want {
 		t.Errorf("30 days from %s: %v, want %s", at, got, want)
 	}
-	if got := get(ended(interactions.RoleInbound, interactions.TrustPublic, interactions.StateFailed, at), a2ashape.Options{Retention: r30}); got != "2026-10-09T00:00:00Z" {
+	if got := get(ended(interactions.RoleInbound, interactions.TrustPublic, interactions.StateFailed, at), stored.Options{Retention: r30}); got != "2026-10-09T00:00:00Z" {
 		t.Errorf("a public call: %v, want 7 days", got)
 	}
-	if got := get(ended(interactions.RoleOutbound, "", interactions.StateCompleted, at), a2ashape.Options{Retention: forever}); got != nil {
+	if got := get(ended(interactions.RoleOutbound, "", interactions.StateCompleted, at), stored.Options{Retention: forever}); got != nil {
 		t.Errorf("forever: %v, want none", got)
 	}
-	if got := get(ended(interactions.RoleInbound, interactions.TrustPublic, interactions.StateCompleted, at), a2ashape.Options{Retention: forever}); got != "2026-10-09T00:00:00Z" {
+	if got := get(ended(interactions.RoleInbound, interactions.TrustPublic, interactions.StateCompleted, at), stored.Options{Retention: forever}); got != "2026-10-09T00:00:00Z" {
 		t.Errorf("forever but public: %v", got)
 	}
-	if got := get(ended(interactions.RoleOutbound, "", interactions.StateWorking, at), a2ashape.Options{Retention: r30}); got != nil {
+	if got := get(ended(interactions.RoleOutbound, "", interactions.StateWorking, at), stored.Options{Retention: r30}); got != nil {
 		t.Errorf("a task that has not ended: %v", got)
 	}
-	if got := get(ended(interactions.RoleOutbound, "", interactions.StateCompleted, at), a2ashape.Options{Retention: r30, ForBackend: true}); got != nil {
+	if got := get(ended(interactions.RoleOutbound, "", interactions.StateCompleted, at), stored.Options{Retention: r30, ForBackend: true}); got != nil {
 		t.Errorf("a backend's view: %v", got)
 	}
-	if got := get(ended(interactions.RoleOutbound, "", interactions.StateCompleted, at), a2ashape.Options{}); got != nil {
+	if got := get(ended(interactions.RoleOutbound, "", interactions.StateCompleted, at), stored.Options{}); got != nil {
 		t.Errorf("no setting: %v", got)
 	}
 }
@@ -123,14 +124,14 @@ func TestKeptLine(t *testing.T) {
 		{ended(interactions.RoleOutbound, "", interactions.StateCompleted, at), "30 days"},
 		{ended(interactions.RoleInbound, interactions.TrustPublicCap, interactions.StateCompleted, at), "7 days"},
 	} {
-		task := a2ashape.Project(a2ashape.Source{Interaction: c.ix}, a2ashape.Options{Retention: r30})
+		task := stored.Project(stored.Source{Interaction: c.ix}, stored.Options{Retention: r30})
 		line, ok := a2ashape.KeptLine(task, a2ashape.English, at)
 		if !ok || !strings.Contains(line, "retention "+c.days) || !strings.HasPrefix(line, "Content kept until ") {
 			t.Errorf("%s: %q %v", c.ix.Trust, line, ok)
 		}
 	}
-	if _, ok := a2ashape.KeptLine(a2ashape.Project(a2ashape.Source{Interaction: ended(interactions.RoleOutbound, "", interactions.StateWorking, at)},
-		a2ashape.Options{Retention: r30}), a2ashape.English, at); ok {
+	if _, ok := a2ashape.KeptLine(stored.Project(stored.Source{Interaction: ended(interactions.RoleOutbound, "", interactions.StateWorking, at)},
+		stored.Options{Retention: r30}), a2ashape.English, at); ok {
 		t.Error("a task that has not ended has a kept line")
 	}
 }
@@ -145,7 +146,7 @@ func TestPeerVariantSelection(t *testing.T) {
 	for _, reason := range []string{"local_state_lost", "key_compromise"} {
 		ix := ended(interactions.RoleOutbound, "", interactions.StateFailed, at)
 		ix.ResultMeta = `{"anet.reason":"` + reason + `"}`
-		own := a2ashape.Project(a2ashape.Source{Interaction: ix}, a2ashape.Options{})
+		own := stored.Project(stored.Source{Interaction: ix}, stored.Options{})
 		if got, want := own.Status.Message.Parts[0].Text, a2ashape.Sentence(reason, a2ashape.English, nil); got != want {
 			t.Errorf("%s own: %q, want %q", reason, got, want)
 		}
@@ -155,7 +156,7 @@ func TestPeerVariantSelection(t *testing.T) {
 		ix2 := ended(interactions.RoleOutbound, "", interactions.StateFailed, at)
 		msgs := []interactions.Message{{Seq: 1, SenderAID: notePeer, Kind: interactions.MsgStatus, Body: "peer words",
 			Metadata: `{"anet.reason":"` + reason + `"}`}}
-		peer := a2ashape.Project(a2ashape.Source{Interaction: ix2, Messages: msgs}, a2ashape.Options{})
+		peer := stored.Project(stored.Source{Interaction: ix2, Messages: msgs}, stored.Options{})
 		if got, want := peer.Status.Message.Parts[0].Text, a2ashape.Sentence(reason+".peer", a2ashape.English, nil); got != want {
 			t.Errorf("%s peer: %q, want %q", reason, got, want)
 		}

@@ -1,4 +1,4 @@
-package a2ashape_test
+package stored_test
 
 // anet.payment_note and anet.next on the task projection (core §2.13
 // revision 7, HPP §2.7, PAY-D9): the stored decision is said as it was
@@ -7,6 +7,7 @@ package a2ashape_test
 
 import (
 	"encoding/json"
+	"github.com/ANetResearch/ANet/internal/a2ashape/stored"
 	"strings"
 	"testing"
 	"time"
@@ -35,7 +36,7 @@ func waitingOn(t *testing.T, n a2ashape.PayNote, reason string) a2ashape.Task {
 	if reason != "" {
 		pay[x402a2a.KeyReason] = reason
 	}
-	return a2ashape.Project(a2ashape.Source{Interaction: ix, Payment: pay}, a2ashape.Options{})
+	return stored.Project(stored.Source{Interaction: ix, Payment: pay}, stored.Options{})
 }
 
 func TestTaskProjectionCarriesNext(t *testing.T) {
@@ -103,7 +104,7 @@ func TestTaskProjectionCarriesNext(t *testing.T) {
 	// the task's values; one whose rows differ by variant carries none.
 	ended := &interactions.Interaction{ID: "ix_r", Role: interactions.RoleOutbound, PeerAID: notePeer,
 		State: interactions.StateRejected, StateSeq: 2, ContextID: "c", ResultMeta: `{"anet.reason":"no_local_task"}`}
-	task := a2ashape.Project(a2ashape.Source{Interaction: ended}, a2ashape.Options{})
+	task := stored.Project(stored.Source{Interaction: ended}, stored.Options{})
 	if task.Metadata[a2ashape.KeyNext] != a2ashape.Next("no_local_task", a2ashape.English, a2ashape.Args{"task": "ix_r"}) ||
 		task.Metadata[a2ashape.KeyNext] == "" {
 		t.Errorf("no_local_task: anet.next %v", task.Metadata[a2ashape.KeyNext])
@@ -116,12 +117,12 @@ func TestTaskProjectionCarriesNext(t *testing.T) {
 	const self = "bafyreiselfselfselfselfselfselfselfselfselfselfselfselfselfse"
 	refused := &interactions.Interaction{ID: "ix_na", Role: interactions.RoleOutbound, PeerAID: notePeer,
 		State: interactions.StateRejected, StateSeq: 2, ContextID: "c", ResultMeta: `{"anet.reason":"not_accepting"}`}
-	task = a2ashape.Project(a2ashape.Source{Interaction: refused}, a2ashape.Options{SelfAID: self})
+	task = stored.Project(stored.Source{Interaction: refused}, stored.Options{SelfAID: self})
 	if want := "anet peers allow " + self; task.Metadata[a2ashape.KeyNext] != want ||
 		task.Status.Message == nil || !strings.Contains(task.Status.Message.Parts[0].Text, want) {
 		t.Errorf("not_accepting: anet.next %v, status.message %+v, want both to name %q", task.Metadata[a2ashape.KeyNext], task.Status.Message, want)
 	}
-	task = a2ashape.Project(a2ashape.Source{Interaction: refused}, a2ashape.Options{})
+	task = stored.Project(stored.Source{Interaction: refused}, stored.Options{})
 	if v, has := task.Metadata[a2ashape.KeyNext]; has {
 		t.Errorf("not_accepting without this node's AID: anet.next %v (a command with a hole)", v)
 	}
@@ -132,7 +133,7 @@ func TestTaskProjectionCarriesNext(t *testing.T) {
 	// A provider-side task never shows a payment note.
 	inbound := &interactions.Interaction{ID: "ix_in", Role: interactions.RoleInbound, PeerAID: notePeer,
 		State: interactions.StateInputRequired, ContextID: "c", PayNote: []byte(`{"code":"paid.auto","amount":1,"tier":"auto","single":1,"left":1,"at":"2026-10-10T09:00:00Z"}`)}
-	if v, has := a2ashape.Project(a2ashape.Source{Interaction: inbound}, a2ashape.Options{}).Metadata[a2ashape.KeyPaymentNote]; has {
+	if v, has := stored.Project(stored.Source{Interaction: inbound}, stored.Options{}).Metadata[a2ashape.KeyPaymentNote]; has {
 		t.Errorf("an inbound task's payment note: %v", v)
 	}
 }

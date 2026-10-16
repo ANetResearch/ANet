@@ -12,6 +12,7 @@ import (
 	"github.com/ANetResearch/ANetCore/seal"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
+	a2astored "github.com/ANetResearch/ANet/internal/a2ashape/stored"
 )
 
 // maxDeliveryNotes bounds what is remembered of published states; past it an
@@ -51,7 +52,7 @@ func (n *deliveryNotes) changed(ix string, s [3]string) bool {
 // the detail of engine §2.3, the wait of ENG-P1 (deliveryWait) and the order
 // rule of ENG-O1 to O3 (orderBlocked) — the engine's own functions, not a
 // second copy (DLV-W-21b, 21d).
-func (d *Daemon) outboxMsgs(ix string) []a2ashape.OutboxMsg {
+func (d *Daemon) outboxMsgs(ix string) []a2astored.OutboxMsg {
 	rows, err := d.ix.OutboxRows(ix)
 	if err != nil || len(rows) == 0 {
 		return nil
@@ -63,7 +64,7 @@ func (d *Daemon) outboxMsgs(ix string) []a2ashape.OutboxMsg {
 	for i := range rows {
 		views[i] = rowView(&rows[i])
 	}
-	out := make([]a2ashape.OutboxMsg, 0, len(rows))
+	out := make([]a2astored.OutboxMsg, 0, len(rows))
 	for i := range rows {
 		r := &rows[i]
 		_, vers, err := d.ix.OutboxState(r.ID)
@@ -72,7 +73,7 @@ func (d *Daemon) outboxMsgs(ix string) []a2ashape.OutboxMsg {
 		}
 		vv := d.verViews(r.ID, vers, hub, now)
 		rv := views[i]
-		m := a2ashape.OutboxMsg{MsgID: hex.EncodeToString(r.MID), Detail: a2ashape.DeliveryNotSent,
+		m := a2astored.OutboxMsg{MsgID: hex.EncodeToString(r.MID), Detail: a2ashape.DeliveryNotSent,
 			Wait: deliveryWait(rv, vv, gate), Delegation: r.Type == seal.TypeDelegate,
 			Frozen: r.Frozen, Exp: time.UnixMilli(int64(r.Exp)).UTC()}
 		if r.HandedAt > 0 || r.Attempting {

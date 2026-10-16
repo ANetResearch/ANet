@@ -6,11 +6,14 @@ package daemon
 // ends of them — the frame a coalescer hands over (sendPreviewFrame) and
 // receive step 9 for a frame (previewArrived).
 //
-// The rest of the daemon reaches it only through previewCoalescer
+// The rest of the daemon reaches it only through module.Previewer
 // (d.previews()) and previewArrived. memPreviews, the coalescer and the
-// cache, reads neither the store nor d.cfg: what it needs is passed in
-// (the clock, the hand-over, the counter), so that it can become a module
-// of its own later (11-modularity §3.2, MOD-5).
+// cache, is the implementation of module.Previewer: it reads neither the
+// store nor d.cfg, and what it needs is passed in (the clock, the
+// hand-over through the module.PreviewSeam, the counter), so that it can
+// move out as a module of its own (11-modularity §3.2, MOD-6). The
+// kernel's side of the seam — the table of requested rounds, the facts
+// and the enforcement of a frame — is in previewseam.go.
 //
 // Nothing here is written to interactions.db, the outbox, the replay table
 // or the evidence chain, and no preview text reaches a log (CUX-P15,
@@ -23,7 +26,6 @@ package daemon
 import (
 	"container/list"
 	"context"
-	"encoding/hex"
 	"encoding/json"
 	"strings"
 	"sync"
@@ -31,9 +33,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/ANetResearch/ANetCore/delegation"
-	"github.com/ANetResearch/ANetCore/seal"
 
-	"github.com/ANetResearch/ANet/internal/runtime/interactions"
+	"github.com/ANetResearch/ANet/module"
 )
 
 // The preview modes (core §2.13, CUX-P0): what a requester's message asks
@@ -75,89 +76,45 @@ const (
 // CUX-P2).
 const cntPreviewDropped = "preview-dropped"
 
-// EventPreview is a preview frame taken for a task this node delegated
-// (CUX-P15): the event carries it, and Current has it until the task moves
-// on. It changes nothing stored.
+// EventPreview says a preview frame was taken for a task this node
+// delegated (CUX-P15): the event carries no text, and Current has the frame
+// until the task moves on. It changes nothing stored.
 const EventPreview = "preview"
 
-// previewCoalescer is how the kernel reaches stream_preview (UX-8;
-// engine ENG-G3, §2.11.5): the provider's coalescer and the requester's
-// preview cache. The provider's frames go out only through oneShotSend
-// (ENG-K18), and a round's frames stop once its real answer or result is
-// queued (ENG-K20).
-type previewCoalescer interface {
-	// Requested records the round a requester's message opened on task ix
-	// (CUX-P0): answers is the message's id, mode its anet.preview_mode as
-	// previewModeOf read it ("" when it asked for none). A copy of the same
-	// message changes nothing.
-	Requested(ix, answers, mode string)
-	// Wanted reports whether the current round of ix asked for previews
-	// and has not been answered: the round's mode.
-	Wanted(ix string) (mode string, ok bool)
-	// Offer gives the coalescer what the provider has written so far in
-	// the round (the whole text and reasoning, not a delta); nodeMode is
-	// this node's stream_preview. It reports whether the round takes it.
-	Offer(ix, text, reasoning, nodeMode string) bool
-	// CancelRound drops the frames of task ix not yet handed over: a real
-	// answer or result of the round was queued in the same call, and no
-	// frame of that round goes after it (ENG-K20, CUX-P8).
-	CancelRound(ix string)
+// The preview types are the module's (module/preview.go): the seam and the
+// implementation share them.
+type (
+	previewContent = module.PreviewContent
+	previewFrame   = module.PreviewSnapshot
+	previewIn      = module.PreviewIn
+)
 
-	// Epoch is read before a frame's facts are judged and passed to
-	// Arrived, which refuses the frame when its task was cleared since.
-	Epoch() uint64
-	// Arrived keeps a frame whose facts the kernel has judged (CUX-P14
-	// items 1–3) when items 4–5 allow it: a stream_seq above the task's,
-	// and within the task's and the peer's rates.
-	Arrived(in previewIn) bool
-	// Clear forgets the preview of task ix: a message or a result was
-	// stored on it, or it ended (CUX-P16).
-	Clear(ix string)
-	// Current is the preview task ix shows now.
-	Current(ix string) (previewFrame, bool)
-}
-
-// previewsUnavailable is the coalescer while previews are not available on
+// previewsUnavailable is the Previewer while previews are not available on
 // this node — the absence behavior of MOD-P5, and not a stub: no round is
 // recorded, nothing is offered or sent, and every frame that arrives is
-// dropped (previewArrived counts it preview-rejected). It is what
-// d.previews() answers when no coalescer is set.
+// dropped (previewArrived counts it preview-unsupported before it gets
+// here). It is what d.previews() answers when no Previewer is set.
 type previewsUnavailable struct{}
 
-func (previewsUnavailable) Requested(string, string, string)          {}
-func (previewsUnavailable) Wanted(string) (string, bool)              { return "", false }
-func (previewsUnavailable) Offer(string, string, string, string) bool { return false }
-func (previewsUnavailable) CancelRound(string)                        {}
-func (previewsUnavailable) Epoch() uint64                             { return 0 }
-func (previewsUnavailable) Arrived(previewIn) bool                    { return false }
-func (previewsUnavailable) Clear(string)                              {}
-func (previewsUnavailable) Current(string) (previewFrame, bool)       { return previewFrame{}, false }
+func (previewsUnavailable) Requested(string, string, string) {}
 
-// previews is this node's preview coalescer.
-func (d *Daemon) previews() previewCoalescer {
-	if p := d.previewer.Load(); p != nil && *p != nil {
-		return *p
-	}
-	return previewsUnavailable{}
+func (previewsUnavailable) Offer(string, string, string) module.PreviewOffer {
+	return module.PreviewOffer{}
 }
 
-// setPreviewer makes c this node's preview coalescer; nil leaves previews
-// unavailable. It may be called while the daemon runs.
-func (d *Daemon) setPreviewer(c previewCoalescer) {
-	if c == nil {
-		d.previewer.Store(nil)
-		return
-	}
-	d.previewer.Store(&c)
-}
+func (previewsUnavailable) CancelRound(string) {}
 
-// startPreviews gives the daemon its coalescer and runs it until the
-// daemon stops.
-func (d *Daemon) startPreviews(ctx context.Context) {
-	co := newMemPreviews(d.nowMS, d.sendPreviewFrame, d.count)
-	d.setPreviewer(co)
-	d.goBackground(func() { co.run(ctx, func(f func()) { d.goBackground(f) }) })
-}
+func (previewsUnavailable) Epoch() uint64 { return 0 }
+
+func (previewsUnavailable) Arrived(previewIn) bool { return false }
+
+func (previewsUnavailable) Clear(string) {}
+
+func (previewsUnavailable) Current(string) (previewFrame, bool) { return previewFrame{}, false }
+
+var _ module.Previewer = previewsUnavailable{}
+
+var _ module.Previewer = (*memPreviews)(nil)
 
 // previewModeOf is CUX-P0: the anet.preview_mode a requester's message
 // metadata carries, read before anet.* is stripped for storage. A value
@@ -187,28 +144,6 @@ func normalPreviewMode(v string) string {
 	return ""
 }
 
-// notePreviewRound is CUX-P0 on the provider, after step 10 took m: a
-// delegation, or a requester's text message on a task of this node's,
-// opens a round, and its anet.preview_mode says whether the round is
-// previewed. A payment is not a round: the round it pays for goes on.
-func (d *Daemon) notePreviewRound(m *rxMsg) {
-	var answers string
-	var meta []byte
-	switch {
-	case m.typ == seal.TypeDelegate && m.dr != nil:
-		answers, meta = wireMsgID("", m.mid), m.dr.Metadata
-	case m.typ == seal.TypeMessage && m.cm != nil && m.cm.Kind == delegation.ChatText && m.existing != nil:
-		ix := m.existing
-		if ix.Role != interactions.RoleInbound || ix.PeerAID != m.from || ix.IsCapability || hasPaymentStatus(m.cm.Metadata) {
-			return
-		}
-		answers, meta = wireMsgID(m.cm.MsgID, m.mid), m.cm.Metadata
-	default:
-		return
-	}
-	d.previews().Requested(m.ix, answers, previewModeOf(meta))
-}
-
 // previewOut is one frame a coalescer hands to the kernel: the round it
 // belongs to and what the frame says. live reports whether the round is
 // still the one the frame was made for (nil: always).
@@ -221,25 +156,6 @@ type previewOut struct {
 	previewContent
 	live func() bool
 }
-
-// previewContent is what a frame shows: the tails of the text and of the
-// reasoning, the bytes before each, and when each was taken (unix ms).
-type previewContent struct {
-	Text             string
-	Omitted          uint64
-	TextAt           uint64
-	Reasoning        string
-	ReasoningOmitted uint64
-	ReasoningAt      uint64
-}
-
-// same reports whether c and o show the same thing (their times aside).
-func (c previewContent) same(o previewContent) bool {
-	return c.Text == o.Text && c.Omitted == o.Omitted && c.Reasoning == o.Reasoning && c.ReasoningOmitted == o.ReasoningOmitted
-}
-
-// empty reports whether c shows nothing.
-func (c previewContent) empty() bool { return c.Text == "" && c.Reasoning == "" }
 
 // previewTail is s as a frame carries it (CUX-P1): valid UTF-8, its last
 // MaxPreviewTail bytes at most, cut on a code point boundary, and the
@@ -258,161 +174,6 @@ func previewTail(s string) (string, uint64) {
 	return s[start:], uint64(start)
 }
 
-// previewFrame is a frame a requester took (CUX-P15): what the task's
-// preview shows until the task moves on.
-type previewFrame struct {
-	Answers string
-	Seq     uint64
-	previewContent
-	// At is when the frame was taken here (unix ms).
-	At uint64
-}
-
-// previewIn is a frame as receive step 9 hands it to the cache, after the
-// kernel judged CUX-P14 items 1–3.
-type previewIn struct {
-	IX, From string
-	previewFrame
-	// Epoch is what Epoch said before the facts were read.
-	Epoch uint64
-}
-
-// sendPreviewFrame is the kernel's hand-over of a frame (CUX-P4, P7a, P9;
-// ENG-K18 to K21): the facts of CUX-P4 are read from the store again — an
-// inbound text task, not ended, whose latest requester message is the one
-// the frame answers and that this node has not answered since — the frame
-// is made by previewChatMsg, and it goes once through oneShotSend, which
-// keeps it off the outbox and sends nothing without the peer's rk or while
-// the gate is closed. Nothing it does is written.
-func (d *Daemon) sendPreviewFrame(o previewOut) {
-	ix, err := d.ix.Get(o.IX)
-	if err != nil || ix.Role != interactions.RoleInbound || ix.IsCapability || ix.Trust == interactions.TrustPublicCap ||
-		ix.IsTerminal() || len(ix.Result) > 0 {
-		return
-	}
-	if _, ok := d.roundMessage(ix, o.Answers); !ok {
-		return
-	}
-	cm, ok := previewChatMsg(o)
-	if !ok {
-		// An answers over 256 bytes, or a frame this code got wrong: no
-		// preview (CUX §2.3); the round's answer goes as ever.
-		d.count(cntPreviewDropped)
-		return
-	}
-	body, err := cm.Marshal()
-	if err != nil {
-		d.count(cntPreviewDropped)
-		return
-	}
-	if o.live != nil && !o.live() {
-		return // the round was answered while the frame was being made
-	}
-	ctx, cancel := context.WithTimeout(d.ctx, previewSendTimeout)
-	defer cancel()
-	d.oneShotSend(ctx, oneShotPreview, ix.PeerAID, ix.ID, body)
-}
-
-// previewChatMsg is the frame o makes (CUX-P1, P4, P9): the reasoning only
-// when both this node and the round asked for it, a fresh random msg_id,
-// and nothing that does not pass ValidatePreview. ok is false when there
-// is no frame to send.
-func previewChatMsg(o previewOut) (*delegation.ChatMsg, bool) {
-	if normalPreviewMode(o.NodeMode) == "" || normalPreviewMode(o.Mode) == "" {
-		return nil, false
-	}
-	if o.NodeMode != previewModeWithReasoning || o.Mode != previewModeWithReasoning {
-		o.Reasoning, o.ReasoningOmitted, o.ReasoningAt = "", 0, 0
-	}
-	cm := &delegation.ChatMsg{Kind: delegation.ChatStreamPreview, Body: o.Text, StreamSeq: o.Seq,
-		StreamAtMS: int64(o.TextAt), ReasoningBody: o.Reasoning, MsgID: hex.EncodeToString(seal.NewMID()),
-		Omitted: o.Omitted, ReasoningOmitted: o.ReasoningOmitted, Answers: o.Answers}
-	if o.Reasoning != "" {
-		cm.ReasoningStreamAtMS = int64(o.ReasoningAt)
-	}
-	if delegation.ValidatePreview(cm) != nil {
-		return nil, false
-	}
-	return cm, true
-}
-
-// roundMessage is the message of task ix's current round as the store has
-// it, when its id is answers (CUX-P4 items 3–4, CUX-P14 items 2–3): the
-// latest text message is the asking side's — the requester's — and has
-// that id. A text message of the answering side's after it means the round
-// was answered.
-func (d *Daemon) roundMessage(ix *interactions.Interaction, answers string) (interactions.Message, bool) {
-	asker := d.AID()
-	if ix.Role == interactions.RoleInbound {
-		asker = ix.PeerAID
-	}
-	msgs, err := d.ix.Messages(ix.ID)
-	if err != nil {
-		return interactions.Message{}, false
-	}
-	for i := len(msgs) - 1; i >= 0; i-- {
-		m := msgs[i]
-		if m.Kind != interactions.MsgText {
-			continue
-		}
-		if m.SenderAID != asker {
-			return interactions.Message{}, false // answered since
-		}
-		return m, m.MsgID == answers
-	}
-	return interactions.Message{}, false
-}
-
-// previewArrived is receive step 9 for a stream_preview frame (engine §4.5;
-// CUX-P14): the frame is taken only for a task this node delegated to the
-// sender, a text task not ended, whose latest message of this node's is
-// the one the frame answers, asked for previews, and was not answered
-// since; then the cache judges its stream_seq and the rates. A frame taken
-// is kept in memory and published (EventPreview); nothing is written to the
-// store. It reports whether the frame was taken; one that was not is
-// dropped without a word (preview-rejected).
-func (d *Daemon) previewArrived(m *rxMsg) bool {
-	co := d.previews()
-	epoch := co.Epoch()
-	cm, ix := m.cm, m.existing
-	if cm == nil || delegation.ValidatePreview(cm) != nil {
-		return false // CUX-P2
-	}
-	// Item 1.
-	if ix == nil || ix.Role != interactions.RoleOutbound || ix.PeerAID != m.from || ix.IsTerminal() || ix.IsCapability ||
-		len(ix.Result) > 0 {
-		return false
-	}
-	// Items 2 and 3.
-	asked, ok := d.roundMessage(ix, cm.Answers)
-	if !ok {
-		return false
-	}
-	mode := previewModeOf([]byte(asked.Metadata))
-	if mode == "" {
-		return false
-	}
-	now := d.nowMS()
-	f := previewFrame{Answers: cm.Answers, Seq: cm.StreamSeq, At: now, previewContent: previewContent{
-		Text: cm.Body, Omitted: cm.Omitted, TextAt: uint64(max(cm.StreamAtMS, 0))}}
-	if mode == previewModeWithReasoning {
-		// Reasoning only for a round that asked for it, whatever the
-		// provider sent (CUX-P4, P17).
-		f.Reasoning, f.ReasoningOmitted, f.ReasoningAt = cm.ReasoningBody, cm.ReasoningOmitted, uint64(max(cm.ReasoningStreamAtMS, 0))
-	}
-	// Items 4 and 5.
-	if !co.Arrived(previewIn{IX: m.ix, From: m.from, previewFrame: f, Epoch: epoch}) {
-		return false
-	}
-	d.bus.publish(Event{IX: m.ix, Kind: EventPreview, At: now, preview: &f})
-	return true
-}
-
-// clearPreview is CUX-P16: task ix stored a message or a result, or ended,
-// so the preview it showed is gone. Called where the event of that write
-// is published.
-func (d *Daemon) clearPreview(ix string) { d.previews().Clear(ix) }
-
 // memPreviews is this node's coalescer and preview cache, in memory. It
 // reads no store and no configuration: now, send and count are the
 // kernel's.
@@ -420,7 +181,12 @@ type memPreviews struct {
 	now   func() uint64
 	send  func(previewOut)
 	count func(string)
-	wake  chan struct{}
+	// mode is this node's stream_preview now (the seam's Mode); nil reads
+	// as "off". published says a task has a new preview to show (the
+	// seam's Published); nil says nothing.
+	mode      func() string
+	published func(ix string)
+	wake      chan struct{}
 
 	mu sync.Mutex
 
@@ -539,7 +305,7 @@ func (c *memPreviews) nudge() {
 	}
 }
 
-// Requested is previewCoalescer.Requested.
+// Requested is module.Previewer.Requested.
 func (c *memPreviews) Requested(ix, answers, mode string) {
 	mode = normalPreviewMode(mode)
 	c.mu.Lock()
@@ -567,7 +333,7 @@ func (c *memPreviews) Requested(ix, answers, mode string) {
 	r.cur, r.last, r.dirty = previewContent{}, previewContent{}, false
 }
 
-// Wanted is previewCoalescer.Wanted.
+// Wanted is module.Previewer.Wanted.
 func (c *memPreviews) Wanted(ix string) (string, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -578,10 +344,19 @@ func (c *memPreviews) Wanted(ix string) (string, bool) {
 	return r.mode, true
 }
 
-// Offer is previewCoalescer.Offer: the content is cut to the tails a
-// frame carries now, and the reasoning dropped unless both this node and
-// the round asked for it.
-func (c *memPreviews) Offer(ix, text, reasoning, nodeMode string) bool {
+// Offer is module.Previewer.Offer: what the node's stream_preview allows
+// is read through the seam.
+func (c *memPreviews) Offer(ix, text, reasoning string) module.PreviewOffer {
+	node := "off"
+	if c.mode != nil {
+		node = c.mode()
+	}
+	return module.PreviewOffer{Taken: c.offer(ix, text, reasoning, node)}
+}
+
+// offer: the content is cut to the tails a frame carries now, and the
+// reasoning dropped unless both this node and the round asked for it.
+func (c *memPreviews) offer(ix, text, reasoning, nodeMode string) bool {
 	nodeMode = normalPreviewMode(nodeMode)
 	if nodeMode == "" {
 		return false
@@ -605,14 +380,14 @@ func (c *memPreviews) Offer(ix, text, reasoning, nodeMode string) bool {
 		v.ReasoningAt = now
 	}
 	r.cur, r.nodeMode = v, nodeMode
-	r.dirty = !v.empty() && !v.same(r.last)
+	r.dirty = !v.Empty() && !v.Same(r.last)
 	if r.dirty {
 		c.nudge()
 	}
 	return true
 }
 
-// CancelRound is previewCoalescer.CancelRound.
+// CancelRound is module.Previewer.CancelRound.
 func (c *memPreviews) CancelRound(ix string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -685,16 +460,28 @@ func (c *memPreviews) live(ix string, id uint64) bool {
 	return r != nil && r.id == id && !r.canceled
 }
 
-// Epoch is previewCoalescer.Epoch.
+// Epoch is module.Previewer.Epoch.
 func (c *memPreviews) Epoch() uint64 {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.epoch
 }
 
-// Arrived is previewCoalescer.Arrived: CUX-P14 items 4 and 5, then the
-// frame is the task's preview (CUX-P15).
+// Arrived is module.Previewer.Arrived: CUX-P14 items 4 and 5, then the
+// frame is the task's preview (CUX-P15), and the task is told it has a new
+// one to show.
 func (c *memPreviews) Arrived(in previewIn) bool {
+	if !c.arrive(in) {
+		return false
+	}
+	if c.published != nil {
+		c.published(in.IX)
+	}
+	return true
+}
+
+// arrive judges and keeps the frame.
+func (c *memPreviews) arrive(in previewIn) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if e, ok := c.clears[in.IX]; ok {
@@ -729,7 +516,7 @@ func (c *memPreviews) Arrived(in previewIn) bool {
 	} else {
 		c.seenLRU.MoveToFront(s.elem)
 	}
-	f := in.previewFrame
+	f := in.PreviewSnapshot
 	s.maxSeq, s.lastAt, s.taken, s.frame = in.Seq, now, true, &f
 	if w == nil {
 		c.sweepPeers(now)
@@ -775,7 +562,7 @@ func (c *memPreviews) sweepPeers(now uint64) {
 	}
 }
 
-// Clear is previewCoalescer.Clear.
+// Clear is module.Previewer.Clear.
 func (c *memPreviews) Clear(ix string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -795,7 +582,7 @@ func (c *memPreviews) Clear(ix string) {
 	}
 }
 
-// Current is previewCoalescer.Current.
+// Current is module.Previewer.Current.
 func (c *memPreviews) Current(ix string) (previewFrame, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()

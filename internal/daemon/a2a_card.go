@@ -300,12 +300,6 @@ func (d *Daemon) cardInput(hubURL, name string) (netcard.Input, error) {
 	}
 	cc := module.CardContext{AID: d.AID(), HubURL: hubURL, Skills: netcard.SkillIDs(in.Skills)}
 	in.Extensions, in.Interfaces = d.cardContributions(cc)
-	if cfg.streamPreview() != streamPreviewOff {
-		// CUX-P30: the card says this agent sends previews; on and
-		// with_reasoning say the same (the reasoning is not public).
-		in.Extensions = append(in.Extensions, map[string]any{"uri": previewExtensionURI,
-			"description": "Sends a snapshot of the reply while it is being written, to a requester that asks for it."})
-	}
 	// The skills of the list variant of the extended card; the public card
 	// does not list them (netcard.Build reads only Skills).
 	for _, id := range d.listOnlySkillIDs(cc.Skills) {

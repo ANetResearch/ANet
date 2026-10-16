@@ -34,6 +34,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ANetResearch/ANet/internal/ixstate"
+
 	_ "modernc.org/sqlite" // pure-Go driver (A3: no cgo in distributed runtime)
 )
 
@@ -58,43 +60,24 @@ const (
 )
 
 // State is an interaction's task state (A2A-DESIGN §4.1). The strings are
-// the A2A TaskState names in lowercase-hyphen form.
-type State string
+// the A2A TaskState names in lowercase-hyphen form. The type and its
+// methods live in internal/ixstate, a leaf with no store dependency.
+type State = ixstate.State
 
 const (
-	StateSubmitted     State = "submitted"
-	StateWorking       State = "working"
-	StateInputRequired State = "input-required"
-	StateCompleted     State = "completed"
-	StateFailed        State = "failed"
-	StateCanceled      State = "canceled"
-	StateRejected      State = "rejected"
+	StateSubmitted     = ixstate.Submitted
+	StateWorking       = ixstate.Working
+	StateInputRequired = ixstate.InputRequired
+	StateCompleted     = ixstate.Completed
+	StateFailed        = ixstate.Failed
+	StateCanceled      = ixstate.Canceled
+	StateRejected      = ixstate.Rejected
 )
 
 // terminalSQL is the SQL list of terminal states. It is the only place the
 // guarded writes name them; IsTerminal is its Go counterpart and a test
 // keeps the two equal.
 const terminalSQL = `('completed','failed','canceled','rejected')`
-
-// IsTerminal reports whether s is one of the four terminal states. Every
-// "has this task ended" check in the daemon goes through it.
-func (s State) IsTerminal() bool {
-	switch s {
-	case StateCompleted, StateFailed, StateCanceled, StateRejected:
-		return true
-	}
-	return false
-}
-
-// Valid reports whether s is one of the seven defined states.
-func (s State) Valid() bool {
-	switch s {
-	case StateSubmitted, StateWorking, StateInputRequired,
-		StateCompleted, StateFailed, StateCanceled, StateRejected:
-		return true
-	}
-	return false
-}
 
 // Trust is how an inbound interaction was admitted (A2A-DESIGN §5.2). It is
 // empty for an outbound interaction.
@@ -105,15 +88,14 @@ const (
 	TrustApproved  = "approved"   // held in the pending queue and approved by the operator
 )
 
-// Values of the pay_state column (A2A-DESIGN §4.1). Written by the payment
-// flow; listed here so the value domain is defined next to the column.
+// Values of the pay_state column (A2A-DESIGN §4.1), defined in ixstate.
 const (
-	PayNone      = ""          // no quote
-	PayRequired  = "required"  // quoted (provider) or quote received (requester)
-	PaySubmitted = "submitted" // provider: payload persisted, awaiting settlement; requester: payment-submitted sent
-	PayCompleted = "completed" // settled
-	PayFailed    = "failed"    // settlement definitely failed
-	PayRejected  = "rejected"  // the requester declined to pay
+	PayNone      = ixstate.PayNone
+	PayRequired  = ixstate.PayRequired
+	PaySubmitted = ixstate.PaySubmitted
+	PayCompleted = ixstate.PayCompleted
+	PayFailed    = ixstate.PayFailed
+	PayRejected  = ixstate.PayRejected
 )
 
 // Message kinds carried in the per-interaction conversation log.

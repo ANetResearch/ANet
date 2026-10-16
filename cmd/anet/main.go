@@ -164,6 +164,9 @@ func main() {
 		} else {
 			usageShort()
 		}
+	case "preview":
+		fail(requireModule(layout, "preview")) // MOD-F3: before the daemon, before anything is asked
+		fail(runClient(layout, cmd, rest, explicit))
 	default:
 		fail(runClient(layout, cmd, rest, explicit))
 	}

@@ -45,3 +45,9 @@ func requireModule(layout daemon.Layout, m string) error {
 	}
 	return absentError{a2ashape.Sentence(ref.Key, a2ashape.Lang(), ref.Args)}
 }
+
+// previewHere reports whether the preview module is available on the node
+// whose data directory c uses.
+func previewHere(c *client) bool {
+	return requireModule(daemon.Layout{Root: c.dataDir}, "preview") == nil
+}

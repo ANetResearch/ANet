@@ -1,4 +1,4 @@
-package a2ashape
+package stored
 
 // delivery.go places the delivery state of the messages this node sent on a
 // projection (DLV-W-20 to 21d, DLV-P-2): confirmed and unconfirmed are the
@@ -8,10 +8,12 @@ package a2ashape
 
 import (
 	"time"
+
+	"github.com/ANetResearch/ANet/internal/a2ashape"
 )
 
 // deliveryKeys are the keys only this node computes (CORE-K17).
-var deliveryKeys = []string{KeyDelivery, KeyDeliveryDetail, KeyDeliveryWait, KeyDeliverySince, KeyDeliveryEndsAt, KeyDeliveryOrdered}
+var deliveryKeys = []string{a2ashape.KeyDelivery, a2ashape.KeyDeliveryDetail, a2ashape.KeyDeliveryWait, a2ashape.KeyDeliverySince, a2ashape.KeyDeliveryEndsAt, a2ashape.KeyDeliveryOrdered}
 
 // own reports whether stored message i was sent by this node: a task has
 // two parties, and the other one is the peer.
@@ -32,28 +34,28 @@ func (p *projector) setDelivery(i int) {
 	if m == nil {
 		m = map[string]any{}
 	}
-	for _, k := range []string{KeyDeliveryWait, KeyDeliverySince, KeyDeliveryEndsAt, KeyDeliveryOrdered} {
+	for _, k := range []string{a2ashape.KeyDeliveryWait, a2ashape.KeyDeliverySince, a2ashape.KeyDeliveryEndsAt, a2ashape.KeyDeliveryOrdered} {
 		delete(m, k)
 	}
 	if id := p.msgs[i].MsgID; id != "" {
 		for _, o := range p.outbox {
 			if o.MsgID == id {
-				m[KeyDelivery], m[KeyDeliveryDetail] = DeliveryPending, o.Detail
+				m[a2ashape.KeyDelivery], m[a2ashape.KeyDeliveryDetail] = a2ashape.DeliveryPending, o.Detail
 				if o.Wait != "" {
-					m[KeyDeliveryWait] = o.Wait
+					m[a2ashape.KeyDeliveryWait] = o.Wait
 				}
 				break
 			}
 		}
 	}
-	switch m[KeyDelivery] {
-	case DeliveryPending, DeliveryConfirmed, DeliveryUnconfirmed:
+	switch m[a2ashape.KeyDelivery] {
+	case a2ashape.DeliveryPending, a2ashape.DeliveryConfirmed, a2ashape.DeliveryUnconfirmed:
 	default:
-		delete(m, KeyDelivery)
-		delete(m, KeyDeliveryDetail)
+		delete(m, a2ashape.KeyDelivery)
+		delete(m, a2ashape.KeyDeliveryDetail)
 	}
-	if m[KeyDelivery] == DeliveryConfirmed {
-		delete(m, KeyDeliveryDetail)
+	if m[a2ashape.KeyDelivery] == a2ashape.DeliveryConfirmed {
+		delete(m, a2ashape.KeyDeliveryDetail)
 	}
 	if len(m) > 0 {
 		p.metas[i] = m
@@ -68,28 +70,28 @@ func (p *projector) deliveryMeta(m map[string]any) {
 		if !p.own(i) || p.metas[i] == nil {
 			continue
 		}
-		d, _ := p.metas[i][KeyDelivery].(string)
+		d, _ := p.metas[i][a2ashape.KeyDelivery].(string)
 		if d == "" {
 			continue
 		}
-		m[KeyDelivery] = d
-		if v, ok := p.metas[i][KeyDeliveryDetail]; ok {
-			m[KeyDeliveryDetail] = v
+		m[a2ashape.KeyDelivery] = d
+		if v, ok := p.metas[i][a2ashape.KeyDeliveryDetail]; ok {
+			m[a2ashape.KeyDeliveryDetail] = v
 		}
-		if v, ok := p.metas[i][KeyDeliveryWait]; ok {
-			m[KeyDeliveryWait] = v
+		if v, ok := p.metas[i][a2ashape.KeyDeliveryWait]; ok {
+			m[a2ashape.KeyDeliveryWait] = v
 		}
 		if t, err := time.Parse(time.RFC3339Nano, p.msgs[i].CreatedAt); err == nil {
-			m[KeyDeliverySince] = t.UTC().Format(time.RFC3339)
+			m[a2ashape.KeyDeliverySince] = t.UTC().Format(time.RFC3339)
 		}
-		if d == DeliveryPending {
+		if d == a2ashape.DeliveryPending {
 			for _, o := range p.outbox {
 				if o.MsgID == p.msgs[i].MsgID && o.Ordered {
-					m[KeyDeliveryOrdered] = true
+					m[a2ashape.KeyDeliveryOrdered] = true
 				}
 			}
-			if at := deliveryEndsAt(p.deadlines(), p.opt.NoResponseAfter, p.ix.IsTerminal()); !at.IsZero() {
-				m[KeyDeliveryEndsAt] = at.UTC().Format(time.RFC3339)
+			if at := a2ashape.DeliveryEndsAt(p.deadlines(), p.opt.NoResponseAfter, p.ix.IsTerminal()); !at.IsZero() {
+				m[a2ashape.KeyDeliveryEndsAt] = at.UTC().Format(time.RFC3339)
 			}
 		}
 		return
@@ -97,10 +99,10 @@ func (p *projector) deliveryMeta(m map[string]any) {
 }
 
 // deadlines are the task's queued rows as UX-R11 reads them.
-func (p *projector) deadlines() []outboxDeadline {
-	out := make([]outboxDeadline, 0, len(p.outbox))
+func (p *projector) deadlines() []a2ashape.OutboxDeadline {
+	out := make([]a2ashape.OutboxDeadline, 0, len(p.outbox))
 	for _, o := range p.outbox {
-		out = append(out, outboxDeadline{delegation: o.Delegation, handed: o.Handed, handedAt: o.HandedAt, exp: o.Exp, frozen: o.Frozen})
+		out = append(out, a2ashape.OutboxDeadline{Delegation: o.Delegation, Handed: o.Handed, HandedAt: o.HandedAt, Exp: o.Exp, Frozen: o.Frozen})
 	}
 	return out
 }
@@ -113,20 +115,20 @@ func (p *projector) abandonText(reason string) string {
 	ix := p.ix
 	switch reason {
 	case "undeliverable":
-		return Sentence(reason, Lang(), nil)
+		return a2ashape.Sentence(reason, a2ashape.Lang(), nil)
 	case "delivery_unconfirmed":
 		if ix.ReasonVariant == "" {
 			return ""
 		}
-		arg := decodeObject([]byte(ix.ReasonArg))
-		args := Args{}
+		arg := a2ashape.DecodeObject([]byte(ix.ReasonArg))
+		args := a2ashape.Args{}
 		if ms := wholeMS(arg["limit_ms"]); ms > 0 {
 			args["limit"] = time.Duration(min(ms, int64(1<<62)/int64(time.Millisecond))) * time.Millisecond
 		}
 		if w, _ := arg["wait"].(string); w != "" {
 			args["wait"] = w
 		}
-		return Sentence(reason+"."+ix.ReasonVariant, Lang(), args)
+		return a2ashape.Sentence(reason+"."+ix.ReasonVariant, a2ashape.Lang(), args)
 	}
 	return ""
 }

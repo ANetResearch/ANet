@@ -157,10 +157,12 @@ type Daemon struct {
 	outboxHold atomic.Bool
 	// reviewsGivenUp counts the reviews this daemon gave up uploading since it started (review.go).
 	reviewsGivenUp atomic.Int64
-	// previewer is the stream_preview coalescer and preview cache
-	// (preview.go, set with setPreviewer); none leaves previews
-	// unavailable (previewsUnavailable).
-	previewer atomic.Pointer[previewCoalescer]
+	// previewer is the stream_preview implementation (preview.go, set with
+	// setPreviewer); none leaves previews unavailable (previewsUnavailable).
+	// previewRounds is the kernel's table of the rounds a requester asked
+	// previews for (previewseam.go).
+	previewer     atomic.Pointer[module.Previewer]
+	previewRounds previewRoundTable
 	// streamPreviewFn is this node's stream_preview setting ("off", "on"
 	// or "with_reasoning"); nil reads as "off" (preview_card.go).
 	// v030-todo(UX-9): the config key reads through here.

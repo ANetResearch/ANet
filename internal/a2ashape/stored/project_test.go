@@ -1,4 +1,4 @@
-package a2ashape_test
+package stored_test
 
 // project_test.go is the SI-6 contract test (A2A-DESIGN §1, §17): tasks
 // are written with the store operations the daemon uses, projected, decoded
@@ -10,6 +10,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/ANetResearch/ANet/internal/a2ashape/stored"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -200,7 +201,7 @@ func TestTextTaskCompleted(t *testing.T) {
 		Receipt: receipt(t, ix, self, peer, "bafyresult"), Verified: interactions.VerificationVerified,
 		Meta: []byte(`{"anet.state":"completed"}`)}, interactions.CausePeerEnded))
 
-	task, err := a2ashape.ProjectStored(st, ix, a2ashape.Options{Artifacts: true, InlineFiles: true, SafeName: safe,
+	task, err := stored.ProjectStored(st, ix, stored.Options{Artifacts: true, InlineFiles: true, SafeName: safe,
 		ProviderKEL: "a2VsCg=="})
 	must(t, err)
 	sdk := contract(t, task)
@@ -255,7 +256,7 @@ func TestTextTaskCompleted(t *testing.T) {
 
 	// The same task without inline bytes and without a name sanitizer:
 	// files by reference, and no peer-chosen name.
-	ref, err := a2ashape.ProjectStored(st, ix, a2ashape.Options{Artifacts: true})
+	ref, err := stored.ProjectStored(st, ix, stored.Options{Artifacts: true})
 	must(t, err)
 	sdk = contract(t, ref)
 	f := sdk.Artifacts[0].Parts[1]
@@ -268,14 +269,14 @@ func TestTextTaskCompleted(t *testing.T) {
 
 	// History length and artifacts off (ListTasks' default).
 	one := 1
-	short, err := a2ashape.ProjectStored(st, ix, a2ashape.Options{HistoryLength: &one})
+	short, err := stored.ProjectStored(st, ix, stored.Options{HistoryLength: &one})
 	must(t, err)
 	sdk = contract(t, short)
 	if len(sdk.History) != 1 || sdk.History[0].ID != "msg_6" || sdk.Artifacts != nil || sdk.Metadata[a2ashape.KeyReceipt] != nil {
 		t.Fatalf("historyLength=1: %+v", sdk)
 	}
 	zero := 0
-	none, err := a2ashape.ProjectStored(st, ix, a2ashape.Options{HistoryLength: &zero})
+	none, err := stored.ProjectStored(st, ix, stored.Options{HistoryLength: &zero})
 	must(t, err)
 	if none.History != nil {
 		t.Fatalf("historyLength=0 kept %d messages", len(none.History))
@@ -294,7 +295,7 @@ func TestUnverifiedReceiptStaysCompleted(t *testing.T) {
 		tr, _ := transcript.EncodeV2("n", []transcript.Message{{From: "requester", Body: "g"}, {From: "provider", Body: "ok"}})
 		must(t, st.Finish(ix, interactions.Finish{State: interactions.StateCompleted, Result: tr, ResultCID: "bafyr",
 			Receipt: receipt(t, ix, self, peer, "bafyr"), Verified: v}, interactions.CausePeerEnded))
-		task, err := a2ashape.ProjectStored(st, ix, a2ashape.Options{Artifacts: true})
+		task, err := stored.ProjectStored(st, ix, stored.Options{Artifacts: true})
 		must(t, err)
 		sdk := contract(t, task)
 		want := map[interactions.Verification]string{interactions.VerificationUnverified: "unverified",
@@ -320,7 +321,7 @@ func TestInputRequiredCarriesProviderMessage(t *testing.T) {
 	must(t, st.AddAttachment(ix, seq, interactions.Attachment{Name: "cat.png", Mime: "image/png", Size: 2, CID: "bafkcat", Data: []byte{9, 9}}))
 	setState(t, st, ix, interactions.StateInputRequired)
 
-	task, err := a2ashape.ProjectStored(st, ix, a2ashape.Options{InlineFiles: true, SafeName: safe})
+	task, err := stored.ProjectStored(st, ix, stored.Options{InlineFiles: true, SafeName: safe})
 	must(t, err)
 	sdk := contract(t, task)
 	m := sdk.Status.Message
@@ -340,14 +341,14 @@ func TestInputRequiredCarriesProviderMessage(t *testing.T) {
 	// explains the state.
 	msg(t, st, ix, peer, interactions.MsgText, "yes but orange", "msg_a", nil)
 	setState(t, st, ix, interactions.StateWorking)
-	task, err = a2ashape.ProjectStored(st, ix, a2ashape.Options{})
+	task, err = stored.ProjectStored(st, ix, stored.Options{})
 	must(t, err)
 	if sdk = contract(t, task); sdk.Status.Message != nil {
 		t.Fatalf("working task kept a stale status message: %+v", sdk.Status.Message)
 	}
 	// Progress after that does.
 	msg(t, st, ix, self, interactions.MsgStatus, "drawing", "st_p", map[string]any{"pct": 40})
-	task, err = a2ashape.ProjectStored(st, ix, a2ashape.Options{})
+	task, err = stored.ProjectStored(st, ix, stored.Options{})
 	must(t, err)
 	if sdk = contract(t, task); sdk.Status.Message == nil || sdk.Status.Message.Parts[0].Text() != "drawing" {
 		t.Fatalf("progress not shown: %+v", sdk.Status)
@@ -383,7 +384,7 @@ func TestCapabilityUnverifiedIsCompletedNotOK(t *testing.T) {
 	capTask(t, st, "ix_cap", interactions.StateCompleted,
 		`{"capability":"cas.put","status":"UNVERIFIED","nonce":"n","verifiable":false,"message":"sent, no readback"}`,
 		`{"anet.effect_status":"UNVERIFIED","anet.state":"completed"}`)
-	task, err := a2ashape.ProjectStored(st, "ix_cap", a2ashape.Options{Artifacts: true})
+	task, err := stored.ProjectStored(st, "ix_cap", stored.Options{Artifacts: true})
 	must(t, err)
 	sdk := contract(t, task)
 	if sdk.Status.State != a2a.TaskStateCompleted || sdk.Metadata[a2ashape.KeyEffectStatus] != "UNVERIFIED" ||
@@ -438,7 +439,7 @@ func TestEffectStatesTable(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			st := openStore(t)
 			capTask(t, st, "ix", c.state, c.deliverable, c.meta)
-			task, err := a2ashape.ProjectStored(st, "ix", a2ashape.Options{Artifacts: true})
+			task, err := stored.ProjectStored(st, "ix", stored.Options{Artifacts: true})
 			must(t, err)
 			sdk := contract(t, task)
 			if sdk.Status.State != c.wantState || sdk.Metadata[a2ashape.KeyEffectStatus] != c.wantEffect ||
@@ -465,7 +466,7 @@ func TestCapabilityWithoutAnswer(t *testing.T) {
 		msg(t, st, "ix", peer, interactions.MsgStatus, "this node did not accept the task: denied", "st_1",
 			map[string]any{a2ashape.KeyReason: "denied"})
 		setState(t, st, "ix", interactions.StateRejected)
-		task, err := a2ashape.ProjectStored(st, "ix", a2ashape.Options{Artifacts: true})
+		task, err := stored.ProjectStored(st, "ix", stored.Options{Artifacts: true})
 		must(t, err)
 		sdk := contract(t, task)
 		if sdk.Metadata[a2ashape.KeyEffectStatus] != "UNAVAILABLE" || sdk.Metadata[a2ashape.KeyReason] != "denied" ||
@@ -478,7 +479,7 @@ func TestCapabilityWithoutAnswer(t *testing.T) {
 		capTask(t, st, "ix", "", "", "")
 		msg(t, st, "ix", self, interactions.MsgCancel, "", "c1", nil)
 		setState(t, st, "ix", interactions.StateCanceled)
-		task, err := a2ashape.ProjectStored(st, "ix", a2ashape.Options{})
+		task, err := stored.ProjectStored(st, "ix", stored.Options{})
 		must(t, err)
 		sdk := contract(t, task)
 		if sdk.Metadata[a2ashape.KeyEffectStatus] != "UNVERIFIED" || sdk.Metadata[a2ashape.KeyCancelRequested] != nil {
@@ -489,7 +490,7 @@ func TestCapabilityWithoutAnswer(t *testing.T) {
 		st := openStore(t)
 		capTask(t, st, "ix", "", "", "")
 		msg(t, st, "ix", peer, interactions.MsgStatus, "", "st_q", map[string]any{a2ashape.KeyInbound: "pending_approval"})
-		task, err := a2ashape.ProjectStored(st, "ix", a2ashape.Options{})
+		task, err := stored.ProjectStored(st, "ix", stored.Options{})
 		must(t, err)
 		sdk := contract(t, task)
 		if sdk.Status.State != a2a.TaskStateSubmitted || sdk.Metadata[a2ashape.KeyInbound] != "pending_approval" ||
@@ -509,7 +510,7 @@ func TestPeerNumbersStayReadable(t *testing.T) {
 	msg(t, st, ix, self, interactions.MsgText, "g", "m1", nil)
 	msg(t, st, ix, peer, interactions.MsgText, "?", "m2", map[string]any{"n": json.RawMessage(`1e400`)})
 	setState(t, st, ix, interactions.StateInputRequired)
-	task, err := a2ashape.ProjectStored(st, ix, a2ashape.Options{})
+	task, err := stored.ProjectStored(st, ix, stored.Options{})
 	must(t, err)
 	sdk := contract(t, task)
 	if sdk.Status.Message == nil || sdk.Status.Message.Metadata["n"] != "1e400" {
@@ -526,7 +527,7 @@ func TestCancelRequested(t *testing.T) {
 	msg(t, st, ix, self, interactions.MsgText, "g", "m1", nil)
 	setState(t, st, ix, interactions.StateWorking)
 	msg(t, st, ix, self, interactions.MsgCancel, "", "m2", nil)
-	task, err := a2ashape.ProjectStored(st, ix, a2ashape.Options{})
+	task, err := stored.ProjectStored(st, ix, stored.Options{})
 	must(t, err)
 	sdk := contract(t, task)
 	if sdk.Status.State != a2a.TaskStateWorking || sdk.Metadata[a2ashape.KeyCancelRequested] != true || len(sdk.History) != 1 {
@@ -542,7 +543,7 @@ func TestPaymentKeys(t *testing.T) {
 	capTask(t, st, "ix_q", interactions.StateInputRequired,
 		`{"capability":"cas.put","status":"PAYMENT_REQUIRED","message":"costs 5","payment_required":`+quote+`}`,
 		`{"anet.effect_status":"PAYMENT_REQUIRED","anet.state":"input-required"}`)
-	task, err := a2ashape.ProjectStored(st, "ix_q", a2ashape.Options{})
+	task, err := stored.ProjectStored(st, "ix_q", stored.Options{})
 	must(t, err)
 	sdk := contract(t, task)
 	m := sdk.Status.Message
@@ -556,7 +557,7 @@ func TestPaymentKeys(t *testing.T) {
 	}
 	// The quote is signed and stored like an answer, but it is not the
 	// task's output: no anet.result for a stream to hand over as the work.
-	task, err = a2ashape.ProjectStored(st, "ix_q", a2ashape.Options{Artifacts: true})
+	task, err = stored.ProjectStored(st, "ix_q", stored.Options{Artifacts: true})
 	must(t, err)
 	if sdk = contract(t, task); sdk.Artifacts != nil {
 		t.Fatalf("a quote projected as artifacts: %+v", sdk.Artifacts)
@@ -564,7 +565,7 @@ func TestPaymentKeys(t *testing.T) {
 	// Nor is its message why the task ended when the requester walks away.
 	msg(t, st, "ix_q", self, interactions.MsgCancel, "", "c1", nil)
 	setState(t, st, "ix_q", interactions.StateCanceled)
-	task, err = a2ashape.ProjectStored(st, "ix_q", a2ashape.Options{Artifacts: true})
+	task, err = stored.ProjectStored(st, "ix_q", stored.Options{Artifacts: true})
 	must(t, err)
 	if sdk = contract(t, task); sdk.Status.State != a2a.TaskStateCanceled || sdk.Status.Message != nil || sdk.Artifacts != nil {
 		t.Fatalf("canceled after a quote: %+v / %+v", sdk.Status, sdk.Artifacts)
@@ -578,7 +579,7 @@ func TestPaymentKeys(t *testing.T) {
 	capTask(t, st, "ix_p", interactions.StateCompleted,
 		`{"capability":"cas.put","status":"OK","paid":{"transaction":"tx1","amount":"5","network":"hub:did:anet:h","receipt":"UkVD"}}`,
 		`{"anet.effect_status":"OK"}`)
-	task, err = a2ashape.ProjectStored(st, "ix_p", a2ashape.Options{})
+	task, err = stored.ProjectStored(st, "ix_p", stored.Options{})
 	must(t, err)
 	sdk = contract(t, task)
 	if _, ok := sdk.Metadata[a2ashape.KeyX402Status]; ok {
@@ -592,12 +593,12 @@ func TestPaymentKeys(t *testing.T) {
 	}
 	// The settlement this node verified, as the payment flow stores it:
 	// pay_state completed and the response with its verdict.
-	src0, err := a2ashape.Load(st, "ix_p")
+	src0, err := stored.Load(st, "ix_p")
 	must(t, err)
 	src0.Interaction.PayState = interactions.PayCompleted
 	src0.Interaction.PayReceipts = []byte(`[{"success":true,"transaction":"tx1","network":"hub:did:anet:h",` +
 		`"extensions":{"anet.settlement.receipt":"UkVD","anet.settlement_verified":"verified"}}]`)
-	sdk = contract(t, a2ashape.Project(src0, a2ashape.Options{}))
+	sdk = contract(t, stored.Project(src0, stored.Options{}))
 	rcs, _ := sdk.Metadata[a2ashape.KeyX402Receipts].([]any)
 	if sdk.Metadata[a2ashape.KeyX402Status] != "payment-completed" || len(rcs) != 1 || sdk.Status.Message == nil ||
 		sdk.Status.Message.Metadata[a2ashape.KeyX402Status] != "payment-completed" {
@@ -611,13 +612,13 @@ func TestPaymentKeys(t *testing.T) {
 
 	// The same-task flow's columns (§8.3), which the payment work fills:
 	// pay_state and the stored settlement responses.
-	src, err := a2ashape.Load(st, "ix_p")
+	src, err := stored.Load(st, "ix_p")
 	must(t, err)
 	src.Interaction.Result = []byte(`{"capability":"cas.put","status":"UNAVAILABLE","message":"could not deliver"}`)
 	src.Interaction.State = interactions.StateFailed
 	src.Interaction.PayState = interactions.PayCompleted
 	src.Interaction.PayReceipts = []byte(`[{"success":true,"transaction":"tx2","network":"n"}]`)
-	sdk = contract(t, a2ashape.Project(src, a2ashape.Options{}))
+	sdk = contract(t, stored.Project(src, stored.Options{}))
 	if sdk.Status.State != a2a.TaskStateFailed || sdk.Status.Message.Metadata[a2ashape.KeyX402Status] != "payment-completed" ||
 		sdk.Status.Message.Parts[0].Text() != "could not deliver" || sdk.Metadata[a2ashape.KeyEffectStatus] != "UNAVAILABLE" {
 		t.Fatalf("%+v", sdk)
@@ -629,7 +630,7 @@ func TestPaymentKeys(t *testing.T) {
 	// task's metadata.
 	src.Interaction.PayState = interactions.PayFailed
 	src.Interaction.ResultMeta = `{"x402.payment.error":"EXPIRED_PAYMENT"}`
-	sdk = contract(t, a2ashape.Project(src, a2ashape.Options{}))
+	sdk = contract(t, stored.Project(src, stored.Options{}))
 	if sdk.Status.Message.Metadata[a2ashape.KeyX402Error] != "EXPIRED_PAYMENT" || sdk.Metadata[a2ashape.KeyX402Error] != "EXPIRED_PAYMENT" ||
 		sdk.Status.Message.Metadata[a2ashape.KeyX402Status] != "payment-failed" {
 		t.Fatalf("payment failure: %+v / %v", sdk.Status.Message.Metadata, sdk.Metadata)
@@ -640,7 +641,7 @@ func TestPaymentKeys(t *testing.T) {
 	src.Interaction.Result, src.Interaction.Receipt, src.Interaction.PayReceipts = nil, nil, nil
 	src.Interaction.PayState = interactions.PayRequired
 	src.Interaction.PayRequired = []byte(quote)
-	sdk = contract(t, a2ashape.Project(src, a2ashape.Options{}))
+	sdk = contract(t, stored.Project(src, stored.Options{}))
 	if m := sdk.Status.Message; m == nil || m.Metadata[a2ashape.KeyX402Status] != "payment-required" || m.Metadata[a2ashape.KeyX402Required] == nil {
 		t.Fatalf("pay_state=required: %+v", sdk.Status)
 	}
@@ -665,7 +666,7 @@ func TestSI6Sweep(t *testing.T) {
 					if ans != "" {
 						ix.Result, ix.Receipt = []byte(ans), receipt(t, "ix", self, peer, "r")
 					}
-					task := a2ashape.Project(a2ashape.Source{Interaction: ix}, a2ashape.Options{Artifacts: true})
+					task := stored.Project(stored.Source{Interaction: ix}, stored.Options{Artifacts: true})
 					sdk := contract(t, task)
 					// checkSI6 finds capability tasks by anet.skill; a
 					// projection that dropped it would make the check vacuous.
@@ -706,7 +707,7 @@ func TestStateMapping(t *testing.T) {
 }
 
 func TestProjectStoredNotFound(t *testing.T) {
-	_, err := a2ashape.ProjectStored(openStore(t), "ix_none", a2ashape.Options{})
+	_, err := stored.ProjectStored(openStore(t), "ix_none", stored.Options{})
 	if !isNotFound(err) {
 		t.Fatalf("got %v", err)
 	}
@@ -726,7 +727,7 @@ func TestKernelPaymentMeta(t *testing.T) {
 	st := openStore(t)
 	capTask(t, st, "ix_k", interactions.StateInputRequired, "", "")
 	setState(t, st, "ix_k", interactions.StateInputRequired)
-	src, err := a2ashape.Load(st, "ix_k")
+	src, err := stored.Load(st, "ix_k")
 	must(t, err)
 	src.Interaction.PayState = interactions.PayRequired
 	src.Interaction.PayRequired = []byte(quote)
@@ -735,7 +736,7 @@ func TestKernelPaymentMeta(t *testing.T) {
 		a2ashape.KeyX402Receipts: []json.RawMessage{}, a2ashape.KeyQuoteExpiresAt: int64(1790086400123),
 		a2ashape.KeyReason: "needs_operator_approval",
 	}
-	sdk := contract(t, a2ashape.Project(src, a2ashape.Options{}))
+	sdk := contract(t, stored.Project(src, stored.Options{}))
 	if sdk.Metadata[a2ashape.KeyReason] != "needs_operator_approval" || sdk.Metadata[a2ashape.KeyX402Required] == nil ||
 		sdk.Metadata[a2ashape.KeyQuoteExpiresAt] == nil || sdk.Metadata[a2ashape.KeyX402Status] != "payment-required" {
 		t.Fatalf("waiting: %v", sdk.Metadata)
@@ -750,7 +751,7 @@ func TestKernelPaymentMeta(t *testing.T) {
 	src.Payment[a2ashape.KeyX402Status] = a2ashape.PaymentFailed
 	src.Payment[a2ashape.KeyX402Error] = "INSUFFICIENT_FUNDS"
 	src.Payment[a2ashape.KeyX402Receipts] = []json.RawMessage{json.RawMessage(`{"success":false,"errorReason":"insufficient_funds","network":"n","transaction":""}`)}
-	sdk = contract(t, a2ashape.Project(src, a2ashape.Options{}))
+	sdk = contract(t, stored.Project(src, stored.Options{}))
 	m := sdk.Status.Message
 	if sdk.Status.State != a2a.TaskStateInputRequired || m == nil || m.Metadata[a2ashape.KeyX402Status] != "payment-failed" ||
 		m.Metadata[a2ashape.KeyX402Error] != "INSUFFICIENT_FUNDS" || m.Metadata[a2ashape.KeyX402Required] == nil {
@@ -762,7 +763,7 @@ func TestKernelPaymentMeta(t *testing.T) {
 
 	// A peer's number too large for a float64 in the quote stays readable.
 	src.Payment[a2ashape.KeyX402Required] = json.RawMessage(`{"x402Version":2,"n":1e400,"accepts":[]}`)
-	sdk = contract(t, a2ashape.Project(src, a2ashape.Options{}))
+	sdk = contract(t, stored.Project(src, stored.Options{}))
 	if r, _ := sdk.Metadata[a2ashape.KeyX402Required].(map[string]any); r["n"] != "1e400" {
 		t.Fatalf("quote number: %v", sdk.Metadata[a2ashape.KeyX402Required])
 	}
@@ -770,7 +771,7 @@ func TestKernelPaymentMeta(t *testing.T) {
 	// Once the task has ended, the reason that ended it stays.
 	src.Interaction.State = interactions.StateFailed
 	src.Interaction.ResultMeta = `{"anet.reason":"quote_expired"}`
-	sdk = contract(t, a2ashape.Project(src, a2ashape.Options{}))
+	sdk = contract(t, stored.Project(src, stored.Options{}))
 	if sdk.Metadata[a2ashape.KeyReason] != "quote_expired" {
 		t.Fatalf("terminal reason: %v", sdk.Metadata[a2ashape.KeyReason])
 	}
@@ -783,14 +784,14 @@ func TestKernelPaymentMeta(t *testing.T) {
 	msg(t, st, ix, self, interactions.MsgText, "g", "m1", nil)
 	setState(t, st, ix, interactions.StateWorking)
 	msg(t, st, ix, self, interactions.MsgCancel, "", "m2", nil)
-	src, err = a2ashape.Load(st, ix)
+	src, err = stored.Load(st, ix)
 	must(t, err)
 	src.Payment = map[string]any{}
-	if sdk = contract(t, a2ashape.Project(src, a2ashape.Options{})); sdk.Metadata[a2ashape.KeyCancelRequested] != nil {
+	if sdk = contract(t, stored.Project(src, stored.Options{})); sdk.Metadata[a2ashape.KeyCancelRequested] != nil {
 		t.Fatalf("cancel_requested without a payment: %v", sdk.Metadata)
 	}
 	src.Payment = map[string]any{a2ashape.KeyX402Status: a2ashape.PaymentSubmitted, a2ashape.KeyCancelRequested: true}
-	if sdk = contract(t, a2ashape.Project(src, a2ashape.Options{})); sdk.Metadata[a2ashape.KeyCancelRequested] != true ||
+	if sdk = contract(t, stored.Project(src, stored.Options{})); sdk.Metadata[a2ashape.KeyCancelRequested] != true ||
 		sdk.Metadata[a2ashape.KeyX402Status] != "payment-submitted" {
 		t.Fatalf("cancel_requested after a payment: %v", sdk.Metadata)
 	}
@@ -805,12 +806,12 @@ func TestCompletedWithAnUnverifiedPaymentDoesNotSayNoneSettled(t *testing.T) {
 	st := openStore(t)
 	capTask(t, st, "ix_u", interactions.StateCompleted, `{"capability":"cas.put","status":"OK"}`,
 		`{"anet.effect_status":"OK"}`)
-	src, err := a2ashape.Load(st, "ix_u")
+	src, err := stored.Load(st, "ix_u")
 	must(t, err)
 	src.Interaction.PayState = interactions.PaySubmitted
 	src.Interaction.PayReceipts = []byte(`[{"success":true,"transaction":"tx9","network":"n",` +
 		`"extensions":{"anet.settlement_verified":"unverified"}}]`)
-	sdk := contract(t, a2ashape.Project(src, a2ashape.Options{}))
+	sdk := contract(t, stored.Project(src, stored.Options{}))
 	m := sdk.Status.Message
 	if m == nil || m.Metadata[a2ashape.KeyX402Status] != "payment-submitted" {
 		t.Fatalf("status %+v", sdk.Status)
@@ -829,7 +830,7 @@ func TestCompletedWithAnUnverifiedPaymentDoesNotSayNoneSettled(t *testing.T) {
 	// Quoted and never paid: nothing was submitted, so none settled.
 	src.Interaction.PayState = interactions.PayRejected
 	src.Interaction.PayReceipts = nil
-	sdk = contract(t, a2ashape.Project(src, a2ashape.Options{}))
+	sdk = contract(t, stored.Project(src, stored.Options{}))
 	if text := sdk.Status.Message.Parts[0].Text(); text != "The task completed; no payment settled." {
 		t.Errorf("rejected quote: %q", text)
 	}

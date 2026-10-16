@@ -1,4 +1,4 @@
-package a2ashape_test
+package stored_test
 
 import (
 	"strings"
@@ -6,11 +6,12 @@ import (
 	"time"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
+	"github.com/ANetResearch/ANet/internal/a2ashape/stored"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 )
 
-func dlvSource(state interactions.State, msgs ...interactions.Message) a2ashape.Source {
-	return a2ashape.Source{
+func dlvSource(state interactions.State, msgs ...interactions.Message) stored.Source {
+	return stored.Source{
 		Interaction: &interactions.Interaction{ID: "ix1", Role: interactions.RoleOutbound, PeerAID: peer, State: state,
 			UpdatedAt: "2026-10-01T14:30:00Z"},
 		Messages: msgs,
@@ -32,9 +33,9 @@ func TestProjectDelivery(t *testing.T) {
 			Metadata: `{"anet.delivery":"confirmed","anet.delivery_wait":"rate_limited"}`},
 		ownMsg(3, "m3", ""),
 	)
-	src.Outbox = []a2ashape.OutboxMsg{{MsgID: "m3", Detail: a2ashape.DeliveryQueuedAtHub, Wait: "mailbox_full",
+	src.Outbox = []stored.OutboxMsg{{MsgID: "m3", Detail: a2ashape.DeliveryQueuedAtHub, Wait: "mailbox_full",
 		Delegation: true, Handed: true, HandedAt: handed, Exp: handed.Add(14 * 24 * time.Hour)}}
-	task := a2ashape.Project(src, a2ashape.Options{NoResponseAfter: 15 * time.Minute})
+	task := stored.Project(src, stored.Options{NoResponseAfter: 15 * time.Minute})
 	m := task.Metadata
 	if m[a2ashape.KeyDelivery] != "pending" || m[a2ashape.KeyDeliveryDetail] != "queued_at_hub" || m[a2ashape.KeyDeliveryWait] != "mailbox_full" {
 		t.Fatalf("task keys: %v", m)
@@ -67,7 +68,7 @@ func TestProjectDelivery(t *testing.T) {
 func TestProjectDeliveryAbsent(t *testing.T) {
 	src := dlvSource(interactions.StateWorking, interactions.Message{Seq: 1, SenderAID: peer, Kind: interactions.MsgText,
 		Body: "x", MsgID: "p1", Metadata: `{"anet.delivery":"pending","anet.delivery_detail":"sent"}`})
-	task := a2ashape.Project(src, a2ashape.Options{})
+	task := stored.Project(src, stored.Options{})
 	for _, k := range []string{a2ashape.KeyDelivery, a2ashape.KeyDeliveryDetail, a2ashape.KeyDeliveryWait} {
 		if _, ok := task.Metadata[k]; ok {
 			t.Errorf("%s on a task with no message of this node's", k)
@@ -84,7 +85,7 @@ func TestProjectDeliveryStoredStates(t *testing.T) {
 		{`{"anet.delivery":"bogus"}`, "", ""},
 	}
 	for _, c := range cases {
-		task := a2ashape.Project(dlvSource(interactions.StateSubmitted, ownMsg(1, "m1", c.meta)), a2ashape.Options{})
+		task := stored.Project(dlvSource(interactions.StateSubmitted, ownMsg(1, "m1", c.meta)), stored.Options{})
 		got, _ := task.Metadata[a2ashape.KeyDelivery].(string)
 		d, _ := task.Metadata[a2ashape.KeyDeliveryDetail].(string)
 		if got != c.want || d != c.detail {
@@ -100,7 +101,7 @@ func TestAbandonedTaskSentence(t *testing.T) {
 	src.Interaction.ResultMeta = `{"anet.reason":"delivery_unconfirmed"}`
 	src.Interaction.ReasonVariant = "waiting"
 	src.Interaction.ReasonArg = `{"wait":"strangers_busy","limit_ms":900000}`
-	task := a2ashape.Project(src, a2ashape.Options{})
+	task := stored.Project(src, stored.Options{})
 	want := a2ashape.Sentence("delivery_unconfirmed.waiting", a2ashape.Lang(), a2ashape.Args{"limit": 15 * time.Minute, "wait": "strangers_busy"})
 	if task.Status.Message == nil || len(task.Status.Message.Parts) == 0 || task.Status.Message.Parts[0].Text != want {
 		t.Fatalf("status.message %+v, want %q", task.Status.Message, want)
@@ -118,9 +119,9 @@ func TestDeliveryLine(t *testing.T) {
 	nowAt := handed.Add(time.Minute)
 	pending := func(nra time.Duration) a2ashape.Task {
 		src := dlvSource(interactions.StateSubmitted, ownMsg(1, "m1", ""))
-		src.Outbox = []a2ashape.OutboxMsg{{MsgID: "m1", Detail: a2ashape.DeliverySent, Delegation: true, Handed: true,
+		src.Outbox = []stored.OutboxMsg{{MsgID: "m1", Detail: a2ashape.DeliverySent, Delegation: true, Handed: true,
 			HandedAt: handed, Exp: handed.Add(14 * 24 * time.Hour)}}
-		return a2ashape.Project(src, a2ashape.Options{NoResponseAfter: nra})
+		return stored.Project(src, stored.Options{NoResponseAfter: nra})
 	}
 	// With the tail sentence.
 	line, ok := a2ashape.DeliveryLine(pending(15*time.Minute), a2ashape.English, nowAt.UnixMilli())
@@ -144,19 +145,19 @@ func TestDeliveryLine(t *testing.T) {
 	// An ended task: no tail; the wait is to the moment it ended.
 	src := dlvSource(interactions.StateFailed, ownMsg(1, "m1", `{"anet.delivery":"unconfirmed","anet.delivery_detail":"sent"}`))
 	src.Interaction.StateAt = time.Date(2026, 10, 1, 14, 20, 0, 0, time.UTC).UnixMilli()
-	line, ok = a2ashape.DeliveryLine(a2ashape.Project(src, a2ashape.Options{NoResponseAfter: 15 * time.Minute}), a2ashape.English, nowAt.UnixMilli())
+	line, ok = a2ashape.DeliveryLine(stored.Project(src, stored.Options{NoResponseAfter: 15 * time.Minute}), a2ashape.English, nowAt.UnixMilli())
 	if !ok || strings.Contains(line, "If it is still not delivered") || !strings.HasSuffix(line, "(waited 15 minutes)") {
 		t.Errorf("unconfirmed: %q", line)
 	}
 	// No timestamp of the end: the sentence stands without the wait.
 	src.Interaction.StateAt, src.Interaction.UpdatedAt = 0, ""
-	line, _ = a2ashape.DeliveryLine(a2ashape.Project(src, a2ashape.Options{}), a2ashape.English, nowAt.UnixMilli())
+	line, _ = a2ashape.DeliveryLine(stored.Project(src, stored.Options{}), a2ashape.English, nowAt.UnixMilli())
 	if strings.Contains(line, "waited") || line == "" {
 		t.Errorf("no end moment: %q", line)
 	}
 	// Confirmed and absent states give no line.
 	src = dlvSource(interactions.StateSubmitted, ownMsg(1, "m1", `{"anet.delivery":"confirmed"}`))
-	if l, ok := a2ashape.DeliveryLine(a2ashape.Project(src, a2ashape.Options{}), a2ashape.English, 0); ok {
+	if l, ok := a2ashape.DeliveryLine(stored.Project(src, stored.Options{}), a2ashape.English, 0); ok {
 		t.Errorf("confirmed: %q", l)
 	}
 }
@@ -166,8 +167,8 @@ func TestDeliveryLine(t *testing.T) {
 func TestWaitClassNoStatusMessage(t *testing.T) {
 	for _, wait := range []string{"rate_limited", "strangers_busy", "mailbox_full", "home_unreachable", "session_unavailable", "notice_stale", "rotation_pending"} {
 		src := dlvSource(interactions.StateSubmitted, ownMsg(1, "m1", ""))
-		src.Outbox = []a2ashape.OutboxMsg{{MsgID: "m1", Detail: a2ashape.DeliveryNotSent, Wait: wait}}
-		task := a2ashape.Project(src, a2ashape.Options{})
+		src.Outbox = []stored.OutboxMsg{{MsgID: "m1", Detail: a2ashape.DeliveryNotSent, Wait: wait}}
+		task := stored.Project(src, stored.Options{})
 		if task.Status.Message != nil {
 			t.Errorf("%s: status.message %+v", wait, task.Status.Message)
 		}

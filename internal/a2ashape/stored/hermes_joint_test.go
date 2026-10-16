@@ -1,4 +1,4 @@
-package a2ashape_test
+package stored_test
 
 // hermes_joint_test.go feeds the Hermes contract (hermes_contract_test.go)
 // with responses that came over the wire: scripts/joint-a2a.sh has a2a-go's

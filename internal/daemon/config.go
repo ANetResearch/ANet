@@ -448,6 +448,14 @@ func ModuleRefusals(c Config) []*a2ashape.Refusal {
 			out = append(out, r)
 		}
 	}
+	if c.streamPreview() != streamPreviewOff {
+		// stream_preview on or with_reasoning is the preview module's
+		// configuration (MOD-F1): off is the default and needs nothing.
+		if r := av.Absent("preview", "configured"); r != nil {
+			r.Args["key"] = "stream_preview"
+			out = append(out, r)
+		}
+	}
 	return out
 }
 

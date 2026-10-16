@@ -42,6 +42,9 @@ func TestTasksPreviewRoute(t *testing.T) {
 	_ = req
 
 	// The setting is off (the default): the open task gets preview_off.
+	if _, err := prov.SetStreamPreview(streamPreviewOff); err != nil {
+		t.Fatal(err)
+	}
 	if code, out := postTo(t, prov.hTasksPreview, previewBody(id, "x")); code != 409 || out["reason"] != "preview_off" {
 		t.Fatalf("off: %d %v", code, out)
 	}
@@ -101,6 +104,9 @@ func TestPreviewRoutesAreBearerOnly(t *testing.T) {
 // previewWanted and previewOffer follow CUX-P4: off, no ask, ended.
 func TestPreviewWantedFollowsCUXP4(t *testing.T) {
 	_, prov, _, _, id, _ := previewPair(t, previewModeOn)
+	if _, err := prov.SetStreamPreview(streamPreviewOff); err != nil {
+		t.Fatal(err)
+	}
 	if _, ok := prov.previewWanted(id); ok || prov.previewOffer(id, "x", "") {
 		t.Fatal("previews are off, yet the round is wanted")
 	}

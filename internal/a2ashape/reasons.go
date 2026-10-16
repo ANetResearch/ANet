@@ -2971,3 +2971,19 @@ func moduleValue(code, variant, name string, lang Language, args Args) (string, 
 	}
 	return "", false
 }
+
+// OutboxDeadline is one outbound row of a task as DeliveryEndsAt reads it
+// (the projection in package stored fills it).
+type OutboxDeadline struct {
+	Delegation, Handed, Frozen bool
+	HandedAt, Exp              time.Time
+}
+
+// DeliveryEndsAt is deliveryEndsAt for a caller outside this package.
+func DeliveryEndsAt(rows []OutboxDeadline, noResponseAfter time.Duration, terminal bool) time.Time {
+	in := make([]outboxDeadline, 0, len(rows))
+	for _, r := range rows {
+		in = append(in, outboxDeadline{delegation: r.Delegation, handed: r.Handed, handedAt: r.HandedAt, exp: r.Exp, frozen: r.Frozen})
+	}
+	return deliveryEndsAt(in, noResponseAfter, terminal)
+}

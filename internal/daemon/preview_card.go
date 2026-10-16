@@ -1,9 +1,10 @@
 package daemon
 
-// preview_card.go is the kernel's own contribution to the cards it signs:
-// the declaration of the preview extension (correctness-ux CUX-P30). It is
-// given here, in cardContributions, and not by a module: the extension is
-// a statement about this node's stream_preview setting.
+// preview_card.go is the preview module's contribution to the cards this
+// node signs: the declaration of the preview extension (correctness-ux
+// CUX-P30, K-15). It is given in cardContributions, for the public card and
+// the extended card alike, and only while previews are available and
+// stream_preview is not off: a node without the module never declares it.
 
 import (
 	"github.com/ANetResearch/ANet/module"
@@ -16,10 +17,17 @@ const previewExtensionDescription = "This agent can send a preview of its reply 
 // nodeStreamPreview is this node's stream_preview setting: "off" (the
 // default), "on" or "with_reasoning".
 func (d *Daemon) nodeStreamPreview() string {
+	if !d.previewAvailable() {
+		return "off"
+	}
 	if d.streamPreviewFn != nil {
 		if m := normalPreviewMode(d.streamPreviewFn()); m != "" {
 			return m
 		}
+		return "off"
+	}
+	if m := normalPreviewMode(d.config().streamPreview()); m != "" {
+		return m
 	}
 	return "off"
 }
