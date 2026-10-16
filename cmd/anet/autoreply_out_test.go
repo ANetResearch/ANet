@@ -35,7 +35,7 @@ func TestDoctorPrintsTheAppArmorProfile(t *testing.T) {
 		}
 	}
 	if strings.Contains(p, "-> &") {
-		t.Error("a stacked profile name cannot begin with & (EXE-6 §1.1)")
+		t.Error("a stacked profile name cannot begin with & (the kernel answers profile transition not found)")
 	}
 	if entries, _ := os.ReadDir(l.Root); len(entries) != 0 {
 		t.Errorf("doctor --apparmor-profile wrote %d files", len(entries))
