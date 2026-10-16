@@ -322,10 +322,15 @@ func TestTheNoticeIsReadBackAtStart(t *testing.T) {
 			t.Fatal(err)
 		}
 		var err error
-		if d, err = New(layout); err != nil {
+		// The hooks are given to New: the join loop it starts reads them, and a field written
+		// afterwards races with it (T-1 F5).
+		prevHooks := testJoinHooks
+		testJoinHooks = func(d *Daemon) JoinHooks { return witnessJoinHooks{d} }
+		d, err = New(layout)
+		testJoinHooks = prevHooks
+		if err != nil {
 			t.Fatal(err)
 		}
-		d.join.hooks = witnessJoinHooks{d}
 		t.Cleanup(func() { d.Close() })
 		if s := d.identityState(); s.State != want {
 			t.Fatalf("%s: %+v, want %s", step, s, want)
