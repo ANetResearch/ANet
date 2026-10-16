@@ -126,8 +126,12 @@ func (d *Daemon) gateClosedFor(obs clockObs, wall, mono uint64) uint64 {
 	d.clk.mu.Lock()
 	since := d.clk.closedSince
 	d.clk.mu.Unlock()
-	if obs.checked && since != 0 && since <= obs.mono {
-		since = 0 // a check since then: what was seen closed then has been decided again
+	if obs.checked && since != 0 && since <= obs.mono && absMS(obs.offset) <= seal.ClockSkewMS {
+		// A check since then found the clocks together: what was seen
+		// closed then has been decided again. A check that found them
+		// apart again is the same closure going on (FS §5.4), so the
+		// time it has lasted must not start over with every answer.
+		since = 0
 	}
 	if obs.checked && !wallJumped(obs.wall, obs.mono, wall, mono) {
 		derived := obs.mono

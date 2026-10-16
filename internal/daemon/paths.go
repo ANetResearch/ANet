@@ -229,12 +229,16 @@ func (l Layout) EnsureRoot() error { return os.MkdirAll(l.Root, 0o700) }
 // in place: a config.json that no longer parses, and a daemon that then refuses to start (found on
 // the review of redteam F9).
 func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
+	dir := filepath.Dir(path)
 	f, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".tmp*")
 	if err != nil {
 		return err
 	}
 	tmp := f.Name()
 	_, err = f.Write(data)
+	if err == nil {
+		err = atomicSync(f) // the bytes are on disk before the name points at them
+	}
 	if cerr := f.Close(); err == nil {
 		err = cerr
 	}
@@ -248,5 +252,10 @@ func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
 		_ = os.Remove(tmp)
 		return err
 	}
+	_ = syncDir(dir) // and the rename itself; best effort, as not every file system can sync a directory
 	return nil
 }
+
+// atomicSync flushes f to disk (KEL §2.9, D-35: temporary file, fsync, rename). A variable so a
+// test can see it called.
+var atomicSync = func(f *os.File) error { return f.Sync() }

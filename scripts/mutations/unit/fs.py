@@ -40,7 +40,7 @@ FS4_D = 'ANet:./internal/daemon'
 FS9_CLI = 'ANet:./cmd/anet'
 FS9_RET = 'internal/runtime/interactions/retention.go'
 FS9_CMD = 'cmd/anet/retention.go'
-FS9_EXEC = 'module/autoreply/autoreply_exec.go'
+FS9_EXEC = 'internal/execwork/execwork.go'
 FS10_RB = 'internal/daemon/rollback.go'
 FS7_RX = 'internal/daemon/receive.go'
 FS7_SEAMS = 'internal/daemon/rx_seams.go'
@@ -422,7 +422,8 @@ MUTS += [
   edits=[('internal/aghub/relay.go', '\tif limit > MaxPollLimit {\n\t\tlimit = MaxPollLimit\n\t}\n', '')],
   tests=FS3_POLL_T, full=[FS3_HUB]),
  dict(id='fs3-l', group='CORE-E5', repo='ANetHub', desc='poll 的 envelope 用标准 base64',
-  edits=[('internal/aghub/server.go', 'Envelope: wire3.EncodeB64URL(m.Payload)', 'Envelope: base64.StdEncoding.EncodeToString(m.Payload)')],
+  edits=[('internal/aghub/server.go', '\t"bytes"\n', '\t"bytes"\n\t"encoding/base64"\n'),
+         ('internal/aghub/server.go', 'Envelope: wire3.EncodeB64URL(m.Payload)', 'Envelope: base64.StdEncoding.EncodeToString(m.Payload)')],
   tests=FS3_POLL_T, full=[FS3_HUB]),
  dict(id='fs3-m', group='FS-H5', repo='ANetHub', desc='poll 的 accepted_at 取应答时刻而不是受理时刻',
   edits=[('internal/aghub/server.go', 'AcceptedAt: uint64(m.CreatedAt)', 'AcceptedAt: uint64(time.Now().UnixMilli())')],
@@ -436,7 +437,8 @@ MUTS += [
          ('internal/aghub/keys.go', 'raw, err := wire3.DecodeB64URL("keys", req.Keys)', 'raw, err := base64.StdEncoding.DecodeString(req.Keys)')],
   tests=FS3_FIX_T, full=[FS3_HUB]),
  dict(id='fs3-p', group='CORE-E5', repo='ANetHub', desc='/register 收标准 base64 的 enc_keys',
-  edits=[('internal/aghub/server.go', 'if encKeys, err = wire3.DecodeB64URL("enc_keys", req.EncKeys); err != nil {',
+  edits=[('internal/aghub/server.go', '\t"bytes"\n', '\t"bytes"\n\t"encoding/base64"\n'),
+         ('internal/aghub/server.go', 'if encKeys, err = wire3.DecodeB64URL("enc_keys", req.EncKeys); err != nil {',
           'if encKeys, err = base64.StdEncoding.DecodeString(req.EncKeys); err != nil {')],
   tests=FS3_FIX_T, full=[FS3_HUB]),
  dict(id='fs3-q', group='FS-T1', repo='ANetCore', desc='L 改为 14 天(hub 一侧:信封在 hub 存满 TTL 后钥已到硬界)',
@@ -536,10 +538,12 @@ MUTS += [
   edits=[('internal/daemon/enckeys.go', '\tif date == "" || !sameHub(hubURL, d.config().HubURL) {', '\tif date == "" {')],
   tests=[(FS4_D, '^TestHubAnswersCheckTheClock$')], full=[FS4_D]),
  dict(id='fs4-k', group='FS-K5', repo='ANet', desc='发布不带正确的 prev_seq(daemon 一侧的 20)',
-  edits=[('internal/daemon/hub_client.go', 'body := hubapi.KeysPublishRequest{Keys: hubapi.B64(ks), PrevSeq: prev}', 'body := hubapi.KeysPublishRequest{Keys: hubapi.B64(ks), PrevSeq: 0 * prev}')],
+  edits=[('internal/daemon/hub_client.go', '\t"bytes"\n', '\t"bytes"\n\t"encoding/base64"\n'),
+         ('internal/daemon/hub_client.go', 'body := hubapi.KeysPublishRequest{Keys: hubapi.B64(ks), PrevSeq: prev}', 'body := hubapi.KeysPublishRequest{Keys: hubapi.B64(ks), PrevSeq: 0 * prev}')],
   tests=[(FS4_D, '^TestPublishCarriesPrevSeq$')], full=[FS4_D]),
  dict(id='fs4-l', group='CORE-E5', repo='ANet', desc='钥集发布用标准 base64',
-  edits=[('internal/daemon/hub_client.go', 'body := hubapi.KeysPublishRequest{Keys: hubapi.B64(ks), PrevSeq: prev}', 'body := hubapi.KeysPublishRequest{Keys: base64.StdEncoding.EncodeToString(ks), PrevSeq: prev}')],
+  edits=[('internal/daemon/hub_client.go', '\t"bytes"\n', '\t"bytes"\n\t"encoding/base64"\n'),
+         ('internal/daemon/hub_client.go', 'body := hubapi.KeysPublishRequest{Keys: hubapi.B64(ks), PrevSeq: prev}', 'body := hubapi.KeysPublishRequest{Keys: base64.StdEncoding.EncodeToString(ks), PrevSeq: prev}')],
   tests=[(FS4_D, '^TestPublishCarriesPrevSeq$')], full=[FS4_D]),
  dict(id='fs4-m', group='FS-K6', repo='ANet', desc='登记成功后不置 removed_at',
   edits=[('internal/daemon/hub_client.go', '\td.noteKeysAtHub(ks, true)\n\tif err := d.enc.markRemoved(ks, d.nowMS()); err != nil {', '\td.noteKeysAtHub(ks, true)\n\tif err := error(nil); err != nil {')],
@@ -699,14 +703,13 @@ MUTS += [
   edits=[('internal/daemon/evidence_mode.go', '\t\tif _, err := d.ledger.Append(EvRetentionChanged, map[string]any{', '\t\tif _, err := d.ledger.Append(EvRetentionChanged+"-", map[string]any{')],
   tests=[(FS4_D, '^(TestRetentionRoute|TestRetentionChangeAtClosedGate)$')], full=[FS4_D]),
  dict(id='fs9-n', group='FS §5.1', repo='ANet', desc='新数据目录的 config.json 不写 content_retention',
-  edits=[('internal/daemon/config.go', '\t\tContentRetention: RetentionValue(interactions.DefaultRetention().String())}', '\t}')],
+  edits=[('internal/daemon/config.go', '\t\tContentRetention: RetentionValue(interactions.DefaultRetention().String()),\n', '')],
   tests=[(FS4_D, '^TestContentRetentionConfig$'), (FS9_CLI, '^TestFreshInstallIsSafe$')], full=[FS4_D, FS9_CLI]),
  dict(id='fs9-o', group='FS §5.2', repo='ANet', desc='daemon 不在运行时改值把 config.json 的其他键丢掉',
   edits=[('internal/daemon/config.go', '\tcur["content_retention"] = r.String()\n', '\tcur = map[string]any{"content_retention": r.String()}\n')],
   tests=[(FS4_D, '^TestSetContentRetentionInFileKeepsTheRest$'), (FS9_CLI, '^TestRetentionOfflineRepair$')], full=[FS4_D, FS9_CLI]),
  dict(id='fs9-p', group='FS-L11', repo='ANet', desc='维护周期不清已终态任务的会话绑定',
-  edits=[('internal/daemon/evidence_mode.go', '\tif err := sharedExecSessionStore(d.layout.Root).pruneEnded(open); err != nil {',
-          '\tif err := error(nil); err != nil {')],
+  edits=[('internal/execwork/execwork.go', '\tsessErr = Sessions(stateDir).PruneEnded(open)\n', '')],
   tests=[(FS4_D, '^TestWorkDirsPrunedWithinS$')], full=[FS4_D]),
  dict(id='fs9-q', group='FS-L5', repo='ANet', desc='保存期按清理时刻而不是按 UTC 日取整',
   edits=[(FS9_RET, '\treturn utcDayStart(now) - int64(a.days)*dayMS, true', '\treturn now - int64(a.days)*dayMS, true')],

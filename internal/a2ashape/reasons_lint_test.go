@@ -533,7 +533,7 @@ func TestUXExamples(t *testing.T) {
 		{"identity.ok", Chinese, Args{"name": "default", "aid": me, "hub": "https://hub.example", "ago": 4 * time.Minute}, "default …7hq2abcd，密钥已由 https://hub.example 确认（4 分钟前）。"},
 		{"registered", Chinese, Args{"hub": "https://hub.example"}, "已在 https://hub.example 注册。"},
 		{"inbound.summary.closed", Chinese, Args{"n": 0, "m": 0, "auto_reply": "off"}, "只接受 allow 名单里 0 个对端的任务；公开 0 项能力；自动回复关。"},
-		{"retention.summary", Chinese, Args{"retention": "30d"}, "任务内容在任务结束 30 天后删除（公开调用 7 天）。"},
+		{"retention.summary", Chinese, Args{"retention": "30d"}, "任务内容的保存期是 30 天，从任务结束起算（公开调用 7 天）。"},
 		{"needs_operator_approval.off", Chinese, Args{"amount": 3, "tier": "auto", "task": "t_9f3c"}, "报价 3 credits；自动付款没有开启（额度为 0），没有付款；请执行 anet pay t_9f3c。"},
 		{"paid.manual", Chinese, Args{"amount": 3, "left": 47}, "已付 3 credits（你在终端确认的，今日剩 47）。"},
 		{"paid.auto", Chinese, Args{"amount": 3, "single": 5, "left": 44}, "报价 3 credits，在你的自动付款额度内（单笔 ≤5，今日剩 44），已自动付款。"},
@@ -550,6 +550,21 @@ func TestUXExamples(t *testing.T) {
 	} {
 		if got := Sentence(c.key, c.lang, c.args); got != c.want {
 			t.Errorf("%s:\n got:  %s\n want: %s", c.key, got, c.want)
+		}
+	}
+}
+
+// T-1 F7: "forever" must not read as its opposite ("deleted forever after a task ends") or as
+// broken grammar ("kept for forever").
+func TestRetentionSentencesReadRightForForever(t *testing.T) {
+	for _, key := range []string{"retention.summary", "retention.set"} {
+		en := Sentence(key, English, Args{"retention": "forever"})
+		zh := Sentence(key, Chinese, Args{"retention": "forever"})
+		if strings.Contains(en, "deleted") || strings.Contains(en, "for forever") || !strings.Contains(en, "forever") {
+			t.Errorf("%s: %q", key, en)
+		}
+		if strings.Contains(zh, "删除") || !strings.Contains(zh, "永久") {
+			t.Errorf("%s: %q", key, zh)
 		}
 	}
 }

@@ -314,6 +314,15 @@ func TestRotateOpensTheFileAndRevealsTheNextKey(t *testing.T) {
 	if !strings.Contains(f.out.String(), f.sentence("identity.rotate.done", a2ashape.Args{"from": 1, "to": 2, "hub": "https://hub.example"})) {
 		t.Fatalf("output %q", f.out.String())
 	}
+	// The file is written again with the commitment for the key after this rotation, same seed and
+	// passphrase: `identity recover` relies on it to refuse a stale history (T-1 RT-F8).
+	rs, commits := f.openedFile(testPass)
+	if rs != f.rs || commits.Seq != 3 {
+		t.Fatalf("the recovery file after a plain rotation: same seed %v, commits to seq %d, want 3", rs == f.rs, commits.Seq)
+	}
+	if _, err := os.Stat(f.path + ".new"); err == nil {
+		t.Fatal(".new left behind")
+	}
 }
 
 // KEL D-31a: a new recovery seed is two rotations of the same mode; the second reveals the key of the

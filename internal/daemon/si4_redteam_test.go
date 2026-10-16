@@ -25,6 +25,10 @@ import (
 // makes each envelope cost tens of times more than a normal one. The hub
 // lets one sender post 20/s and the poll loop handles envelopes one at a
 // time under pollMu, so one AID can occupy the victim's receive loop.
+//
+// Fixed in T-1 (RT-F3): the daemon installs an identity.ReplayCache, so a KEL is replayed once and
+// answered from memory after that. The test now passes when the attack FAILS: the padded KEL costs
+// each envelope less than 20 times what a small one does (it was some 50 times).
 func TestRedteamSI4_PaddedKELMakesEachEnvelopeExpensive(t *testing.T) {
 	prov := newTestDaemon(t, "", false)
 	measure := func(extra int) (time.Duration, int) {
@@ -54,8 +58,8 @@ func TestRedteamSI4_PaddedKELMakesEachEnvelopeExpensive(t *testing.T) {
 	ratio := float64(big) / float64(small)
 	t.Logf("2-event KEL: %s/envelope; 152-event KEL (%d bytes): %s/envelope; x%.0f; 20 env/s from one AID = %s of receive work per second",
 		small, size, big, ratio, 20*big)
-	if ratio < 20 {
-		t.Fatalf("attack failed: ratio only %.1f", ratio)
+	if ratio >= 20 {
+		t.Fatalf("a padded KEL still makes each envelope %.1f times as expensive", ratio)
 	}
 }
 

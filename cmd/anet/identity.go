@@ -129,6 +129,11 @@ func (x *identityCLI) control() *client {
 	if x.c != nil {
 		return x.c
 	}
+	return x.resolveControl()
+}
+
+// resolveControl reads the control address and token afresh.
+func (x *identityCLI) resolveControl() *client {
 	resolve := daemon.ResolveControl
 	if x.explicit {
 		resolve = daemon.ResolveControlStrict
