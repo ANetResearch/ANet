@@ -4,11 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/ANetResearch/ANetCore/seal"
 )
 
 // The transport list is walked on every delegation, message and result, so
@@ -68,6 +71,34 @@ func BenchmarkTransportDispatchHubOnly(b *testing.B) {
 }
 
 var benchPayload = make([]byte, 4096)
+
+// deliverEnvelope hands one envelope to its recipient once: a direct path
+// first, then the hub, with the same bytes. Nothing in the daemon calls it
+// any more (a message that is not queued goes through oneShotSend); the
+// benchmarks below keep it to measure the dispatch seam, and it obeys the
+// outbound gate like every send (ENG-K13): while it is closed nothing goes.
+func (d *Daemon) deliverEnvelope(ctx context.Context, toAID string, envelope []byte) error {
+	if g := d.identityGate(); !g.Open {
+		return &gateClosedError{state: g.State}
+	}
+	if t := d.p2pPath(ctx, toAID, d.nowMS()); t != nil {
+		_, _, err := t.Send(ctx, toAID, envelope)
+		d.noteTransport(t.Name(), err)
+		if err == nil {
+			return nil
+		}
+	}
+	hub := d.configuredHub()
+	if hub == "" {
+		return fmt.Errorf("anet: no hub configured")
+	}
+	choice := AccessChoice{Send: true, Kind: seal.AccessKindSession}
+	if c, err := d.accessChoiceFor(toAID, "", false, accessOrdinary, d.nowMS()); err == nil && c.Kind == seal.AccessKindSession {
+		choice.HintHome = c.HintHome
+	}
+	_, _, err := d.relaySendV3(ctx, envelope, choice)
+	return err
+}
 
 func quietLog(b testing.TB) {
 	b.Helper()

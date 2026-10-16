@@ -22,37 +22,6 @@ func (d *Daemon) RegisterTransport(t module.Transport) {
 	d.extraTransports = append(d.extraTransports, t)
 }
 
-// deliverEnvelope hands one envelope that is not queued to its recipient
-// once: a direct path first, then the hub, with the same bytes. The
-// envelope travels as a first contact (sealWith). It obeys the outbound
-// gate like every send (ENG-K13): while it is closed nothing goes.
-//
-// v030-todo(ENG-1b): a message that is not queued is a one-shot envelope
-// (oneShotSend). The refusal notices it carried are gone (engine ENG-V15):
-// nothing in the daemon calls it any more.
-func (d *Daemon) deliverEnvelope(ctx context.Context, toAID string, envelope []byte) error {
-	if g := d.identityGate(); !g.Open {
-		return &gateClosedError{state: g.State}
-	}
-	if t := d.p2pPath(ctx, toAID, d.nowMS()); t != nil {
-		_, _, err := t.Send(ctx, toAID, envelope)
-		d.noteTransport(t.Name(), err)
-		if err == nil {
-			return nil
-		}
-	}
-	hub := d.configuredHub()
-	if hub == "" {
-		return fmt.Errorf("anet: no hub configured")
-	}
-	choice := AccessChoice{Send: true, Kind: seal.AccessKindSession}
-	if c, err := d.accessChoiceFor(toAID, "", false, accessOrdinary, d.nowMS()); err == nil && c.Kind == seal.AccessKindSession {
-		choice.HintHome = c.HintHome
-	}
-	_, _, err := d.relaySendV3(ctx, envelope, choice)
-	return err
-}
-
 // noteTransport reports a transport's health only when it changes.
 func (d *Daemon) noteTransport(name string, err error) {
 	d.transportMu.Lock()
