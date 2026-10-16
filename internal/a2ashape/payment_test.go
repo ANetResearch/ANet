@@ -91,3 +91,32 @@ func TestNoPaymentExtensionNotActivated(t *testing.T) {
 		t.Fatalf("only %d Go files scanned", n)
 	}
 }
+
+// The sentence of a local refusal is the reason table's, in the node's
+// language: the same one the CLI and the status line give, not a text of its own.
+func TestPaymentRefusalDetailIsTheTablesSentence(t *testing.T) {
+	for _, lang := range []string{"zh_CN.UTF-8", "en_US.UTF-8"} {
+		t.Run(lang, func(t *testing.T) {
+			t.Setenv("LC_ALL", lang)
+			for _, reason := range []string{x402a2a.ReasonClientPayloadUnsupported, x402a2a.ReasonOptionNotOffered, x402a2a.ReasonRailNotPayable} {
+				got, want := a2ashape.PaymentRefusalDetail(reason), a2ashape.Sentence(reason, a2ashape.Lang(), nil)
+				if got != want || got == "" || got == reason {
+					t.Errorf("%s: detail %q, the table says %q", reason, got, want)
+				}
+			}
+		})
+	}
+}
+
+// A first join that has no recovery passphrase yet is told by this sentence
+// too, so it must not read as if the user were switching hubs.
+func TestTheRotationNeededSentenceCoversAFirstJoin(t *testing.T) {
+	args := a2ashape.Args{"hub": "https://hub.example"}
+	if s := a2ashape.Sentence("hub_switch_requires_rotation", a2ashape.English, args); !strings.Contains(s, "for the first time") ||
+		!strings.Contains(s, "anet hub-register https://hub.example") {
+		t.Errorf("en: %q", s)
+	}
+	if s := a2ashape.Sentence("hub_switch_requires_rotation", a2ashape.Chinese, args); !strings.Contains(s, "首次加入") {
+		t.Errorf("zh: %q", s)
+	}
+}

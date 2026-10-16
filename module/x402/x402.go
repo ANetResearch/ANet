@@ -58,6 +58,12 @@ type Module struct {
 	// auditMu keeps the checks of the books one at a time.
 	liab    *liabStore
 	auditMu sync.Mutex
+
+	// auditErrs counts the passes in a row the hub answered with an error,
+	// and auditErrAt is when the last did (auditMu2 guards both).
+	auditMu2   sync.Mutex
+	auditErrs  int
+	auditErrAt int64
 }
 
 // New builds the module. Returning (nil, nil) means compiled in and not

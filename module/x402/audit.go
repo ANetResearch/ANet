@@ -793,9 +793,42 @@ func entryTime(led *ledgerView) (int64, bool) {
 	return parseStamp(led.Entries[0].At)
 }
 
+// auditErrorsBeforeAFinding is how many passes in a row (six hours apart)
+// the hub must answer a balance-proof read with an error before doctor says so.
+const auditErrorsBeforeAFinding = 2
+
+// noteAuditError counts the passes that ended because the hub answered the
+// read of a balance proof with an error (not because it could not be
+// reached); a pass that checked resets it. A hub that keeps failing this read
+// is a hub whose books cannot be checked, whatever the reason, and that must
+// not look the same as a hub that checks out.
+func (m *Module) noteAuditError(err error) {
+	m.auditMu2.Lock()
+	defer m.auditMu2.Unlock()
+	if err == nil {
+		m.auditErrs, m.auditErrAt = 0, 0
+		return
+	}
+	var hs *hubStatusError
+	if !errors.As(err, &hs) {
+		return // the hub was not reached: that says nothing about its books
+	}
+	m.auditErrs++
+	m.auditErrAt = time.Now().UnixMilli()
+}
+
 // AuditSummary is the last result of the check for doctor's payments.audit:
-// the newest row of the proof chain.
+// the newest row of the proof chain, or, when the hub keeps answering the
+// read of a proof with an error, that.
 func (m *Module) AuditSummary() any {
+	m.auditMu2.Lock()
+	errs, errAt := m.auditErrs, m.auditErrAt
+	m.auditMu2.Unlock()
+	if errs >= auditErrorsBeforeAFinding {
+		f := Finding{Code: "proof_unavailable", Level: levelFail, Args: map[string]any{"time": errAt},
+			Detail: "the hub keeps answering the read of a balance proof with an error"}
+		return map[string]any{"result": "proof_unavailable", "checked_at": errAt, "close": errAt, "finding": f}
+	}
 	rows := m.liab.all(m.hubAID())
 	if len(rows) == 0 {
 		return nil
@@ -847,8 +880,10 @@ func (m *Module) auditPass(ctx context.Context, seen string) string {
 	rep, err := m.audit(ctx)
 	if err != nil {
 		log.Printf("anet: checking the hub's balance proofs: %v", err)
+		m.noteAuditError(err)
 		return seen
 	}
+	m.noteAuditError(nil)
 	for _, f := range rep.Findings {
 		log.Printf("anet: balance-proof check: %s (%s)", f.Code, f.Detail)
 	}

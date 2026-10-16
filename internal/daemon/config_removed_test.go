@@ -189,6 +189,9 @@ func TestRemovedSettingsStopTheDaemon(t *testing.T) {
 	}
 	for _, rs := range removedSettings {
 		t.Run(rs.key, func(t *testing.T) {
+			if strings.HasPrefix(rs.key, "modules.x402.") {
+				needX402(t) // a build without the module refuses the block as module_absent first
+			}
 			l := NewLayout(t.TempDir())
 			m := freshConfigFile(t)
 			withKey(m, rs.key, removedValue(rs.key))

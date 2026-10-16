@@ -81,12 +81,16 @@ func TestDeployTemplatesLoad(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		codes, other := checkTemplate(t, raw)
-		if other != nil {
-			t.Errorf("%s: %v", f, other)
-		}
-		for _, c := range codes {
-			t.Errorf("%s: %s", f, c)
+		// A template that configures the payment module is refused as module_absent by a build
+		// without it, as it should be; its peer_check is still read below.
+		if x402Compiled() || !strings.Contains(string(raw), `"x402"`) {
+			codes, other := checkTemplate(t, raw)
+			if other != nil {
+				t.Errorf("%s: %v", f, other)
+			}
+			for _, c := range codes {
+				t.Errorf("%s: %s", f, c)
+			}
 		}
 		if strings.Contains(string(raw), `"peer_check": "path-only"`) || strings.Contains(string(raw), `"peer_check":"path-only"`) {
 			t.Errorf("%s: peer_check path-only; the default is the strict check", f)

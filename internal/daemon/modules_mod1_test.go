@@ -168,6 +168,7 @@ func TestUnknownModuleIsGrantedNothing(t *testing.T) {
 // process with different `without` do not see each other's, and neither is
 // a process-wide setting a later test inherits.
 func TestAvailabilityIsPerDaemon(t *testing.T) {
+	needX402(t)
 	a := startWith(t, map[string]any{"without": []string{"service", "x402"}}, nil)
 	b := startWith(t, nil, nil)
 	for _, c := range []struct {
@@ -193,6 +194,7 @@ func TestAvailabilityIsPerDaemon(t *testing.T) {
 // started, and /status.build says what the node contains and what it turned
 // off.
 func TestWithoutDisablesTheModule(t *testing.T) {
+	needX402(t)
 	d := startWith(t, map[string]any{"without": []string{"x402"}}, nil)
 	for _, m := range d.modules {
 		if m.Name() == "x402" {
@@ -284,6 +286,7 @@ func TestWithoutNamesOnlyReadyModules(t *testing.T) {
 // module_absent.configured, the same sentence from the start check and from
 // the daemon.
 func TestConfiguredButUnavailableRefusesStart(t *testing.T) {
+	needX402(t)
 	// Turned off.
 	root := t.TempDir()
 	writeTestConfig(t, root, map[string]any{"control_addr": "127.0.0.1:0", "without": []string{"x402"},
@@ -451,6 +454,7 @@ func TestNoRouteWritesWithout(t *testing.T) {
 // module_absent while the module is not available, before the handler, and
 // the handler when it is. The route is registered either way.
 func TestAbsentRoutesAnswerModuleAbsent(t *testing.T) {
+	needX402(t)
 	absent := startWith(t, map[string]any{"without": []string{"x402"}}, nil)
 	present := startWith(t, nil, nil)
 	routes := module.Known()
