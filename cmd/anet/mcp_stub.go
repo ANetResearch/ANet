@@ -2,15 +2,10 @@
 
 package main
 
-import (
-	"fmt"
+import "github.com/ANetResearch/ANet/internal/daemon"
 
-	"github.com/ANetResearch/ANet/internal/daemon"
-)
-
-// This build has no MCP northbound. Saying so is better than the command
-// not existing: an operator who configured `anet mcp` in a client gets a
-// sentence explaining which build they installed, not "unknown command".
-func runMCP(daemon.Layout, bool) error {
-	return fmt.Errorf("anet mcp: this build was compiled with -tags no_mcp")
-}
+// This build has no MCP northbound. The command answers module_absent, the
+// one sentence every entrance of an absent module gives (MOD-F2), rather
+// than not existing: an operator who configured `anet mcp` in a client gets
+// a sentence that says which build they installed and what to do.
+func runMCP(layout daemon.Layout, _ bool) error { return requireModule(layout, "mcp") }

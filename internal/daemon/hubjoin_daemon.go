@@ -12,6 +12,7 @@ import (
 	"errors"
 	"io"
 	"log"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -52,9 +53,21 @@ type hubJoin struct {
 	// the last attempt whose registration was accepted began (unix ns): a
 	// kick older than that attempt has been answered by it.
 	kickAt, okAt atomic.Int64
+	// probeAt is when the hub was last asked whether this node is still on
+	// probation (unix ms; refreshProbation).
+	probeAt atomic.Int64
 	// waitHook, when set, is told each time the loop starts to wait. Tests
 	// only, through setJoinWait (testhooks.go).
 	waitHook atomic.Pointer[func(nextAttemptAt int64)]
+}
+
+// joinHooks are the join hooks now in force. Read under the join lock because
+// a test replaces them (setJoinHooks) while the join loop of a daemon it
+// started may be attempting.
+func (d *Daemon) joinHooks() JoinHooks {
+	d.join.mu.Lock()
+	defer d.join.mu.Unlock()
+	return d.join.hooks
 }
 
 // initJoin loads the join record of the configured hub (New). A record of
@@ -288,7 +301,7 @@ func (d *Daemon) attemptLocked(ctx context.Context, hubURL, name string, caps []
 	}
 	env := joinEnv{
 		hub:       &httpJoinHub{d: d, hubURL: hubURL, name: name, caps: caps, ownKEL: kelB},
-		hooks:     d.join.hooks,
+		hooks:     d.joinHooks(),
 		hubURL:    hubURL,
 		hubAID:    hubAID,
 		aid:       d.AID(),
@@ -463,14 +476,37 @@ type hubView struct {
 
 // viewOfJoin is what a record says now, in lang; nil is no hub (none).
 func (d *Daemon) viewOfJoin(r *joinRecord, now time.Time, lang a2ashape.Language) hubView {
+	return joinViewOf(r, now, lang, d.AID(), d.started, d.layout.Root)
+}
+
+// HubStatus is the hub object of /status, as HubView and ReadHubView give it.
+type HubStatus = hubView
+
+// ReadHubView is the hub object of /status read from the data directory, for a process that is not the
+// daemon (doctor): the same sentences, from hub_join.json alone. A record that cannot be read is an
+// error; no record is no hub.
+func ReadHubView(l Layout, lang a2ashape.Language) (HubStatus, error) {
+	r, err := loadJoinRecord(l)
+	if err != nil {
+		return hubView{}, err
+	}
+	return joinViewOf(r, time.Now(), lang, ReadIdentityAID(l), time.Time{}, l.Root), nil
+}
+
+// joinViewOf is viewOfJoin for any process: aid and root name the identity, started the moment the
+// daemon did (zero: not shown).
+func joinViewOf(r *joinRecord, now time.Time, lang a2ashape.Language, aid string, started time.Time, root string) hubView {
 	if r == nil {
-		v := hubView{State: JoinNone, Reason: reasonNoHub, key: reasonNoHub, Since: d.started.UTC().Format(time.RFC3339)}
+		v := hubView{State: JoinNone, Reason: reasonNoHub, key: reasonNoHub}
+		if !started.IsZero() {
+			v.Since = started.UTC().Format(time.RFC3339)
+		}
 		v.Message = a2ashape.Sentence(v.key, lang, nil)
 		v.Next = a2ashape.Next(v.key, lang, nil)
 		return v
 	}
 	key := r.Reason
-	args := a2ashape.Args{"hub": r.Hub, "aid": d.AID(), "now": now}
+	args := a2ashape.Args{"hub": r.Hub, "aid": aid, "now": now}
 	switch key {
 	case reasonProbation:
 		if r.ProbationUntil <= uint64(now.UnixMilli()) {
@@ -490,7 +526,7 @@ func (d *Daemon) viewOfJoin(r *joinRecord, now time.Time, lang a2ashape.Language
 			args["version"] = r.Version
 		}
 	case reasonStopped:
-		if n := IdentityNameForDir(d.layout.Root); n != "" {
+		if n := IdentityNameForDir(root); n != "" {
 			args["name"] = n
 		}
 	}
@@ -509,6 +545,48 @@ func (d *Daemon) viewOfJoin(r *joinRecord, now time.Time, lang a2ashape.Language
 		v.HubCode, v.HubError = "", ""
 	}
 	return v
+}
+
+// probationRecheck is the least time between two questions to the hub about
+// a probation the join record still shows.
+const probationRecheck = 30 * time.Second
+
+// refreshProbation brings the join record's probation up to date. The record
+// holds the end of the probation the hub named when this node registered; an
+// operator who admits the account at the hub ends it earlier, and nothing in
+// the record would say so. While the record shows a probation, the account
+// is read off the hub (at most once in probationRecheck, within a few
+// seconds, and a hub that cannot be reached leaves the record as it is) and
+// a probation the hub no longer reports is taken out of the record.
+func (d *Daemon) refreshProbation(ctx context.Context) {
+	r := d.joinSnapshot()
+	now := time.Now()
+	if r == nil || r.State != JoinRegistered || r.Reason != reasonProbation || r.ProbationUntil <= uint64(now.UnixMilli()) {
+		return
+	}
+	last := d.join.probeAt.Load()
+	if now.UnixMilli()-last < probationRecheck.Milliseconds() || !d.join.probeAt.CompareAndSwap(last, now.UnixMilli()) {
+		return
+	}
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	acct, err := d.HubAccount(ctx)
+	if err != nil {
+		return
+	}
+	var until uint64
+	if p := acct.ProbationUntil; p != nil && *p > uint64(now.UnixMilli()) && *p <= math.MaxInt64 {
+		until = *p
+	}
+	if until == r.ProbationUntil {
+		return
+	}
+	cp := *r
+	cp.ProbationUntil = until
+	if until == 0 {
+		cp.set(JoinRegistered, reasonRegistered, now)
+	}
+	d.keepJoinRecord(r.Hub, cp)
 }
 
 // HubView is the hub object of /status (§2.3.3), in this process's
@@ -899,7 +977,6 @@ func (d *Daemon) keepLocalCommit(req joinRequest) error {
 // (AD-3: running hub-register again retries at once).
 func (d *Daemon) adoptJoinTarget(req joinRequest, hubAID string, caps []string) (string, error) {
 	var prevHub string
-	var adopted *AutoReplyConfig
 	set := func(c *Config) {
 		c.HubURL = req.Hub
 		if req.Name != "" {
@@ -909,24 +986,14 @@ func (d *Daemon) adoptJoinTarget(req joinRequest, hubAID string, caps []string) 
 			c.Caps = caps
 		}
 	}
+	// updateConfig carries `without` and the blocks the kernel does not own
+	// (modules.*, auto_reply) over from the disk (K-2), so a block hand-added
+	// while this daemon ran is not lost by this write.
 	_, err := d.updateConfig(func(c *Config) error {
 		prevHub = c.HubURL
 		set(c)
-		// Don't clobber an auto_reply block hand-added to config.json after
-		// this daemon started (its in-memory cfg would not know it): adopt
-		// the on-disk value before writing back.
-		if c.AutoReply == nil {
-			if prev, err := LoadConfig(d.layout); err == nil && prev.AutoReply != nil {
-				c.AutoReply, adopted = prev.AutoReply, prev.AutoReply
-			}
-		}
 		return nil
-	}, func(live *Config) {
-		set(live)
-		if adopted != nil && live.AutoReply == nil {
-			live.AutoReply = adopted
-		}
-	})
+	}, set)
 	if err != nil {
 		return prevHub, err
 	}

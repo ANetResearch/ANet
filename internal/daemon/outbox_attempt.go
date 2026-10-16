@@ -1457,9 +1457,20 @@ type abandonVariant struct {
 // in the abandonment's transaction (DLV-S-35): interaction.reason_variant
 // and reason_arg, from a2ashape.DeliveryVariant and UndeliverableVariant of
 // v.
-//
-// v030-todo(RC-5): the two interaction columns and their write.
 func (d *Daemon) writeReasonVariantTx(tx *interactions.Tx, ix string, v abandonVariant) error {
+	switch v.reason {
+	case reasonDeliveryUnconfirmed:
+		variant := a2ashape.DeliveryVariant(v.trigger, v.wait, v.queued)
+		arg := map[string]any{"wait": v.wait}
+		if after, err := d.config().noResponseAfter(); err == nil {
+			arg["limit_ms"] = after.Milliseconds()
+		}
+		b, _ := json.Marshal(arg)
+		return tx.SetReasonVariant(ix, variant, string(b))
+	case reasonUndeliverable:
+		b, _ := json.Marshal(map[string]any{"wait": v.wait})
+		return tx.SetReasonVariant(ix, a2ashape.UndeliverableVariant(v.wait, v.noKeys), string(b))
+	}
 	return nil
 }
 

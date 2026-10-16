@@ -145,6 +145,9 @@ func TestWireMismatchStopsEveryHubRequest(t *testing.T) {
 // host:port a grant can hold; otherwise the grant goes without it, and the
 // message goes all the same.
 func TestGrantOmitsAnUnfitP2PAddress(t *testing.T) {
+	if !haveP2P {
+		t.Skip("the module is not in this build (-tags)")
+	}
 	for _, c := range []struct {
 		name, advertise, want string
 	}{

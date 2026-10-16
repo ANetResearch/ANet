@@ -52,6 +52,9 @@
 #   --base URL      Download base, https only (or set ANET_INSTALL_BASE).
 #   --shell         Install the variant that can run operator-approved commands
 #                   on this machine. See "--shell" below before using it.
+#   --without LIST  Turn these modules off in config.json (a comma-separated
+#                   list; names are those of `anet version`'s modules line).
+#                   Written before anything is installed, only ever added to.
 #   --agents        After installing, wire anet into the coding agents found on
 #                   this machine (`anet agents wire --all`). --agents=claude,codex
 #                   wires only those.
@@ -67,13 +70,27 @@
 #
 # --shell installs a DIFFERENT BINARY, not a setting.
 #
-# The default binary cannot execute anything on the machine it runs on: the
-# module that would do it is not compiled in, which `go tool nm` can be made
-# to confirm on the downloaded file. `--shell` fetches the build that has it.
-# Even that build runs nothing until an operator writes a `modules.shell`
-# config block naming the commands, and lists the AIDs allowed to call them;
-# an empty list refuses everyone. Full contract: docs/SHELL-zh.md in the
-# repository.
+# The default binary does not run remote commands (the shell module is not in
+# it, which `go tool nm` can be made to confirm on the downloaded file).
+# `--shell` fetches the build that has that module. Even that build runs
+# nothing until an operator writes a `modules.shell` config block naming the
+# commands, and lists the AIDs allowed to call them; an empty list refuses
+# everyone. Full contract: docs/SHELL-zh.md in the repository.
+#
+# What the default binary can do instead, and how to turn it off (the same
+# text, in both languages, is internal/a2ashape InstallHeader; a test keeps
+# the two equal):
+#
+#   缺省二进制不执行远程命令（shell 模块不在其中）。运营者配置自动回复之后，它会为对端运行本机 agent，未信任对端只在沙箱里运行。不想要这项功能：--without autoreply 让它永不启动；要二进制里没有这段代码：按 docs/DISTRIBUTIONS-zh.md 用 build.sh --without autoreply 自建。
+#   The default binary does not run remote commands (the shell module is not in it). Once the operator configures auto-reply, it runs a local agent for peers, and untrusted peers only inside a sandbox. If you do not want this feature: --without autoreply keeps it from ever starting; to leave the code out of the binary, build it yourself with build.sh --without autoreply as described in docs/DISTRIBUTIONS-zh.md.
+#
+# --without installs a setting, not a different binary: the names are written
+# into the `without` list of config.json by `anet init --without`, run by the
+# downloaded binary after its checks and before it replaces anything. A name
+# that is not a module of the chosen variant, a running daemon, a module whose
+# configuration is already in config.json, and `--shell` together with
+# `--without shell` each stop the install with nothing installed or changed.
+# To turn a module on again: anet down, anet init --with <module>, anet up.
 #
 # Everything below is a function and the last line calls main: a download
 # cut short defines half a function and runs nothing.
@@ -102,6 +119,7 @@ anet installer — verifies the signed release manifest, then installs.
   --prefix DIR      install into DIR
   --base URL        download base, https only (or ANET_INSTALL_BASE)
   --shell           the variant that can run operator-approved commands
+  --without LIST    turn these modules off (comma-separated), e.g. autoreply
   --agents[=LIST]   wire anet into coding agents found here (all, or LIST)
   --hub URL         start the node and join this hub
   --name NAME       name to join under (default: hostname)
@@ -205,9 +223,22 @@ removed_flag() {
   exit 2
 }
 
+# add_without LIST — append module names (comma-separated) to WITHOUT, once
+# each. A name is lower-case letters and digits only; whether the module
+# exists in the chosen variant is checked against the manifest later.
+add_without() {
+  [ -n "$1" ] || die "--without needs a module name, e.g. --without autoreply"
+  for _m in $(printf '%s' "$1" | tr ',' ' '); do
+    case "$_m" in
+      *[!a-z0-9]*) die "--without: '$_m' is not a module name (lower-case letters and digits, comma-separated)" ;;
+    esac
+    case ",$WITHOUT," in *",$_m,"*) ;; *) WITHOUT="${WITHOUT:+$WITHOUT,}$_m" ;; esac
+  done
+}
+
 parse_args() {
   PREFIX=""; USER_MODE=1; BASE_OVERRIDE=""; HUB=""; NODE_NAME=""
-  VARIANT="default"; ASSET_PREFIX="anet"; AGENTS=""
+  VARIANT="default"; ASSET_PREFIX="anet"; AGENTS=""; WITHOUT=""
   while [ $# -gt 0 ]; do
     case "$1" in
       --system)     USER_MODE=0 ;;
@@ -223,6 +254,8 @@ parse_args() {
       --token|--token=*) removed_flag --token ;;
       --token-file|--token-file=*) removed_flag --token-file ;;
       --shell)      VARIANT="shell"; ASSET_PREFIX="anet-shell" ;;
+      --without)    [ $# -ge 2 ] || die "--without needs a module name, e.g. --without autoreply"; add_without "$2"; shift ;;
+      --without=*)  add_without "${1#--without=}" ;;
       --agents)     AGENTS="--all" ;;
       --agents=*)   AGENTS="$(printf '%s' "${1#--agents=}" | tr ',' ' ')" ;;
       -h|--help)    usage; exit 0 ;;
@@ -230,6 +263,10 @@ parse_args() {
     esac
     shift
   done
+
+  case ",$WITHOUT," in
+    *,shell,*) [ "$VARIANT" != shell ] || die "--shell installs the shell module and --without shell turns it off; use one of them" ;;
+  esac
 
   BASES="${ANET_INSTALL_BASE:-} https://agentnetwork.org.cn https://hub.agentnetwork.org.cn"
   [ -n "$BASE_OVERRIDE" ] && BASES="$BASE_OVERRIDE"
@@ -324,6 +361,7 @@ read_manifest() {
 
   VLINE="$(mf_block_line variants "$VARIANT")" || die "release.json has no '$VARIANT' variant"
   MODS="$(printf '%s' "$VLINE" | sed -n 's/.*"modules": \[\([^]]*\)\].*/\1/p' | tr -d '" ')"
+  check_without
   ALINE="$(mf_block_line assets "$ASSET")" || die "release $VERSION has no build $ASSET"
   [ "$(field "$ALINE" variant)" = "$VARIANT" ] || die "release.json: $ASSET is not the $VARIANT variant"
   GZ_SHA="$(field "$ALINE" gz_sha256)"
@@ -333,6 +371,36 @@ read_manifest() {
   printf '%s' "$GZ_SHA" | grep -Eq '^[0-9a-f]{64}$' || die "release.json: bad gz_sha256 for $ASSET"
   printf '%s' "$RAW_SHA" | grep -Eq '^[0-9a-f]{64}$' || die "release.json: bad sha256 for $ASSET"
   say "  release $VERSION  commit $(printf '%s' "$COMMIT" | cut -c1-12)  valid until $EXPIRES"
+}
+
+# check_without: every --without name is a module of the chosen variant (its
+# modules list in the manifest), or shell, which the default variant does not
+# contain and which `anet init` accepts all the same.
+check_without() {
+  [ -n "$WITHOUT" ] || return 0
+  for _m in $(printf '%s' "$WITHOUT" | tr ',' ' '); do
+    case ",$MODS,shell," in
+      *",$_m,"*) ;;
+      *) die "--without $_m: the $VARIANT build has no module of that name (its modules: ${MODS:-none})" ;;
+    esac
+  done
+}
+
+# apply_without: write the --without names into config.json with the
+# downloaded binary's own `anet init`, which refuses a running daemon and a
+# module whose configuration is already there and then changes nothing. Run
+# on the staged copy after its self-check and before it replaces the
+# installed binary, so a refusal leaves nothing installed or changed.
+apply_without() {
+  [ -n "$WITHOUT" ] || return 0
+  say "→ anet init --without $WITHOUT"
+  out="$("$1" init --without "$WITHOUT" 2>&1)" && _rc=0 || _rc=$?
+  if [ "$_rc" -ne 0 ]; then
+    printf '%s\n' "$out" >&2
+    printf 'Nothing was installed or changed.\n' >&2
+    exit "$_rc"
+  fi
+  printf '%s\n' "$out" | sed 's/^/  /'
 }
 
 # check_downgrade: the anet already at DEST, if any, must not be newer.
@@ -415,6 +483,7 @@ install_binary() {
   { $SUDO rm -f "$STAGED" && $SUDO cp "$TMP/$ASSET" "$STAGED" && $SUDO chmod 755 "$STAGED"; } \
     || die "could not write $STAGED"
   check_binary "$STAGED"
+  apply_without "$STAGED"
   $SUDO mv -f "$STAGED" "$DEST" || die "could not write $DEST"
   STAGED=""
   record_release

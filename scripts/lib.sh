@@ -331,11 +331,18 @@ PY
 }
 
 # stop_under PATH [SECONDS]: SIGTERM everything pids_under PATH lists, wait up to SECONDS (default 5)
-# for it to exit, then SIGKILL what is left. Nothing outside PATH is signalled.
+# for it to exit, then SIGKILL what is left. Nothing outside PATH is signalled. With ANET_SHARED_HOST=1
+# nothing is signalled at all: the pids are appended to ANET_LEFTOVER_PIDS (default PATH/leftover.pids).
 stop_under(){
   local pids i n=$(( ${2:-5} * 5 ))
   pids=$(pids_under "$1")
   [ -n "$pids" ] || return 0
+  if [ "${ANET_SHARED_HOST:-}" = 1 ]; then
+    # A host other people's processes run on: never signal by search. Say who is there (read-only) and
+    # leave the signalling to whoever started them, by exact pid or process group.
+    echo "$pids" >> "${ANET_LEFTOVER_PIDS:-$1/leftover.pids}"
+    return 0
+  fi
   kill -TERM $pids 2>/dev/null
   for ((i = 0; i < n; i++)); do
     sleep 0.2

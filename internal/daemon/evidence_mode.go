@@ -1,65 +1,59 @@
 package daemon
 
-// evidence_mode.go is what the evidence chain keeps of a public capability
-// call (A2A-DESIGN §15, §21 item 4; decision Q15), and how long this node
-// keeps the content of a task once it has ended (content retention, at the
-// end of the file).
+// evidence_mode.go is what the evidence chain keeps of a capability call
+// (A2A-DESIGN §15, §21 item 4; CUX-F14), and how long this node keeps the
+// content of a task once it has ended (content retention, at the end of the
+// file).
 //
-// A public capability answers anyone. Its anet.capability.effect event
-// records who called what, the outcome, the metrics and the result CID in
-// both modes. In the full mode it also records the effect's provenance,
-// whose observed_state is the capability's whole answer: the chain is
-// append-only, so it would keep a copy of every stranger's result for as
-// long as the node exists. The cid mode, the default, keeps from the
-// provenance only what describes how the effect was checked (protocol,
-// verify_trust, latency_ms, native_ack). The caller holds the result and
-// the receipt signed over its CID; anyone can recompute the CID from the
-// result, so the chain does not need the result to back the receipt.
-//
-// The mode applies to calls under trust public_cap, which is every call of
-// a listed public capability, from a caller on the allow list too: §5.2
-// admits a public capability call at row 2, before the allow list is read.
-// A call of a capability that is not public (an allowed peer's, row 3,
-// trust peer, or an approved one) gets the full record whatever the mode.
+// The anet.capability.effect event records who called what, the outcome,
+// the metrics and the result CID. Of the effect's provenance it keeps only
+// what describes how the effect was checked (protocol, verify_trust,
+// latency_ms, native_ack), never what it produced: the chain is
+// append-only, so a copy of the observed state would stay as long as the
+// node exists. The caller holds the result and the receipt signed over its
+// CID; anyone can recompute the CID from the result, so the chain does not
+// need the result to back the receipt. A discard capability records less
+// still (capability.go, discardEvidence).
 
 import (
 	"fmt"
 	"log"
 	"time"
 
+	"github.com/ANetResearch/ANetCore/anetcid"
+
+	"github.com/ANetResearch/ANet/internal/anethome"
 	"github.com/ANetResearch/ANet/internal/evtypes"
+	"github.com/ANetResearch/ANet/internal/execwork"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 )
 
-// Evidence modes of a public capability.
-const (
-	EvidenceCID  = "cid"
-	EvidenceFull = "full"
-)
-
-func validEvidenceMode(p PublicCapability) error {
-	switch p.Evidence {
-	case "", EvidenceCID, EvidenceFull:
-		return nil
-	}
-	return fmt.Errorf("anet: inbound.public_capabilities %q: evidence %q is not one of cid, full", p.ID, p.Evidence)
-}
-
-// cidModeProvenance is the part of an effect's provenance the cid mode
+// cidModeProvenance is the part of an effect's provenance the chain
 // keeps: how the effect was checked, nothing of what it produced.
 var cidModeProvenance = []string{"protocol", "verify_trust", "latency_ms", "native_ack"}
 
-// effectEvidence is the provenance the chain records for a capability call
-// on ix: all of it, or in the cid mode only the keys above. It returns nil
-// when nothing is to be recorded.
-func (d *Daemon) effectEvidence(ix *interactions.Interaction, capID string, prov map[string]any) map[string]any {
+// effectEvidence is the provenance the chain records for a capability
+// call (FS-L12, CUX-F14): the keys above for a public_cap call, whoever the
+// caller; for any other call all of it, except that the observed state,
+// which is what the capability read or produced, is kept as its CID. It
+// returns nil when nothing is to be recorded.
+func (d *Daemon) effectEvidence(ix *interactions.Interaction, prov map[string]any) map[string]any {
 	if prov == nil {
 		return nil
 	}
-	if ix == nil || ix.Trust != interactions.TrustPublicCap || d.publicEvidenceMode(capID) == EvidenceFull {
-		return prov
-	}
 	out := map[string]any{}
+	if ix != nil && ix.Trust != interactions.TrustPublicCap {
+		for k, v := range prov {
+			out[k] = v
+		}
+		if s, ok := out["observed_state"].(string); ok {
+			delete(out, "observed_state")
+			if cid, err := anetcid.SumRaw([]byte(s)); err == nil {
+				out["observed_state_cid"] = cid
+			}
+		}
+		return out
+	}
 	for _, k := range cidModeProvenance {
 		if v, ok := prov[k]; ok {
 			out[k] = v
@@ -69,16 +63,6 @@ func (d *Daemon) effectEvidence(ix *interactions.Interaction, capID string, prov
 		return nil
 	}
 	return out
-}
-
-// publicEvidenceMode is the evidence mode configured for a public
-// capability. A capability no longer public (the list changed while the
-// call ran) takes the default.
-func (d *Daemon) publicEvidenceMode(capID string) string {
-	if pc, ok := d.config().inbound().publicCapability(capID); ok {
-		return pc.Evidence
-	}
-	return EvidenceCID
 }
 
 // --- content retention (forward-secrecy §4.6, FS-L5 to FS-L11) ---
@@ -159,11 +143,12 @@ func (d *Daemon) pruneEndedWorkDirs() {
 		return
 	}
 	open := func() (map[string]bool, error) { return d.ix.OpenIDs() }
-	if err := pruneExecWorkDirs(d.AID(), open); err != nil {
-		log.Printf("anet: exec work dirs of ended tasks: %v", err)
+	werr, serr := execwork.SweepAll(anethome.ModuleDir(d.layout.Root, "autoreply"), d.AID(), open)
+	if werr != nil {
+		log.Printf("anet: exec work dirs of ended tasks: %v", werr)
 	}
-	if err := sharedExecSessionStore(d.layout.Root).pruneEnded(open); err != nil {
-		log.Printf("anet: exec sessions of ended tasks: %v", err)
+	if serr != nil {
+		log.Printf("anet: exec sessions of ended tasks: %v", serr)
 	}
 }
 

@@ -42,5 +42,6 @@ func (NopHost) ResolveKEL(string) ([]identity.SignedEvent, bool) { return nil, f
 func (NopHost) PaymentSeam() (module.PaymentSeam, bool)          { return nil, false }
 func (NopHost) HubSeam() (module.HubSeam, bool)                  { return nil, false }
 func (NopHost) DeclareUntrustedBackend()                         {}
-func (NopHost) StateDir(string) string                           { return "" }
+func (NopHost) StateDir() string                                 { return "" }
+func (NopHost) Available(string) bool                            { return true }
 func (NopHost) TaskSeam() (module.TaskSeam, bool)                { return nil, false }

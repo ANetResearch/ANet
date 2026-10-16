@@ -9,19 +9,21 @@ package daemon
 // task does not decide how the next is judged.
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"net/http/httptest"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
 
-	evidence "github.com/ANetResearch/ANet/internal/evidencev1" // v030-todo(PAY-14): evidence v2
 	"github.com/ANetResearch/ANetCore/anetcid"
 	"github.com/ANetResearch/ANetCore/coredet"
 	"github.com/ANetResearch/ANetCore/delegation"
+	"github.com/ANetResearch/ANetCore/evidence"
 	"github.com/ANetResearch/ANetCore/identity"
 	"github.com/ANetResearch/ANetCore/seal"
 	"github.com/ANetResearch/ANetCore/tsir"
@@ -91,16 +93,11 @@ func signedReceipt(t *testing.T, x *rxFuzz, ix string, deliverable []byte) []byt
 	if err != nil {
 		t.Fatal(err)
 	}
-	rc := &evidence.Receipt{InteractionID: ix, RequesterAID: x.req.AID(), ProviderAID: x.prov.AID(),
-		RequestCID: fuzzRequestCID, ResultCID: cid, CompletedAt: uint64(time.Now().UnixMilli())}
-	if err := rc.Sign(x.prov.self); err != nil {
-		t.Fatal(err)
-	}
-	b, err := rc.Marshal()
+	row, err := x.req.ix.Get(ix)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return b
+	return receiptOver(t, x.prov.self, row, row.RequestCID, cid)
 }
 
 // fuzzTaskDoc is req's signed TaskDoc: a text task, or a capability call
@@ -111,6 +108,11 @@ func fuzzTaskDoc(t *testing.T, c *identity.Controller, goal, capID, args string)
 		task.Requires = []tsir.Require{{ID: capID, Type: RequireTypeCapability, Necessity: "must"}}
 		task.Contexts = []tsir.Context{{Key: "args", Value: args, Format: "json"}}
 	}
+	b, err := makeTaskBinding(c.AID())
+	if err != nil {
+		return nil, nil
+	}
+	task.Contexts = append(task.Contexts, b.contexts...)
 	td := &tsir.TaskDoc{Version: tsir.VersionPair{Major: 1}, Tasks: []tsir.Task{task}}
 	if err := td.Sign(c); err != nil {
 		return nil, nil
@@ -170,13 +172,14 @@ func checkView(t *testing.T, d *Daemon, id string, provKEL []identity.SignedEven
 		t.Fatalf("SI-6: completed task without %s\n%s", a2ashape.KeyReceiptVerified, b)
 	}
 	if ix.Role == interactions.RoleOutbound && ix.ReceiptVerified == interactions.VerificationVerified {
-		rc, err := evidence.UnmarshalReceipt(ix.Receipt)
+		rw, err := evidence.UnmarshalReceiptWire(ix.Receipt)
 		if err != nil {
 			t.Fatalf("%s: a receipt stored as verified does not decode: %v", id, err)
 		}
 		cid, _ := anetcid.Sum(ix.Result)
-		if rc.Verify(provKEL, uint64(time.Now().UnixMilli())) != nil || rc.ResultCID != cid ||
-			rc.InteractionID != id || rc.ProviderAID != ix.PeerAID {
+		rc, verr := rw.Verify(provKEL, uint64(time.Now().UnixMilli()))
+		ixc, _ := evidenceIXCommit(ix)
+		if verr != nil || rc.ResultCID != cid || !bytes.Equal(rc.IXCommit, ixc) || rc.Provider != ix.PeerAID {
 			t.Fatalf("%s: a receipt stored as verified does not verify over the stored result", id)
 		}
 	}
@@ -291,8 +294,25 @@ func FuzzReceiveInner(f *testing.F) {
 				if capID != "" {
 					goal = "invoke capability " + capID
 				}
+				bind, err := x.req.newTaskBinding()
+				if err != nil {
+					t.Fatal(err)
+				}
+				doc, _, err := x.req.signTaskDoc(goal, bind)
+				if err != nil {
+					// A task document is text: a capability id that is not UTF-8 cannot
+					// be one, which is the fixture's limit and not the receive path's.
+					if !utf8.ValidString(capID) {
+						t.Skip("capability id is not UTF-8")
+					}
+					t.Fatal(err)
+				}
+				rcid, err := anetcid.Sum(doc)
+				if err != nil {
+					t.Fatal(err)
+				}
 				if err := x.req.ix.Create(interactions.New{ID: id, Role: interactions.RoleOutbound, PeerAID: x.prov.AID(),
-					Goal: goal, RequestCID: fuzzRequestCID, IsCapability: capID != ""}); err != nil {
+					Goal: goal, RequestCID: rcid, RequestDoc: doc, TaskNonce: bind.nonce, IsCapability: capID != ""}); err != nil {
 					t.Fatal(err)
 				}
 			}

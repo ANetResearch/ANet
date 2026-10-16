@@ -205,6 +205,11 @@ func (h *handler) sendForStream(ctx context.Context, r *a2a.SendMessageRequest, 
 		return nil, err
 	}
 	req.ReturnImmediately = true
+	if info.previews() {
+		// A streaming call that activated the extension asks the provider
+		// for previews of this round (CUX-P10).
+		req.Preview = "on"
+	}
 	t, err := h.seam.Send(ctx, info.aid, req)
 	if err != nil {
 		return nil, err
@@ -378,7 +383,7 @@ func (h *handler) GetExtendedAgentCard(ctx context.Context, r *a2a.GetExtendedAg
 // a peer sent — a file, a long text, large metadata, many attachments.
 func (h *handler) stream(ctx context.Context, info *reqInfo, id string, after int64, subscribe bool, yield func(a2a.Event, error) bool) {
 	peer := info.aid
-	snap, events, err := h.seam.Watch(ctx, peer, id)
+	snap, events, err := h.seam.Watch(ctx, peer, id, module.WatchOpts{Preview: info.previews()})
 	if err != nil {
 		yield(nil, toSDKError(err))
 		return
@@ -419,7 +424,7 @@ func (h *handler) stream(ctx context.Context, info *reqInfo, id string, after in
 				return
 			}
 			resubscribed++
-			if snap, events, err = h.seam.Watch(ctx, peer, id); err != nil {
+			if snap, events, err = h.seam.Watch(ctx, peer, id, module.WatchOpts{Preview: info.previews()}); err != nil {
 				yield(nil, toSDKError(err))
 				return
 			}

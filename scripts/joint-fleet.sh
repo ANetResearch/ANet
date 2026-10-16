@@ -155,7 +155,7 @@ for i in 0 1 2; do
   api "$h" "$p" /inbound/policy '{"public_capabilities":[{"id":"code.write"}]}' >/dev/null
   api "$h" "$p" /hub-register "{\"hub\":\"$HUB_URL\",\"name\":\"worker-$n\",\"caps\":[\"code.write\"]}" >/dev/null
   # exec 后端 + 桩:agent 用 claude 这一档,binary 用 command 覆盖掉。
-  api "$h" "$p" /autoreply "{\"backend\":\"exec\",\"agent\":\"claude\",\"command\":\"$J/agent-ok.sh\",\"poll_interval_seconds\":1}" >/dev/null
+  api "$h" "$p" /autoreply "{\"backend\":\"exec\",\"agent\":\"claude\",\"command\":\"$J/agent-ok.sh\"}" >/dev/null
   W_AID[$i]=$(api "$h" "$p" /status '{}' | python3 -c 'import sys,json;print(json.load(sys.stdin).get("aid",""))')
 done
 api "$CTRL_HOME" "$CTRL_PORT" /hub-register "{\"hub\":\"$HUB_URL\",\"name\":\"fleet-control\"}" >/dev/null
@@ -242,7 +242,7 @@ done
 
 hd "4/7  一台卡住,不能拖垮另外两台"
 api "$J/w-${W_NAMES[1]}" "${W_PORTS[1]}" /autoreply \
-    "{\"backend\":\"exec\",\"agent\":\"claude\",\"command\":\"$J/agent-hang.sh\",\"api_timeout_seconds\":5,\"poll_interval_seconds\":1}" >/dev/null
+    "{\"backend\":\"exec\",\"agent\":\"claude\",\"command\":\"$J/agent-hang.sh\",\"api_timeout_seconds\":5}" >/dev/null
 HANG_IX=$(api "$CTRL_HOME" "$CTRL_PORT" /delegate \
           "{\"provider\":\"${W_AID[1]}\",\"goal\":\"THIS-ONE-HANGS\"}" \
           | python3 -c 'import sys,json;print(json.load(sys.stdin).get("interaction_id",""))')
@@ -258,7 +258,7 @@ esac
 
 hd "5/7  agent 失败与静默:两种都不能冒充成功"
 api "$J/w-${W_NAMES[0]}" "${W_PORTS[0]}" /autoreply \
-    "{\"backend\":\"exec\",\"agent\":\"claude\",\"command\":\"$J/agent-fail.sh\",\"error_reply\":\"AGENT-FAILED-HERE\",\"poll_interval_seconds\":1}" >/dev/null
+    "{\"backend\":\"exec\",\"agent\":\"claude\",\"command\":\"$J/agent-fail.sh\"}" >/dev/null
 FIX=$(api "$CTRL_HOME" "$CTRL_PORT" /delegate \
       "{\"provider\":\"${W_AID[0]}\",\"goal\":\"WILL-FAIL\"}" \
       | python3 -c 'import sys,json;print(json.load(sys.stdin).get("interaction_id",""))')
@@ -271,7 +271,7 @@ case "$FR" in
 esac
 
 api "$J/w-${W_NAMES[0]}" "${W_PORTS[0]}" /autoreply \
-    "{\"backend\":\"exec\",\"agent\":\"claude\",\"command\":\"$J/agent-silent.sh\",\"error_reply\":\"AGENT-SAID-NOTHING\",\"poll_interval_seconds\":1}" >/dev/null
+    "{\"backend\":\"exec\",\"agent\":\"claude\",\"command\":\"$J/agent-silent.sh\"}" >/dev/null
 SIX=$(api "$CTRL_HOME" "$CTRL_PORT" /delegate \
       "{\"provider\":\"${W_AID[0]}\",\"goal\":\"WILL-BE-SILENT\"}" \
       | python3 -c 'import sys,json;print(json.load(sys.stdin).get("interaction_id",""))')
@@ -290,7 +290,7 @@ ALPHA_IX=$(api "$CTRL_HOME" "$CTRL_PORT" /delegate \
            "{\"provider\":\"${W_AID[0]}\",\"goal\":\"CLOSE-ME\"}" \
            | python3 -c 'import sys,json;print(json.load(sys.stdin).get("interaction_id",""))')
 api "$J/w-${W_NAMES[0]}" "${W_PORTS[0]}" /autoreply \
-    "{\"backend\":\"exec\",\"agent\":\"claude\",\"command\":\"$J/agent-ok.sh\",\"poll_interval_seconds\":1}" >/dev/null
+    "{\"backend\":\"exec\",\"agent\":\"claude\",\"command\":\"$J/agent-ok.sh\"}" >/dev/null
 wait_reply "$ALPHA_IX" 40 >/dev/null
 api "$CTRL_HOME" "$CTRL_PORT" /end "{\"interaction_id\":\"$ALPHA_IX\"}" >/dev/null
 # 委派方的 end 只是请求:worker 的 daemon 收到后自己完成任务并签回执,不经

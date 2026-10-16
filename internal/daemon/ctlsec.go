@@ -100,25 +100,48 @@ var publicRoutes = map[string]bool{
 	"POST /console/session": true,
 }
 
+// sessionRouteSet is the session allowlist in force: empty while the console module is not available.
+func (d *Daemon) sessionRouteSet() map[string]sessionRule {
+	if !d.avail.Available("console") {
+		return nil
+	}
+	return sessionRoutes
+}
+
+// publicRouteSet is the set of routes open without the bearer token: only /ping while the console module
+// is not available.
+func (d *Daemon) publicRouteSet() map[string]bool {
+	if !d.avail.Available("console") {
+		return map[string]bool{"GET /ping": true}
+	}
+	return publicRoutes
+}
+
 // routeMux is an http.ServeMux that records every pattern registered on it. The session route test
 // walks the recorded patterns, which is how a route added later (by any file) is covered without anyone
 // remembering to list it.
 type routeMux struct {
 	*http.ServeMux
 	patterns []string
+	// guard, when set, wraps each handler as it is registered (the daemon's
+	// moduleRouteGuard: a route the name table gives to a module answers
+	// module_absent while that module is not available).
+	guard func(pattern string, h http.Handler) http.Handler
 }
 
 func newRouteMux() *routeMux { return &routeMux{ServeMux: http.NewServeMux()} }
 
 // HandleFunc registers h for pattern and records the pattern.
 func (m *routeMux) HandleFunc(pattern string, h func(http.ResponseWriter, *http.Request)) {
-	m.patterns = append(m.patterns, pattern)
-	m.ServeMux.HandleFunc(pattern, h)
+	m.Handle(pattern, http.HandlerFunc(h))
 }
 
 // Handle registers h for pattern and records the pattern.
 func (m *routeMux) Handle(pattern string, h http.Handler) {
 	m.patterns = append(m.patterns, pattern)
+	if m.guard != nil {
+		h = m.guard(pattern, h)
+	}
 	m.ServeMux.Handle(pattern, h)
 }
 
@@ -143,6 +166,7 @@ func (d *Daemon) secureControlPlane(auth *ctlAuth, api *routeMux) *controlPlane 
 	api.HandleFunc("POST /console/switch", d.hConsoleSwitch)
 
 	top := newRouteMux()
+	top.guard = d.moduleRouteGuard
 	top.HandleFunc("GET /console", d.consoleHandler())
 	top.HandleFunc("GET /ping", d.pingHandler(auth))
 	top.HandleFunc("POST /console/session", d.hConsoleSession(cs))
@@ -225,13 +249,18 @@ func (d *Daemon) authGate(auth *ctlAuth, cs *consoleSessions, api *routeMux) htt
 			api.ServeHTTP(w, r)
 			return
 		}
-		sess := cs.fromRequest(r)
+		// MOD-8: without the console module the session path does not exist; a cookie, however it was
+		// obtained, is the same as no session.
+		var sess *consoleSession
+		if d.avail.Available("console") {
+			sess = cs.fromRequest(r)
+		}
 		if sess == nil {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
 		_, pattern := api.Handler(r)
-		rule, ok := sessionRoutes[pattern]
+		rule, ok := d.sessionRouteSet()[pattern]
 		if !ok {
 			sessionRefusal(w, "this route is not available to a console session; use the anet CLI")
 			return

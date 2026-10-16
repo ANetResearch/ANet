@@ -5,6 +5,14 @@
 #   ./build.sh --check    gofmt + go vet + go test + the build-tag checks, then build
 #                         (full pre-commit check)
 #   ./build.sh -c         same as --check
+#   ./build.sh --without autoreply,x402   leave modules out of the binary
+#                         (-tags no_<module>); the names are those of the
+#                         `anet version` modules line. A module that has no
+#                         build tag yet (build_tag_pending) is turned off in
+#                         the configuration instead: anet init --without <m>.
+#   ./build.sh --with shell               add the shell module (-tags shell)
+#   scripts/tagcheck.sh recipes           the self-build recipes, as examples
+#                                         of --without
 #
 # Neither runs the race detector, which needs cgo. The whole-repo race run is
 #
@@ -35,11 +43,67 @@ export CGO_ENABLED=0
 OPTIN="shell"
 
 CHECK=0
-case "${1:-}" in
-  -c|--check) CHECK=1 ;;
-  "") ;;
-  *) echo "usage: build.sh [--check]" >&2; exit 2 ;;
-esac
+TAGS=""
+WITHOUT=""
+WITH=""
+
+# build_tag_pending M ZH EN — the sentence build_tag_pending of anet's reason
+# table (internal/a2ashape; a test keeps this text equal to it) in the
+# language anet would choose (LC_ALL, LC_MESSAGES, LANG; Chinese when it begins
+# with zh), on stderr, and exit 2 before anything is built.
+build_tag_pending() {
+  case "${LC_ALL:-${LC_MESSAGES:-${LANG:-}}}" in
+    zh*) printf '这个版本还不能在构建时去掉%s模块（%s），随 v0.3.x 提供；现在可以用 --without %s 在配置里关闭它，什么都没有构建。\n' "$2" "$1" "$1" >&2 ;;
+    *)   printf 'This version cannot leave the %s module (%s) out at build time yet; that comes in v0.3.x. For now you can turn it off in the configuration with --without %s; nothing was built.\n' "$3" "$1" "$1" >&2 ;;
+  esac
+  exit 2
+}
+
+usage() { echo "usage: build.sh [--check] [--without <module>[,<module>...]] [--with shell]" >&2; exit 2; }
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -c|--check) CHECK=1 ;;
+    --without)  [ $# -ge 2 ] || usage; WITHOUT="${WITHOUT:+$WITHOUT,}$2"; shift ;;
+    --without=*) WITHOUT="${WITHOUT:+$WITHOUT,}${1#--without=}" ;;
+    --with)     [ $# -ge 2 ] || usage; WITH="${WITH:+$WITH,}$2"; shift ;;
+    --with=*)   WITH="${WITH:+$WITH,}${1#--with=}" ;;
+    *) usage ;;
+  esac
+  shift
+done
+
+# Names to tags. The lists live in scripts/tagcheck.sh (one source); a name
+# that is in neither is not a module of this tree.
+if [ -n "$WITHOUT" ] || [ -n "$WITH" ]; then
+  SUBTAGS="$(bash "$ROOT/scripts/tagcheck.sh" list)"
+  PENDING="$(bash "$ROOT/scripts/tagcheck.sh" pending)"
+  for m in $(printf '%s' "$WITHOUT" | tr ',' ' '); do
+    if printf '%s\n' "$SUBTAGS" | grep -qx "no_$m"; then
+      case ",$TAGS," in *",no_$m,"*) ;; *) TAGS="${TAGS:+$TAGS,}no_$m" ;; esac
+    elif printf '%s\n' "$PENDING" | grep -qx "$m"; then
+      case "$m" in
+        autoreply) build_tag_pending autoreply 自动回复 auto-reply ;;
+        preview)   build_tag_pending preview 预览 preview ;;
+        console)   build_tag_pending console 控制台 console ;;
+        *)         build_tag_pending "$m" "$m" "$m" ;;
+      esac
+    elif [ "$m" = shell ]; then
+      :  # shell is not in the default build; there is nothing to leave out
+    else
+      echo "build.sh: --without $m: there is no module of that name (the modules line of anet version lists them)" >&2
+      exit 2
+    fi
+  done
+  for m in $(printf '%s' "$WITH" | tr ',' ' '); do
+    if [ "$m" = shell ] && printf '%s\n' "$SUBTAGS" | grep -qx shell; then
+      case ",$TAGS," in *",shell,"*) ;; *) TAGS="${TAGS:+$TAGS,}shell" ;; esac
+    else
+      echo "build.sh: --with $m: only shell can be added (--with shell)" >&2
+      exit 2
+    fi
+  done
+fi
 
 bold() { printf '\033[1;36m== %s ==\033[0m\n' "$*"; }
 
@@ -77,7 +141,12 @@ if [ "$CHECK" -eq 1 ]; then
 fi
 
 bold "build"
-go build -o anet ./cmd/anet/
+if [ -n "$TAGS" ]; then
+  echo "tags: $TAGS"
+  go build -tags "$TAGS" -o anet ./cmd/anet/
+else
+  go build -o anet ./cmd/anet/
+fi
 
 # macOS: ad-hoc code-sign the freshly built binary. Locally built (unsigned) binaries can make the very
 # first exec hang for seconds while Gatekeeper/syspolicyd assesses them — and a wedged syspolicyd leaves

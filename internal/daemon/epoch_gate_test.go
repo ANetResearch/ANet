@@ -34,6 +34,12 @@ func newGateClocks(t *testing.T, d *Daemon, wall uint64) *gateClocks {
 	c.mono.Store(1_000 * hourMS)
 	d.setClock(c.wall.Load)
 	d.setMonoClock(c.mono.Load)
+	// A period or a status read before the fake clocks were set may have noted the gate closed on the
+	// host's real boot clock; on a host that has been up longer than the fake one that value lies in
+	// the fake clock's future.
+	d.clk.mu.Lock()
+	d.clk.closedSince = 0
+	d.clk.mu.Unlock()
 	return c
 }
 

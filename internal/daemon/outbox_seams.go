@@ -480,13 +480,5 @@ func (d *Daemon) hurryAnswerQueue(ix, to string) bool {
 // sealed again outlives the row (ENG-S7).
 func HasOutboxRowsTx(tx *interactions.Tx, ix string) (bool, error) { return tx.HasOutboxRows(ix) }
 
-// noteDelivery is RC-5's: after a transaction that changes what a task's
-// delivery state may say (enqueue, A8, A12, a status answer, a
-// confirmation, an abandonment, a withdrawal), the engine calls it with the
-// task (engine ENG-P3, DLV-S-36). It writes nothing.
-//
-// v030-todo(RC-5): compare and publish the delivery event (DLV-P-3).
-func (d *Daemon) noteDelivery(ix string) {}
-
-// previewCoalescer, d.previews() and setPreviewer are in preview.go (UX-8):
+// previewCoalescer, d.previews() and setPreviewer are in previewseam.go and previewkernel.go (UX-8, MOD-6):
 // queueSendAs ends a round's previews through it (ENG-K20).

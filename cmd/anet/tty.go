@@ -22,12 +22,15 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"strings"
 	"unicode"
+
+	"golang.org/x/term"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
 )
@@ -113,4 +116,57 @@ func printable(s string, max int) string {
 		n++
 	}
 	return b.String()
+}
+
+// ttySession is the terminal a command with prompts talks to: one open /dev/tty, read through one
+// buffer, so that several questions in a row do not lose the typed-ahead input between them.
+type ttySession struct {
+	rw io.ReadWriteCloser
+	br *bufio.Reader
+}
+
+// openTTYSession opens the controlling terminal; err is non-nil when there is none.
+func openTTYSession() (*ttySession, error) {
+	t, err := openTTY()
+	if err != nil {
+		return nil, err
+	}
+	return &ttySession{rw: t, br: bufio.NewReader(t)}, nil
+}
+
+func (t *ttySession) Close() error { return t.rw.Close() }
+
+// say writes a line on the terminal.
+func (t *ttySession) say(s string) { fmt.Fprintln(t.rw, s) }
+
+// line asks a question and reads the answer, echoed.
+func (t *ttySession) line(prompt string) (string, error) {
+	if _, err := fmt.Fprint(t.rw, prompt+" "); err != nil {
+		return "", err
+	}
+	s, err := t.br.ReadString('\n')
+	if err != nil && s == "" {
+		return "", err
+	}
+	return strings.TrimRight(s, "\r\n"), nil
+}
+
+// readPassphrase asks for a passphrase on the terminal with echo off (KEL L-1). The bytes come back
+// without the line end; the caller clears them when done. A passphrase is read from the terminal and
+// from nowhere else: no argument, no environment variable (KEL L-1).
+func readPassphrase(t *ttySession, prompt string) ([]byte, error) {
+	if _, err := fmt.Fprint(t.rw, prompt+" "); err != nil {
+		return nil, err
+	}
+	if f, ok := t.rw.(*os.File); ok && term.IsTerminal(int(f.Fd())) {
+		p, err := term.ReadPassword(int(f.Fd()))
+		fmt.Fprintln(t.rw)
+		return p, err
+	}
+	// Not a terminal device (a test's pipe): read the line as it is.
+	b, err := t.br.ReadBytes('\n')
+	if err != nil && len(b) == 0 {
+		return nil, err
+	}
+	return bytes.TrimRight(b, "\r\n"), nil
 }

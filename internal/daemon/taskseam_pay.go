@@ -103,8 +103,8 @@ func (d *Daemon) taskPaymentMessage(ctx context.Context, ix *interactions.Intera
 	if err != nil {
 		return 0, nil, a2ashape.Errorf(a2ashape.ErrInvalidParams, "task %s: %s: %v", ix.ID, x402a2a.KeyPayload, err)
 	}
-	if decision == PayDecisionSubmit && d.payer() == nil && payload == nil {
-		return 0, nil, a2ashape.Errorf(a2ashape.ErrUnsupportedOperation, "task %s: %v", ix.ID, errNoPayments())
+	if d.payer() == nil {
+		return 0, nil, d.noPayments()
 	}
 	_, err = d.PayTask(ctx, PayRequest{TaskID: ix.ID, Decision: decision, Accept: accept,
 		Payload: payload, Purpose: module.PurposeTaskAgent, ClientMsgID: msg.ID, client: cm})
@@ -129,8 +129,8 @@ func (d *Daemon) taskPay(ctx context.Context, ix *interactions.Interaction, deci
 		return nil, a2ashape.Errorf(a2ashape.ErrInvalidParams, "task %s: decision must be %q or %q",
 			ix.ID, module.PaySubmit, module.PayReject)
 	}
-	if dec == PayDecisionSubmit && d.payer() == nil {
-		return nil, a2ashape.Errorf(a2ashape.ErrUnsupportedOperation, "task %s: %v", ix.ID, errNoPayments())
+	if d.payer() == nil {
+		return nil, d.noPayments()
 	}
 	_, err = d.PayTask(ctx, PayRequest{TaskID: ix.ID, Decision: dec, Accept: decision.Accept,
 		Purpose: module.PurposeTaskAgent})
@@ -168,7 +168,10 @@ func payTaskError(id string, err error) error {
 		return nil
 	}
 	var sr *SpendRefusal
+	var ref *a2ashape.Refusal
 	switch {
+	case errors.As(err, &ref):
+		return ref
 	case errors.As(err, &sr):
 		return a2ashape.Errorf(a2ashape.ErrUnsupportedOperation, "task %s: %v", id, sr)
 	case errors.Is(err, interactions.ErrNotFound):

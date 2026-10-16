@@ -178,6 +178,25 @@ func seenOf(row *interactions.PeerIdentity) *seal.Seen {
 	return &seal.Seen{Seq: row.KeySetSeq, Set: s.Set}
 }
 
+// seenAgainst is seenOf, except that a stored key set signed under a key state kel has since retired
+// binds nothing: a mark above the seq of the set now offered is dropped, as the hub drops such a set on
+// a rotation (KEL H-2). Kept as a floor, it would let whoever held the key before the rotation pin it
+// out of the owner's reach (T-1 RT-F1). An equal or lower mark still decides same-set and fork.
+func seenAgainst(row *interactions.PeerIdentity, kel []identity.SignedEvent, now, offeredSeq uint64) *seal.Seen {
+	seen := seenOf(row)
+	if seen == nil || len(kel) == 0 || seen.Seq <= offeredSeq {
+		return seen
+	}
+	st, err := seal.UnmarshalSignedEncKeySet(row.KeySet)
+	if err != nil {
+		return seen
+	}
+	if _, verr := seal.VerifyEncKeySet(st, row.AID, kel, now); verr != nil && seal.ReasonOf(verr) == seal.ReasonBadKeyState {
+		return nil
+	}
+	return seen
+}
+
 // storedKeySet decodes and re-verifies the key set stored for aid against
 // the stored KEL at now. A stored set is re-verified on every use because
 // both inputs of the check move: the keys expire, and a KEL rotation makes
@@ -256,10 +275,18 @@ func (d *Daemon) peerUpdate(aid string, kel []identity.SignedEvent, keys *peerKe
 				}
 				next.KEL, next.KELLen = b, len(u)
 				write = true
+				if next.CardSeq != 0 && signingStateMoved(stored, u) {
+					// The card mark was made under a key state the history has left behind. A
+					// card is verified under the current state only, so the old one can
+					// never be shown again and its seq is no floor; kept, the one who held
+					// the old key could pin it out of the owner's reach (T-1 RT-F1b).
+					next.CardSeq, next.CardHash = 0, nil
+					cardMarks.forget(d.AID(), aid)
+				}
 			}
 		}
 		if keys != nil {
-			switch seal.DecideHighWater(seenOf(cur), keys.set.Seq, mustSetBytes(keys.signed)) {
+			switch seal.DecideHighWater(seenAgainst(cur, mergedKEL(cur, kel, next), now, keys.set.Seq), keys.set.Seq, mustSetBytes(keys.signed)) {
 			case seal.Replace:
 				next.KeySet, next.KeySetSeq = keys.signed, keys.set.Seq
 				next.KeysCheckedAt = int64(now)
@@ -588,4 +615,47 @@ func (d *Daemon) hubKELSyncLoop(ctx context.Context) {
 			})
 		}
 	}
+}
+
+// offlineHubKEL is hubKELs for a data directory with no running daemon: the hub's KEL as the store
+// holds it, read without writing, replayed to the AID it is stored under.
+func offlineHubKEL(l Layout, aid string) ([]identity.SignedEvent, bool) {
+	raw, ok, err := interactions.HubKELIn(l.InteractionsDir(), aid)
+	if err != nil || !ok {
+		return nil, false
+	}
+	kel, err := identity.UnmarshalKEL(raw)
+	if err != nil {
+		return nil, false
+	}
+	if got, err := replayedAID(kel); err != nil || got != aid {
+		return nil, false
+	}
+	return kel, true
+}
+
+func mergedKEL(cur *interactions.PeerIdentity, cand []identity.SignedEvent, next *interactions.PeerIdentity) []identity.SignedEvent {
+	if len(next.KEL) > 0 {
+		if k, err := identity.UnmarshalKEL(next.KEL); err == nil {
+			return k
+		}
+	}
+	return cand
+}
+
+// signingStateMoved reports whether the history after has a later signing key state than before
+// (a rotation, not a longer history of the same state). A history that does not replay moves nothing.
+func signingStateMoved(before, after []identity.SignedEvent) bool {
+	if len(before) == 0 {
+		return false
+	}
+	b, err := identity.Replay(before)
+	if err != nil || len(b) == 0 {
+		return false
+	}
+	a, err := identity.Replay(after)
+	if err != nil || len(a) == 0 {
+		return false
+	}
+	return a[len(a)-1].KeyStateSeq > b[len(b)-1].KeyStateSeq
 }

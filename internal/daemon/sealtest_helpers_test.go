@@ -368,11 +368,19 @@ func withSessionAccess(t testing.TB, env []byte) []byte {
 // non-empty capID makes it a capability call.
 func delegateBody(t testing.TB, c *identity.Controller, ix, goal, capID string) []byte {
 	t.Helper()
+	return delegateBodyBound(t, c, ix, goal, capID, bindingContexts(t, c.AID()))
+}
+
+// delegateBodyBound is delegateBody with the task binding given: nil sends the TaskDoc without one,
+// and the same contexts make the same TaskDoc whoever signs it.
+func delegateBodyBound(t testing.TB, c *identity.Controller, ix, goal, capID string, bind []tsir.Context) []byte {
+	t.Helper()
 	task := tsir.Task{Intent: tsir.Intent{Summary: goal, Body: goal}}
 	if capID != "" {
 		task.Requires = []tsir.Require{{ID: capID, Type: RequireTypeCapability, Necessity: "must"}}
 		task.Contexts = []tsir.Context{{Key: "args", Value: `{"on":true}`, Format: "json"}}
 	}
+	task.Contexts = append(task.Contexts, bind...)
 	td := &tsir.TaskDoc{Version: tsir.VersionPair{Major: 1}, Tasks: []tsir.Task{task}}
 	if err := td.Sign(c); err != nil {
 		t.Fatal(err)

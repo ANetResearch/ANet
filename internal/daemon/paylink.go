@@ -3,14 +3,15 @@ package daemon
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log"
 	"net/http"
 	"strings"
 
 	"github.com/ANetResearch/ANetCore/identity"
 	"github.com/ANetResearch/ANetCore/payment"
+	"github.com/ANetResearch/ANetCore/relayauth"
 
+	"github.com/ANetResearch/ANet/internal/a2ashape"
 	"github.com/ANetResearch/ANet/module"
 	"github.com/ANetResearch/ANet/provider"
 )
@@ -39,12 +40,17 @@ func (d *Daemon) payer() module.Payer {
 	return d.pay
 }
 
-// errNoPayments is what every payment surface says in a build that has
-// none. Named so the surfaces cannot each invent their own wording for
-// the same fact.
-func errNoPayments() error {
-	return fmt.Errorf("anet: this build has no payment support " +
-		"(built with -tags no_x402, or the x402 module is not configured)")
+// noPayments is what every payment surface says on a node that cannot pay
+// or charge: module_absent for the payment module, in the words of the way
+// it is absent (not built in, or turned off by without). Named so the
+// surfaces cannot each invent their own wording for the same fact (MOD-2).
+// A node whose module is available but holds no payer (a start that did not
+// finish) is told as not built in.
+func (d *Daemon) noPayments() *a2ashape.Refusal {
+	if ref := d.avail.Absent("x402", ""); ref != nil {
+		return ref
+	}
+	return a2ashape.Refuse("module_absent", module.AbsentArgs("x402", module.AbsentNotCompiled))
 }
 
 // paymentSeam is the narrow grant module/x402 receives: sign as this
@@ -91,7 +97,15 @@ func (s paymentSeam) ReadEvidence(eventType string, limit int) []map[string]any 
 	_, recs := s.d.ledger.Evidence(EvidenceQuery{EventType: eventType, Limit: limit})
 	out := make([]map[string]any, 0, len(recs))
 	for _, r := range recs {
-		out = append(out, r.Payload)
+		// The record's own time rides along as module.EvidenceAt, on a copy:
+		// a check against the hub's ledger window needs to know which of
+		// this node's events fall inside it.
+		p := make(map[string]any, len(r.Payload)+1)
+		for k, v := range r.Payload {
+			p[k] = v
+		}
+		p[module.EvidenceAt] = r.Timestamp
+		out = append(out, p)
 	}
 	return out
 }
@@ -121,7 +135,7 @@ func (s paymentSeam) ReadEvidence(eventType string, limit int) []map[string]any 
 // for empty before doing anything. The grant says what a module may do;
 // it does not snapshot where.
 func (h moduleHost) PaymentSeam() (module.PaymentSeam, bool) {
-	if h.d == nil {
+	if h.d == nil || !h.grants(module.GrantPaymentSeam) {
 		return nil, false
 	}
 	return paymentSeam{Signer: h.d.self, d: h.d}, true
@@ -137,7 +151,7 @@ func (h moduleHost) PaymentSeam() (module.PaymentSeam, bool) {
 // a module holds the seam for its lifetime, and a node that joins a hub
 // after start must not need a restart to notice.
 func (h moduleHost) HubSeam() (module.HubSeam, bool) {
-	if h.d == nil {
+	if h.d == nil || !h.grants(module.GrantHubSeam) {
 		return nil, false
 	}
 	return hubSeam{Signer: h.d.self, d: h.d}, true
@@ -155,14 +169,58 @@ func (s hubSeam) HubURL() string { return s.d.config().HubURL }
 // HubDo is paymentSeam.HubDo.
 func (s hubSeam) HubDo(req *http.Request) (*http.Response, error) { return s.d.moduleHubDo(req) }
 
-// Balance and RedeemCredit forward to the payment module, or say plainly
-// that this build has none.
-func (d *Daemon) Balance(ctx context.Context) (map[string]any, error) {
-	p := d.payer()
-	if p == nil {
-		return nil, errNoPayments()
+// hubAccount is this node's account state at its hub, read with a signed
+// balance request by the kernel's own hub client (HPP §4.3.8): the part of
+// /balance that belongs to admission rather than to payment. Probation and
+// the trial credit show whether or not a payment module is built in.
+type hubAccount struct {
+	Credits        int64   `json:"credits"`
+	ProbationUntil *uint64 `json:"probation_until,omitempty"`
+	Trial          string  `json:"trial,omitempty"`
+}
+
+// HubAccount reads the account state off the hub.
+func (d *Daemon) HubAccount(ctx context.Context) (hubAccount, error) {
+	var acct hubAccount
+	hub := d.config().HubURL
+	if hub == "" {
+		return acct, errors.New("anet: no hub configured, so there is no account to read")
 	}
-	return p.Balance(ctx)
+	err := d.hubSigned(ctx, hub, http.MethodGet, "/agents/"+d.AID()+"/balance", relayauth.ActionBalance, nil, &acct)
+	return acct, err
+}
+
+// moduleAbsent is the value of a field only a missing module could fill.
+const moduleAbsent = "module_absent"
+
+// Balance is /balance: the account state from the kernel's hub client, and
+// the balance with its entries from the payment module. Without a payment
+// module the account state is still answered and the balance is
+// module_absent.
+func (d *Daemon) Balance(ctx context.Context) (map[string]any, error) {
+	acct, aerr := d.HubAccount(ctx)
+	var out map[string]any
+	if p := d.payer(); p != nil {
+		var err error
+		if out, err = p.Balance(ctx); err != nil {
+			return nil, err
+		}
+	} else {
+		if aerr != nil {
+			// Neither half to give: the older answer, which names the cause.
+			return nil, d.noPayments()
+		}
+		out = map[string]any{"aid": d.AID(), "hub": d.config().HubURL, "balance": moduleAbsent}
+	}
+	if aerr == nil {
+		if acct.ProbationUntil != nil {
+			out["probation_until"] = *acct.ProbationUntil
+		}
+		if acct.Trial != "" {
+			out["trial"] = acct.Trial
+		}
+	}
+	return out, nil
 }
 
 // RedeemCredit gives amount back to the hub. payTo is the payee the
@@ -173,7 +231,7 @@ func (d *Daemon) Balance(ctx context.Context) (map[string]any, error) {
 func (d *Daemon) RedeemCredit(ctx context.Context, amount uint64, reference, payTo string) (map[string]any, error) {
 	p := d.payer()
 	if p == nil {
-		return nil, errNoPayments()
+		return nil, d.noPayments()
 	}
 	if strings.TrimSpace(payTo) == "" {
 		return nil, errRedeemNoPayee

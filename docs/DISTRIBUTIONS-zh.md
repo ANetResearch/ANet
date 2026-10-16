@@ -27,6 +27,7 @@
 | `no_anetlink` | 20 K | <1% |
 | `no_service` | 16 K | <1% |
 | `no_a2a` | 待测(`module/a2a` 合入后) | — |
+| `no_autoreply` | 待测(下次重测) | — |
 
 加法 tag 反过来算 —— 加进去多少:
 

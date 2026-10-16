@@ -97,18 +97,19 @@ func TestReachableNeedsContactGrantWithAddr(t *testing.T) {
 			// without one, as caps_held would hold it.
 			h.P2P = ""
 		}
+		allowPeers(t, d, aid)
 		putHeld(t, d, h)
-		got, ok := moduleHost{d}.P2PAddr(aid)
+		got, ok := p2pHost(d).P2PAddr(aid)
 		if ok != c.want || (ok && got != addr) {
 			t.Errorf("%s: P2PAddr = %q, %v; want %v", c.name, got, ok, c.want)
 		}
 	}
 	// Nobody else's capability answers for an AID, and this node is not
 	// reachable over p2p by itself.
-	if _, ok := (moduleHost{d}).P2PAddr("bafyreinobody"); ok {
+	if _, ok := p2pHost(d).P2PAddr("bafyreinobody"); ok {
 		t.Error("an AID that gave this node nothing has an address")
 	}
-	if _, ok := (moduleHost{d}).P2PAddr(d.AID()); ok {
+	if _, ok := p2pHost(d).P2PAddr(d.AID()); ok {
 		t.Error("this node has a direct address for itself")
 	}
 }
@@ -153,6 +154,7 @@ func TestP2PAddrLiteralPrecheck(t *testing.T) {
 		}
 		for i, c := range cases {
 			aid := "bafyreipeer" + strings.Repeat("q", i+1)
+			allowPeers(t, d, aid)
 			putHeld(t, d, interactions.HeldCap{Issuer: aid, Scope: "peer", CapID: bytes.Repeat([]byte{byte(i + 1)}, seal.CapIDLen),
 				Class: seal.CapClassContact, P2P: c.addr})
 			want := c.off
@@ -160,7 +162,7 @@ func TestP2PAddrLiteralPrecheck(t *testing.T) {
 				want = c.lan
 			}
 			before := d.ReceiveStats()[cntP2PAddrRefused]
-			got, ok := moduleHost{d}.P2PAddr(aid)
+			got, ok := p2pHost(d).P2PAddr(aid)
 			if ok != want || (ok && got != c.addr) {
 				t.Errorf("lan=%v %s: P2PAddr = %q, %v; want %v", lan, c.addr, got, ok, want)
 			}
@@ -176,6 +178,9 @@ func TestP2PAddrLiteralPrecheck(t *testing.T) {
 // retry), a lan that is not a bool and an advertise no contact could dial
 // are config_invalid naming the key.
 func TestP2PConfigIsCheckedAtStart(t *testing.T) {
+	if !haveP2P {
+		t.Skip("the module is not in this build (-tags)")
+	}
 	for _, tc := range []struct {
 		block map[string]any
 		key   string // "" for a block that passes

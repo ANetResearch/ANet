@@ -16,7 +16,7 @@ import (
 // that is not a plain directory name.
 func TestModuleStateDir(t *testing.T) {
 	root := t.TempDir()
-	h := moduleHost{&Daemon{layout: Layout{Root: root}}}
+	h := moduleHost{d: &Daemon{layout: Layout{Root: root}}, name: "a2a"}
 	want := filepath.Join(root, "modules", "a2a")
 	if err := os.MkdirAll(want, 0o755); err != nil {
 		t.Fatal(err)
@@ -24,7 +24,7 @@ func TestModuleStateDir(t *testing.T) {
 	if err := os.Chmod(filepath.Dir(want), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	got := h.StateDir("a2a")
+	got := h.StateDir()
 	if got != want {
 		t.Fatalf("StateDir = %q, want %q", got, want)
 	}
@@ -39,9 +39,12 @@ func TestModuleStateDir(t *testing.T) {
 			t.Fatalf("state dir %s: %v, %v", d, fi, err)
 		}
 	}
-	for _, bad := range []string{"", ".", "..", "a/b", "../x", "/abs"} {
-		if d := h.StateDir(bad); d != "" {
-			t.Errorf("StateDir(%q) = %q", bad, d)
+	// The directory is the bound name's: a name that is not a plain
+	// directory name, and a module the name table does not grant StateDir
+	// to (blackboard), get nothing.
+	for _, bad := range []string{"", ".", "..", "a/b", "../x", "/abs", "blackboard", "unknown"} {
+		if d := (moduleHost{d: h.d, name: bad}).StateDir(); d != "" {
+			t.Errorf("StateDir of the module %q = %q", bad, d)
 		}
 	}
 	// The seam is offered, and it is the scoped one: without an agent
@@ -65,23 +68,23 @@ func TestModuleStateDirRefusesSymlink(t *testing.T) {
 	}
 
 	root := t.TempDir()
-	h := moduleHost{&Daemon{layout: Layout{Root: root}}}
+	h := moduleHost{d: &Daemon{layout: Layout{Root: root}}, name: "a2a"}
 	if err := os.MkdirAll(filepath.Join(root, "modules"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Symlink(elsewhere, filepath.Join(root, "modules", "a2a")); err != nil {
 		t.Fatal(err)
 	}
-	if d := h.StateDir("a2a"); d != "" {
+	if d := h.StateDir(); d != "" {
 		t.Fatalf("StateDir through a symlinked module directory = %q", d)
 	}
 
 	root = t.TempDir()
-	h = moduleHost{&Daemon{layout: Layout{Root: root}}}
+	h = moduleHost{d: &Daemon{layout: Layout{Root: root}}, name: "a2a"}
 	if err := os.Symlink(elsewhere, filepath.Join(root, "modules")); err != nil {
 		t.Fatal(err)
 	}
-	if d := h.StateDir("a2a"); d != "" {
+	if d := h.StateDir(); d != "" {
 		t.Fatalf("StateDir through a symlinked modules directory = %q", d)
 	}
 

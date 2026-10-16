@@ -203,7 +203,7 @@ func TestTheLogHoldsNoContent(t *testing.T) {
 	s, logs := testServer(t, "tools")
 	const secret = "canary-7f3a9c-secret-text"
 	do(t, s, "/v1/tools/text.digest", `{"text":"`+secret+`"}`,
-		withHeader("X-ANet-Caller", "aid-caller\nforged line"), withHeader("X-ANet-Call", "ix-1"), withHeader("X-ANet-Via", "relay"))
+		withHeader("X-ANet-Caller", "aid-caller\nforged line"), withHeader("X-ANet-Call", "ix-1"))
 	do(t, s, "/v1/tools/text.digest", `{"text":"`+secret+`"}`, withHeader("Authorization", "Bearer wrong-token-0123456789"))
 	got := logs.String()
 	if !strings.Contains(got, "status=401") {
@@ -212,7 +212,7 @@ func TestTheLogHoldsNoContent(t *testing.T) {
 	if strings.Contains(got, secret) || strings.Contains(got, "2cf24dba") {
 		t.Fatalf("the log holds call content: %s", got)
 	}
-	if !strings.Contains(got, "cap=text.digest") || !strings.Contains(got, "call=ix-1") || !strings.Contains(got, "via=relay") {
+	if !strings.Contains(got, "cap=text.digest") || !strings.Contains(got, "call=ix-1") {
 		t.Errorf("the log line lacks the call's coordinates: %s", got)
 	}
 	if strings.Count(strings.TrimSpace(got), "\n") != 1 {

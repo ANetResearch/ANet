@@ -984,3 +984,11 @@ func (t *Tx) OpenInteractions() ([]OpenInteraction, error) {
 	}
 	return out, closeRows(rows)
 }
+
+// SetReasonVariant stores the variant of the reason a delivery abandonment
+// failed task ix with, and the arguments of its sentence (a JSON object),
+// in the abandonment's transaction (DLV-S-35).
+func (t *Tx) SetReasonVariant(ix, variant, arg string) error {
+	_, err := t.tx.Exec(`UPDATE interaction SET reason_variant=?, reason_arg=? WHERE id=?`, variant, arg, ix)
+	return err
+}

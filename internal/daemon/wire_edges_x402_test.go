@@ -221,7 +221,10 @@ func TestACancelPendingOnAPaymentThatFailsIsCarriedOut(t *testing.T) {
 	waitUntil(t, "the retried settlement to fail", func() bool {
 		return getIX(t, prov, id).PayState == interactions.PayFailed
 	})
-	if st := getIX(t, prov, id).State; st.IsTerminal() {
+	// The settlement retry (50 ms) can fail inside the same poll that still has the cancel
+	// queued; the provider then cancels at once. Both orders are legal and end the same way,
+	// so only a provider that ended the task some other way is a setup failure.
+	if st := getIX(t, prov, id).State; st.IsTerminal() && st != interactions.StateCanceled {
 		t.Fatalf("setup: the provider ended the task (%s) before the requester heard of the failure", st)
 	}
 	// payment-failed: the pending cancel is carried out. The provider's

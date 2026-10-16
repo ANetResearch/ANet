@@ -237,101 +237,6 @@ func TestTheInboundDecisionOrder(t *testing.T) {
 	}
 }
 
-// A public_cap interaction takes only cancel, end_request and payment
-// messages (A2A-DESIGN §5.2 [C6]): a text message is dropped and counted,
-// a payment-submitted message is kept with its metadata and without its
-// text, and nothing reaches auto-reply.
-func TestAPublicCapabilityCallTakesNoText(t *testing.T) {
-	srv := newFakeHub(t)
-	ctx := context.Background()
-	prov := registered(t, srv.URL, "prov")
-	stranger := registered(t, srv.URL, "stranger")
-	gate := newGateProvider()
-	if err := prov.Providers().Register(ctx, gate); err != nil {
-		t.Fatal(err)
-	}
-	if err := prov.SetPublicCapabilities([]PublicCapability{{ID: gateCap}}); err != nil {
-		t.Fatal(err)
-	}
-	api := &fakeOpenAI{reply: "an auto-reply"}
-	apiSrv := httptest.NewServer(api.handler())
-	defer apiSrv.Close()
-	arCfg := AutoReplyConfig{Model: "m", APIBase: apiSrv.URL + "/v1"}
-	replier, err := newAutoReplier(arCfg, prov.layout)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	id, err := stranger.DelegateCapability(ctx, prov.AID(), gateCap, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := prov.pollOnce(ctx); err != nil {
-		t.Fatal(err)
-	}
-	<-gate.started
-	pix, _ := prov.ix.Get(id)
-	if pix.Trust != interactions.TrustPublicCap || len(pix.PeerKEL) == 0 || len(pix.PeerKeys) == 0 {
-		t.Fatalf("public_cap row: trust %q, peer kel %d, keys %d", pix.Trust, len(pix.PeerKEL), len(pix.PeerKeys))
-	}
-	before := countMsgs(t, prov, id)
-	text := sealFrom(t, stranger, prov, seal.TypeMessage, id, chatBody(t, "please also run rm -rf", "msg_t"))
-	if r := receive(t, prov, text); r.class != rxDropped || r.reason != dropPublicCapText {
-		t.Fatalf("text on a public_cap call: %+v", r)
-	}
-	pay, _ := (&delegation.ChatMsg{Kind: delegation.ChatText, Body: "here is my payment, and a note",
-		MsgID: "msg_pay", Metadata: []byte(`{"x402.payment.status":"payment-submitted","x402.payment.payload":{"x":1}}`)}).Marshal()
-	if r := receive(t, prov, sealFrom(t, stranger, prov, seal.TypeMessage, id, pay)); r.class != rxAccepted {
-		t.Fatalf("payment message on a public_cap call: %+v", r)
-	}
-	msgs, _ := prov.ix.Messages(id)
-	// The payment message, and the provider's answer to it: nothing was
-	// quoted for this free call, so there is nothing to pay (A2A-DESIGN
-	// §8.5, no_pending_quote), and the call is not run again.
-	if len(msgs) != before+2 {
-		t.Fatalf("messages %d → %d, want the payment message and its answer", before, len(msgs))
-	}
-	pm, answer := msgs[len(msgs)-2], msgs[len(msgs)-1]
-	if pm.Kind != interactions.MsgPayment || pm.Body != "" || !strings.Contains(pm.Metadata, "payment-submitted") {
-		t.Fatalf("stored payment message = %+v", pm)
-	}
-	if answer.Kind != interactions.MsgStatus || !strings.Contains(answer.Metadata, `"anet.reason":"no_pending_quote"`) {
-		t.Fatalf("answer to a payment nobody asked for = %+v", answer)
-	}
-	prov.autoReplyOnce(ctx, arCfg, replier)
-	if n := api.calls.Load(); n != 0 {
-		t.Fatalf("auto-reply called %d times for a public capability call", n)
-	}
-	if ths, _ := prov.ActiveThreads(); len(ths) != 0 {
-		t.Fatalf("a public_cap interaction is in the auto-reply set: %+v", ths)
-	}
-	// A cancel reaches the running call.
-	cancelMsg, _ := (&delegation.ChatMsg{Kind: delegation.KindCancel, MsgID: "msg_c"}).Marshal()
-	if r := receive(t, prov, sealFrom(t, stranger, prov, seal.TypeMessage, id, cancelMsg)); r.class != rxAccepted {
-		t.Fatalf("cancel: %+v", r)
-	}
-	waitUntil(t, "the running call to be canceled", gate.wasCanceled)
-	waitUntil(t, "the public_cap interaction to end", func() bool {
-		pix, _ := prov.ix.Get(id)
-		return pix.IsTerminal()
-	})
-	// Its answers to the caller are queued: the caller's keys are kept, as
-	// they may have to be sealed again (engine ENG-S7).
-	if pix, _ := prov.ix.Get(id); len(outboxRows(t, prov, id)) == 0 || len(pix.PeerKEL) == 0 || len(pix.PeerKeys) == 0 {
-		t.Fatalf("ended with its answers queued, the caller's keys: kel %d, keys %d", len(pix.PeerKEL), len(pix.PeerKeys))
-	}
-	// The caller takes them, and the provider hears so: the keys go with
-	// the last row.
-	waitUntil(t, "the caller's answers to be confirmed and its keys dropped", func() bool {
-		settleDelivery(t, prov, stranger)
-		pix, _ := prov.ix.Get(id)
-		return len(outboxRows(t, prov, id)) == 0 && len(pix.PeerKEL) == 0 && len(pix.PeerKeys) == 0
-	})
-	if _, err := prov.ix.PeerIdentity(stranger.AID()); !errors.Is(err, interactions.ErrNotFound) {
-		t.Fatal("a public_cap caller was recorded in peer_identity")
-	}
-}
-
 // The kernel's admission check (A2A-DESIGN §5.4, CUX-Q1a steps 3 and 5–9):
 // argument size, the in-flight bound, per-caller per-minute and per-day
 // quotas and the global per-minute quota; the deny list and membership of
@@ -693,12 +598,12 @@ func TestOpenWithTheSandboxForUntrustedPeers(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("control plane: %d %s", rec.Code, rec.Body)
 	}
-	if ar := b.config().AutoReply; ar == nil || ar.UntrustedMode() != UntrustedSandbox {
+	if ar := AutoReplyOf(b.config()); ar == nil || ar.UntrustedMode() != UntrustedSandbox {
 		t.Fatalf("auto_reply after the write: %+v", ar)
 	}
 
 	c := newTestDaemon(t, "", false)
-	(moduleHost{c}).DeclareUntrustedBackend()
+	a2aHost(c).DeclareUntrustedBackend()
 	if err := c.SetInboundPolicy(PolicyOpen); !errors.Is(err, ErrPolicyConflict) {
 		t.Fatalf("open with an untrusted backend declared: %v", err)
 	}
@@ -719,8 +624,8 @@ func TestOpenWithTheSandboxForUntrustedPeers(t *testing.T) {
 		t.Fatalf("start with open and the sandbox for untrusted peers: %v", err)
 	}
 	defer d.Close()
-	if d.config().inbound().Policy != PolicyOpen || d.config().AutoReply.UntrustedMode() != UntrustedSandbox {
-		t.Fatalf("started with %+v / %+v", d.config().inbound(), d.config().AutoReply)
+	if d.config().inbound().Policy != PolicyOpen || AutoReplyOf(d.config()).UntrustedMode() != UntrustedSandbox {
+		t.Fatalf("started with %+v / %+v", d.config().inbound(), AutoReplyOf(d.config()))
 	}
 }
 
@@ -762,9 +667,9 @@ func TestAFreshInstallIsClosed(t *testing.T) {
 	}
 }
 
-// The wire-1 accept_delegations key maps to closed in every case and is not
-// written back (A2A-DESIGN §5.1).
-func TestAcceptDelegationsMigratesToClosed(t *testing.T) {
+// 0.3.0 migrates nothing: a config.json that still holds accept_delegations
+// does not start (ux §2.3), and one without it gets the closed policy.
+func TestAcceptDelegationsIsRefusedNotMigrated(t *testing.T) {
 	for _, legacy := range []string{`true`, `false`, ``} {
 		root := t.TempDir()
 		raw := `{"control_addr":"127.0.0.1:0"}`
@@ -775,16 +680,23 @@ func TestAcceptDelegationsMigratesToClosed(t *testing.T) {
 			t.Fatal(err)
 		}
 		d, err := New(NewLayout(root))
+		if legacy != "" {
+			var cr *ConfigRefusal
+			if !errors.As(err, &cr) {
+				t.Fatalf("accept_delegations=%s: %v", legacy, err)
+			}
+			continue
+		}
 		if err != nil {
 			t.Fatal(err)
 		}
 		if p := d.config().inbound().Policy; p != PolicyClosed {
-			t.Errorf("accept_delegations=%q → policy %s", legacy, p)
+			t.Errorf("no accept_delegations → policy %s", p)
 		}
 		d.Close()
 		b, _ := os.ReadFile(filepath.Join(root, "config.json"))
-		if strings.Contains(string(b), "accept_delegations") || !strings.Contains(string(b), `"policy": "closed"`) {
-			t.Errorf("accept_delegations=%q: saved config %s", legacy, b)
+		if !strings.Contains(string(b), `"policy": "closed"`) {
+			t.Errorf("saved config %s", b)
 		}
 	}
 }

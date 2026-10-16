@@ -12,16 +12,19 @@ package mcpserv_test
 // (SI-8), and test imports are not in that closure.
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/ANetResearch/ANet/internal/a2ashape/stored"
 	"testing"
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	evidence "github.com/ANetResearch/ANet/internal/evidencev1" // v030-todo(PAY-14): evidence v2
 	"github.com/ANetResearch/ANetCore/coredet"
+	"github.com/ANetResearch/ANetCore/evidence"
+	"github.com/ANetResearch/ANetCore/identity/identitytest"
 	"github.com/ANetResearch/ANetCore/tsir"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
@@ -135,8 +138,17 @@ func capDoc(t *testing.T, capID string) []byte {
 
 func receipt(t *testing.T) []byte {
 	t.Helper()
-	b, err := (&evidence.Receipt{InteractionID: "ix", RequesterAID: self, ProviderAID: peer,
-		RequestCID: "bafyrequest", ResultCID: "bafyresult", CompletedAt: uint64(now)}).Marshal()
+	c, err := identitytest.Agent()
+	if err != nil {
+		t.Fatal(err)
+	}
+	fill := func(v byte) []byte { return bytes.Repeat([]byte{v}, 32) }
+	w, err := (&evidence.ReceiptBody{IXCommit: fill(1), RequesterCommit: fill(2), ReviewKey: fill(3),
+		RequestCID: "bafyrequest", ResultCID: "bafyresult", CompletedDay: uint64(now) / evidence.DayMS}).Sign(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := w.Marshal()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,7 +187,7 @@ func TestTasksThroughMCPAreA2ATasksThatKeepSI6(t *testing.T) {
 				if ans != "" {
 					ix.Result, ix.Receipt = []byte(ans), receipt(t)
 				}
-				task := a2ashape.Project(a2ashape.Source{Interaction: ix}, a2ashape.Options{Artifacts: true})
+				task := stored.Project(stored.Source{Interaction: ix}, stored.Options{Artifacts: true})
 				raw, err := json.Marshal(task)
 				if err != nil {
 					t.Fatal(err)

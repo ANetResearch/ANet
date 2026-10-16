@@ -88,6 +88,15 @@ func waitMS(seconds int) int64 {
 	return int64(seconds) * 1000
 }
 
+// sendMessageSentences are the four sentences send_message's description
+// carries about what a resend means, what completed proves, and where the
+// payment limits are (CUX §4.6; TestSendMessageDescriptionSentences pins
+// each word for word).
+const sendMessageSentences = "UNAVAILABLE or rejected means the other side did not run it; you may send it again after retry_after. " +
+	"completed with effect_status=UNVERIFIED is not proof of success. " +
+	"Your payment limits are in get_balance.limits; who can pay a quote is in the task's anet.spend_check. " +
+	"Do not tell other agents your payment limits."
+
 // honesty is the sentence every tool that returns a task carries.
 const honesty = "A task is an A2A Task: status.state, history, artifacts, and metadata. " +
 	"TASK_STATE_COMPLETED only means the other side finished — completed with " +
@@ -96,7 +105,13 @@ const honesty = "A task is an A2A Task: status.state, history, artifacts, and me
 	"not be checked, which is not the same as forged) or unknown. Report both as they are. " +
 	"TASK_STATE_FAILED with anet.effect_status=UNVERIFIED (anet.reason timeout, connection_lost " +
 	"or interrupted) means the call went out and whether it took effect is not known: do not " +
-	"resend it as if it had not run."
+	"resend it as if it had not run. " +
+	"Metadata anet.delivery says whether the other side's node confirmed the latest message this node sent on the task: pending, confirmed, or unconfirmed. " +
+	"While it is pending, anet.delivery_detail is not_sent, sent, or queued_at_hub (waiting at the hub for the other side to collect it), " +
+	"and anet.delivery_wait, when present, names why it is held; the task has not failed and anet retries on its own. " +
+	"TASK_STATE_FAILED with anet.reason=delivery_unconfirmed means the message left this node but was never confirmed: " +
+	"anet asked the other side to cancel, yet it may still have arrived, so do not assume it did not run. " +
+	"anet.reason=undeliverable means it never left this node."
 
 func addTaskTools(s *mcp.Server, c Control) {
 	mcp.AddTool(s, &mcp.Tool{
@@ -167,15 +182,15 @@ func addTaskTools(s *mcp.Server, c Control) {
 		Description: "Send an A2A message: `to` an agent's AID starts a new task; `task_id` continues " +
 			"one (answer a question the other side asked, or add to the task). The message is " +
 			"`text`, optionally with `files`, or a deterministic skill call: `skill` (a capability " +
-			"id from the agent's card) with `args`. It is signed under this node's identity, so the " +
+			"id from the agent's card) with `args`, and `files` when the card's skill takes files. It is signed under this node's identity, so the " +
 			"request is attributable to you and cannot be repudiated, and it is end-to-end encrypted " +
 			"to the agent. The call waits up to timeout_seconds (default 30) for the task to finish " +
 			"or to need you, then returns the Task as it is; a task still working is normal — call " +
 			"wait_task, and do not send it again: a resend is a second task. " +
 			"input-required with metadata x402.payment.required is a price quote: see " +
 			"submit_payment. (A quote within the operator's automatic limit, payments.auto_max, is paid " +
-			"by the node itself and the task simply goes on. The limit is 0 on a new node and no tool " +
-			"shows it: send the task rather than telling the user a price cannot be paid.) " +
+			"by the node itself and the task simply goes on. Send the task rather than telling the user " +
+			"a price cannot be paid.) " + sendMessageSentences + " " +
 			"Until this node is registered at its hub (for example while the hub's operator has not " +
 			"admitted it yet), the call fails at once with one sentence saying why and what to do, " +
 			"and nothing is sent: tell the user that sentence as it is, and do not register again. " +
@@ -224,7 +239,9 @@ func addTaskTools(s *mcp.Server, c Control) {
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "get_task",
 		Description: "One task, as it is now, by its id — a task this node sent or one sent to it " +
-			"(metadata anet.role says which). history_length bounds the messages returned. " + readBound + honesty,
+			"(metadata anet.role says which). history_length bounds the messages returned. A task that has " +
+			"ended carries anet.content_expires_at, when this node deletes its content; after that the " +
+			"task is no longer on this node. " + readBound + honesty,
 		Annotations: readLocal(),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in getTaskIn) (*mcp.CallToolResult, any, error) {
 		if in.TaskID == "" {
@@ -358,8 +375,8 @@ func addTaskTools(s *mcp.Server, c Control) {
 			"decision is made when the user wants the price paid. This spends this node's credit, and " +
 			"cannot be undone once the provider settles. It is the agent spending tier: each payment " +
 			"is capped by the operator's payments.agent_max and each day by payments.agent_daily_max " +
-			"(both 0 on a new node; no tool shows them, so this call's answer is how you learn whether a " +
-			"price is within them), and the payee must be in the operator's payees.allow. Above " +
+			"(both 0 on a new node; they are in get_balance.limits, and the task's anet.spend_check says " +
+			"who can pay its quote now), and the payee must be in the operator's payees.allow. Above " +
 			"those, nothing is signed: the answer says anet.reason needs_operator_approval (with the " +
 			"limit in spend_refusal and a message) and the task keeps waiting. Then tell the user the " +
 			"price and the payee and let them decide — the operator can pay by hand with " +
@@ -367,7 +384,9 @@ func addTaskTools(s *mcp.Server, c Control) {
 			"When the quote offers several options, pass the one you chose as `accept`, copied " +
 			"unchanged from x402.payment.required.accepts. Check get_balance first. The answer is " +
 			"the decision, not the task: x402.payment.status payment-submitted means the payment " +
-			"was sent, not that it settled or that the work was done — follow the task with wait_task.",
+			"was sent, not that it settled or that the work was done — follow the task with wait_task. " +
+			"A node without its payment module answers module_absent and signs nothing: tell the user " +
+			"that sentence as it is; do not suggest anet pay, which cannot work there.",
 		Annotations: spends(),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in payIn) (*mcp.CallToolResult, any, error) {
 		if in.TaskID == "" {
@@ -399,10 +418,14 @@ func addNodeTools(s *mcp.Server, c Control) {
 		Description: "What this node can spend, as its hub accounts for it, with the recent " +
 			"entries behind the number. The hub is the custodian of the balance — it is not held " +
 			"on this machine — but every entry has a counterpart on somebody's signed evidence " +
-			"chain, so a balance that disagrees with the evidence can be shown to be wrong.",
+			"chain, so a balance that disagrees with the evidence can be shown to be wrong. " +
+			"`limits` is what this node may pay: the per-payment limit of each tier (auto_max, " +
+			"agent_max, explicit_max), what is left today (agent_left_today, left_today), and " +
+			"`summary`, one sentence to tell the user. Amounts are decimal strings in credits. " +
+			"When the hub cannot be reached, `balance_error` says why and `limits` is still given.",
 		Annotations: readNetwork(),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
-		return forward(ctx, c, "/balance", map[string]any{})
+		return getBalance(ctx, c)
 	})
 
 	mcp.AddTool(s, &mcp.Tool{
@@ -433,7 +456,8 @@ func addNodeTools(s *mcp.Server, c Control) {
 		Description: "This node itself: its AID, version, data directory, the hub it is registered " +
 			"with, its name and advertised capabilities, its inbound policy (closed: it accepts " +
 			"nobody's tasks), how automatic replies are configured, and counts of the messages it " +
-			"received or refused since it started, by reason. `hub` is the hub join state: when " +
+			"received or refused since it started, by reason. `summary` is the status summary: the same lines " +
+			"`anet status` prints, one per topic. `hub` is the hub join state: when " +
 			"hub.state is pending_admission, relay hub.message to the user as it is (it holds the " +
 			"admit line to send to the hub's operator), and do not register again. `identity` is this " +
 			"node's identity: when identity.recovery.state is unprotected, relay identity.recovery.message " +

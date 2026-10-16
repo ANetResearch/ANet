@@ -482,3 +482,10 @@ func decodeObject(b []byte) map[string]any {
 	m, _ := v.(map[string]any)
 	return m
 }
+
+// DecodeJSON is decodeJSON for the projection of stored rows (package
+// stored): the same strict reading of a stored value.
+func DecodeJSON(b []byte) (any, error) { return decodeJSON(b) }
+
+// DecodeObject is decodeObject for the projection of stored rows.
+func DecodeObject(b []byte) map[string]any { return decodeObject(b) }

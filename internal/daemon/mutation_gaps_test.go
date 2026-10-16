@@ -232,13 +232,14 @@ func TestAReflectedRequestIsAnIXCollisionNotARedelivery(t *testing.T) {
 	}
 	const ixo, ixi = "ix_ours_reflected", "ix_theirs_copied"
 	// A task this node started, whose request its provider (peer) holds and sends back signed as its own.
-	reflected := delegateBody(t, peer.ctrl, ixo, "", lampCap)
+	bind := bindingContexts(t, peer.aid)
+	reflected := delegateBodyBound(t, peer.ctrl, ixo, "", lampCap, bind)
 	cid, doc := requestOf(reflected)
 	if err := prov.ix.Put(ixo, interactions.RoleOutbound, peer.aid, "ours", cid, doc); err != nil {
 		t.Fatal(err)
 	}
 	// A task peer asked this node for, whose request a third party sends signed as its own.
-	copied := delegateBody(t, third.ctrl, ixi, "", lampCap)
+	copied := delegateBodyBound(t, third.ctrl, ixi, "", lampCap, bind)
 	if c, _ := requestOf(copied); c != cid {
 		t.Fatalf("the same TaskDoc signed by another AID has request CID %s, not %s: the premise is gone", c, cid)
 	}

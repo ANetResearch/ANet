@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ANetResearch/ANet/internal/localday"
 	"github.com/ANetResearch/ANet/module"
 )
 
@@ -64,7 +65,7 @@ func TestPPay5(t *testing.T) {
 				}
 			}
 		}
-		start, _ := localDayBounds(now)
+		start, _ := localday.Bounds(now)
 		all, agent := spentSince(records, start.UnixMilli())
 		if all != want || agent != wantAgent {
 			t.Fatalf("%s at %s: today %d (agent %d), want %d (%d)", loc, now, all, agent, want, wantAgent)
@@ -94,7 +95,7 @@ func TestTheSpendingDayEndsAtLocalMidnight(t *testing.T) {
 	d.mu.Lock()
 	d.cfg.Payments = &PaymentsConfig{ExplicitMax: u64val(40), DailyMax: u64val(50)}
 	d.mu.Unlock()
-	_, end := localDayBounds(time.Now())
+	_, end := localday.Bounds(time.Now())
 	clock := func(at time.Time) {
 		ms := uint64(at.UnixMilli())
 		d.setClock(func() uint64 { return ms })

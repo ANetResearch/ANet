@@ -148,8 +148,10 @@ func TestTheServiceModuleMountsThisBackend(t *testing.T) {
 		_ = m.Start(context.Background(), &contractHost{reg: reg2})
 	}
 	p2, _ := reg2.Resolve("text.digest")
-	eff2, _ := p2.Invoke(context.Background(), provider.Call{Capability: "text.digest", Args: map[string]any{"text": "x"}})
-	if eff2.Status != effect.Failed || !strings.Contains(eff2.Message, "401") {
-		t.Errorf("wrong token: %s %s", eff2.Status, eff2.Message)
+	// A refusal is told to the requester as a code (CUX-F22), not as the
+	// backend's own words: the status is UNAVAILABLE and the call errs.
+	eff2, err2 := p2.Invoke(context.Background(), provider.Call{Capability: "text.digest", Args: map[string]any{"text": "x"}})
+	if eff2.Status != effect.Unavailable || err2 == nil {
+		t.Errorf("wrong token: %s %q err=%v", eff2.Status, eff2.Message, err2)
 	}
 }

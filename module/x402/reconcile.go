@@ -5,9 +5,13 @@ package x402
 import (
 	"context"
 	"fmt"
+	"math/big"
 	"sort"
+	"time"
 
 	"github.com/ANetResearch/ANetCore/relayauth"
+
+	"github.com/ANetResearch/ANet/module"
 )
 
 // Reconciling this node's own record against the hub's.
@@ -26,12 +30,18 @@ import (
 type ReconcileReport struct {
 	AID string `json:"aid"`
 	Hub string `json:"hub"`
-	// Balance is what the hub says, and Derived is what the entries it
-	// published add up to. They come from the same hub, so agreement
-	// proves consistency rather than honesty — but disagreement is the
-	// hub contradicting itself, which is worth seeing.
-	Balance int64 `json:"balance"`
-	Derived int64 `json:"derived_from_entries"`
+	// Balance is what the hub says now. The ledger keeps WindowDays days
+	// (HPP PAY-L6), so the entries do not add up to the balance: they add up
+	// to how it moved in the window, WindowSum, and Balance − WindowSum is
+	// what it was when the window began. Older times are vouched for by the
+	// chain of balance proofs (anet audit-hub), not by this comparison.
+	Balance        int64 `json:"balance"`
+	WindowDays     int   `json:"window_days"`
+	WindowSum      int64 `json:"window_sum"`
+	OpeningBalance int64 `json:"balance_at_window_start"`
+	// OutsideWindow counts events this node holds that are older than the
+	// window, which the ledger no longer lists.
+	OutsideWindow int `json:"outside_window,omitempty"`
 	// Entries is how many the hub holds for this account, and Truncated
 	// says the page returned was not all of them. Both are reported so a
 	// reader can tell "the ledger disagrees" from "I only looked at part
@@ -84,45 +94,42 @@ func (m *Module) reconcile(ctx context.Context) (ReconcileReport, error) {
 	}
 	rep.Balance = bal.Credits
 
-	var led struct {
-		Entries []struct {
-			Delta  int64  `json:"delta"`
-			Reason string `json:"reason"`
-			At     string `json:"at"`
-		} `json:"entries"`
-		Total     int   `json:"total"`
-		Sum       int64 `json:"sum"`
-		Truncated bool  `json:"truncated"`
-	}
-	if err := m.signedGet(ctx, "/agents/"+m.AID()+"/ledger?limit=500", relayauth.ActionLedger, &led); err != nil {
+	led, err := m.fetchLedger(ctx)
+	if err != nil {
 		return rep, err
 	}
-	// The account total, not the sum of the page.
-	//
-	// The endpoint returns the newest hundred by default and said nothing
-	// about it, so summing what came back compared a page against a
-	// balance and reported a discrepancy on every account with more
-	// history than that. host-d showed 866 against entries summing to -109,
-	// which was the cap, not the ledger.
-	//
-	// An older hub sends no total; falling back to the page is then the
-	// best available and the truncation flag says whether to trust it.
-	if led.Total > 0 {
-		rep.Derived = led.Sum
-	} else {
-		for _, e := range led.Entries {
-			rep.Derived += e.Delta
-		}
+	// The window's total, not the sum of the page: the page is the newest
+	// entries and says nothing about the rest of the window.
+	rep.WindowDays = led.WindowDays
+	if rep.WindowDays <= 0 {
+		rep.WindowDays = 14
 	}
+	rep.WindowSum = led.Sum
+	rep.OpeningBalance = rep.Balance - led.Sum
 	rep.Entries, rep.Truncated = led.Total, led.Truncated
-	// The hub's own two numbers must agree with each other. They are both
-	// its statements, so this catches a hub that is inconsistent rather
-	// than one that is dishonest — but an inconsistent ledger is a real
-	// finding and nothing else was checking it.
-	if rep.Derived != rep.Balance {
-		rep.Problems = append(rep.Problems, fmt.Sprintf(
-			"the hub reports a balance of %d but the entries it published sum to %d",
-			rep.Balance, rep.Derived))
+	// The newest balance proof this node checked, extended by the ledger
+	// since its close, must give the balance now: the hub's number and its
+	// own entries agree with what it signed to everybody.
+	if proofs := m.liab.all(m.hubAID()); len(proofs) > 0 {
+		var last *LiabProof
+		for i := range proofs {
+			if proofs[i].Result == resultOK {
+				last = &proofs[i]
+			}
+		}
+		if last != nil && windowCovers(&led, time.Now().UnixMilli(), int64(last.ToDay+1)*dayMillis, last.LedgerHW) {
+			sum := new(big.Int).SetUint64(last.Balance)
+			for _, e := range led.Entries {
+				if e.Seq > last.LedgerHW {
+					sum.Add(sum, big.NewInt(e.Delta))
+				}
+			}
+			if sum.Cmp(big.NewInt(rep.Balance)) != 0 {
+				rep.Problems = append(rep.Problems, fmt.Sprintf(
+					"the hub reports a balance of %d, but the last balance proof (day %d) and the entries since add up to %s",
+					rep.Balance, last.ToDay, sum.String()))
+			}
+		}
 	}
 
 	// This node's own signed record of what it did.
@@ -134,6 +141,24 @@ func (m *Module) reconcile(ctx context.Context) (ReconcileReport, error) {
 	// Every settlement this node verified should appear as a movement on
 	// the hub's ledger. Matching on the transaction id, which both sides
 	// carry.
+	// Only the events the ledger can still show are compared: those from
+	// the window, and from the page when it is not the whole window.
+	from := time.Now().UnixMilli() - int64(rep.WindowDays)*dayMillis + 3600_000
+	if t, ok := entryTime(&led); ok && led.Truncated && from < t {
+		from = t
+	}
+	inWindow := func(evs []map[string]any) []map[string]any {
+		var keep []map[string]any
+		for _, ev := range evs {
+			if ts, err := asInt64(ev[module.EvidenceAt]); err == nil && ts < from {
+				rep.OutsideWindow++
+				continue
+			}
+			keep = append(keep, ev)
+		}
+		return keep
+	}
+	settled, redeemed = inWindow(settled), inWindow(redeemed)
 	hubTx := map[string]bool{}
 	for _, e := range led.Entries {
 		if e.Reason != "" {
@@ -232,9 +257,5 @@ func (m *Module) reconcile(ctx context.Context) (ReconcileReport, error) {
 // isGrantReason reports whether a hub ledger entry is credit arriving
 // from the operator rather than from an interaction.
 func isGrantReason(reason string) bool {
-	switch reason {
-	case "registration grant":
-		return true
-	}
 	return len(reason) >= 6 && reason[:6] == "issued"
 }

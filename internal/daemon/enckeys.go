@@ -468,6 +468,10 @@ type ringInputs struct {
 	gate      clockLevel
 	drainMark uint64
 	heldKids  kidSet
+	// draining says an old hub's mailbox is still read after a hub change
+	// (FS-K6a): that hub's stored set still holds the keys removed since,
+	// so the deletion rule takes A(k) = not_after + D for every key.
+	draining bool
 	// run is unverified_run after this period's update (FS-K14a); nil
 	// keeps the ring's (a maintenance between periods). hold says no set
 	// may be signed now (keysHeld).
@@ -506,7 +510,13 @@ func (r *encKeyRing) maintain(in ringInputs) (bool, error) {
 	// Delete what may go (FS-K7, FS-K12).
 	var keys, gone []*ringKey
 	for _, k := range current {
-		if ok, _ := epochKeyDeletable(k, in.now, in.gate, in.drainMark, in.heldKids); ok {
+		dk := k
+		if in.draining && k.RemovedAt != 0 {
+			c := *k
+			c.RemovedAt = 0
+			dk = &c
+		}
+		if ok, _ := epochKeyDeletable(dk, in.now, in.gate, in.drainMark, in.heldKids); ok {
 			gone = append(gone, k)
 			changed = true
 			continue
@@ -1133,11 +1143,14 @@ func (d *Daemon) maintainRing() (clockLevel, error) {
 	prev := d.clk.prev
 	d.clk.prev = &cycleMark{wall: wall, mono: mono}
 	d.clk.mu.Unlock()
-	run := nextUnverifiedRun(d.enc.unverifiedRun(), hubGateOpen(obs, wall, mono), prev, wall, mono)
+	open := hubGateOpen(obs, wall, mono)
+	d.noteGate(open, mono)
+	run := nextUnverifiedRun(d.enc.unverifiedRun(), open, prev, wall, mono)
 	level, _ := clockGate(obs, run, wall, mono)
 	in := d.ringInputsAt(wall)
 	in.gate, in.run, in.hold = level, &run, d.keysHeld()
 	in.drainMark, in.heldKids = d.drainInputs()
+	in.draining = len(d.drainingHubs()) > 0
 	_, err := d.enc.maintain(in)
 	if err != nil {
 		// The ring kept its state, but unverified_run is this process's to
@@ -1266,6 +1279,9 @@ type clockState struct {
 	// hub says nothing about this one.
 	hub string
 	obs clockObs
+	// closedSince is when the hub gate was first seen closed, on the boot
+	// clock; 0 while it is open (noteGate).
+	closedSince uint64
 	// prev is the clocks at the previous maintenance period; nil before the
 	// first.
 	prev *cycleMark
@@ -1290,6 +1306,11 @@ func (d *Daemon) noteHubDate(hubURL, date string) {
 	defer d.clk.mu.Unlock()
 	d.clk.hub = strings.TrimRight(hubURL, "/")
 	d.clk.obs = clockObs{hub: true, checked: true, wall: wall, mono: mono, offset: int64(wall) - at.UnixMilli()}
+	if absMS(d.clk.obs.offset) <= seal.ClockSkewMS {
+		d.clk.closedSince = 0 // the gate is open now
+	} else if d.clk.closedSince == 0 {
+		d.clk.closedSince = max(mono, 1) // the answer itself closes it
+	}
 }
 
 // clockObservation is the latest check that applies to the configured hub,

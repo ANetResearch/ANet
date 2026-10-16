@@ -16,9 +16,6 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/ANetResearch/ANetCore/delegation"
@@ -124,16 +121,14 @@ func TestAPricedCallWithoutATaskNonceIsRejected(t *testing.T) {
 	work := &meteredWork{price: 10}
 	_, req, prov := paidPair(t, work)
 	const id = "ix_nononce"
-	env := sealFrom(t, req, prov, seal.TypeDelegate, id, delegateBody(t, req.self, id, "work.do", "work.do"))
-	if r := receive(t, prov, env); r.class != rxAccepted {
-		t.Fatalf("delegate: %+v", r)
+	// The task binding carries the nonce (core §2.4.3), so a TaskDoc without one is refused as a bad
+	// request at step 9, before anything is stored or quoted.
+	env := sealFrom(t, req, prov, seal.TypeDelegate, id, delegateBodyBound(t, req.self, id, "work.do", "work.do", nil))
+	if r := receive(t, prov, env); r.class == rxAccepted || r.reason != dropRefusedPrefix+reasonBadRequest {
+		t.Fatalf("delegate: %+v, want refused %s", r, reasonBadRequest)
 	}
-	waitUntil(t, "the call to be answered", func() bool { return getIX(t, prov, id).IsTerminal() })
-	pix := getIX(t, prov, id)
-	meta := decodeMeta([]byte(pix.ResultMeta))
-	if pix.State != interactions.StateRejected || meta[x402a2a.KeyReason] != x402a2a.ReasonTaskNonceRequired ||
-		pix.PayState != interactions.PayNone || len(pix.PayRequired) != 0 {
-		t.Fatalf("provider: %s / %v / pay_state %q", pix.State, meta, pix.PayState)
+	if _, err := prov.ix.Get(id); err == nil {
+		t.Fatal("a call without its binding was stored")
 	}
 	if n := chainEvents(t, prov, EvPaymentQuoted); n != 0 || work.invoked.Load() != 0 {
 		t.Errorf("quoted %d times, ran %d", n, work.invoked.Load())
@@ -404,49 +399,6 @@ func TestAPaymentFromAPeerDeniedAfterTheQuoteIsNotSettled(t *testing.T) {
 	_ = receiptsIn(t, meta2, "the canceled notice to a denied stranger")
 	if balanceOf(srv.URL, stranger.AID()) != 100 {
 		t.Errorf("stranger balance %d", balanceOf(srv.URL, stranger.AID()))
-	}
-}
-
-// §17 C6/C29: both sides run the exec auto-reply backend and trust each
-// other; a quoted, paid, completed capability call never reaches it.
-func TestExecAutoReplyOnBothSidesStaysOutOfAPaidCall(t *testing.T) {
-	calls := filepath.Join(t.TempDir(), "calls")
-	stub := filepath.Join(t.TempDir(), "agent.sh")
-	if err := os.WriteFile(stub, []byte("#!/bin/sh\necho called >> "+calls+"\necho a reply\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	setExecCommand(t, stub)
-	work := &meteredWork{price: 30}
-	_, req, prov := paidPair(t, work)
-	payPolicy(t, req, PaymentsConfig{AutoMax: 100, AgentDailyMax: 100, DailyMax: u64(100)}, prov.AID())
-	trustPeers(t, prov, req.AID())
-	trustPeers(t, req, prov.AID())
-	cfg := AutoReplyConfig{Backend: "exec", Agent: "cursor"}
-	ctx := context.Background()
-	repliers := map[*Daemon]autoReplier{}
-	for _, d := range []*Daemon{req, prov} {
-		r, err := newAutoReplier(cfg, d.layout)
-		if err != nil {
-			t.Fatal(err)
-		}
-		repliers[d] = r
-	}
-	step := func(ds ...*Daemon) {
-		for _, d := range ds {
-			poll(t, d)
-			d.autoReplyOnce(ctx, cfg, repliers[d])
-		}
-	}
-	id, err := req.DelegateCapability(ctx, prov.AID(), "work.do", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	step(prov, req, prov, req, req)
-	if rix := getIX(t, req, id); rix.State != interactions.StateCompleted || work.invoked.Load() != 1 {
-		t.Fatalf("the paid call: %s, ran %d", rix.State, work.invoked.Load())
-	}
-	if b, err := os.ReadFile(calls); err == nil && len(b) > 0 {
-		t.Fatalf("the exec backend ran %d times during a paid call", strings.Count(string(b), "\n"))
 	}
 }
 

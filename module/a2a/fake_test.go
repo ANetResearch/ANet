@@ -28,6 +28,8 @@ type fakeSeam struct {
 	agents   []module.RemoteAgent
 
 	sends []module.TaskSend
+	// watches are the options of each Watch, in order.
+	watches []module.WatchOpts
 	// pays are the payment decisions made: through Pay, or through Send
 	// with a payment message, as the kernel routes one (§8.7).
 	pays []module.PayDecision
@@ -52,6 +54,16 @@ type fakeSeam struct {
 	ext map[string]fakeExt
 	// extCalls counts ExtendedCard calls.
 	extCalls int
+	// cannotPay is what CanPay denies (a node without a payment module, or
+	// without a hub); a test may change it while the server runs.
+	cannotPay bool
+}
+
+// CanPay is TaskSeam.CanPay: true unless the test says the node cannot.
+func (f *fakeSeam) CanPay() bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return !f.cannotPay
 }
 
 // fakeExt is one scripted answer of ExtendedCard.
@@ -306,9 +318,10 @@ func (f *fakeSeam) Cancel(_ context.Context, peer, id string) (module.Task, erro
 	return copyTask(ft.t), nil
 }
 
-func (f *fakeSeam) Watch(ctx context.Context, peer, id string) (module.Task, <-chan module.TaskEvent, error) {
+func (f *fakeSeam) Watch(ctx context.Context, peer, id string, opts module.WatchOpts) (module.Task, <-chan module.TaskEvent, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.watches = append(f.watches, opts)
 	ft, err := f.find(peer, id)
 	if err != nil {
 		return module.Task{}, nil, err
@@ -326,6 +339,9 @@ func (f *fakeSeam) Watch(ctx context.Context, peer, id string) (module.Task, <-c
 	}
 	return copyTask(ft.t), ch, nil
 }
+
+// PreviewAvailable: the fake node has previews.
+func (f *fakeSeam) PreviewAvailable() bool { return true }
 
 func (f *fakeSeam) Agents(context.Context, module.AgentQuery) ([]module.RemoteAgent, error) {
 	f.mu.Lock()

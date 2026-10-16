@@ -48,7 +48,7 @@
 | CLI | `cmd/anet` | 单测覆盖 | 约 45 个子命令;帮助里承诺的每个参数都被参数检查接受(测试钉住) |
 | `init` / `doctor` | `cmd/anet`、`setup.go` | 单测覆盖 | 幂等写出 SI-5 默认值;`doctor --json` 按键输出 |
 | `update` 与发布签名 | `internal/release` | 单测覆盖 | 编入的发布公钥验清单,原子替换 |
-| 自动回复 | `internal/daemon/autoreply*.go` | 单测覆盖 | exec 只为信任对端运行;沙箱(Linux,bubblewrap)失败闭合;环境变量白名单 |
+| 自动回复 | `module/autoreply` | 单测覆盖 | exec 只为信任对端运行;沙箱(Linux,bubblewrap)失败闭合;环境变量白名单 |
 | 身份管理(多身份) | `internal/daemon/identities.go` | 仅可用 | `anet id ls/new/use/rm` |
 
 ## 二、可插拔模块

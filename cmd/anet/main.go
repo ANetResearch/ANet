@@ -35,6 +35,7 @@ import (
 	"github.com/ANetResearch/ANet/internal/daemon"
 	"github.com/ANetResearch/ANet/internal/localpeer"
 	"github.com/ANetResearch/ANet/internal/loopguard"
+	"github.com/ANetResearch/ANet/internal/version"
 	"github.com/ANetResearch/ANet/module"
 )
 
@@ -78,6 +79,11 @@ func main() {
 		}
 		os.Exit(exitStatus(err, os.Stderr))
 	}
+	// A module's command asks whether the module is available before it contacts the daemon or asks the
+	// terminal anything (MOD-F3); the API key on the command line was refused above, ahead of it (AV-8).
+	if cmd == "autoreply" || cmd == "auto-reply" {
+		fail(requireModule(layout, "autoreply"))
+	}
 	// A misspelled flag is a typo, not a silent no-op. See knownFlags.
 	if err := checkFlags(cmd, rest); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
@@ -94,7 +100,11 @@ func main() {
 		fail(runUp(idFlag, rest))
 	case "stop", "down": // graceful shutdown: `anet stop [name] [--all]`
 		fail(runStop(idFlag, rest))
-	case "id", "ids", "identity": // manage named identities on this machine
+	case "id", "ids", "identity": // manage named identities on this machine, and the keys of one (KEL-10)
+		if len(rest) > 0 && identitySubcommands[rest[0]] {
+			fail(runIdentity(layout, explicit, rest[0], rest[1:]))
+			return
+		}
 		fail(runID(rest))
 	case "version", "--version", "-v":
 		fmt.Printf("anet %s (commit %s, built %s)\n",
@@ -110,10 +120,12 @@ func main() {
 		// a module is in the list because its init() ran, which happened
 		// because the linker kept it.
 		fmt.Printf("modules: %s\n", compiledModulesReport())
+		fmt.Printf("variant: %s\n", variantReport())
 	case "mcp":
 		// Serves over stdio, so it must not share the process with
 		// anything that prints: a stray line on stdout is a protocol
 		// framing error to the client.
+		fail(requireModule(layout, "mcp")) // MOD-F3: before the daemon, before anything is printed
 		fail(runMCP(layout, explicit))
 	case "verify":
 		// Above the daemon resolution on purpose: checking a receipt takes
@@ -123,7 +135,11 @@ func main() {
 		fail(verify(layout, rest))
 	case "logs":
 		printLogs(layout, rest)
+	case "console": // MOD-8: the console module decides before the daemon is contacted
+		fail(requireModule(layout, "console"))
+		fail(runClient(layout, cmd, rest, explicit))
 	case "agents": // register the MCP server with local coding agents; files only, no daemon
+		fail(requireModule(layout, "mcp"))
 		fail(runAgents(layout, rest))
 	case "update":
 		fail(runUpdate(rest))
@@ -153,9 +169,21 @@ func main() {
 		} else {
 			usageShort()
 		}
+	case "preview":
+		fail(requireModule(layout, "preview")) // MOD-F3: before the daemon, before anything is asked
+		fail(runClient(layout, cmd, rest, explicit))
 	default:
 		fail(runClient(layout, cmd, rest, explicit))
 	}
+}
+
+// variantReport is the released build this binary says it is, and "none"
+// for a build from source (version.Variant is stamped by build-release.sh).
+func variantReport() string {
+	if version.Variant == "" {
+		return "none"
+	}
+	return version.Variant
 }
 
 // compiledModulesReport renders the module list `anet version` prints.
@@ -207,16 +235,28 @@ func shortAID(aid string) string {
 	return aid
 }
 
+// payingCommand are the commands of the payment module (the name table's
+// CLICommands for x402), which cannot do anything without it.
+var payingCommand = map[string]bool{"pay": true, "redeem": true, "reconcile": true, "audit-hub": true}
+
 // exitStatus is the exit status of a command that ended in err (ux UX-C4),
 // after saying what is left to say on w: 2 for a command used wrongly (its
 // usage line), 1 for everything else. An error without words (errExit1,
 // errQuiet, errNoTTY, errDeclined) was said already: "this receipt does not
 // verify" is an answer, not a malfunction of the tool.
 func exitStatus(err error, w io.Writer) int {
+	var ae absentError
+	if errors.As(err, &ae) {
+		fmt.Fprintln(w, ae.Error())
+		return 2
+	}
 	var ue usageError
 	if errors.As(err, &ue) {
 		fmt.Fprintln(w, ue.Error())
 		return 2
+	}
+	if errors.Is(err, errInputRequired) {
+		return 3 // task watch: the task waits for the user (UX-C4)
 	}
 	if err.Error() != "" {
 		fmt.Fprintln(w, "error:", err)
@@ -243,7 +283,18 @@ func runDaemon(layout daemon.Layout) {
 		defer lf.Close()
 	}
 	d, err := daemon.New(layout)
+	if errors.Is(err, daemon.ErrDataLockHeld) {
+		_ = refuseBusyDaemon(layout)
+		os.Exit(1)
+	}
 	if err != nil {
+		var cr *daemon.ConfigRefusal
+		if errors.As(err, &cr) {
+			for _, s := range cr.Sentences(a2ashape.Lang()) {
+				fmt.Fprintln(os.Stderr, s)
+			}
+			os.Exit(1)
+		}
 		fmt.Fprintln(os.Stderr, "daemon: start:", err)
 		os.Exit(1)
 	}
@@ -328,6 +379,21 @@ func localDaemonUp(layout daemon.Layout) bool {
 	return up
 }
 
+// probeTimeout is how long the probe of a daemon's control plane waits.
+const probeTimeout = 1500 * time.Millisecond
+
+// refuseBusyDaemon says daemon_not_answering when a daemon holds the data directory without answering
+// the probe: the caller then starts nothing and changes nothing (KEL-10).
+func refuseBusyDaemon(layout daemon.Layout) error {
+	if !daemon.DataLockHeld(layout) {
+		return nil
+	}
+	lang := a2ashape.Lang()
+	args := a2ashape.Args{"path": layout.Root, "dur": probeTimeout}
+	say(os.Stderr, a2ashape.Sentence("daemon_not_answering", lang, args), a2ashape.Next("daemon_not_answering", lang, args))
+	return errExit1
+}
+
 // probeLocalDaemon is localDaemonUp with the reason it is not up, when there is one worth telling.
 //
 // It runs as the first step of `anet up`, which is exactly when the daemon is not holding its port and
@@ -348,7 +414,7 @@ func probeLocalDaemon(layout daemon.Layout) (bool, error) {
 	c := &client{
 		base:    "http://" + addr,
 		token:   strings.TrimSpace(string(tb)),
-		timeout: 1500 * time.Millisecond,
+		timeout: probeTimeout,
 	}
 	_, code, e := c.fetch("/status", nil)
 	return e == nil && code == 200, e
@@ -361,14 +427,17 @@ func probeLocalDaemon(layout daemon.Layout) (bool, error) {
 func runDaemonDetached(layout daemon.Layout) error {
 	up, perr := probeLocalDaemon(layout)
 	if up {
-		fmt.Printf("anet daemon already running (data dir %s)\n", layout.Root)
-		return runClient(layout, "status", nil, true)
+		return runUpSummary(layout)
 	}
 	if errors.Is(perr, localpeer.ErrNotOurs) {
 		// Somebody else holds this identity's control port while its daemon is down. The token was not
 		// sent; the daemon moves to a free port and records it in config.json, which every later
 		// command reads.
 		fmt.Fprintf(os.Stderr, "note: %v\n      starting the daemon on another port\n", perr)
+	}
+	// A daemon that holds the data directory and does not answer is not started a second time.
+	if err := refuseBusyDaemon(layout); err != nil {
+		return err
 	}
 	// The child would refuse the same config.json; say why here, not after the readiness poll.
 	if err := refuseConfig(layout); err != nil {
@@ -402,7 +471,6 @@ func runDaemonDetached(layout daemon.Layout) error {
 	if err := c.Start(); err != nil {
 		return fmt.Errorf("start daemon: %w", err)
 	}
-	pid := c.Process.Pid
 	// Keep the handle and reap in the background instead of releasing it.
 	//
 	// The child is already in its own session, so it outlives this process
@@ -425,15 +493,8 @@ func runDaemonDetached(layout daemon.Layout) error {
 	deadline := time.Now().Add(8 * time.Second)
 	for time.Now().Before(deadline) {
 		if localDaemonUp(layout) {
-			name := daemon.IdentityNameForDir(layout.Root)
-			label := ""
-			if name != "" {
-				label = " [" + name + "]"
-			}
-			fmt.Printf("anet daemon started%s (pid %d, data dir %s) — stop it anytime with `anet stop%s`\n\n",
-				label, pid, layout.Root, stopHint(name))
 			reportA2APortConflict(layout)
-			return runClient(layout, "status", nil, true)
+			return runUpSummary(layout)
 		}
 		select {
 		case werr := <-died:
@@ -623,7 +684,7 @@ func runID(rest []string) error {
 	case "rm", "remove", "delete":
 		return idRm(rest)
 	default:
-		return usageError{fmt.Sprintf("anet id ls|new|use|rm  (%q is none of them)", printable(sub, 64))}
+		return usageError{fmt.Sprintf("%s  (%q is none of them)", identityUsage, printable(sub, 64))}
 	}
 }
 
@@ -635,7 +696,7 @@ func printIdentities() error {
 	}
 	if len(ids) == 0 {
 		fmt.Println("No identities yet. Create one with:  anet id new <name>")
-		fmt.Println("(or just `anet up` to start the default identity)")
+		fmt.Println("(or `anet up` to start the default identity)")
 		return nil
 	}
 	fmt.Printf("%-2s %-14s %-8s %-18s %-22s %s\n", "", "NAME", "STATE", "CONTROL", "AID", "DATA DIR")
@@ -730,6 +791,7 @@ func idRm(rest []string) error {
 	if !layout.Initialized() {
 		return fmt.Errorf("no identity %q to remove", name)
 	}
+	rmWarnings(layout, a2ashape.Lang())
 	if flags["purge"] != "true" {
 		fmt.Printf("This will PERMANENTLY delete identity %q and its key/history:\n  %s\n", name, layout.Root)
 		fmt.Printf("Re-run with --purge to confirm:  anet id rm %s --purge\n", name)
@@ -850,119 +912,6 @@ func absPath(p string) string {
 	return p
 }
 
-// runAutoReply drives `anet autoreply show|set|off` — the CLI/agent-facing switch for the daemon's
-// built-in auto-reply loop, so nobody hand-edits config.json. `set` takes effect live (no restart), and
-// changes only what it names: the daemon merges it into the current configuration (LEC §2.3.4).
-func runAutoReply(c *client, rest []string) error {
-	usage := "autoreply <show|set|test|off>\n" +
-		"  set --backend exec  --agent <" + agentChoices() + "> [--model M] [--work-dir DIR] [--system-prompt S]\n" +
-		"  set --backend openai --api-base URL --model M [--system-prompt S] [--require-image[=false]] [--usage-hint H]\n" +
-		"  set --api-key-stdin < FILE   # the model API key: from a file, or typed on the terminal (never on the command line)\n" +
-		"  common: [--poll-interval SEC] [--max-history N] [--api-timeout SEC] [--max-auto-replies N]\n" +
-		"  set --egress-allow host[,host…]   # hosts the sandbox may reach on 443 (\"\" clears; adding asks on the terminal)\n" +
-		"  test [\"question\"]    # run the configured backend once on this machine (no hub, no identity)\n" +
-		"  off"
-	sub := ""
-	if len(rest) > 0 {
-		sub = rest[0]
-	}
-	switch sub {
-	case "", "show":
-		b, code, err := c.fetch("/status", nil)
-		if err != nil {
-			return err
-		}
-		if code != 200 {
-			return fmt.Errorf("status: %s", strings.TrimSpace(string(b)))
-		}
-		var st struct {
-			AutoReply json.RawMessage `json:"auto_reply"`
-		}
-		_ = json.Unmarshal(b, &st)
-		if len(st.AutoReply) == 0 || string(st.AutoReply) == "null" {
-			fmt.Println("auto-reply: off")
-			return nil
-		}
-		var pretty bytes.Buffer
-		_ = json.Indent(&pretty, st.AutoReply, "", "  ")
-		fmt.Println("auto-reply:", pretty.String())
-		return nil
-	case "off":
-		return c.do("/autoreply", map[string]any{"off": true})
-	case "test":
-		c.timeout = 15 * time.Minute // exec agents (cursor/claude/…) can take tens of seconds
-		prompt := strings.TrimSpace(strings.Join(rest[1:], " "))
-		return c.do("/autoreply-test", map[string]any{"prompt": prompt})
-	case "set":
-		_, flags := splitFlags(rest[1:])
-		body := map[string]any{}
-		// --egress-allow first: the list is checked here (CN-1) and an added host confirmed on the
-		// terminal before anything else is read or sent; it rides in the same request as the rest.
-		if v, ok := flags["egress-allow"]; ok {
-			sandbox, err := egressAllowRequest(c, v, flags["api-base"])
-			if err != nil {
-				return err
-			}
-			body["sandbox"] = sandbox
-		}
-		// The backend is named, or follows from --agent (the exec backend runs an agent). --api-base
-		// says nothing about it: an exec agent in the sandbox can have a model service address too.
-		if v := flags["backend"]; v != "" && v != "true" {
-			body["backend"] = v
-		} else if v := flags["agent"]; v != "" && v != "true" {
-			body["backend"] = "exec"
-		}
-		strFlags := map[string]string{
-			"agent": "agent", "work-dir": "work_dir", "command": "command",
-			"openclaw-agent": "openclaw_agent", "model": "model", "api-base": "api_base",
-			"system-prompt": "system_prompt", "untrusted": "untrusted",
-			"usage-hint": "usage_hint", "error-reply": "error_reply",
-		}
-		for cliKey, jsonKey := range strFlags {
-			if v, ok := flags[cliKey]; ok && v != "true" {
-				body[jsonKey] = v
-			}
-		}
-		// The daemon merges what set names, so a setting that is on stays on until set turns it off:
-		// --require-image turns it on, --require-image=false off.
-		if v, ok := flags["require-image"]; ok {
-			switch strings.TrimSpace(v) {
-			case "true":
-				body["require_image"] = true
-			case "false":
-				body["require_image"] = false
-			default:
-				return usageError{usage}
-			}
-		}
-		for cliKey, jsonKey := range map[string]string{
-			"poll-interval": "poll_interval_seconds", "max-history": "max_history", "api-timeout": "api_timeout_seconds",
-			"max-auto-replies": "max_auto_replies",
-		} {
-			if v, ok := flags[cliKey]; ok && v != "true" {
-				n, err := strconv.Atoi(strings.TrimSpace(v))
-				if err != nil {
-					return fmt.Errorf("--%s needs an integer", cliKey)
-				}
-				body[jsonKey] = n
-			}
-		}
-		if _, ok := flags[apiKeyStdinFlag]; ok {
-			key, err := readAPIKeyStdin(os.Stdin, os.Stderr)
-			if err != nil {
-				return err
-			}
-			body["api_key"] = key
-		}
-		if len(body) == 0 {
-			return usageError{usage}
-		}
-		return c.do("/autoreply", body)
-	default:
-		return usageError{usage}
-	}
-}
-
 // The API key's flags, without their dashes (knownFlags lists what may be typed).
 const (
 	// apiKeyStdinFlag reads the key from stdin (LEC AV-8).
@@ -1012,7 +961,7 @@ func readAPIKeyStdin(in *os.File, out io.Writer) (string, error) {
 	var raw []byte
 	var err error
 	if fd := int(in.Fd()); term.IsTerminal(fd) {
-		fmt.Fprint(out, "API key: ")
+		fmt.Fprint(out, a2ashape.Sentence("autoreply.prompt.api_key", lang, nil)+" ")
 		raw, err = term.ReadPassword(fd)
 		fmt.Fprintln(out)
 	} else {
@@ -1069,9 +1018,9 @@ var knownFlags = map[string][]string{
 	"up":       {"detach", "all"},
 	"stop":     {"all"},
 	"down":     {"all"},
-	"id":       {"purge", "all"},
-	"ids":      {"purge", "all"},
-	"identity": {"purge", "all"},
+	"id":       {"purge", "all", "json", "new-recovery", "emergency", "recovery-file", "hub", "name"},
+	"ids":      {"purge", "all", "json", "new-recovery", "emergency", "recovery-file", "hub", "name"},
+	"identity": {"purge", "all", "json", "new-recovery", "emergency", "recovery-file", "hub", "name"},
 	"agents":   {"all", "refresh", "a2a"},
 	"verify":   {"receipt", "kel", "result", "hub", "attestation", "chain", "head"},
 	"logs":     {"all"},
@@ -1079,15 +1028,15 @@ var knownFlags = map[string][]string{
 	"mcp":      {},
 	"version":  {},
 	"update":   {"check", "base"},
-	"init":     {"json"},
-	"doctor":   {"json"},
+	"init":     {"json", "without", "with"},
+	"doctor":   {"json", "apparmor-profile"},
 	"audit":    {"since", "peer", "interaction", "type", "json", "export"},
 
 	// through the daemon when it runs, from the data directory when not
 	"retention": {"json"},
 
 	// through the control plane
-	"status":       {},
+	"status":       {"json"},
 	"hub-register": {"name", "caps", "recovery-file", "new-recovery"}, // --token, --token-file, --accept-delegations: cli_removed (removed.go)
 	"hub-leave":    {},
 	"peers":        {"json"},
@@ -1095,15 +1044,16 @@ var knownFlags = map[string][]string{
 	"pay":          {"option", "reject"},
 	"payments":     {}, // --payees-file: cli_removed (removed.go)
 	"payees":       {},
+	"preview":      {"json"},
 	"autoreply": {
 		"backend", "agent", "api-base", "api-key-stdin", "model", "system-prompt", "work-dir", "untrusted",
-		"openclaw-agent", "require-image", "usage-hint", "error-reply", "command",
-		"poll-interval", "max-history", "api-timeout", "max-auto-replies", "egress-allow",
+		"openclaw-agent", "command",
+		"max-history", "api-timeout", "egress-allow", "trusted", "json",
 	},
 	"auto-reply": {
 		"backend", "agent", "api-base", "api-key-stdin", "model", "system-prompt", "work-dir", "untrusted",
-		"openclaw-agent", "require-image", "usage-hint", "error-reply", "command",
-		"poll-interval", "max-history", "api-timeout", "max-auto-replies", "egress-allow",
+		"openclaw-agent", "command",
+		"max-history", "api-timeout", "egress-allow", "trusted", "json",
 	},
 	"profile": {"summary", "readme"},
 	"console": {"url", "print"},
@@ -1113,10 +1063,10 @@ var knownFlags = map[string][]string{
 	// through. Neither name is worth breaking scripts over, so both work.
 	"find":       {"cap", "capability", "json"},
 	"card":       {"json"},
-	"delegate":   {"cap", "capability", "args", "attach"},
+	"delegate":   {"cap", "capability", "args", "attach", "watch"},
 	"inbox":      {"pending"},
 	"thread":     {},
-	"task":       {"full", "history", "role", "state", "peer"},
+	"task":       {"full", "history", "role", "state", "peer", "reasoning"},
 	"message":    {"file", "attach"},
 	"msg":        {"file", "attach"},
 	"pull":       {"out"},
@@ -1191,6 +1141,14 @@ func splitFlags(rest []string) (pos []string, flags map[string]string) {
 }
 
 func runClient(layout daemon.Layout, cmd string, rest []string, explicit bool) error {
+	// The commands that belong to the payment module say module_absent, with
+	// exit status 2, before the daemon is contacted and before anything is
+	// asked on the terminal (MOD-F3, MOD-2).
+	if payingCommand[cmd] {
+		if err := requireModule(layout, "x402"); err != nil {
+			return err
+		}
+	}
 	// With an explicit identity selection, resolve STRICTLY (this identity's own daemon only) so several
 	// running daemons can't be confused; otherwise keep the lenient uid-pointer fallback (single-daemon
 	// norm + agent sandboxes whose HOME differs from the operator's).
@@ -1218,7 +1176,7 @@ func runClient(layout daemon.Layout, cmd string, rest []string, explicit bool) e
 	}
 	switch cmd {
 	case "status":
-		return c.do("/status", nil)
+		return runStatus(c, rest)
 	case "stop", "down":
 		return stopDaemon(layout, explicit)
 	case "hub-register":
@@ -1240,6 +1198,8 @@ func runClient(layout daemon.Layout, cmd string, rest []string, explicit bool) e
 		return runPayees(c, rest)
 	case "autoreply", "auto-reply":
 		return runAutoReply(c, rest)
+	case "preview":
+		return runPreview(c, rest)
 	case "profile":
 		sub := arg(0)
 		switch sub {
@@ -1361,7 +1321,7 @@ func runClient(layout daemon.Layout, cmd string, rest []string, explicit bool) e
 		// not prevent a hub issuing credit — it is the issuer — but a hub
 		// cannot do so retroactively without contradicting a record this
 		// node already holds.
-		return c.do("/audit-hub", map[string]any{})
+		return runAuditHub(c)
 	case "redeem":
 		// Credit back out. What the reference buys is between this node's
 		// operator and its hub — anet signs the withdrawal and keeps the
@@ -1374,7 +1334,7 @@ func runClient(layout daemon.Layout, cmd string, rest []string, explicit bool) e
 		// The hub is the custodian of the number; `anet audit --type
 		// anet.payment.settled` is where the events that moved it are, and
 		// the two disagreeing is a thing you can now see.
-		return c.do("/balance", map[string]any{})
+		return runBalance(c)
 	case "visibility":
 		// How far this node is willing to be published: hub-local (the
 		// default), federated, or public. The agent decides, because this
@@ -1440,13 +1400,6 @@ func (c *client) fetch(path string, body any) ([]byte, int, error) {
 	return out, resp.StatusCode, nil
 }
 
-// agentChoices renders the supported agent ids for help text, from the registry rather than a hand-kept
-// copy. The three copies that used to exist all said "cursor|claude|codex|openclaw|hermes", so adding an
-// agent meant remembering three places and the help was one edit away from lying about what works.
-func agentChoices() string {
-	return strings.Join(daemon.SupportedExecAgents(), "|")
-}
-
 // capFlag reads the capability id under either spelling. --cap and
 // --capability mean the same thing and always did; only the accepted
 // name differed between commands.
@@ -1468,7 +1421,7 @@ const cliTaskBytes = 24 << 10
 // list_tasks and cancel_task take. A task's JSON goes to stdout and its
 // human lines to stderr (UX-C1, UX-C2).
 func taskCommand(c *client, rest []string) error {
-	const use = "anet task get <id> [--full] [--history N] | task list [--role requester|provider] [--state S] [--peer AID] | task cancel <id>"
+	const use = "anet task get <id> [--full] [--history N] | task list [--role requester|provider] [--state S] [--peer AID] | task watch <id> [--reasoning] | task cancel <id>"
 	sub := ""
 	if len(rest) > 0 {
 		sub = rest[0]
@@ -1478,6 +1431,8 @@ func taskCommand(c *client, rest []string) error {
 		return taskGet(c, rest[1:])
 	case "list", "ls":
 		return taskList(c, rest[1:])
+	case "watch":
+		return taskWatchCommand(c, rest[1:])
 	case "cancel":
 		pos, _ := splitFlags(rest[1:])
 		if len(pos) != 1 || strings.TrimSpace(pos[0]) == "" {
@@ -1550,7 +1505,19 @@ func taskList(c *client, rest []string) error {
 			if v == "true" || strings.TrimSpace(v) == "" {
 				return usageError{use}
 			}
-			body[key] = strings.TrimSpace(v)
+			v = strings.TrimSpace(v)
+			if flag == "state" {
+				// completed, COMPLETED, input-required, TASK_STATE_INPUT_REQUIRED
+				// all name a state; anything else is a usage error here,
+				// not the daemon's InvalidParams text.
+				n := strings.ToUpper(strings.NewReplacer("-", "_", " ", "_").Replace(v))
+				n = "TASK_STATE_" + strings.TrimPrefix(n, "TASK_STATE_")
+				if !a2ashape.TaskState(n).Valid() {
+					return usageError{use}
+				}
+				v = strings.ToLower(strings.ReplaceAll(strings.TrimPrefix(n, "TASK_STATE_"), "_", "-"))
+			}
+			body[key] = v
 		}
 	}
 	return c.do("/tasks/list", body)
@@ -1714,7 +1681,8 @@ func wideRune(r rune) bool {
 // (return_immediately); the files are read here and sent as raw parts, the
 // same message MCP send_message builds from skill, args and files (CUX-F4).
 func delegateCommand(c *client, rest []string) error {
-	const use = "anet delegate <aid> <goal> [--attach P …] | anet delegate <aid> --capability <id> [--args J] [--attach P …]"
+	const use = "anet delegate <aid> <goal> [--attach P …] [--watch] | anet delegate <aid> --capability <id> [--args J] [--attach P …]"
+	watch, rest := extractBool(rest, "watch")
 	attachPaths, rest2 := extractAttach(rest)
 	pos, flags := splitFlags(rest2)
 	if len(pos) < 1 || pos[0] == "" {
@@ -1748,6 +1716,12 @@ func delegateCommand(c *client, rest []string) error {
 	body["to"] = to
 	body["return_immediately"] = true
 	body["max_task_bytes"] = cliTaskBytes
+	if watch {
+		if skill != "" {
+			return usageError{use + "  (--watch is for a text task: a capability call has no preview)"}
+		}
+		return watchDelegate(c, body)
+	}
 	return c.doTask("/tasks/send", body)
 }
 

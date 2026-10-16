@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/ANetResearch/ANet/module"
 	"testing"
 	"time"
 
@@ -279,6 +280,9 @@ func TestContactReplacesStranger(t *testing.T) {
 // SSR-D8: p2p only in a contact peer capability of a listed peer, pay only
 // in a peer capability, never in a one-shot one; the recipient takes each.
 func TestP2PAndPayPlacement(t *testing.T) {
+	if !haveP2P {
+		t.Skip("the module is not in this build (-tags)")
+	}
 	_, req, prov := registeredPair(t)
 	now := prov.nowMS()
 	const addr = "203.0.113.7:4001"
@@ -318,10 +322,10 @@ func TestP2PAndPayPlacement(t *testing.T) {
 			t.Fatalf("%s: pay written as false", c.name)
 		}
 	}
-	if got := p2pAdvertise(Config{Modules: ModulesConfig{"p2p": json.RawMessage(`{"advertise":"` + addr + `","lan":false}`)}}); got != addr {
+	if got := p2pAdvertise(Config{Modules: ModulesConfig{"p2p": json.RawMessage(`{"advertise":"` + addr + `","lan":false}`)}}, module.Availability{}); got != addr {
 		t.Fatalf("p2pAdvertise %q", got)
 	}
-	if got := p2pAdvertise(Config{}); got != "" {
+	if got := p2pAdvertise(Config{}, module.Availability{}); got != "" {
 		t.Fatalf("p2pAdvertise without the module: %q", got)
 	}
 	// pay is whether this node prices any capability it serves.

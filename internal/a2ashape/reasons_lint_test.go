@@ -154,13 +154,16 @@ func TestReasonPunctuation(t *testing.T) {
 // nextPhrases are the fixed phrases of each kind of next step (UX-G2): a
 // sentence has at least one, in each language.
 var nextPhrases = map[NextKind][2][]string{
-	NextNoneNeeded:  {{"不需要操作"}, {"nothing to do"}},
-	NextAuto:        {{"会自动"}, {"on its own"}},
-	NextRetryLater:  {{"后再发", "后再试", "后重试", "后重发"}, {"again in", "again later", "again when"}},
-	NextChangeInput: {{"后重发", "后重试", "请换", "请改", "改用", "请加", "请减小", "请删"}, {"send again", "try again", "send it again", "use ", "add ", "remove "}},
-	NextContact:     {{"联系", "问对方", "请对方", "发给"}, {"contact", "ask "}},
-	NextStartOver:   {{"新建任务", "重新发起"}, {"start a new task", "start the task again", "start it again", "start them again"}},
-	NextFutile:      {{"重试无用"}, {"retrying will not help"}},
+	NextNoneNeeded: {{"不需要操作"}, {"nothing to do"}},
+	NextAuto:       {{"会自动"}, {"on its own"}},
+	NextRetryLater: {{"后再发", "后再试", "后重试", "后重发"}, {"again in", "again later", "again when"}},
+	// The module sentences (MOD-1) end on what to change: install another
+	// build, rebuild, turn the module back on, or take the block out.
+	NextChangeInput: {{"后重发", "后重试", "请换", "请改", "改用", "请加", "请减小", "请删", "删掉", "改装", "重新构建", "运行 anet", "用 install.sh", "可以用"},
+		{"send again", "try again", "send it again", "use ", "add ", "remove ", "install ", "rebuild", "run anet", "you can "}},
+	NextContact:   {{"联系", "问对方", "请对方", "发给"}, {"contact", "ask "}},
+	NextStartOver: {{"新建任务", "重新发起"}, {"start a new task", "start the task again", "start it again", "start them again"}},
+	NextFutile:    {{"重试无用"}, {"retrying will not help"}},
 }
 
 // hasPhrase reports whether s carries one of the phrases; an English phrase
@@ -221,7 +224,8 @@ func TestReasonNextStep(t *testing.T) {
 			english := i == 1
 			var sentences []string
 			for _, s := range expand(tmpl, "instead", phraseSetOf(r.Code, r.Variant, "instead"), english) {
-				sentences = append(sentences, s)
+				// {fix} of the module sentences is one of the fixes of its phrase set.
+				sentences = append(sentences, expand(s, "fix", phraseSetOf(r.Code, r.Variant, "fix"), english)...)
 			}
 			for _, s := range sentences {
 				if r.NextKind == NextCommand {
@@ -256,7 +260,9 @@ var placeholders = map[string]bool{
 	"file_aid8": true, "auto_max": true, "agent_max": true, "agent_left": true, "explicit_max": true,
 	"from": true, "to": true, "old": true, "file": true, "how": true, "skill": true, "state": true,
 	"charge": true, "backend": true, "m": true, "k": true, "host": true, "field": true, "type": true,
-	"paths": true, "auto_reply": true,
+	"paths": true, "auto_reply": true, "detail": true,
+	// MOD-1: the module sentences.
+	"fix": true, "variant": true, "modules": true,
 }
 
 // UX-T4: every placeholder is defined; with no values at all a sentence
@@ -527,7 +533,7 @@ func TestUXExamples(t *testing.T) {
 		{"identity.ok", Chinese, Args{"name": "default", "aid": me, "hub": "https://hub.example", "ago": 4 * time.Minute}, "default …7hq2abcd，密钥已由 https://hub.example 确认（4 分钟前）。"},
 		{"registered", Chinese, Args{"hub": "https://hub.example"}, "已在 https://hub.example 注册。"},
 		{"inbound.summary.closed", Chinese, Args{"n": 0, "m": 0, "auto_reply": "off"}, "只接受 allow 名单里 0 个对端的任务；公开 0 项能力；自动回复关。"},
-		{"retention.summary", Chinese, Args{"retention": "30d"}, "任务内容在任务结束 30 天后删除（公开调用 7 天）。"},
+		{"retention.summary", Chinese, Args{"retention": "30d"}, "任务内容的保存期是 30 天，从任务结束起算（公开调用 7 天）。"},
 		{"needs_operator_approval.off", Chinese, Args{"amount": 3, "tier": "auto", "task": "t_9f3c"}, "报价 3 credits；自动付款没有开启（额度为 0），没有付款；请执行 anet pay t_9f3c。"},
 		{"paid.manual", Chinese, Args{"amount": 3, "left": 47}, "已付 3 credits（你在终端确认的，今日剩 47）。"},
 		{"paid.auto", Chinese, Args{"amount": 3, "single": 5, "left": 44}, "报价 3 credits，在你的自动付款额度内（单笔 ≤5，今日剩 44），已自动付款。"},
@@ -544,6 +550,45 @@ func TestUXExamples(t *testing.T) {
 	} {
 		if got := Sentence(c.key, c.lang, c.args); got != c.want {
 			t.Errorf("%s:\n got:  %s\n want: %s", c.key, got, c.want)
+		}
+	}
+}
+
+// T-1 F7: "forever" must not read as its opposite ("deleted forever after a task ends") or as
+// broken grammar ("kept for forever").
+func TestRetentionSentencesReadRightForForever(t *testing.T) {
+	for _, key := range []string{"retention.summary", "retention.set"} {
+		en := Sentence(key, English, Args{"retention": "forever"})
+		zh := Sentence(key, Chinese, Args{"retention": "forever"})
+		if strings.Contains(en, "deleted") || strings.Contains(en, "for forever") || !strings.Contains(en, "forever") {
+			t.Errorf("%s: %q", key, en)
+		}
+		if strings.Contains(zh, "删除") || !strings.Contains(zh, "永久") {
+			t.Errorf("%s: %q", key, zh)
+		}
+	}
+}
+
+// 12-gui-docs section 1: no colloquial words in a user-visible sentence.
+func TestReasonSentencesAreNotColloquial(t *testing.T) {
+	en := regexp.MustCompile(`(?i)\b(just (run|use|type|anet)|simply|let's|you'll|awesome)\b`)
+	zh := []string{"马上", "赶紧", "搞定", "一键", "您", "你只需"}
+	check := func(where, zhS, enS string) {
+		if m := en.FindString(enS); m != "" {
+			t.Errorf("%s: %q in the English sentence: %s", where, m, enS)
+		}
+		for _, w := range zh {
+			if strings.Contains(zhS, w) {
+				t.Errorf("%s: %q in the Chinese sentence: %s", where, w, zhS)
+			}
+		}
+	}
+	for _, r := range reasonTable {
+		check(r.Key(), r.Zh, r.En)
+	}
+	for set, ps := range phraseSets {
+		for k, p := range ps {
+			check(set+"/"+k, p.zh, p.en)
 		}
 	}
 }

@@ -21,14 +21,14 @@ type doctorID struct {
 var doctorIDs = []doctorID{
 	{id: "version"},
 	{id: "version.signature"},
-	{id: "modules"},
+	{id: "modules", keys: []string{"module_absent.configured", "config_invalid"}},
 	{id: "config"},
 	{id: "config.removed", keys: []string{"config_key_removed"}},
 	{id: "si5"},
 	{id: "control"},
 	{id: "control.token"},
 	{id: "identity"},
-	{id: "identity.format", keys: []string{"identity_v02", "datadir_too_new"}},
+	{id: "identity.format", keys: []string{"identity_v02", "datadir_too_new", "identity_file_invalid"}},
 	// identity.witness says /identity/status's sentence: in no_hub the hub
 	// row's (ux UX-C9), and while a key event is published rotation_pending
 	// or clock_skew.
@@ -56,7 +56,7 @@ var doctorIDs = []doctorID{
 	{id: "local_state", keys: []string{"local_state.detected", "local_state.repeated"}},
 	{id: "inbound"},
 	{id: "inbound.lists"},
-	{id: "capabilities.files", keys: []string{"capabilities.files_not_service"}},
+	{id: "capabilities.files", keys: []string{"capabilities.files_not_service", "capabilities.files_not_service.absent"}},
 	{id: "capabilities.inflight", keys: []string{"capabilities.inflight_low"}},
 	{id: "capabilities.allow_only", keys: []string{"capabilities.allow_only", "capabilities.allow_only_empty"}},
 	{id: "preview", keys: []string{"preview.on", "preview.no_source", "preview.with_reasoning"}},
@@ -65,14 +65,16 @@ var doctorIDs = []doctorID{
 		"unknown_debit", "proof_invalid", "proof_unavailable"}},
 	{id: "payments.reviews", keys: []string{"payments.reviews_pending", "payments.reviews_stuck"}},
 	{id: "payments.card", keys: []string{"payments.card_no_public", "payments.card_failed", "payments.price_invalid"}},
-	{id: "auto_reply", keys: []string{"autoreply.off", "autoreply.summary", "sandbox.trusted_direct", "sandbox.trusted_sandbox"}},
+	{id: "payments.unchargeable", keys: []string{"payments.unchargeable"}},
+	{id: "auto_reply", keys: []string{"module_absent", "autoreply.off", "autoreply.summary", "sandbox.trusted_direct", "sandbox.trusted_sandbox"}},
 	{id: "sandbox", keys: []string{"sandbox.ready", "sandbox.ready_egress", "platform_unsupported", "no_bwrap",
-		"userns_blocked", "userns_unavailable", "netns_failed", "seccomp_failed", "fs_isolation_failed", "no_sandbox_exec"}},
-	{id: "sandbox.agent", keys: []string{"agent_unsupported"}},
-	{id: "sandbox.upstream", keys: []string{"no_api_key", "no_api_base", "no_model"}},
+		"userns_blocked", "userns_unavailable", "netns_failed", "seccomp_failed", "fs_isolation_failed", "no_sandbox_exec",
+		"netns_failed.doctor", "seccomp_failed.doctor", "fs_isolation_failed.doctor", "sandbox_start_failed"}},
+	{id: "sandbox.agent", keys: []string{"agent_unsupported", "agent_unsupported.combo"}},
+	{id: "sandbox.upstream", keys: []string{"no_api_key", "no_api_base", "no_model", "api_base_insecure"}},
 	{id: "sandbox.egress", keys: []string{"sandbox.ready_egress", "sandbox.proxy_env", "egress_allow_invalid",
 		"egress_allow_model_host", "egress_allow_too_many"}},
-	{id: "sandbox.budget", keys: []string{"sandbox.budget", "sandbox.worst_case"}},
+	{id: "sandbox.budget", keys: []string{"sandbox.budget", "sandbox.worst_case", "doctor.daemon_down"}},
 	{id: "sandbox.limits", keys: []string{"no_cgroup_limits"}},
 	{id: "backends.peer_check", keys: []string{"backends.path_only", "peer_cred_unsupported"}},
 	{id: "backend.transport"},
@@ -92,13 +94,6 @@ var doctorIDs = []doctorID{
 // doctorDaemonDown is the sentence of a check that needs the running daemon
 // while it is not running (UX-K2).
 const doctorDaemonDown = "doctor.daemon_down"
-
-// doctorIDsPending are ids doctor still prints that ux §5.3 removed, each
-// with the work item that replaces it (R-5).
-var doctorIDsPending = map[string]string{
-	// absorbed into sandbox.upstream
-	"auto_reply.sandbox": "v030-todo(EXE-7)",
-}
 
 // doctorIDKnown reports whether id is registered.
 func doctorIDKnown(id string) bool {

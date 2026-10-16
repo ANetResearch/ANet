@@ -67,7 +67,7 @@
 # a paid call settled at the hub and a call to the official agent, each carrying its own random
 # canary. After two admin harvest/snapshot periods, the hub's data directory (WAL as the run left it),
 # the admin's, the tap's record of everything the hub was sent and answered, the hub's and the admin's
-# HTTP responses (/agents/{aid}, /fed/v1/reviews, /api/sessions*, …) and their logs are searched for
+# HTTP responses (/agents/{aid}, /fed/v3/reviews, /api/sessions*, …) and their logs are searched for
 # the canaries as raw bytes, hex and base64 (every alignment): no hit may be found; then the hub's
 # weekly backup is taken (deploy/hub-db-roll.sh) and its data directory searched again. The same search over
 # the recipients' own data must find them (so the search can see what it looks for), the recipients
@@ -158,6 +158,14 @@ addr_of(){ case $1 in req) echo "$RC" ;; prov) echo "$PC" ;; str) echo "$SC" ;;
 # ctl <node> <path> <json> — a node's control API. The bearer token goes to curl through a file
 # descriptor, not the command line: on a shared host other users can read argv.
 ctl(){
+  if [ "$2" = /hub-register ]; then
+    local _u _n _st; _u=$(printf %s "$3" | jget hub); _n=$(printf %s "$3" | jget name)
+    ( cd "$RUN" && HOME="$(home_of "$1")" XDG_RUNTIME_DIR="$RUN/xdg" ANET_DATA_DIR="$(home_of "$1")/.anet" setsid -w "$BIN/anet" hub-register "$_u" --name "$_n" </dev/null >"$RUN/reg-$1.out" 2>&1 )
+    _st=$(ctl_raw "$1" /status '{}' | jget hub state); printf '{"status":"%s"}' "$_st"; return
+  fi
+  ctl_raw "$@"
+}
+ctl_raw(){
   local tok; tok=$(cat "$(home_of "$1")/.anet/control_token.txt" 2>/dev/null)
   curl -s -m 30 -H @<(printf 'Authorization: Bearer %s\n' "$tok") -H 'Content-Type: application/json' \
        -d "$3" "http://$(addr_of "$1")$2"
@@ -468,7 +476,7 @@ def write(p, c):
         json.dump(c, f, indent=1)
 write(crp, {"control_addr": crc, "hub_url": tap, "name": "canary-requester",
             "payments": {"auto_max": 5, "agent_max": 0, "agent_daily_max": 20, "explicit_max": 10,
-                         "daily_max": 50, "payees_file": "payees.allow"}})
+                         "daily_max": 50}})
 svc = {"token_file": cptok, "capabilities": [
     {"id": "canary.echo", "url": cpurl, "timeout_ms": 5000,
      "description": "echo (joint.sh SI-1 canary)"},
@@ -476,6 +484,7 @@ svc = {"token_file": cptok, "capabilities": [
      "description": "echo for 3 credits (joint.sh SI-1 canary)"}]}
 write(cpp, {"control_addr": cpc, "hub_url": tap, "name": "canary-provider", "modules": {"service": svc}})
 off = json.load(open(offsvc))
+for _pc in off.get("inbound", {}).get("public_capabilities", []): _pc.pop("evidence", None)
 off.update({"control_addr": ofc, "hub_url": tap, "name": "canary-official"})
 write(offp, off)
 PY
@@ -490,6 +499,7 @@ PY
   done
   CR_AID=$("$FIX" aid --home "$CR/.anet"); CP_AID=$("$FIX" aid --home "$CP/.anet"); OFF_AID=$("$FIX" aid --home "$OFF/.anet")
   [ -n "$CR_AID" ] && [ -n "$CP_AID" ] && [ -n "$OFF_AID" ] || { no "the canary nodes have no identities"; return 1; }
+  "$BIN/anet-hub" --data "$RUN/hub" grant "$CR_AID" --amount 100 --reason joint >/dev/null 2>&1
   peer_allow "$CP/.anet" "$CR_AID"
   _peer_add "$CR/.anet/payees.allow" "$CP_AID"
   r1=$(ctl cr /hub-register "{\"hub\":\"$TAP_URL\",\"name\":\"canary-requester\"}" | jget status)
@@ -693,24 +703,16 @@ canary_sweep(){
   rm -rf "$d"; mkdir -p "$d"
   hubget(){ n=$((n + 1)); printf '%s %s\n' "$(fetch_to "$d/hub-$n.body" "$HUB_URL$1")" "$1" >> "$d/index.txt"; }
   for p in / /llms.txt /healthz /stats /graph /agents /a2a/v1/agents /p2p/peers /x402/supported /x402/supply \
-           /x402/issuance /x402/issuance/head /x402/witnesses /fed/v1/cards /fed/v2/cards; do
+           /x402/issuance /x402/issuance/head /x402/witnesses; do
     hubget "$p"
   done
-  code=$(fetch_to "$d/fed-reviews.body" "$HUB_URL/fed/v1/reviews")
-  printf '%s /fed/v1/reviews\n' "$code" >> "$d/index.txt"
-  for aid in "$REQ_AID" "$PROV_AID" "$STR_AID" "${CR_AID:-}" "${CP_AID:-}" "${OFF_AID:-}"; do
-    [ -n "$aid" ] || continue
-    for p in "" /card /kel /reputation /p2p /jwks.json; do hubget "/agents/$aid$p"; done
-    hubget "/a2a/v1/agents/$aid/card"
+  # The peer streams are signed (/fed/v3/*) since sealed-sender 7.4: unsigned, none of them may answer 200,
+  # and the retired anonymous routes are gone.
+  for p in /fed/v1/reviews /fed/v1/cards /fed/v2/cards /fed/v3/cards /fed/v3/reviews; do
+    code=$(fetch_to "$d/fed-stream-$(printf %s "$p" | tr / _).body" "$HUB_URL$p")
+    printf '%s %s\n' "$code" "$p" >> "$d/index.txt"
+    [ "$code" != 200 ] && ok "$p does not answer an unsigned request ($code)" || no "$p answered 200 to an unsigned request"
   done
-  # Key sets only for the canary nodes: the hub rate-limits key lookups per client address.
-  for aid in "${CR_AID:-}" "${CP_AID:-}" "${OFF_AID:-}"; do [ -n "$aid" ] && hubget "/agents/$aid/keys"; done
-  # The review stream must answer and carry the canary task's review, or its zero hits mean nothing.
-  [ "$code" = 200 ] && python3 -c '
-import json, sys
-sys.exit(0 if (json.load(open(sys.argv[1])).get("reviews") or []) else 1)' "$d/fed-reviews.body" 2>/dev/null \
-    && ok "the hub's review stream (/fed/v1/reviews) answers and carries the review" \
-    || no "the hub's review stream answered $code without the review: $(head -c 160 "$d/fed-reviews.body" 2>/dev/null)"
   if [ "${HAVE_ADMIN:-0}" = 1 ]; then
     # /discover and /vision included: their vector-search client points at this run's dead address
     # (DEAD_ADDR), so they answer from the lexical fallback and reach nothing outside the run.
@@ -875,7 +877,7 @@ esac
                    || echo "  devices:  none (anetlink not configured, 1/11 skipped)"
 
 # For section C the hub federates its directory with a second hub (discovery only, no delivery, no
-# witnessing), so that /fed/v1/reviews — the review stream peers copy from it, one of the SI-1
+# witnessing), so that /fed/v3/reviews — the review stream peers copy from it, one of the SI-1
 # surfaces — answers at all: without a discovery peer it is refused and would pass for having nothing.
 # The second hub is only a peer identity at an address; it pulls nothing.
 mkdir -p "$RUN/hub"
@@ -886,15 +888,16 @@ if [ "$CANARY" != 0 ]; then
   if [ -n "$HUB2_AID" ]; then
     printf '{"delivery":"off","discovery":"allowlist","witness":"off","home":"%s","peers":[{"aid":"%s","endpoint":"http://%s"}]}\n' \
       "$HUB_URL" "$HUB2_AID" "$HUB2_ADDR" > "$RUN/hub/federation.json"
-    echo "  federation: discovery peer $HUB2_AID at $HUB2_ADDR (for /fed/v1/reviews)"
+    echo "  federation: discovery peer $HUB2_AID at $HUB2_ADDR (for /fed/v3/reviews)"
   else
-    note "the federation peer hub did not come up: /fed/v1/reviews will be refused ($(tail -1 "$RUN/hub2.log"))"
+    note "the federation peer hub did not come up: /fed/v3/reviews will be refused ($(tail -1 "$RUN/hub2.log"))"
   fi
 fi
 
 # The hub, on an empty data directory.
 ( cd "$RUN" && exec setsid "$BIN/anet-hub" --addr "$HUB_ADDR" --data "$RUN/hub" ) >"$RUN/hub.log" 2>&1 </dev/null 9>&- &
 for _ in $(seq 1 40); do curl -sf -m 2 "$HUB_URL/healthz" >/dev/null 2>&1 && break; sleep 0.25; done
+"$BIN/anet-hub" --data "$RUN/hub" admission open >/dev/null 2>&1
 curl -sf -m 5 "$HUB_URL/healthz" >/dev/null && ok "hub up on an empty data directory" \
   || { no "hub down: $(tail -2 "$RUN/hub.log")"; exit 1; }
 
@@ -942,6 +945,7 @@ ORG_ID=$(sed 's/^org id: //' "$RUN/orgid.txt")
 # terminal, which a script does not have. The daemon reads the file on every decision. The
 # stranger is on no list.
 peer_allow "$PROV/.anet" "$REQ_AID"
+"$BIN/anet-hub" --data "$RUN/hub" grant "$REQ_AID" --amount 100 --reason joint >/dev/null 2>&1
 peer_allow "$REQ/.anet" "$PROV_AID"
 
 # Two peer processes sharing a rendezvous directory. Without them the p2p module is the one module

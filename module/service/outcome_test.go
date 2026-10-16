@@ -231,8 +231,11 @@ func TestARefusalWhoseBodyBreaksOffIsItsStatus(t *testing.T) {
 	}))
 	defer svc.Close()
 	reg := start(t, `{"allow_tcp":true,"capabilities":[{"id":"mail.send","url":"`+svc.URL+`","timeout_ms":2000}]}`)
-	if eff := invoke(t, reg, "mail.send", nil); eff.Status != effect.Unavailable {
-		t.Fatalf("status %s (%s), want UNAVAILABLE", eff.Status, eff.Message)
+	p, _ := reg.Resolve("mail.send")
+	eff, err := p.Invoke(context.Background(), provider.Call{Capability: "mail.send"})
+	var ref *provider.RefusalError
+	if !errors.As(err, &ref) || ref.Reason != "busy" || eff.Status != effect.Unavailable {
+		t.Fatalf("status %s, err %v: want a busy refusal, UNAVAILABLE", eff.Status, err)
 	}
 }
 

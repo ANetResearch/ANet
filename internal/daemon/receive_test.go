@@ -930,13 +930,25 @@ func TestAHubCannotRollBackOrForkAKnownRecipientsKeys(t *testing.T) {
 			signedKeysWith(t, prov.AID(), retired, stored.KeySetSeq+1000)},
 		{"forked KEL, key set signed under the fork", fork.KEL(),
 			signedKeysWith(t, prov.AID(), fork.Sign, stored.KeySetSeq+1000)},
-		{"current KEL, key set older than the stored one", prov.self.KEL(),
-			signedKeysWith(t, prov.AID(), prov.self.Sign, stored.KeySetSeq-1)},
+		{"current KEL, key set older than the stored one", prov.self.KEL(), nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			kel, err := identity.MarshalKEL(tc.kel)
 			if err != nil {
 				t.Fatal(err)
+			}
+			if tc.keys == nil {
+				// The stored set was signed under a key state the rotation retired, and such a set is
+				// no floor (T-1 RT-F1). So first store a set signed under the current state; an older
+				// one than that is the rollback.
+				overrideDirEntry(t, fake, prov.AID(), kel, signedKeysWith(t, prov.AID(), prov.self.Sign, stored.KeySetSeq+500))
+				if _, err := bucketKeys(req, prov.AID(), ""); err != nil {
+					t.Fatalf("a newer set under the current state was refused: %v", err)
+				}
+				if stored, err = req.ix.PeerIdentity(prov.AID()); err != nil {
+					t.Fatal(err)
+				}
+				tc.keys = signedKeysWith(t, prov.AID(), prov.self.Sign, stored.KeySetSeq-1)
 			}
 			overrideDirEntry(t, fake, prov.AID(), kel, tc.keys)
 			if _, err := bucketKeys(req, prov.AID(), ""); err == nil {

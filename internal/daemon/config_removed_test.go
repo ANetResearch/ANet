@@ -110,9 +110,6 @@ func TestFindRemovedSettings(t *testing.T) {
 		if len(got) != 1 || got[0].Path != pathOf(rs.key) || got[0].Key != rs.key || got[0].Instead != rs.instead {
 			t.Errorf("%s: %+v", rs.key, got)
 		}
-		if got[0].Pending != removedStillWritten[rs.key] {
-			t.Errorf("%s: pending %q", rs.key, got[0].Pending)
-		}
 	}
 	for raw, want := range map[string][]string{
 		`{}`:                          nil,
@@ -164,11 +161,6 @@ func TestRemovedSettingsHaveTheirPhrases(t *testing.T) {
 			t.Errorf("%s: phrase %q is not in the reason table: %s", rs.key, rs.instead, s)
 		}
 	}
-	for k := range removedStillWritten {
-		if !slices.ContainsFunc(removedSettings, func(rs struct{ key, instead string }) bool { return rs.key == k }) {
-			t.Errorf("removedStillWritten names %s, which is not a removed key", k)
-		}
-	}
 	// The phrases the table has for config_key_removed are exactly these.
 	for _, id := range []string{"pricing", "publish_prices", "voucher", "witness_hub", "providers", "accept_delegations",
 		"rotation_grace", "list_files", "reject_notice", "pending", "evidence", "require_image", "error_reply",
@@ -197,8 +189,8 @@ func TestRemovedSettingsStopTheDaemon(t *testing.T) {
 	}
 	for _, rs := range removedSettings {
 		t.Run(rs.key, func(t *testing.T) {
-			if p := removedStillWritten[rs.key]; p != "" {
-				t.Skip(p + ": this binary still writes " + rs.key)
+			if strings.HasPrefix(rs.key, "modules.p2p.") && !haveP2P || strings.HasPrefix(rs.key, "modules.service.") && !haveService || strings.HasPrefix(rs.key, "modules.x402.") && !haveX402 {
+				t.Skip("the module of this key is not in this build (-tags)")
 			}
 			l := NewLayout(t.TempDir())
 			m := freshConfigFile(t)
@@ -226,22 +218,33 @@ func TestRemovedSettingsStopTheDaemon(t *testing.T) {
 	}
 }
 
-// The keys left to the work items that still write them (removedStillWritten)
-// may only go away. Every other test skips an exempted key, so a key added to
-// the list would start the daemon again with no test failing; this list is
-// the most it may hold. A work item that deletes its code deletes its lines
-// here and there.
-func TestRemovedStillWrittenOnlyShrinks(t *testing.T) {
-	most := map[string]string{
-		"auto_reply.require_image":         "v030-todo(UX-9)",
-		"auto_reply.usage_hint":            "v030-todo(UX-9)",
-		"auto_reply.error_reply":           "v030-todo(UX-9)",
-		"auto_reply.poll_interval_seconds": "v030-todo(UX-9)",
-		"auto_reply.max_auto_replies":      "v030-todo(UX-9)",
+// No removed key is exempted from refusal any more: the list of the keys
+// this binary still wrote itself (removedStillWritten) went with the last
+// work item that wrote one (UX-9), and CheckConfigForStart runs in
+// daemon.New, so the daemon refuses them whoever starts it.
+func TestNoRemovedKeyIsExempted(t *testing.T) {
+	src, err := os.ReadFile("config.go")
+	if err != nil {
+		t.Fatal(err)
 	}
-	for k, p := range removedStillWritten {
-		if most[k] != p {
-			t.Errorf("%s (%s) is exempted from refusal; only the keys a work item still writes are (ux UX-D3)", k, p)
+	for _, gone := range []string{"removedStillWritten", "Pending string"} {
+		if strings.Contains(string(src), gone) {
+			t.Errorf("config.go still has %s", gone)
+		}
+	}
+	l := NewLayout(t.TempDir())
+	if err := l.EnsureRoot(); err != nil {
+		t.Fatal(err)
+	}
+	m := freshConfigFile(t)
+	withKey(m, "auto_reply.require_image", true)
+	writeConfigMap(t, l, m)
+	if _, err := New(l); err == nil {
+		t.Fatal("daemon.New started with a removed key in config.json")
+	} else {
+		var cr *ConfigRefusal
+		if !errors.As(err, &cr) {
+			t.Fatalf("%v", err)
 		}
 	}
 }
@@ -249,6 +252,9 @@ func TestRemovedStillWrittenOnlyShrinks(t *testing.T) {
 // Several removed keys are refused at once, so that one edit fixes them all;
 // a key still written by this binary is not among them.
 func TestRemovedSettingsAllAtOnce(t *testing.T) {
+	if !haveP2P {
+		t.Skip("the module is not in this build (-tags)")
+	}
 	l := NewLayout(t.TempDir())
 	m := freshConfigFile(t)
 	withKey(m, "pricing", "x")
@@ -326,4 +332,20 @@ func FuzzFindRemovedSettings(f *testing.F) {
 			}
 		}
 	})
+}
+
+// A without that is not a list of module names is refused in the table's
+// words, not with the decoder's Go type names.
+func TestWrongTypedWithoutIsATableSentence(t *testing.T) {
+	for _, c := range []string{`{"without":"autoreply"}`, `{"without":[1]}`, `{"without":{"a":1}}`} {
+		l := NewLayout(t.TempDir())
+		if err := os.WriteFile(l.ConfigPath(), []byte(c), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		for name, err := range map[string]error{"start": CheckConfigForStart(l), "load": func() error { _, e := LoadConfig(l); return e }()} {
+			if err == nil || strings.Contains(err.Error(), "Go struct") || strings.Contains(err.Error(), "json:") {
+				t.Errorf("%s %s: %v", name, c, err)
+			}
+		}
+	}
 }

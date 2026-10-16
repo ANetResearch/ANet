@@ -1,0 +1,47 @@
+# AppArmor profile for bubblewrap, for the sandbox anet runs local agents in.
+#
+# Ubuntu 24.04 and later stop unconfined programs from creating user namespaces
+# with capabilities (kernel.apparmor_restrict_unprivileged_userns = 1), which is
+# what bubblewrap needs. This profile gives bubblewrap itself the user-namespace
+# permission and puts everything it starts, the sandboxed agent included, under
+# a second profile that holds no capability at all. It has the same structure as
+# the bwrap-userns-restrict profile that Ubuntu ships from 24.10 on, and it
+# changes no sysctl.
+#
+# Install:
+#   anet doctor --apparmor-profile | sudo tee /etc/apparmor.d/anet-bwrap >/dev/null \
+#     && sudo apparmor_parser -r /etc/apparmor.d/anet-bwrap
+# Remove:
+#   sudo apparmor_parser -R /etc/apparmor.d/anet-bwrap && sudo rm /etc/apparmor.d/anet-bwrap
+abi <abi/4.0>,
+include <tunables/global>
+
+profile anet-bwrap /usr/bin/bwrap flags=(attach_disconnected,mediate_deleted) {
+  allow capability,
+  allow file rwlkm /{**,},
+  allow network,
+  allow unix,
+  allow ptrace,
+  allow signal,
+  allow mqueue,
+  allow io_uring,
+  allow userns,
+  allow mount,
+  allow umount,
+  allow pivot_root,
+
+  # What bubblewrap starts runs under both profiles, so it keeps no capability.
+  px /** -> anet-bwrap//&anet-bwrap-unpriv,
+}
+
+profile anet-bwrap-unpriv flags=(attach_disconnected,mediate_deleted) {
+  allow file rwlkm /{**,},
+  ix /**,
+  allow network,
+  allow unix,
+  allow ptrace,
+  allow signal,
+  allow mqueue,
+  allow io_uring,
+  audit deny capability,
+}

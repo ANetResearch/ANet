@@ -39,6 +39,8 @@ var removedCommands = []removedCLI{
 	{cmd: "accept-end", what: "anet accept-end", instead: "accept_end"},
 	{cmd: "install", what: "anet install", instead: "install"},
 	{cmd: "evidence", what: "anet evidence", instead: "evidence"},
+	{cmd: "autoreply", flag: "require-image", what: "anet autoreply set --require-image", instead: "require_image"},
+	{cmd: "auto-reply", flag: "require-image", what: "anet auto-reply set --require-image", instead: "require_image"},
 	{cmd: "payments", flag: "payees-file", what: "anet payments set --payees-file", instead: "payments_payees_file"},
 }
 

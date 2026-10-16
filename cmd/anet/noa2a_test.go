@@ -10,7 +10,7 @@ import (
 )
 
 // The other direction (SI-8): a -tags no_a2a build does not claim a2a, and
-// a config that names it says which tag removed it rather than starting
+// a config that names it is module_absent.configured rather than starting
 // without the interface its owner asked for.
 func TestABuildWithoutA2ADoesNotClaimIt(t *testing.T) {
 	for _, m := range module.Compiled() {
@@ -19,7 +19,8 @@ func TestABuildWithoutA2ADoesNotClaimIt(t *testing.T) {
 		}
 	}
 	_, err := module.Build(map[string][]byte{"a2a": []byte(`{}`)})
-	if err == nil || !strings.Contains(err.Error(), "no_a2a") {
+	if err == nil || !strings.Contains(err.Error(), "modules.a2a") || !strings.Contains(err.Error(), "(a2a)") ||
+		!strings.Contains(err.Error(), "install.sh") {
 		t.Fatalf("modules.a2a in a no_a2a build: %v", err)
 	}
 }

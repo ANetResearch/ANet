@@ -168,10 +168,13 @@ func TestTheToolSurfaceIsWhatWePromise(t *testing.T) {
 	}
 	// an internal note: told "the limits are 0 until the operator raises
 	// them", the model told the user a priced skill needed `anet pay` on a
-	// node whose limits covered it. No tool shows the limits.
+	// node whose limits covered it. The limits are in get_balance.limits.
 	for _, n := range []string{"send_message", "submit_payment"} {
-		if !strings.Contains(desc(n), "no tool shows") {
-			t.Errorf("%s must say that no tool shows the spending limits", n)
+		if strings.Contains(desc(n), "no tool shows") {
+			t.Errorf("%s still says that no tool shows the spending limits", n)
+		}
+		if !strings.Contains(desc(n), "get_balance.limits") || !strings.Contains(desc(n), "anet.spend_check") {
+			t.Errorf("%s must say where the limits and who can pay are", n)
 		}
 	}
 	if !strings.Contains(desc("list_agents"), "never sent to the hub") {
@@ -229,10 +232,13 @@ func TestTheToolSurfaceIsWhatWePromise(t *testing.T) {
 	// The short rules go to every client on connect.
 	ins := sess.InitializeResult().Instructions
 	for _, want := range []string{"anet.effect_status=UNVERIFIED is not success", "wait_task", "submit_payment", "untrusted",
-		"do not resend it as if it had not run", "no tool shows them", "do not tell the user what they are"} {
+		"do not resend it as if it had not run", "get_balance (limits)", "node_status (payments)"} {
 		if !strings.Contains(ins, want) {
 			t.Errorf("server instructions must mention %q; got %q", want, ins)
 		}
+	}
+	if strings.Contains(ins, "no tool shows them") {
+		t.Error("the limits are shown by get_balance and node_status; the instructions must not say no tool shows them")
 	}
 	// The limits' default is not this node's value (an internal note).
 	if strings.Contains(ins, "which are 0 until the operator raises them") {
@@ -360,7 +366,7 @@ var requestShapes = []struct {
 // the body is compared whole, so a field that leaks in (a pay flag, a
 // payload) fails as surely as one that goes missing.
 func TestEachToolSendsTheRequestTheRouteExpects(t *testing.T) {
-	f := &fakeControl{reply: map[string]string{"/inbound/pending": `{"pending":[]}`}}
+	f := &fakeControl{reply: map[string]string{"/inbound/pending": `{"pending":[]}`, "/payments/status": statusAnswer}}
 	sess := connect(t, f)
 	covered := map[string]bool{}
 	for _, tc := range requestShapes {
@@ -370,8 +376,12 @@ func TestEachToolSendsTheRequestTheRouteExpects(t *testing.T) {
 			t.Errorf("%s%v: %s", tc.tool, tc.args, msg)
 			continue
 		}
-		if len(f.calls) != n+1 {
-			t.Errorf("%s made %d calls, want 1", tc.tool, len(f.calls)-n)
+		want := 1
+		if tc.tool == "get_balance" {
+			want = 2 // /balance, then /payments/status
+		}
+		if len(f.calls) != n+want {
+			t.Errorf("%s made %d calls, want %d", tc.tool, len(f.calls)-n, want)
 			continue
 		}
 		got := f.calls[n]
@@ -436,7 +446,7 @@ func TestMCPNeverCallsManualGatewayOrRedeemRoutes(t *testing.T) {
 	forbidden := []string{"/tasks/pay-manual", "/redeem", "/delegate", "/message",
 		"/end", "/payments/limits", "/peers/allow", "/inbound/approve", "/shutdown"}
 	for _, p := range forbidden {
-		if allowedPaths[p] {
+		if _, ok := allowedPaths[p]; ok {
 			t.Errorf("%s is on the MCP allowlist", p)
 		}
 		f := &fakeControl{}
@@ -455,7 +465,7 @@ func TestMCPNeverCallsManualGatewayOrRedeemRoutes(t *testing.T) {
 	}
 	_, _ = sess.CallTool(context.Background(), &mcp.CallToolParams{Name: "reply_task", Arguments: map[string]any{}})
 	for _, c := range f.calls {
-		if !allowedPaths[c.path] {
+		if _, ok := allowedPaths[c.path]; !ok {
 			t.Errorf("a tool called %s, outside the allowlist", c.path)
 		}
 		if c.path == "/tasks/pay" && c.body["purpose"] != nil {
@@ -652,8 +662,8 @@ func TestDaemonErrorsReachTheCaller(t *testing.T) {
 	res, err := sess.CallTool(context.Background(), &mcp.CallToolParams{
 		Name: "submit_payment", Arguments: map[string]any{"task_id": "ix-1"}})
 	msg, isErr := resultText(t, res, err)
-	if !isErr || !strings.Contains(msg, "over the agent limit") || !strings.Contains(msg, "reason: agent_max") {
-		t.Errorf("the daemon's explanation must survive to the model, got %q", msg)
+	if !isErr || msg != "anet: payment refused: over the agent limit" {
+		t.Errorf("the tool error is the daemon's error, word for word (UX-M4), got %q", msg)
 	}
 }
 
@@ -800,5 +810,18 @@ func TestAgentToolsSayWhatKeyStateMeans(t *testing.T) {
 	}
 	if seen != 2 {
 		t.Fatalf("%d of the two agent tools found", seen)
+	}
+}
+
+// DLV-Q-2: the honesty sentence carries the delivery paragraph word for word.
+func TestHonestyText(t *testing.T) {
+	const want = "Metadata anet.delivery says whether the other side's node confirmed the latest message this node sent on the task: pending, confirmed, or unconfirmed. " +
+		"While it is pending, anet.delivery_detail is not_sent, sent, or queued_at_hub (waiting at the hub for the other side to collect it), " +
+		"and anet.delivery_wait, when present, names why it is held; the task has not failed and anet retries on its own. " +
+		"TASK_STATE_FAILED with anet.reason=delivery_unconfirmed means the message left this node but was never confirmed: " +
+		"anet asked the other side to cancel, yet it may still have arrived, so do not assume it did not run. " +
+		"anet.reason=undeliverable means it never left this node."
+	if !strings.Contains(honesty, want) {
+		t.Error("honesty lacks the DLV-Q-2 paragraph")
 	}
 }

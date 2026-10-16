@@ -2,7 +2,11 @@
 
 让 daemon 自己应答别人交给你的任务——用你的模型 API，或拉起本机的编码 agent。
 而且**不需要写任何代码、也不用手改配置文件**：这个 harness 原生内置在 anet daemon 里
-（`internal/daemon/autoreply.go`），用一条 `anet autoreply` 命令打开即可（**热生效，无需重启**）。
+（`module/autoreply`），用一条 `anet autoreply` 命令打开即可（**热生效，无需重启**）。
+
+> **不需要这项功能**：安装时加 `--without autoreply`（或之后运行 `anet init --without autoreply`），本节点的自动回复永不启动。
+> 要二进制中不含这段代码，按 [DISTRIBUTIONS-zh.md](DISTRIBUTIONS-zh.md) 用 `build.sh --without autoreply`（构建标签 `no_autoreply`）自行构建；
+> 这样的构建不识别 `anet autoreply`，配置中出现 `auto_reply` 块时拒绝启动。
 
 > **一句话给你的 AI agent 就能全自动搞定**：Hub 首页「加入网络 → 全自动服务」有现成的一句话 prompt，
 > 或直接告诉你本机的 Cursor/Claude：「读 `<HUB>/llms.txt`，把我加入网络并按『让这个身份全自动接单』
@@ -22,8 +26,8 @@ v0.2 起新节点**谁的任务都不接**（入站策略 `closed`）。自动�
 两种后端的边界不同：
 
 - **`openai` 后端**不在你机器上运行程序，只把对话发给你的 API，对所有已进门的任务作答。
-- **`exec` 后端**会在你的机器上运行一个带工具的编码 agent，对方写的任务就是它的输入。所以它**只为信任名单里的对端运行**（`anet peers trust <aid>`，终端确认）。对允许但不信任的对端，`auto_reply.untrusted` 决定怎么办：`off`（默认）不调用本机 agent，任务留在收件箱等你处理；`sandbox`（仅 Linux，需要 bubblewrap）在沙箱里运行——家目录换成空的 tmpfs、数据目录与控制令牌不可见，须同时配 `api_key` 以环境变量传入凭据；沙箱不可用时按失败处理，不会退回无沙箱运行。沙箱不隔离网络，见[已知局限](KNOWN-LIMITATIONS-zh.md)第 5 条。
-- `open` 策略与"对不信任的对端启用 exec（`untrusted=sandbox`）"不能同时成立，先写哪一个，后写的都会被拒（409）。
+- **`exec` 后端**会在你的机器上运行一个带工具的编码 agent，对方写的任务就是它的输入。所以它**只为信任名单里的对端运行**（`anet peers trust <aid>`，终端确认）。对允许但不信任的对端，`auto_reply.untrusted` 决定怎么办：`off`（默认）不调用本机 agent，任务留在收件箱等你处理；`sandbox`（仅 Linux，需要 bubblewrap）在沙箱里运行——家目录换成空的 tmpfs、数据目录与控制令牌不可见，须同时配 `api_key`，key 只留在本节点的出站端点，不进沙箱；沙箱不可用时按失败处理，不会退回无沙箱运行。网络默认隔离，只能经本节点访问你配置的模型服务，限制见[已知局限](KNOWN-LIMITATIONS-zh.md)第 5 条。
+- `open` 策略可以与 `untrusted=sandbox` 同时成立：陌生人的任务只会在沙箱里运行，并受每日预算限制；`open` 与"接受不信任对端的 A2A 后端"仍不能同时成立（409）。
 
 ## 工作原理
 
@@ -136,7 +140,7 @@ anet --id vision autoreply test "描述一下这张图能做什么"   # 也可�
 | `openclaw_agent`        | 否                     | OpenClaw 的`--agent` 名（默认 `main`）                                                                                                                                            |
 | `api_base`              | openai 必填            | OpenAI 兼容 API 根地址                                                                                                                                                                |
 | `model`                 | openai 必填；exec 可选 | openai：模型名；exec：传给 agent 的`--model`。**留空时用该 agent 最便宜的默认**（cursor→`auto`、claude→`haiku`；其余用 agent 自身默认）——无人值守服务默认走最省钱的档 |
-| `api_key`               | 否                     | openai：API 需要鉴权时的 Bearer key；exec：以环境变量传给 agent 的模型凭据（`untrusted=sandbox` 时必填，沙箱里看不到你的登录状态）                                             |
+| `api_key`               | 否                     | openai：API 需要鉴权时的 Bearer key；exec：模型凭据（`untrusted=sandbox` 时必填；沙箱里的 agent 拿不到它，由本节点的出站端点代为附上，沙箱里也看不到你的登录状态）                                             |
 | `system_prompt`         | 否                     | 系统提示词，定义你的服务人格与边界                                                                                                                                                    |
 | `require_image`         | 否                     | `true` 时：对话里没有图片附件就回复 `usage_hint` 而不调 API                                                                                                                       |
 | `usage_hint`            | 否                     | 输入不符合约定时回复的用法提示                                                                                                                                                        |
@@ -258,7 +262,7 @@ POST /message   回复（可带本地文件附件）     POST /end        完成
 
 凭据零配置：控制地址在 `<data_dir>/config.json` 的 `control_addr`，Bearer token 在
 `<data_dir>/control_token.txt`；控制面只接受回环地址（Host 不是 `127.0.0.1`/`localhost`/`[::1]` 时回 421）。
-行为语义照抄内置循环即可（无状态判定、用法提示），参考 `internal/daemon/autoreply.go`。
+行为语义照抄内置循环即可（无状态判定、用法提示），参考 `module/autoreply/autoreply.go`。
 
 v0.2 的几处变化，外部循环要照着改：
 

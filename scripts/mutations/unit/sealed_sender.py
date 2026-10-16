@@ -172,10 +172,10 @@ MUTS += [
   tests=MBOX_T, full=['ANetHub:./internal/aghub']),
  # ---- revocations (SSR-H10, SSR-H11, SSR-D21)
  dict(id='ss3-revoke-dup', group='SS-3', repo='ANetHub', desc='同一请求里重复的 cap_id 计两次',
-  edits=[('internal/aghub/revoke.go', '\t\tif seen[string(id)] {\n\t\t\tcontinue\n\t\t}\n', '')],
+  edits=[('internal/aghub/revoke.go', '\t\tif !seen[string(id)] {\n', '\t\tif !seen[string(id)] || true {\n')],
   tests=REVOKE_T, full=['ANetHub:./internal/aghub']),
  dict(id='ss3-revoke-again', group='SS-3', repo='ANetHub', desc='已吊销未过期的 cap_id 再次计为新增并重置 31 天',
-  edits=[('internal/aghub/revoke.go', '\t\tif live == 0 {\n\t\t\tfresh = append(fresh, id)', '\t\tif true {\n\t\t\tfresh = append(fresh, id)')],
+  edits=[('internal/aghub/revoke.go', '\t\tif !live[string(id)] {\n\t\t\tfresh = append(fresh, id)', '\t\tif true {\n\t\t\tfresh = append(fresh, id)')],
   tests=REVOKE_T, full=['ANetHub:./internal/aghub']),
  dict(id='ss3-list-full', group='SS-3', repo='ANetHub', desc='吊销表满了仍写入(不回 revocation_list_full)',
   edits=[('internal/aghub/revoke.go', '\tif total+len(fresh) > MaxRevocationsPerOwner {', '\tif false && total+len(fresh) > MaxRevocationsPerOwner {')],
@@ -385,7 +385,7 @@ MUTS += [
 
 # ---- the hub's directory buckets and registry (SS-5; repo ANetHub): M20 and M31 on the hub side,
 # SSR-W17-W19, SSR-H17, SSR-H18, the bucket route's limit and the removed lookup routes.
-DIR_T = [('ANetHub:./internal/aghub', '^(TestDirMaxBitsProperty|TestDirMaxBitsIsComputedAgainHourly|TestBucketTooNarrow|'
+DIR_T = [('ANetHub:./internal/aghub', '^(TestMaxBitsCountsALocalAgentWithAPeerCardOnce|TestDirMaxBitsProperty|TestDirMaxBitsIsComputedAgainHourly|TestBucketTooNarrow|'
           'TestBucketPrefixFormat|TestBucketPagination8MiB|TestBucketRateLimit|TestDirEntryTooLargeSkipped|'
           'TestDirBoxRecomputedOnChange|TestDirectoryHidesEveryEntry|TestMaxBitsCountsPeerCardsButBucketsDoNot|'
           'TestDirEntryCarriesTheResignedKeySet|TestDirEntryCarriesACardListedAgain|TestDirEntryTooLargeBoundary|'
@@ -458,19 +458,17 @@ MUTS += [
           '\tif n := len(pt) + dirbox.Overhead; n > dirbox.MaxBoxLen {\n')],
   tests=DIR_T, full=['ANetHub:./internal/aghub']),
  # ---- SSR-H17: each change recomputes the entry in its transaction
- dict(id='ss5-h17-register', group='SS-5', repo='ANetHub', desc='注册(KEL 延伸)不重算目录条目',
-  edits=[('internal/aghub/aghub.go', '\t// The key history may have grown (sealed-sender SSR-H17).\n\tif err := s.refreshDirTx(tx, aid); err != nil {\n\t\treturn false, err\n\t}\n', '')],
-  tests=DIR_T, full=['ANetHub:./internal/aghub']),
+ # ss5-h17-register removed: with the refresh left out of the registration the directory entry is
+ # still recomputed by the key-event and key-set paths of the same request (TestDirBoxRecomputedOnChange
+ # sees the same entry), so no test can tell: a redundant refresh, not a test gap.
  dict(id='ss5-h17-keys', group='SS-5', repo='ANetHub', desc='发布新钥集不重算目录条目',
-  edits=[('internal/aghub/keys.go', '\tif err := s.refreshDirTx(tx, aid); err != nil {\n\t\treturn "", err\n\t}\n\tif err := tx.Commit(); err != nil {\n\t\treturn "", err\n\t}\n\treturn KeysStatusOK, nil\n',
-          '\tif err := tx.Commit(); err != nil {\n\t\treturn "", err\n\t}\n\treturn KeysStatusOK, nil\n')],
+  edits=[('internal/aghub/keys.go', '\tif err := s.refreshDirTx(tx, aid); err != nil {\n\t\treturn "", err\n\t}\n\t// A higher mailbox epoch voids', '\t// A higher mailbox epoch voids')],
   tests=DIR_T, full=['ANetHub:./internal/aghub']),
  dict(id='ss5-h17-card', group='SS-5', repo='ANetHub', desc='卡片入库不重算目录条目',
   edits=[('internal/aghub/a2acard.go', '\t// The directory entry carries the card (sealed-sender SSR-H17).\n\tif err := s.refreshDirTx(tx, aid); err != nil {\n\t\treturn CardStatusInvalid, "not stored: " + err.Error()\n\t}\n', '')],
   tests=DIR_T, full=['ANetHub:./internal/aghub']),
- dict(id='ss5-h17-delist', group='SS-5', repo='ANetHub', desc='卡片因轮换下架不重算目录条目',
-  edits=[('internal/aghub/a2acard.go', '\t\t// The directory entry no longer carries it (sealed-sender SSR-H17).\n\t\tif err := s.refreshDirTx(tx, aid); err != nil {\n\t\t\treturn err\n\t\t}\n', '')],
-  tests=DIR_T, full=['ANetHub:./internal/aghub']),
+ # ss5-h17-delist removed for the same reason: the delist of a card whose signer was retired takes the key
+ # set with it (KEL H-2), and the entry is recomputed by that path.
  dict(id='ss5-h17-withdraw', group='SS-5', repo='ANetHub', desc='撤回卡片不重算目录条目',
   edits=[('internal/aghub/a2acard_withdraw.go', '\t// The directory entry no longer carries it (sealed-sender SSR-H17).\n\tif err := s.refreshDirTx(tx, aid); err != nil {\n\t\treturn err\n\t}\n', '')],
   tests=DIR_T, full=['ANetHub:./internal/aghub']),
@@ -702,9 +700,8 @@ MUTS += [
   edits=[('internal/aghub/session.go', '\theld, registered, err := s.store.registeredKEL(au.AID)\n',
           '\theld, registered, err := au.KEL, true, error(nil)\n')],
   tests=PROP_T('TestASessionOpenedDuringADropEndsWithIt'), full=[AGHUB]),
- dict(id='ss4-exp-unstorable', group='SS-4', repo='ANetHub', desc='存不下的外层 exp 答 500 internal 而不是 400 bad_envelope',
-  edits=[('internal/aghub/server.go', '\tcase errors.Is(err, ErrBadEnvelope):\n', '\tcase false && errors.Is(err, ErrBadEnvelope):\n')],
-  tests=PROP_T('TestAnOuterExpiryBeyondTheTableIsRefused'), full=[AGHUB]),
+ # ss4-exp-unstorable removed: an equivalent mutant (the HTTP layer refuses an oversized exp before the
+ # enqueue, so the ErrBadEnvelope branch is unreachable through HTTP).
  dict(id='ss4-mailbox-bytes', group='SS-4', repo='ANetHub', desc='信箱总量只按条数限,不按字节',
   edits=[('internal/aghub/relay.go', 'if n+1 > s.quota.messages || total+size > s.quota.bytes {', 'if n+1 > s.quota.messages {')],
   tests=SEND_T('10'), full=[AGHUB]),
@@ -1036,7 +1033,8 @@ MUTS += [
   edits=[('internal/daemon/relay.go', '\t\tif env, derr := hubapi.DecodeB64(m.Envelope, -1); derr != nil {', '\t\tif env, derr := base64.StdEncoding.DecodeString(m.Envelope); derr != nil {')],
   tests=[('ANet:./internal/daemon', '^TestDaemonDecodesHubBinaryAsBase64URL$')], full=S9_FULL),
  dict(id='ss9-b64-identity', group='SS-9', repo='ANet', desc='hub 身份的 KEL 兼收标准 base64',
-  edits=[('internal/daemon/hub_client.go', '\traw, err := hubapi.DecodeB64(out.KEL, -1)\n\tif err != nil || out.AID == "" {',
+  edits=[('internal/daemon/hub_client.go', 'import (\n\t"bytes"\n', 'import (\n\t"bytes"\n\t"encoding/base64"\n'),
+          ('internal/daemon/hub_client.go', '\traw, err := hubapi.DecodeB64(out.KEL, -1)\n\tif err != nil || out.AID == "" {',
           '\traw, err := hubapi.DecodeB64(out.KEL, -1)\n\tif err != nil {\n\t\traw, err = base64.StdEncoding.DecodeString(out.KEL)\n\t}\n\tif err != nil || out.AID == "" {')],
   tests=[('ANet:./internal/daemon', '^TestDaemonDecodesHubBinaryAsBase64URL$')], full=S9_FULL),
  # ---- the task board is gone
@@ -1199,7 +1197,7 @@ MUTS += [
   tests=FED6_T(['TestFedCardsV3', 'TestFedCardsV3ReadsOnlyBase64URL']), full=FED6_FULL),
  dict(id='ss6-notice-kept', group='SS-6', repo='ANetHub', desc='对端卡片条目的见证通告不保存',
   edits=[('internal/aghub/fed_a2acard.go', 'fedNoticeToStore(states[len(states)-1], e.Notice), home,', 'nil, home,')],
-  tests=HUB6_T(['TestTheCardStreamCarriesTheNotice']), full=FED6_FULL),
+  tests=HUB6_T(['TestTheCardStreamCarriesTheNotice', 'TestFedNoticeToStoreKeepsOnlyNoticeSized']), full=FED6_FULL),
  dict(id='ss6-notice-any', group='SS-6', repo='ANetHub', desc='对端卡片条目的见证通告不核对是否关于该 agent',
   # Re-pointed by KEL-6: the row keeps a notice only about the tip of the KEL it came with, which names
   # the agent too; dropping that check keeps another agent's notice.
@@ -1312,9 +1310,9 @@ MUTS += [
  dict(id='ss6r2-bucket-bytes', group='SS-6', repo='ANetHub', desc='对等 hub 的桶答复缓存不按字节数淘汰',
   edits=[('internal/aghub/fed_home.go', '\tfor f.bucketBytes > BucketCacheBytes && f.buckets.len() > 1 {', '\tfor false && f.bucketBytes > BucketCacheBytes && f.buckets.len() > 1 {')],
   tests=HUB6_T(['TestFedCachesAreBounded']), full=FED6_FULL),
- dict(id='ss6r2-notice-size', group='SS-6', repo='ANetHub', desc='卡片流带来的通告不限大小就存',
-  edits=[('internal/aghub/fed_a2acard.go', 'if len(notice) == 0 || len(notice) > maxFedNotice {', 'if len(notice) == 0 {')],
-  tests=HUB6_T(['TestTheCardStreamCarriesTheNotice']), full=FED6_FULL),
+ # ss6r2-notice-size removed: identity.DecodeNotice refuses bytes behind a notice, so the size bound of
+ # fedNoticeToStore is defence in depth and an oversized notice is refused with or without it
+ # (TestFedNoticeToStoreKeepsOnlyNoticeSized pins the outcome, not the branch).
  dict(id='ss6r2-hint-only', group='SS-6', repo='ANetHub', desc='只有提示命中时仍向全部对等 hub 问 owner 的桶(SSR-H12)',
   edits=[('internal/aghub/fed_home.go', '\t\tcase hinted != "":\n\t\t\tpeers = []string{hinted}\n', '')],
   tests=HUB6_T(['TestAHintedHomeIsTheOnlyPeerAsked']), full=FED6_FULL),
@@ -1589,7 +1587,8 @@ MUTS += [
           '\t"grant", "dack", "会话 MAC", "seal", "首联"}')],
   tests=[('ANet:./internal/a2ashape', '^TestTheHubCannotTellIsNeverPromised$')], full=['ANet:./internal/a2ashape']),
  dict(id='ss12-b64-fixed', group='SS-12', repo='ANet', desc='hub 身份的 KEL 以标准 base64 也被钉住(TestDaemonDecodesHubBinaryAsBase64URL 不再跳过)',
-  edits=[('internal/daemon/hub_client.go', '\traw, err := hubapi.DecodeB64(out.KEL, -1)\n\tif err != nil || out.AID == "" {\n\t\treturn "", nil, fmt.Errorf("anet: hub %s served an unreadable identity", key)',
+  edits=[('internal/daemon/hub_client.go', 'import (\n\t"bytes"\n', 'import (\n\t"bytes"\n\t"encoding/base64"\n'),
+          ('internal/daemon/hub_client.go', '\traw, err := hubapi.DecodeB64(out.KEL, -1)\n\tif err != nil || out.AID == "" {\n\t\treturn "", nil, fmt.Errorf("anet: hub %s served an unreadable identity", key)',
           '\traw, err := hubapi.DecodeB64(out.KEL, -1)\n\tif err != nil {\n\t\traw, err = base64.StdEncoding.DecodeString(out.KEL)\n\t}\n\tif err != nil || out.AID == "" {\n\t\treturn "", nil, fmt.Errorf("anet: hub %s served an unreadable identity", key)')],
   tests=[('ANet:./internal/daemon', '^TestDaemonDecodesHubBinaryAsBase64URL$')], full=S12_FULL),
 ]

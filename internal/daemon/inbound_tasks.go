@@ -63,7 +63,7 @@ import (
 
 // inboundFeedInterval is how often a feed looks for tasks when nothing
 // woke it; an arriving delegation or message wakes it at once
-// (kickAutoReply). A variable so tests can shorten it.
+// (kickTurns). A variable so tests can shorten it.
 var inboundFeedInterval = 3 * time.Second
 
 // inboundFeedBuffer bounds the deliveries a subscriber may have unread.
@@ -183,21 +183,25 @@ func backendContextID(peer, contextID string) string {
 }
 
 // InboundTasks implements module.InboundTaskHost.
-func (h moduleHost) InboundTasks(ctx context.Context) (<-chan module.Task, error) {
+func (h inboundTaskPart) InboundTasks(ctx context.Context) (<-chan module.Task, error) {
 	return h.d.inboundTasks(ctx)
 }
 
 // ReplyTask implements module.InboundTaskHost.
-func (h moduleHost) ReplyTask(ctx context.Context, taskID string, msg a2ashape.Message, state a2ashape.TaskState) (module.Task, error) {
+func (h inboundTaskPart) ReplyTask(ctx context.Context, taskID string, msg a2ashape.Message, state a2ashape.TaskState) (module.Task, error) {
 	return h.d.replyInbound(ctx, taskID, msg, state)
 }
 
 // InboundTask implements module.InboundTaskHost.
-func (h moduleHost) InboundTask(_ context.Context, taskID string) (module.Task, bool, error) {
+func (h inboundTaskPart) InboundTask(_ context.Context, taskID string) (module.Task, bool, error) {
 	return h.d.inboundTaskNow(taskID)
 }
 
-var _ module.InboundTaskHost = moduleHost{}
+// inboundTaskPart is the InboundTaskHost grant: embedded in the Host of the
+// modules whose name-table row lists it (hostgrants.go), and in no other.
+type inboundTaskPart struct{ d *Daemon }
+
+var _ module.InboundTaskHost = inboundTaskPart{}
 
 // inboundTaskNow is task id as a feed would deliver it now (InboundTask):
 // the same decision (backendTakes, with the lists as they are now), the

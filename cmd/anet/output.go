@@ -77,12 +77,7 @@ func printAnswer(out []byte, code int, task bool) error {
 	if code < 200 || code >= 300 {
 		return answerError(code, out)
 	}
-	var pretty bytes.Buffer
-	if json.Indent(&pretty, out, "", "  ") == nil {
-		fmt.Fprintln(outW(), strings.TrimRight(pretty.String(), "\n"))
-	} else {
-		fmt.Fprintln(outW(), strings.TrimRight(string(out), "\n"))
-	}
+	printJSONSafe(out)
 	for _, l := range answerLines(out, task, a2ashape.Lang(), time.Now()) {
 		fmt.Fprintln(errW(), l)
 	}
@@ -132,9 +127,9 @@ func answerLines(out []byte, task bool, lang a2ashape.Language, now time.Time) [
 		if t.Status.State == a2ashape.TaskStateFailed || t.Status.State == a2ashape.TaskStateRejected {
 			reasonLine = messageText(t.Status.Message)
 		}
-		// v030-todo(RC-5): line 1 is also the sentence of one message the other side refused while
-		// the task goes on (ux §1.1 class M: that message's anet.reason, its placeholder text), once
-		// the Message projection carries it.
+		if reasonLine == "" {
+			reasonLine = refusedMessageLine(t, lang)
+		}
 		add("task.reason", reasonLine)
 		if s, ok := deliveryLine(t, lang, now); ok {
 			add("task.delivery", s)
@@ -164,18 +159,37 @@ func answerLines(out []byte, task bool, lang a2ashape.Language, now time.Time) [
 	return lines
 }
 
-// deliveryLine is line 2 of UX-C2, the delivery of the latest message this
-// node sent on the task, when it is pending or unconfirmed.
-//
-// v030-todo(RC-5): a2ashape.DeliveryLine(task, lang, nowMS) (DLV-L-2), once
-// the projection carries anet.delivery.
-var deliveryLine = func(t a2ashape.Task, lang a2ashape.Language, now time.Time) (string, bool) { return "", false }
+// refusedMessageLine is line 1 for a task that goes on although the other
+// side refused one message of it (ux §1.1 class M): the sentence of that
+// message's anet.reason, when the reason table has one.
+func refusedMessageLine(t a2ashape.Task, lang a2ashape.Language) string {
+	if t.Status.State.Terminal() {
+		return ""
+	}
+	for i := len(t.History) - 1; i >= 0; i-- {
+		code, _ := t.History[i].Metadata[a2ashape.KeyReason].(string)
+		if code == "" {
+			continue
+		}
+		if r, ok := a2ashape.Lookup(code); !ok || r.Code != code {
+			return ""
+		}
+		peer, _ := t.Metadata[a2ashape.KeyPeerAID].(string)
+		return a2ashape.Sentence(code, lang, a2ashape.Args{"peer": peer})
+	}
+	return ""
+}
 
-// keptLine is line 4 of UX-C2, task.kept_until of an ended task.
-//
-// v030-todo(FS-11): the projection's anet.content_expires_at and the
-// retention, task.kept_until.
-var keptLine = func(t a2ashape.Task, lang a2ashape.Language, now time.Time) (string, bool) { return "", false }
+// deliveryLine is line 2 of UX-C2, the delivery of the latest message this
+// node sent on the task, when it is pending or unconfirmed (DLV-L-2).
+var deliveryLine = func(t a2ashape.Task, lang a2ashape.Language, now time.Time) (string, bool) {
+	return a2ashape.DeliveryLine(t, lang, now.UnixMilli())
+}
+
+// keptLine is line 4 of UX-C2, task.kept_until of an ended task: the
+// projection's anet.content_expires_at and the retention it implies
+// (a2ashape.KeptLine).
+var keptLine = a2ashape.KeptLine
 
 // reasonNext is the next step of a task's reason line or payment line: the
 // projection's anet.next, the command of the row its sentence came from,
@@ -252,4 +266,53 @@ func diagnoseNoDaemon(base, dataDir string, cause error) error {
 func elsewhereCommand(name string, typed []string) string {
 	_, rest := extractGlobalID(typed)
 	return typedCommand(append([]string{"--id", name}, rest...))
+}
+
+// printJSONSafe prints a daemon answer as indented JSON on stdout with the
+// runes a terminal may act on written as \uXXXX escapes. Go's encoder
+// escapes the C0 controls but leaves U+0080-U+009F (the 8-bit CSI among
+// them) and the bidirectional controls raw, and a peer's words are in the
+// answer. The escaped text is the same JSON.
+func printJSONSafe(out []byte) {
+	var pretty bytes.Buffer
+	text := string(out)
+	if json.Indent(&pretty, out, "", "  ") == nil {
+		text = pretty.String()
+	}
+	fmt.Fprintln(outW(), escapeTerminalRunes(strings.TrimRight(text, "\n")))
+}
+
+// escapeTerminalRunes writes C1 controls, bidi controls, line and paragraph
+// separators, the BOM and DEL as \uXXXX. (In valid JSON these appear only
+// inside strings, where the escape means the same rune.)
+func escapeTerminalRunes(s string) string {
+	need := false
+	for _, r := range s {
+		if terminalRune(r) {
+			need = true
+			break
+		}
+	}
+	if !need {
+		return s
+	}
+	var b strings.Builder
+	for _, r := range s {
+		if terminalRune(r) {
+			fmt.Fprintf(&b, "\\u%04x", r)
+		} else {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+func terminalRune(r rune) bool {
+	switch {
+	case r == 0x7f, r >= 0x80 && r <= 0x9f:
+		return true
+	case r == 0x061c, r == 0x200e, r == 0x200f, r >= 0x2028 && r <= 0x202e, r >= 0x2066 && r <= 0x2069, r == 0xfeff:
+		return true
+	}
+	return false
 }

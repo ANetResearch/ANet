@@ -25,6 +25,7 @@
 package anetlink
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -45,8 +46,8 @@ const registerTimeout = 10 * time.Second
 
 func init() {
 	module.Register(name, func(raw []byte) (module.Module, error) {
-		if len(raw) == 0 {
-			return nil, nil // compiled in, not configured
+		if len(raw) == 0 || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+			return nil, nil // compiled in, not configured; "anetlink": null is the same as no block
 		}
 		var cfg Config
 		if err := json.Unmarshal(raw, &cfg); err != nil {
@@ -123,3 +124,16 @@ func (m *Module) Start(ctx context.Context, h module.Host) error {
 }
 
 func (m *Module) Stop(context.Context) error { return nil }
+
+// LocalPaths implements module.LocalPaths: the C1 socket, which a sandbox
+// must never be able to open (K-5). The default socket is the kernel's to
+// list whether or not this module is available (anethome.DefaultC1Socket);
+// a configured one is listed here.
+func (m *Module) LocalPaths() []string {
+	if m.prov == nil {
+		return nil
+	}
+	return []string{m.prov.Socket()}
+}
+
+var _ module.LocalPaths = (*Module)(nil)

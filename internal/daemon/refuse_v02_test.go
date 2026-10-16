@@ -133,8 +133,9 @@ func TestRefuseNewerDataDir(t *testing.T) {
 		"sign": identityFileTagPrefix + "+3", "other prefix": "anet-identity/3"} {
 		t.Run("identity file tag "+name, func(t *testing.T) {
 			layout := v02DataDir(t, false, func(l Layout) { writeIdentityTag(t, l, tag) })
-			if err := CheckDataDirForStart(layout); err != nil {
-				t.Fatalf("a damaged identity file was refused as old or new: %v", err)
+			err := CheckDataDirForStart(layout)
+			if !isRefusal(err, "identity_file_invalid") {
+				t.Fatalf("a damaged identity file was refused as old or new, or not at all: %v", err)
 			}
 		})
 	}

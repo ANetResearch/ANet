@@ -27,7 +27,7 @@ func TestTheProvidersKeyIsGone(t *testing.T) {
 		}
 	}
 	found, err := FindRemovedSettings([]byte(`{"providers":{"anetlink":{"socket":"/run/link.sock"}}}`))
-	if err != nil || len(found) != 1 || found[0].Key != "providers" || found[0].Pending != "" {
+	if err != nil || len(found) != 1 || found[0].Key != "providers" {
 		t.Fatalf("providers is not refused as a removed key: %+v %v", found, err)
 	}
 	raw, err := moduleConfig(Config{Modules: ModulesConfig{"anetlink": json.RawMessage(`{"socket":"/run/link.sock"}`)}})

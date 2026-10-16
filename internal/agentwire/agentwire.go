@@ -319,19 +319,6 @@ func legacyOpenClaw(o *Options) (Result, bool) {
 	return finish(o, r, changes, nil, err, Removed, NotWired), true
 }
 
-// RemoveLegacyOpenClaw is legacyOpenClaw for `anet install --agent
-// openclaw`, the command that wrote the block.
-func RemoveLegacyOpenClaw(o Options) (Result, error) {
-	if err := o.normalize(); err != nil {
-		return Result{}, err
-	}
-	r, found := legacyOpenClaw(&o)
-	if !found {
-		r.Status = NotWired
-	}
-	return r, nil
-}
-
 // Unwire removes what Wire added from the named tools, or from every
 // supported tool with all=true (or no names), the old OpenClaw persona
 // block included. With Options.A2A set, only those Hermes a2a_agents

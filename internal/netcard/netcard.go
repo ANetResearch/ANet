@@ -66,6 +66,10 @@ type Skill struct {
 	// equal to the defaults, leaves them out.
 	InputModes  []string
 	OutputModes []string
+	// Limits is a fixed sentence appended to the description (CUX-F31). It
+	// is kept whole: the description is cut to make room for it, never the
+	// other way round.
+	Limits string
 }
 
 // Input is everything a network card says.
@@ -159,6 +163,11 @@ func normalizeSkill(s Skill, defModes []string) Skill {
 	}
 	if strings.TrimSpace(s.Description) == "" {
 		s.Description = a2acard.DefaultSkillDescription(s.ID)
+	}
+	if s.Limits != "" {
+		room := a2acard.MaxDescriptionBytes - len(s.Limits) - 1
+		s.Description = strings.TrimRight(truncateUTF8(s.Description, max(room, 0)), " ") + " " + s.Limits
+		s.Description = strings.TrimLeft(s.Description, " ")
 	}
 	s.Description = truncateUTF8(s.Description, a2acard.MaxDescriptionBytes)
 	s.Tags = nonEmpty(s.Tags)

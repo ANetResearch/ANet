@@ -21,14 +21,17 @@ import (
 // node's network card (§10.3), and one with an interface off this machine
 // is a claim about somewhere else; both are refused, so the grant cannot
 // be used to speak for this node's identity on the network.
-func (h moduleHost) SignProxyCard(card []byte) ([]byte, error) {
+func (h proxySignerPart) SignProxyCard(card []byte) ([]byte, error) {
 	if err := checkProxyCard(card); err != nil {
 		return nil, err
 	}
 	return a2acard.SignWithSnapshot(card, h.d.self.Snapshot(), "")
 }
 
-var _ module.ProxyCardSigner = moduleHost{}
+// proxySignerPart is the ProxyCardSigner grant (hostgrants.go).
+type proxySignerPart struct{ d *Daemon }
+
+var _ module.ProxyCardSigner = proxySignerPart{}
 
 // checkProxyCard refuses a card that is not a proxy card.
 func checkProxyCard(card []byte) error {
