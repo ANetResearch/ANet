@@ -76,7 +76,7 @@ func TestRunsGetAUserScopeWhenTheUserSystemdRuns(t *testing.T) {
 			t.Errorf("the command line carries the agent's command or key: %s", line)
 		}
 		if tc.scope {
-			want := []string{"--user", "--scope", "--quiet", "-p", "MemoryMax=2G", "-p", "TasksMax=256", "--", "/usr/bin/bwrap"}
+			want := []string{"--user", "--scope", "--quiet", "-p", "MemoryMax=2G", "-p", "MemorySwapMax=0", "-p", "TasksMax=256", "--", "/usr/bin/bwrap"}
 			if l.Path != run || !slices.Equal(l.Args[:len(want)], want) {
 				t.Errorf("%q: %s", tc.state, line)
 			}

@@ -134,11 +134,24 @@ func parseClientHello(body []byte) (info clientHelloInfo, ok bool) {
 			if n == 1 {
 				info.sni = host
 			}
-		case tlsExtECH:
-			info.ech = true
+		default:
+			if tlsExtIsECH(uint16(typ)) {
+				info.ech = true
+			}
 		}
 	}
 	return info, true
+}
+
+// tlsExtIsECH is whether typ is an encrypted-hello extension: the final ECH number, the numbers the ECH
+// drafts used (0xfe08 to 0xfe0c, 0xff02, 0xff03) and the ESNI draft's (0xffce). A server that still reads
+// a draft number would hide the host name the same way (T-1 EXE F-4).
+func tlsExtIsECH(typ uint16) bool {
+	switch typ {
+	case tlsExtECH, 0xfe08, 0xfe09, 0xfe0a, 0xfe0b, 0xfe0c, 0xff02, 0xff03, 0xffce:
+		return true
+	}
+	return false
 }
 
 // serverNameList reads a server_name extension (RFC 6066 §3): the host_name when the list holds exactly

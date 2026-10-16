@@ -81,7 +81,7 @@ const (
 )
 
 // systemd-run wrapper (LEC SB-7): memory and task limits through a user scope.
-var sandboxSystemdRunArgs = []string{"--user", "--scope", "--quiet", "-p", "MemoryMax=2G", "-p", "TasksMax=256", "--"}
+var sandboxSystemdRunArgs = []string{"--user", "--scope", "--quiet", "-p", "MemoryMax=2G", "-p", "MemorySwapMax=0", "-p", "TasksMax=256", "--"}
 
 // sandboxKind is the sandbox a run on this platform is in: the sandbox member of
 // anet.autoreply.invoked (LEC §2.5).

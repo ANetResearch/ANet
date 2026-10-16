@@ -5,6 +5,8 @@
 -p
 MemoryMax=2G
 -p
+MemorySwapMax=0
+-p
 TasksMax=256
 --
 /usr/bin/bwrap

@@ -282,3 +282,17 @@ func FuzzClientHello(f *testing.F) {
 		}
 	})
 }
+
+// CN-5: every encrypted-hello extension number is refused, the final one and the drafts' (T-1 EXE F-4).
+func TestClientHelloRefusesEveryECHNumber(t *testing.T) {
+	for _, typ := range []uint16{0xfe0d, 0xfe08, 0xfe09, 0xfe0a, 0xfe0b, 0xfe0c, 0xff02, 0xff03, 0xffce} {
+		rec := helloRecord([][2][]byte{sniExt(host("pypi.org")), {binary.BigEndian.AppendUint16(nil, typ), {0, 0}}})
+		if code, _ := helloVerdict(rec, "pypi.org"); code != egressECH {
+			t.Errorf("extension %#x: verdict %q, want %q", typ, code, egressECH)
+		}
+	}
+	rec := helloRecord([][2][]byte{sniExt(host("pypi.org")), {binary.BigEndian.AppendUint16(nil, 0xfe07), {0, 0}}})
+	if code, _ := helloVerdict(rec, "pypi.org"); code != "" {
+		t.Errorf("an unrelated extension: verdict %q", code)
+	}
+}
