@@ -19,6 +19,8 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+
+	"github.com/ANetResearch/ANet/internal/execwork"
 )
 
 // sandboxProbeName starts the names of the probe's temp dir and abstract socket. They are local names
@@ -153,7 +155,7 @@ const sandboxSockDirPrefix = "anet-" + "sock-"
 
 // runDirPrefix names this identity's run directories: <aid8> of <cache>/anet/run/<aid8>-<rand>/.
 func runDirPrefix(aid string) string {
-	short := aidShort(aid)
+	short := execwork.AidShort(aid)
 	if short == "" {
 		short = "unknown"
 	}
@@ -189,7 +191,7 @@ func newSandboxRunDir(aid string) (string, error) {
 // write permission (a Go module cache, for one), which os.RemoveAll alone cannot empty, so directories
 // are made writable first. Symbolic links are removed, never followed: WalkDir does not descend into
 // them and they are not chmod'ed.
-func removeSandboxTree(dir string) { removeWorkTree(dir) }
+func removeSandboxTree(dir string) { execwork.RemoveTree(dir) }
 
 // leftoverOwner is the uid whose directories the start-up sweep removes: this process's. A variable so
 // tests can stand in for another user.

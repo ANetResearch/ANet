@@ -423,7 +423,7 @@ func TestExecAutoReplyOnBothSidesStaysOutOfAPaidCall(t *testing.T) {
 	ctx := context.Background()
 	repliers := map[*Daemon]autoReplier{}
 	for _, d := range []*Daemon{req, prov} {
-		r, err := newAutoReplier(cfg, d.layout)
+		r, err := newAutoReplier(cfg, testEnv(d.layout))
 		if err != nil {
 			t.Fatal(err)
 		}

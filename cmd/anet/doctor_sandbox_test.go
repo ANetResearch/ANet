@@ -276,3 +276,54 @@ func TestDoctorHubReadsTheJoinRecord(t *testing.T) {
 		}
 	}
 }
+
+// MOD-3, UX-T9b: the doctor items of auto-reply, by build and configuration. With the module available and
+// sandbox mode on, `auto_reply` and the `sandbox` items are there; with the module turned off, `auto_reply`
+// is an info item and no `sandbox*` item is (the block is the modules item's module_absent.configured).
+func TestDoctorAutoReplyIDsFollowTheModule(t *testing.T) {
+	ids := func(cfg map[string]any) map[string][]string {
+		layout := freshInit(t)
+		b, _ := os.ReadFile(layout.ConfigPath())
+		var m map[string]any
+		_ = json.Unmarshal(b, &m)
+		for k, v := range cfg {
+			m[k] = v
+		}
+		b, _ = json.Marshal(m)
+		if err := os.WriteFile(layout.ConfigPath(), b, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		rep, err := collectDoctor(layout, testDoctorEnv(t))
+		if err != nil {
+			t.Fatal(err)
+		}
+		out := map[string][]string{}
+		for _, c := range rep.Checks {
+			out[c.ID] = append(out[c.ID], c.Status)
+		}
+		return out
+	}
+	block := map[string]any{"backend": "exec", "agent": "claude", "untrusted": "sandbox", "api_key": "k"}
+	on := ids(map[string]any{"auto_reply": block})
+	if !slices.Contains(on["auto_reply"], stOK) || len(on["sandbox.agent"]) == 0 {
+		t.Errorf("module available: %v", on)
+	}
+	off := ids(map[string]any{"without": []string{"autoreply"}})
+	if !slices.Contains(off["auto_reply"], stInfo) || slices.Contains(off["auto_reply"], stOK) {
+		t.Errorf("module turned off: auto_reply = %q", off["auto_reply"])
+	}
+	for id := range off {
+		if strings.HasPrefix(id, "sandbox") {
+			t.Errorf("module turned off: item %s", id)
+		}
+	}
+	offWithBlock := ids(map[string]any{"without": []string{"autoreply"}, "auto_reply": block})
+	if !slices.Contains(offWithBlock["modules"], stFail) {
+		t.Errorf("a block with the module off: modules = %q", offWithBlock["modules"])
+	}
+	for id := range offWithBlock {
+		if strings.HasPrefix(id, "sandbox") {
+			t.Errorf("a block with the module off: item %s", id)
+		}
+	}
+}

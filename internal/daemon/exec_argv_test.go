@@ -13,6 +13,9 @@ import (
 	"strings"
 	"testing"
 	"unicode/utf8"
+
+	"github.com/ANetResearch/ANet/internal/execwork"
+	"github.com/ANetResearch/ANet/internal/pathsafe"
 )
 
 // Canaries: each stands for one thing that must never be on a command line.
@@ -66,7 +69,7 @@ func TestCmdlineCanary(t *testing.T) {
 			layout := NewLayout(t.TempDir())
 			_ = layout.EnsureRoot()
 			r := &execReplier{cfg: AutoReplyConfig{Backend: "exec", Agent: id, Command: cmdlineStub(t, logf), APIKey: canaryKey},
-				layout: layout, dataDir: layout.Root, aid: "EaidCmdlineCanary0001"}
+				dataDir: layout.Root, aid: "EaidCmdlineCanary0001"}
 			rc := replyContext{Role: "inbound", Goal: canaryGoal, InteractionID: canaryIX + "/../x"}
 			reply, err := r.Reply(context.Background(), rc, []chatTurn{{Role: "user", Text: canaryTurn}})
 			if err != nil {
@@ -103,7 +106,7 @@ func TestA200KiBConversationReachesEveryAgent(t *testing.T) {
 			_ = layout.EnsureRoot()
 			stub := cmdlineStub(t, filepath.Join(t.TempDir(), "cmdline.log"))
 			r := &execReplier{cfg: AutoReplyConfig{Backend: "exec", Agent: id, Command: stub, APITimeoutSeconds: 60},
-				layout: layout, dataDir: layout.Root, aid: "EaidLargeConversation1"}
+				dataDir: layout.Root, aid: "EaidLargeConversation1"}
 			reply, err := r.Reply(context.Background(), replyContext{Role: "inbound", Goal: "g", InteractionID: "ix-large"}, turns)
 			if err != nil {
 				t.Fatalf("%s: a 200 KiB conversation failed: %v", id, err)
@@ -129,7 +132,7 @@ echo ok
 	layout := NewLayout(t.TempDir())
 	_ = layout.EnsureRoot()
 	r := &execReplier{cfg: AutoReplyConfig{Backend: "exec", Agent: agentHermes, Command: stub},
-		layout: layout, dataDir: layout.Root, aid: "EaidConversationFile01"}
+		dataDir: layout.Root, aid: "EaidConversationFile01"}
 	if _, err := r.Reply(context.Background(), replyContext{Role: "inbound", Goal: "g", InteractionID: "ix-file"},
 		[]chatTurn{{Role: "user", Text: "hi"}}); err != nil {
 		t.Fatal(err)
@@ -234,7 +237,7 @@ func TestExecReplierBoundsTheConversation(t *testing.T) {
 	_ = layout.EnsureRoot()
 	stub := writeStub(t, "#!/bin/sh\ncat\n")
 	r := &execReplier{cfg: AutoReplyConfig{Backend: "exec", Agent: agentClaude, Command: stub},
-		layout: layout, dataDir: layout.Root, aid: "EaidBoundedConversation"}
+		dataDir: layout.Root, aid: "EaidBoundedConversation"}
 	got, err := r.Reply(context.Background(), replyContext{Role: "inbound", Goal: "g", InteractionID: "ix-bound"}, turns)
 	if err != nil {
 		t.Fatal(err)
@@ -325,14 +328,14 @@ func TestWorkDirNamesCarryNoPeerText(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(dir, canaryIX) || strings.Contains(dir, "zzz") || !pathWithin(dir, execWorkRoot()) {
+	if strings.Contains(dir, canaryIX) || strings.Contains(dir, "zzz") || !pathsafe.PathWithin(dir, execwork.WorkRoot()) {
 		t.Fatalf("work dir %q carries the interaction id or left the work root", dir)
 	}
-	if ixDirName(ix) == ixDirName(ix+"x") || ixDirName(ix) != ixDirName(ix) || len(ixDirName(ix)) != len(ixDirName("a")) {
-		t.Fatal("ixDirName is not a fixed-length digest")
+	if execwork.IxDirName(ix) == execwork.IxDirName(ix+"x") || execwork.IxDirName(ix) != execwork.IxDirName(ix) || len(execwork.IxDirName(ix)) != len(execwork.IxDirName("a")) {
+		t.Fatal("execwork.IxDirName is not a fixed-length digest")
 	}
-	if ixDirName("") != "selftest" {
-		t.Fatalf("the self-test dir is %q", ixDirName(""))
+	if execwork.IxDirName("") != "selftest" {
+		t.Fatalf("the self-test dir is %q", execwork.IxDirName(""))
 	}
 }
 

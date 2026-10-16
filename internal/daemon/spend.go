@@ -47,6 +47,7 @@ import (
 	"github.com/ANetResearch/ANetCore/payment"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
+	"github.com/ANetResearch/ANet/internal/localday"
 	"github.com/ANetResearch/ANet/module"
 )
 
@@ -278,7 +279,7 @@ func evalSpend(lim SpendLimits, records []spendRecord, payees map[string]bool, p
 			return refuse(SpendRefusal{Code: SpendPayeeNotAllowed}, "%s is not on the payee list %s", payTo, payeesFile)
 		}
 	}
-	start, _ := localDayBounds(now)
+	start, _ := localday.Bounds(now)
 	all, agent := spentSince(records, start.UnixMilli())
 	if countsAgentDaily(purpose) && spendSum(agent, amount) > lim.AgentDailyMax {
 		return refuse(SpendRefusal{Code: SpendOverAgentDaily, Spent: agent, Daily: lim.AgentDailyMax,
@@ -310,7 +311,7 @@ func (d *Daemon) AdmitSpend(payTo string, amount uint64, purpose string) error {
 	defer b.mu.Unlock()
 	d.loadSpendLocked()
 	now := d.now()
-	start, _ := localDayBounds(now)
+	start, _ := localday.Bounds(now)
 	from := start.UnixMilli()
 	kept := b.records[:0]
 	for _, r := range b.records {
@@ -369,7 +370,7 @@ func (d *Daemon) loadSpendLocked() {
 	if d.ledger == nil {
 		return
 	}
-	start, _ := localDayBounds(d.now())
+	start, _ := localday.Bounds(d.now())
 	d.ledger.scan(EvPaymentAuthorized, start.UnixMilli(), func(at int64, p map[string]any) {
 		amount, err := payment.ParseAmount(fmt.Sprint(p["amount"]))
 		if err != nil {
@@ -473,7 +474,7 @@ func (d *Daemon) SpendStatus() SpendStatus {
 	b := &d.spend
 	b.mu.Lock()
 	d.loadSpendLocked()
-	start, _ := localDayBounds(d.now())
+	start, _ := localday.Bounds(d.now())
 	out.SpentToday, out.AgentSpentToday = spentSince(b.records, start.UnixMilli())
 	b.mu.Unlock()
 	out.LeftToday = leftOf(lim.DailyMax, out.SpentToday)

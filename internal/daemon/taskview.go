@@ -15,6 +15,7 @@ import (
 	"errors"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
+	"github.com/ANetResearch/ANet/internal/pathsafe"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 )
 
@@ -60,7 +61,7 @@ func (d *Daemon) taskView(ix *interactions.Interaction, o viewOpts) (a2ashape.Ta
 	if err != nil {
 		return a2ashape.Task{}, err
 	}
-	opt := a2ashape.Options{HistoryLength: o.historyLen, Artifacts: o.artifacts, InlineFiles: o.inline, SafeName: safeName,
+	opt := a2ashape.Options{HistoryLength: o.historyLen, Artifacts: o.artifacts, InlineFiles: o.inline, SafeName: pathsafe.SafeName,
 		IdentityNote: d.identityNote(a2ashape.Lang()), ForBackend: o.backend, SelfAID: d.AID(), Retention: d.ContentRetention()}
 	if !o.backend {
 		opt.SpendCheck = d.spendCheckFor(ix)

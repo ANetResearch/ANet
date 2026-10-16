@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/ANetResearch/ANet/internal/pathsafe"
 	"golang.org/x/sys/unix"
 )
 
@@ -26,7 +27,9 @@ const sandboxKind = "seatbelt"
 func sandboxLimits() string { return "rlimit_only" }
 
 // prepare checks that sandbox-exec is there and that the probe passes on this Mac.
-func (p *sandboxPlan) prepare() error { return seatbeltPrepare(p, seatbeltExecPath) }
+func (p *sandboxPlan) prepare() error {
+	return seatbeltPrepareGated(seatbeltEnabled, p, seatbeltExecPath)
+}
 
 // command prepares one agent process for the sandbox (seatbeltCommand).
 func (p *sandboxPlan) command(workDir string, argv, env []string, stdin []byte) (*sandboxLaunch, error) {
@@ -108,7 +111,7 @@ func sandboxGroupOthers() []int {
 // library from and where a framework build's python re-executes the interpreter inside its app bundle.
 func underSystemDir(p string) bool {
 	for _, d := range seatbeltExecSystem {
-		if pathWithin(p, d) {
+		if pathsafe.PathWithin(p, d) {
 			return true
 		}
 	}

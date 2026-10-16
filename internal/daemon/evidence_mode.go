@@ -22,7 +22,9 @@ import (
 
 	"github.com/ANetResearch/ANetCore/anetcid"
 
+	"github.com/ANetResearch/ANet/internal/anethome"
 	"github.com/ANetResearch/ANet/internal/evtypes"
+	"github.com/ANetResearch/ANet/internal/execwork"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 )
 
@@ -141,11 +143,12 @@ func (d *Daemon) pruneEndedWorkDirs() {
 		return
 	}
 	open := func() (map[string]bool, error) { return d.ix.OpenIDs() }
-	if err := pruneExecWorkDirs(d.AID(), open); err != nil {
-		log.Printf("anet: exec work dirs of ended tasks: %v", err)
+	werr, serr := execwork.SweepAll(anethome.ModuleDir(d.layout.Root, "autoreply"), d.AID(), open)
+	if werr != nil {
+		log.Printf("anet: exec work dirs of ended tasks: %v", werr)
 	}
-	if err := sharedExecSessionStore(d.layout.Root).pruneEnded(open); err != nil {
-		log.Printf("anet: exec sessions of ended tasks: %v", err)
+	if serr != nil {
+		log.Printf("anet: exec sessions of ended tasks: %v", serr)
 	}
 }
 

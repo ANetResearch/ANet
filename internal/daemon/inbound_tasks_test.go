@@ -192,7 +192,7 @@ func TestInboundTasksReachTheBackendOnlyFromTrustedPeers(t *testing.T) {
 	apiSrv := httptest.NewServer(api.handler())
 	defer apiSrv.Close()
 	arCfg := AutoReplyConfig{Model: "m", APIBase: apiSrv.URL + "/v1"}
-	replier, err := newAutoReplier(arCfg, prov.layout)
+	replier, err := newAutoReplier(arCfg, testEnv(prov.layout))
 	if err != nil {
 		t.Fatal(err)
 	}

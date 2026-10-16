@@ -202,24 +202,6 @@ func TestOnlyCapabilitiesRemoteCallersMayUseArePublished(t *testing.T) {
 	}
 }
 
-// CC-6: the socket the sandbox is kept from is modules.anetlink.socket, or the default where the
-// block leaves it out; providers.anetlink is not read (Config has no field for it).
-func TestTheSandboxIsKeptFromTheModulesSocket(t *testing.T) {
-	t.Setenv("XDG_RUNTIME_DIR", "/run/user/4242")
-	cfg := Config{Modules: ModulesConfig{"anetlink": json.RawMessage(`{"socket":"/srv/link/c1.sock"}`)}}
-	if got := anetlinkSockets(cfg); !slices.Equal(got, []string{"/srv/link/c1.sock"}) {
-		t.Fatalf("configured socket: %v", got)
-	}
-	cfg.Modules["anetlink"] = json.RawMessage(`{}`)
-	if got := anetlinkSockets(cfg); !slices.Equal(got, []string{"/run/user/4242/anetlink/c1.sock"}) {
-		t.Fatalf("default socket: %v", got)
-	}
-	t.Setenv("XDG_RUNTIME_DIR", "")
-	if got := anetlinkSockets(Config{}); got != nil {
-		t.Fatalf("no XDG_RUNTIME_DIR, no block: %v", got)
-	}
-}
-
 // LEC §3.2: modules.anetlink is checked at start. allow_tcp may not be true (C1 runs over a Unix
 // socket only); socket is a path a Unix socket can have, and may be left out only where
 // XDG_RUNTIME_DIR gives it a default. Each refusal is config_invalid naming the key.

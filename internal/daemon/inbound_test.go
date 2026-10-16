@@ -257,7 +257,7 @@ func TestAPublicCapabilityCallTakesNoText(t *testing.T) {
 	apiSrv := httptest.NewServer(api.handler())
 	defer apiSrv.Close()
 	arCfg := AutoReplyConfig{Model: "m", APIBase: apiSrv.URL + "/v1"}
-	replier, err := newAutoReplier(arCfg, prov.layout)
+	replier, err := newAutoReplier(arCfg, testEnv(prov.layout))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -693,7 +693,7 @@ func TestOpenWithTheSandboxForUntrustedPeers(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("control plane: %d %s", rec.Code, rec.Body)
 	}
-	if ar := b.config().AutoReply; ar == nil || ar.UntrustedMode() != UntrustedSandbox {
+	if ar := AutoReplyOf(b.config()); ar == nil || ar.UntrustedMode() != UntrustedSandbox {
 		t.Fatalf("auto_reply after the write: %+v", ar)
 	}
 
@@ -719,8 +719,8 @@ func TestOpenWithTheSandboxForUntrustedPeers(t *testing.T) {
 		t.Fatalf("start with open and the sandbox for untrusted peers: %v", err)
 	}
 	defer d.Close()
-	if d.config().inbound().Policy != PolicyOpen || d.config().AutoReply.UntrustedMode() != UntrustedSandbox {
-		t.Fatalf("started with %+v / %+v", d.config().inbound(), d.config().AutoReply)
+	if d.config().inbound().Policy != PolicyOpen || AutoReplyOf(d.config()).UntrustedMode() != UntrustedSandbox {
+		t.Fatalf("started with %+v / %+v", d.config().inbound(), AutoReplyOf(d.config()))
 	}
 }
 

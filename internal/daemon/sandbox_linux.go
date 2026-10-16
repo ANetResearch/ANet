@@ -51,6 +51,8 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
+
+	"github.com/ANetResearch/ANet/internal/pathsafe"
 )
 
 // bwrapLookPath locates bubblewrap. Tests replace it to simulate a host without bwrap.
@@ -147,7 +149,7 @@ func systemdEnv() []string {
 	env := []string{}
 	xdg := os.Getenv("XDG_RUNTIME_DIR")
 	if xdg == "" {
-		if dir := filepath.Join("/run/user", strconv.Itoa(os.Getuid())); dirExists(dir) {
+		if dir := filepath.Join("/run/user", strconv.Itoa(os.Getuid())); sandboxDirExists(dir) {
 			xdg = dir
 		}
 	}
@@ -653,7 +655,7 @@ func sandboxCommandLine(bwrap, systemdRun string, args []string) (string, []stri
 // underSystemDir reports a path already visible through the /usr, /bin, /sbin or /lib* binds.
 func underSystemDir(p string) bool {
 	for _, d := range sandboxSystemDirs {
-		if pathWithin(p, d) {
+		if pathsafe.PathWithin(p, d) {
 			return true
 		}
 	}
@@ -889,7 +891,7 @@ func envWithSandboxPath(env, runtimeDirs []string) []string {
 		for _, d := range filepath.SplitList(v) {
 			shown := underSystemDir(d)
 			for _, r := range runtimeDirs {
-				if r != "" && pathWithin(d, r) {
+				if r != "" && pathsafe.PathWithin(d, r) {
 					shown = true
 				}
 			}
@@ -905,3 +907,9 @@ func envWithSandboxPath(env, runtimeDirs []string) []string {
 // sandboxHome is the home used when the daemon's own is unusable: the run directory's home/ at its own
 // path.
 func sandboxHome(runDir string) string { return filepath.Join(runDir, "home") }
+
+// sandboxDirExists reports a directory (not a link to one) at p.
+func sandboxDirExists(p string) bool {
+	fi, err := os.Lstat(p)
+	return err == nil && fi.IsDir()
+}

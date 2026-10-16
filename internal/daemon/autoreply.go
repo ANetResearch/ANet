@@ -39,12 +39,15 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/ANetResearch/ANet/internal/a2ashape"
-	"github.com/ANetResearch/ANet/internal/runtime/interactions"
+	"github.com/ANetResearch/ANetCore/delegation"
+
+	"github.com/ANetResearch/ANet/internal/execwork"
+	"github.com/ANetResearch/ANet/module"
 )
 
 const (
@@ -120,8 +123,8 @@ type autoReplier interface {
 }
 
 // newAutoReplier builds the configured backend. Unknown backends are an error so a typo'd config fails
-// loudly at startup instead of silently never replying.
-func newAutoReplier(cfg AutoReplyConfig, layout Layout) (autoReplier, error) {
+// loudly at startup instead of silently never replying. env says where the node keeps its files.
+func newAutoReplier(cfg AutoReplyConfig, env arEnv) (autoReplier, error) {
 	switch cfg.Backend {
 	case "", "openai":
 		if cfg.APIBase == "" || cfg.Model == "" {
@@ -135,25 +138,130 @@ func newAutoReplier(cfg AutoReplyConfig, layout Layout) (autoReplier, error) {
 		if _, err := lookupAgent(cfg.Agent); err != nil {
 			return nil, err
 		}
-		return &execReplier{cfg: cfg, dataDir: layout.Root, layout: layout, sessions: sharedExecSessionStore(layout.Root)}, nil
+		return &execReplier{cfg: cfg, dataDir: env.DataDir, aid: env.AID, sessions: execwork.Sessions(env.StateDir)}, nil
 	default:
 		return nil, fmt.Errorf("auto_reply: unknown backend %q (supported: openai, exec)", cfg.Backend)
 	}
 }
 
+// arEnv is where the module keeps and finds things: the node's data directory (work directories must
+// lie outside it), the module's own state directory and the node's AID (which names the work directory).
+type arEnv struct {
+	DataDir, StateDir, AID string
+}
+
+// --- the module ---
+
+// autoReplyModule is the auto-reply module: a module.Module that answers the turns the kernel says
+// are owed, through the seams of its Host and nothing else (MOD §3.1). It holds what used to be six
+// fields of the daemon: the refused-turn memory, the run budget, the leftover sweep, the write lock of
+// the configuration, the running loop and the loop's wake.
+type autoReplyModule struct {
+	raw json.RawMessage // the auto_reply block at construction
+
+	host  module.Host
+	turns module.TurnHost
+	ev    module.OwnEvidenceHost
+	sens  module.SensitivePathsHost
+	cfgw  module.ModuleConfigHost
+	env   arEnv
+
+	ctx context.Context
+	wg  sync.WaitGroup
+
+	mu      sync.Mutex
+	cfg     *AutoReplyConfig // the configuration in force; nil: auto-reply is off
+	stop    context.CancelFunc
+	stopped bool
+
+	write     sync.Mutex // POST /autoreply's read, merge and save are one step
+	sbRefused sandboxRefused
+	budget    runBudget
+	swept     sync.Once
+}
+
+// newAutoReplyModule is the module's factory; the daemon passes the raw auto_reply block.
+func newAutoReplyModule(raw []byte) (module.Module, error) {
+	return &autoReplyModule{raw: raw}, nil
+}
+
+// inProcModules are the optional modules that live in this package until they move out: the daemon
+// builds them next to the registered ones (startModules). MOD-4 deletes this table with the move.
+var inProcModules = map[string]func(raw []byte) (module.Module, error){"autoreply": newAutoReplyModule}
+
+func (m *autoReplyModule) Name() string { return "autoreply" }
+
+var (
+	_ module.Module            = (*autoReplyModule)(nil)
+	_ module.ControlHandler    = (*autoReplyModule)(nil)
+	_ module.StatusContributor = (*autoReplyModule)(nil)
+)
+
+// Start takes the seams out of the Host (a Host that lacks one is a node the name table did not grant
+// them to: the module does not start) and starts the loop when auto-reply is configured.
+func (m *autoReplyModule) Start(ctx context.Context, h module.Host) error {
+	var ok bool
+	if m.turns, ok = h.(module.TurnHost); !ok {
+		return fmt.Errorf("autoreply: the Host grants no TurnHost")
+	}
+	if m.ev, ok = h.(module.OwnEvidenceHost); !ok {
+		return fmt.Errorf("autoreply: the Host grants no OwnEvidenceHost")
+	}
+	if m.sens, ok = h.(module.SensitivePathsHost); !ok {
+		return fmt.Errorf("autoreply: the Host grants no SensitivePathsHost")
+	}
+	if m.cfgw, ok = h.(module.ModuleConfigHost); !ok {
+		return fmt.Errorf("autoreply: the Host grants no ModuleConfigHost")
+	}
+	m.host, m.ctx = h, ctx
+	state := h.StateDir()
+	if state == "" {
+		return fmt.Errorf("autoreply: the Host grants no state directory")
+	}
+	// <data>/modules/autoreply: the data directory is two levels up.
+	m.env = arEnv{DataDir: filepath.Dir(filepath.Dir(state)), StateDir: state, AID: h.AID()}
+	cfg, err := parseAutoReply(m.raw)
+	if err != nil {
+		return err
+	}
+	if cfg == nil {
+		return nil
+	}
+	// A block the backend cannot run with stops the node, in the module's own sentence (LEC §3.2),
+	// instead of a log line and a node that never replies.
+	if ref := checkAutoReply(*cfg); ref != nil {
+		return ref
+	}
+	return m.startLoop(*cfg)
+}
+
+// Stop ends the loop and waits for the turns under way: after it returns, nothing the module started is
+// running and nothing more starts. The daemon calls it before the evidence ledger closes, so a turn that
+// ends on the way out still records.
+func (m *autoReplyModule) Stop(context.Context) error {
+	m.mu.Lock()
+	m.stopped = true
+	if m.stop != nil {
+		m.stop()
+		m.stop = nil
+	}
+	m.mu.Unlock()
+	m.wg.Wait()
+	return nil
+}
+
 // --- loop lifecycle ---
 
-// startAutoReply validates the config and starts the background loop under the daemon ctx. Called from
-// New when config.json carries an auto_reply block; a config change requires a daemon restart.
-func (d *Daemon) startAutoReply(cfg AutoReplyConfig) {
-	replier, err := newAutoReplier(cfg, d.layout)
+// startLoop validates the config and starts the background loop under the module's context, stopping
+// the one that ran before. A config change takes effect at once (POST /autoreply).
+func (m *autoReplyModule) startLoop(cfg AutoReplyConfig) error {
+	replier, err := newAutoReplier(cfg, m.env)
 	if err != nil {
-		log.Printf("anet: auto-reply DISABLED: %v", err)
-		return
+		return err
 	}
 	// Before the loop's first sandboxed run: what an earlier process's runs left (LEC SB-9).
 	if cfg.Backend == "exec" {
-		d.sweepSandboxLeftovers()
+		m.sweepSandboxLeftovers()
 	}
 	interval := autoReplyInterval
 	backend := cfg.Backend
@@ -166,76 +274,94 @@ func (d *Daemon) startAutoReply(cfg AutoReplyConfig) {
 	default:
 		log.Printf("anet: auto-reply on — backend=%s model=%s api=%s (every %s)", backend, cfg.Model, cfg.APIBase, interval)
 	}
-	// Run under a child context stored on the daemon so SetAutoReply can stop/restart the loop live.
-	ctx, cancel := context.WithCancel(d.ctx)
-	d.mu.Lock()
-	if d.autoReplyStop != nil {
-		d.autoReplyStop()
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.stop != nil {
+		m.stop()
+		m.stop = nil
 	}
-	d.autoReplyStop = cancel
-	d.mu.Unlock()
-	// A background goroutine like the others, so that Close waits for the
-	// loop, and the untrusted turns a scan waits for, before it closes the
-	// store they read and write. When the daemon is already closing nothing
-	// starts.
-	if !d.goBackground(func() { d.autoReplyLoop(ctx, cfg, replier, interval) }) {
-		cancel()
+	m.cfg = &cfg
+	if m.stopped || m.ctx.Err() != nil {
+		return nil // closing: nothing starts
 	}
+	ctx, cancel := context.WithCancel(m.ctx)
+	m.stop = cancel
+	m.wg.Add(1)
+	go func() {
+		defer m.wg.Done()
+		m.autoReplyLoop(ctx, cfg, replier, interval)
+	}()
+	return nil
 }
 
-// SetAutoReply reconfigures the built-in auto-reply loop live (no daemon restart): it validates cfg,
-// persists it to config.json, stops any running loop, and starts the new one. Passing nil turns
-// auto-reply OFF (stops the loop and clears the config block). This is the CLI-accessible switch behind
-// `anet autoreply set|off` — an agent (or human) never has to hand-edit config.json.
-func (d *Daemon) SetAutoReply(cfg *AutoReplyConfig) error {
-	if cfg != nil {
-		if _, err := newAutoReplier(*cfg, d.layout); err != nil {
-			return err // fail loudly on a bad config instead of silently persisting a loop that never runs
+// stopLoop ends the running loop (auto-reply off).
+func (m *autoReplyModule) stopLoop() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.stop != nil {
+		m.stop()
+		m.stop = nil
+	}
+	m.cfg = nil
+}
+
+// current is the configuration in force, nil when auto-reply is off.
+func (m *autoReplyModule) current() *AutoReplyConfig {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.cfg == nil {
+		return nil
+	}
+	c := *m.cfg
+	return &c
+}
+
+// apply changes the auto-reply configuration live (no restart): produce gets the block as it is on the
+// disk and returns the one to write (nil: off). The write is the kernel's (UpdateModuleConfig, which
+// checks it, saves it atomically and audits it); then the loop is stopped and the new one started. A
+// write that failed to save leaves the running loop and the configuration as they were. This is what
+// `anet autoreply set|off` reaches.
+func (m *autoReplyModule) apply(produce func(cur *AutoReplyConfig) (*AutoReplyConfig, error)) (*AutoReplyConfig, error) {
+	m.write.Lock()
+	defer m.write.Unlock()
+	var next *AutoReplyConfig
+	err := m.cfgw.UpdateModuleConfig(func(old json.RawMessage) (json.RawMessage, error) {
+		cur, err := parseAutoReply(old)
+		if err != nil {
+			cur = nil // a block that does not decode is replaced, not merged into
 		}
-		if ref := checkAutoReplyConfig(cfg, d.layout.Root); ref != nil {
-			return ref
+		cfg, err := produce(cur)
+		if err != nil {
+			return nil, err
 		}
-		if cfg.Sandbox.empty() {
-			c := *cfg
-			c.Sandbox = nil
-			cfg = &c
+		if cfg != nil {
+			if _, err := newAutoReplier(*cfg, m.env); err != nil {
+				return nil, err // fail loudly on a bad config instead of silently persisting a loop that never runs
+			}
+			if ref := checkAutoReplyConfig(cfg, m.env.DataDir); ref != nil {
+				return nil, ref
+			}
+			if cfg.Sandbox.empty() {
+				c := *cfg
+				c.Sandbox = nil
+				cfg = &c
+			}
 		}
+		next = cfg
+		return marshalAutoReply(cfg), nil
+	})
+	if err != nil {
+		return nil, err
 	}
-	// Saved first and in force after (SetInboundPolicy): a write that
-	// failed to save leaves the running loop and the config as they were.
-	d.cfgWrite.Lock()
-	defer d.cfgWrite.Unlock()
-	next := d.config()
-	if err := d.carryDiskConfig(&next); err != nil {
-		return err
-	}
-	next.AutoReply = cfg
-	// The same check as at start and on inbound policy writes (A2A-DESIGN
-	// §5.1).
-	if err := validatePolicy(next, d.untrustedBackend.Load()); err != nil {
-		return err
-	}
-	if err := SaveConfig(d.layout, next); err != nil {
-		return err
-	}
-	d.mu.Lock()
-	from := d.cfg.AutoReply
-	if d.autoReplyStop != nil {
-		d.autoReplyStop()
-		d.autoReplyStop = nil
-	}
-	d.cfg.AutoReply = cfg
-	d.mu.Unlock()
-	d.recordPolicyChange("auto_reply", autoReplySummary(from), autoReplySummary(cfg), nil)
-	recordEgressAllowChange(d, from, cfg)
-	recordTrustedChange(d, from, cfg)
-	recordBudgetChange(d, from, cfg)
-	if cfg != nil {
-		d.startAutoReply(*cfg)
-	} else {
+	if next == nil {
+		m.stopLoop()
 		log.Printf("anet: auto-reply OFF")
+		return nil, nil
 	}
-	return nil
+	if err := m.startLoop(*next); err != nil {
+		return next, err
+	}
+	return next, nil
 }
 
 // autoReplyDefaultTestPrompt is the synthetic self-check used by `anet autoreply test` when the operator
@@ -246,14 +372,12 @@ const autoReplyDefaultTestPrompt = "自检：请用一句话说明你是谁、�
 // conversation and returns the reply — WITHOUT touching the Hub or creating any identity. This is the
 // pollution-free self-test behind `anet autoreply test`: previously operators had to spin up a throwaway
 // identity and delegate to themselves, which left a dead node registered on the Hub.
-func (d *Daemon) TestAutoReply(ctx context.Context, prompt string) (string, error) {
-	d.mu.Lock()
-	arp := d.cfg.AutoReply
-	d.mu.Unlock()
+func (m *autoReplyModule) TestAutoReply(ctx context.Context, prompt string) (string, error) {
+	arp := m.current()
 	if arp == nil {
 		return "", fmt.Errorf("auto-reply is not configured — run `anet autoreply set …` first")
 	}
-	replier, err := newAutoReplier(*arp, d.layout)
+	replier, err := newAutoReplier(*arp, m.env)
 	if err != nil {
 		return "", err
 	}
@@ -269,63 +393,53 @@ func (d *Daemon) TestAutoReply(ctx context.Context, prompt string) (string, erro
 	return replier.Reply(ctx, replyContext{Role: "inbound", Goal: prompt}, []chatTurn{{Role: "user", Text: prompt}})
 }
 
-func (d *Daemon) autoReplyLoop(ctx context.Context, cfg AutoReplyConfig, replier autoReplier, interval time.Duration) {
+func (m *autoReplyModule) autoReplyLoop(ctx context.Context, cfg AutoReplyConfig, replier autoReplier, interval time.Duration) {
 	t := time.NewTicker(interval)
 	defer t.Stop()
+	wake := m.turns.Wake()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			d.autoReplyOnce(ctx, cfg, replier)
-		case <-d.autoReplyKick: // an inbound message just landed — service it now, don't wait for the tick
-			d.autoReplyOnce(ctx, cfg, replier)
+			m.autoReplyOnce(ctx, cfg, replier)
+		case <-wake: // an inbound message just landed — service it now, don't wait for the tick
+			m.autoReplyOnce(ctx, cfg, replier)
 		}
 	}
 }
 
-// autoReplyOnce scans the local store (the relay loop keeps it fresh) and services every conversation
-// that owes an action — in BOTH directions: tasks others delegated to us (inbound) AND tasks we delegated
-// to others where the peer has since replied (outbound). "Owing a reply" is symmetric: whenever the last
-// message is the peer's (not ours), we answer.
+// autoReplyOnce asks the kernel which turns owe a reply and services every one — in BOTH directions:
+// tasks others delegated to us (inbound) AND tasks we delegated to others where the peer has since
+// replied (outbound). "Owing a reply" is symmetric: whenever the last message is the peer's (not ours),
+// we answer. Which turns those are is the kernel's decision (TurnHost.OwedTurns: admitted, not ended,
+// not a capability call, not taken by an A2A backend, the peer not denied).
 //
 // A trusted peer's turn runs in the scan, one after another. An untrusted peer's turn runs beside the
 // scan, at most two at once and one per peer (LEC BU-5): a turn that finds no free slot waits for the
 // next scan. The scan returns once every turn it started has ended, so no thread is ever answered twice
 // at once and the next scan sees what this one sent.
-func (d *Daemon) autoReplyOnce(ctx context.Context, cfg AutoReplyConfig, replier autoReplier) {
-	// ActiveThreads skips finished (done/failed) interactions before loading their message history, so this
-	// every-few-seconds loop stays O(active) rather than O(all-history) as completed tasks accumulate.
-	threads, err := d.ActiveThreads()
+func (m *autoReplyModule) autoReplyOnce(ctx context.Context, cfg AutoReplyConfig, replier autoReplier) {
+	turns, err := m.turns.OwedTurns(ctx)
 	if err != nil {
-		log.Printf("anet: auto-reply: list threads: %v", err)
+		if ctx.Err() == nil {
+			log.Printf("anet: auto-reply: list threads: %v", err)
+		}
 		return
 	}
-	active := make(map[string]bool, len(threads))
-	for _, th := range threads {
-		active[th.InteractionID] = true
+	owed := make(map[string]bool, len(turns))
+	for _, t := range turns {
+		owed[t.Ix] = true
 	}
-	// Keep the exec session map bounded: any binding whose interaction is no longer active (ended/failed/
-	// gone) can never be resumed again (ids are unique), so drop it. This also mops up bindings orphaned
-	// by an abrupt requester exit.
-	if cfg.Backend == "exec" {
-		sharedExecSessionStore(d.layout.Root).pruneExcept(active)
-	}
-	d.sbRefused.prune(active)
+	m.sbRefused.prune(owed, time.Now())
 	var runs sync.WaitGroup
 	defer runs.Wait()
-	for _, th := range threads {
+	for _, t := range turns {
 		if ctx.Err() != nil {
 			return
 		}
-		if interactions.State(th.State).IsTerminal() || th.IsCapability || th.Trust == interactions.TrustPublicCap {
-			// Ended interactions get no further replies, and capability calls
-			// never reach auto-reply (A2A-DESIGN §6): ActiveThreads already
-			// leaves them out; this keeps the rule where it is applied.
-			continue
-		}
-		if err := d.autoReplyThread(ctx, cfg, replier, th, &runs); err != nil {
-			log.Printf("anet: auto-reply %s: %v", th.InteractionID, err)
+		if err := m.autoReplyThread(ctx, cfg, replier, t, &runs); err != nil && !errors.Is(err, module.ErrTurnGone) {
+			log.Printf("anet: auto-reply %s: %v", t.Ix, err)
 		}
 	}
 }
@@ -346,9 +460,8 @@ var slowTurnAfter = time.Minute
 // costs no extra message. The returned function ends the wait and returns
 // once an announcement under way is done, so that it never follows the
 // reply.
-func (d *Daemon) announceSlowTurn(th Thread) func() {
-	if th.Role != string(interactions.RoleInbound) || th.State != string(interactions.StateSubmitted) ||
-		th.IsCapability || slowTurnAfter <= 0 {
+func (m *autoReplyModule) announceSlowTurn(th module.Turn) func() {
+	if th.Role != roleInbound || th.State != stateSubmitted || slowTurnAfter <= 0 {
 		return func() {}
 	}
 	stop, finished := make(chan struct{}), make(chan struct{})
@@ -360,13 +473,11 @@ func (d *Daemon) announceSlowTurn(th Thread) func() {
 		case <-tm.C:
 		case <-stop:
 			return
-		case <-d.ctx.Done():
+		case <-m.ctx.Done():
 			return
 		}
-		ctx, cancel := context.WithTimeout(d.ctx, hubCallTimeout)
-		defer cancel()
-		if err := d.SendStatus(ctx, th.InteractionID, interactions.StateWorking, "", nil); err != nil && d.ctx.Err() == nil {
-			log.Printf("anet: auto-reply %s: tell the requester the backend is working on it: %v", th.InteractionID, err)
+		if err := m.turns.WorkingTurn(m.ctx, th.Ix); err != nil && m.ctx.Err() == nil && !errors.Is(err, module.ErrTurnGone) {
+			log.Printf("anet: auto-reply %s: tell the requester the backend is working on it: %v", th.Ix, err)
 		}
 	}()
 	var once sync.Once
@@ -376,36 +487,31 @@ func (d *Daemon) announceSlowTurn(th Thread) func() {
 	}
 }
 
+// The values of a turn's role and state that this file tests (the kernel's words, spelled out here so
+// that the file touches the kernel through package module only).
+const (
+	roleInbound    = "inbound"
+	stateSubmitted = "submitted"
+)
+
 // autoReplyThread services ONE conversation (inbound or outbound): produce the reply we owe (usage
 // hint / backend answer / error report), or end the task at the runaway cap or when the backend says
 // it is done. No-op when nothing is owed. A requester's end request needs no reply: the provider
 // daemon completes on receiving it (A2A-DESIGN §4.2). An untrusted peer's turn is started on runs and
 // left running (autoReplyOnce).
-func (d *Daemon) autoReplyThread(ctx context.Context, cfg AutoReplyConfig, replier autoReplier, th Thread, runs *sync.WaitGroup) error {
-	// A task a module's A2A backend is given is answered there, not here
-	// as well (A2A-DESIGN §11.6, inbound_tasks.go).
-	if d.backendAnswers(th) {
-		return nil
-	}
-	// The lists are read on every turn, whatever the backend: a peer put
-	// on the deny list stops reaching the model or the agent at the next
-	// turn, not at the next revocation sweep (A2A-DESIGN §5.1).
-	ps := d.readPeers()
-	if ps.denied(th.Peer) {
-		return nil
-	}
-	// How this turn runs is decided on every turn from the lists as they
-	// are now (LEC GT-1): a peer taken off the trust list stops reaching
-	// the agent unconfined at the next turn.
-	gate := gateFor(cfg, ps.trusted(th.Peer))
+func (m *autoReplyModule) autoReplyThread(ctx context.Context, cfg AutoReplyConfig, replier autoReplier, th module.Turn, runs *sync.WaitGroup) error {
+	// How this turn runs is decided on every turn from the lists as they are now (LEC GT-1): a peer
+	// taken off the trust list stops reaching the agent unconfined at the next turn. th.Trusted was read
+	// when the kernel handed the turn over.
+	gate := gateFor(cfg, th.Trusted)
 	if gate.mode == "" {
 		return nil // untrusted=off: left in the inbox for the operator
 	}
-	if d.sbRefused.before(th) {
+	if m.sbRefused.before(th) {
 		return nil // this turn already failed closed; wait for a new message
 	}
 
-	turns, err := d.conversationTurns(th, cfg.MaxHistory)
+	turns, err := m.conversationTurns(th, cfg.MaxHistory)
 	if err != nil {
 		return err
 	}
@@ -419,45 +525,42 @@ func (d *Daemon) autoReplyThread(ctx context.Context, cfg AutoReplyConfig, repli
 	// accepts the end; a human can review the transcript). See autoReplyMaxReplies.
 	maxReplies := autoReplyMaxReplies
 	ourReplies := 0
-	for _, m := range th.Messages {
-		if m.Kind == interactions.MsgText && m.From == "me" && (m.Body != "" || len(m.Attachments) > 0) &&
-			!hasControlMeta(string(m.Metadata)) {
+	for _, msg := range th.Messages {
+		if msg.From == "me" && (msg.Body != "" || len(msg.Attachments) > 0) {
 			ourReplies++
 		}
 	}
 	if ourReplies >= maxReplies {
 		if th.EndReqBy != "me" {
-			hctx, cancel := context.WithTimeout(ctx, hubCallTimeout)
-			defer cancel()
-			if err := d.RequestEnd(hctx, th.InteractionID); err != nil {
+			if err := m.turns.EndTurn(ctx, th.Ix); err != nil {
 				return fmt.Errorf("propose end at auto-reply cap: %w", err)
 			}
-			sharedExecSessionStore(d.layout.Root).del(th.InteractionID)
-			log.Printf("anet: auto-reply %s: reached auto-reply cap (%d) — proposed end", th.InteractionID, maxReplies)
+			execwork.Sessions(m.env.StateDir).Del(th.Ix)
+			log.Printf("anet: auto-reply %s: reached auto-reply cap (%d) — proposed end", th.Ix, maxReplies)
 		}
 		return nil
 	}
 
 	if !gate.counted {
-		return d.replyTurn(ctx, cfg, replier, gate, th, turns, nil)
+		return m.replyTurn(ctx, cfg, replier, gate, th, turns, nil)
 	}
 	// An untrusted peer's run takes its place in the budget before anything
 	// starts (LEC BU-2 to BU-5).
-	ticket, verdict, wait := d.reserveRun(cfg, th.Peer)
+	ticket, verdict, wait := m.reserveRun(cfg, th.Peer)
 	switch verdict {
 	case budgetOff:
 		return nil // a budget of 0 is untrusted=off: left in the inbox for the operator
 	case budgetBusy:
 		return nil // no free slot: the next scan tries again; nothing is refused
 	case budgetSpent:
-		return d.refuseTurn(ctx, th, autoReplyRun{Agent: gate.agent(cfg), InteractionID: th.InteractionID,
+		return m.refuseTurn(ctx, th, autoReplyRun{Agent: gate.agent(cfg), InteractionID: th.Ix,
 			Peer: th.Peer, Trusted: gate.trusted, Mode: gate.mode, Exit: exitBudget}, wait)
 	}
 	runs.Add(1)
 	go func() {
 		defer runs.Done()
-		if err := d.replyTurn(ctx, cfg, replier, gate, th, turns, ticket); err != nil {
-			log.Printf("anet: auto-reply %s: %v", th.InteractionID, err)
+		if err := m.replyTurn(ctx, cfg, replier, gate, th, turns, ticket); err != nil && !errors.Is(err, module.ErrTurnGone) {
+			log.Printf("anet: auto-reply %s: %v", th.Ix, err)
 		}
 	}()
 	return nil
@@ -466,7 +569,7 @@ func (d *Daemon) autoReplyThread(ctx context.Context, cfg AutoReplyConfig, repli
 // replyTurn runs the backend for one owed turn and sends what it produced. ticket is the turn's place
 // in the run budget, nil when it does not count; it is released when the turn ends, and its count is
 // given back when nothing started (the sandbox was unavailable).
-func (d *Daemon) replyTurn(ctx context.Context, cfg AutoReplyConfig, replier autoReplier, gate execGate, th Thread,
+func (m *autoReplyModule) replyTurn(ctx context.Context, cfg AutoReplyConfig, replier autoReplier, gate execGate, th module.Turn,
 	turns []chatTurn, ticket *budgetTicket) error {
 	counted := true
 	defer func() { ticket.release(counted) }()
@@ -479,24 +582,24 @@ func (d *Daemon) replyTurn(ctx context.Context, cfg AutoReplyConfig, replier aut
 	// reply text + these files as ONE message and owns end negotiation. It lives in the interaction's
 	// exec work dir, outside the data dir (autoreply_exec.go). Creation failure is non-fatal — we just
 	// fall back to text-only replies.
-	outbox, cleanupOutbox, obErr := d.newExecOutbox(th.InteractionID, gate.mode == modeSandbox)
+	outbox, cleanupOutbox, obErr := m.newExecOutbox(th.Ix, gate.mode == modeSandbox)
 	if obErr != nil {
-		log.Printf("anet: auto-reply %s: no outbox: %v", th.InteractionID, obErr)
+		log.Printf("anet: auto-reply %s: no outbox: %v", th.Ix, obErr)
 		outbox = ""
 	} else {
 		defer cleanupOutbox()
 	}
 
 	rctx, cancel := context.WithTimeout(ctx, timeout)
-	rc := replyContext{Role: th.Role, Goal: th.Goal, InteractionID: th.InteractionID, Outbox: outbox}
-	if th.Role == string(interactions.RoleInbound) && gate.mode != modeSandbox {
+	rc := replyContext{Role: th.Role, Goal: th.Goal, InteractionID: th.Ix, Outbox: outbox}
+	if th.Role == roleInbound && gate.mode != modeSandbox {
 		// CUX-P5: the openai backend streams when this round is previewed (CUX-P4), and only then.
-		if _, ok := d.previewWanted(th.InteractionID); ok {
-			rc.Preview = func(text, reasoning string) { d.previewOffer(th.InteractionID, text, reasoning) }
+		if sink, ok := m.turns.PreviewTurn(th.Ix); ok {
+			rc.Preview = sink.Offer
 		}
 	}
-	announced := d.announceSlowTurn(th)
-	reply, run, err := d.invokeReplier(rctx, cfg, replier, gate, th, rc, turns)
+	announced := m.announceSlowTurn(th)
+	reply, run, err := m.invokeReplier(rctx, cfg, replier, gate, th, rc, turns)
 	cancel()
 	announced()
 	switch run.Exit {
@@ -505,17 +608,13 @@ func (d *Daemon) replyTurn(ctx context.Context, cfg AutoReplyConfig, replier aut
 		// refusal's (once per interaction).
 		counted = false
 	default:
-		d.recordAutoReplyInvoked(run)
-	}
-	if d.readPeers().denied(th.Peer) {
-		// Denied while the backend worked: nothing more goes to the peer.
-		return nil
+		m.recordAutoReplyInvoked(run)
 	}
 	if errors.Is(err, errSandboxUnavailable) {
-		return d.refuseTurn(ctx, th, run, 0)
+		return m.refuseTurn(ctx, th, run, 0)
 	}
 	if err != nil {
-		return d.backendFailed(ctx, th, err)
+		return m.backendFailed(ctx, th, err)
 	}
 
 	// Completion-aware backends append autoReplyDoneSentinel when the task is finished. Send whatever text
@@ -524,43 +623,52 @@ func (d *Daemon) replyTurn(ctx context.Context, cfg AutoReplyConfig, replier aut
 	reply, done := stripDoneSentinel(reply)
 	atts, oerr := collectOutbox(outbox)
 	if oerr != nil {
-		return d.backendFailed(ctx, th, fmt.Errorf("outbox: %w", oerr))
+		return m.backendFailed(ctx, th, fmt.Errorf("outbox: %w", oerr))
 	}
+	sessions := execwork.Sessions(m.env.StateDir)
 	// A provider's reply that completes the task goes in the result, one
-	// write with the completion (completeWithReply, CUX-R4, R5).
-	if done && th.EndReqBy != "me" && th.Role == string(interactions.RoleInbound) {
-		hctx, cancel := context.WithTimeout(ctx, hubCallTimeout)
-		defer cancel()
-		if err := d.completeWithReply(hctx, th.InteractionID, reply, atts); err != nil {
+	// write with the completion (completeWithReply, CUX-R4, R5): TurnHost.SendTurn with final set.
+	if done && th.EndReqBy != "me" && th.Role == roleInbound {
+		if err := m.turns.SendTurn(ctx, th.Ix, reply, modAtts(atts), true); err != nil {
+			if errors.Is(err, module.ErrTurnGone) {
+				return err // denied while the backend worked, or ended: nothing more goes to the peer
+			}
 			return fmt.Errorf("complete after task-done: %w", err)
 		}
-		sharedExecSessionStore(d.layout.Root).del(th.InteractionID)
+		sessions.Del(th.Ix)
 		log.Printf("anet: auto-reply %s: backend replied (%d chars, %d attachment(s)) — task done, completed",
-			th.InteractionID, len(reply), len(atts))
+			th.Ix, len(reply), len(atts))
 		return nil
 	}
 	if reply != "" || len(atts) > 0 {
-		if err := d.sendAutoReplyAttachments(ctx, th.InteractionID, reply, atts, nil); err != nil {
+		if err := m.turns.SendTurn(ctx, th.Ix, reply, modAtts(atts), false); err != nil {
 			return err
 		}
 		doneNote := ""
 		if done {
 			doneNote = " — task done, proposing end"
 		}
-		log.Printf("anet: auto-reply %s: backend replied (%d chars, %d attachment(s))%s", th.InteractionID, len(reply), len(atts), doneNote)
+		log.Printf("anet: auto-reply %s: backend replied (%d chars, %d attachment(s))%s", th.Ix, len(reply), len(atts), doneNote)
 	}
 	if done && th.EndReqBy != "me" {
-		hctx, cancel := context.WithTimeout(ctx, hubCallTimeout)
-		defer cancel()
-		if err := d.RequestEnd(hctx, th.InteractionID); err != nil {
+		if err := m.turns.EndTurn(ctx, th.Ix); err != nil {
 			return fmt.Errorf("propose end after task-done: %w", err)
 		}
-		sharedExecSessionStore(d.layout.Root).del(th.InteractionID)
+		sessions.Del(th.Ix)
 		if reply == "" {
-			log.Printf("anet: auto-reply %s: backend signaled task done (no text) — proposed end", th.InteractionID)
+			log.Printf("anet: auto-reply %s: backend signaled task done (no text) — proposed end", th.Ix)
 		}
 	}
 	return nil
+}
+
+// modAtts is the outbox files as the seam takes them.
+func modAtts(atts []delegation.Attachment) []module.Attachment {
+	out := make([]module.Attachment, 0, len(atts))
+	for _, a := range atts {
+		out = append(out, module.Attachment{Name: a.Name, Mime: a.Mime, Data: a.Data})
+	}
+	return out
 }
 
 // backendFailed is how a turn whose backend failed ends (UX-R3): an inbound task is answered
@@ -569,42 +677,38 @@ func (d *Daemon) replyTurn(ctx context.Context, cfg AutoReplyConfig, replier aut
 // nobody to tell. The failure's detail — agent stderr, paths, the model API's answer — goes to the local
 // log only; the peer never gets it. The turn is not tried again until the peer writes, so a backend that
 // keeps failing costs one call per message, not one per scan.
-func (d *Daemon) backendFailed(ctx context.Context, th Thread, err error) error {
-	log.Printf("anet: auto-reply %s: backend failed: %v", th.InteractionID, err)
-	d.sbRefused.holdFailed(th)
-	if th.Role != string(interactions.RoleInbound) {
+func (m *autoReplyModule) backendFailed(ctx context.Context, th module.Turn, err error) error {
+	log.Printf("anet: auto-reply %s: backend failed: %v", th.Ix, err)
+	m.sbRefused.holdFailed(th)
+	if th.Role != roleInbound {
 		return nil
 	}
-	sctx, cancel := context.WithTimeout(ctx, hubCallTimeout)
-	defer cancel()
-	return d.SendStatus(sctx, th.InteractionID, interactions.StateInputRequired, "",
-		map[string]any{a2ashape.KeyReason: reasonBackendFailed})
+	return m.turns.RefuseTurn(ctx, th.Ix, module.ReasonBackendFailed, 0)
 }
 
-// conversationTurns renders a thread's text messages as backend-agnostic chat turns (peer → user, us →
-// assistant), loading image attachment bytes from the local store onto their user turns. maxHistory caps how many
-// trailing turns are kept (0 ⇒ default).
-func (d *Daemon) conversationTurns(th Thread, maxHistory int) (turns []chatTurn, err error) {
+// conversationTurns renders a turn's text messages as backend-agnostic chat turns (peer → user, us →
+// assistant), loading image attachment bytes through the seam onto their user turns. maxHistory caps how
+// many trailing turns are kept (0 ⇒ default).
+func (m *autoReplyModule) conversationTurns(th module.Turn, maxHistory int) (turns []chatTurn, err error) {
 	if maxHistory <= 0 {
 		maxHistory = autoReplyDefaultMaxHistory
 	}
-	for _, m := range th.Messages {
-		if m.Kind != interactions.MsgText || (m.Body == "" && len(m.Attachments) == 0) ||
-			hasControlMeta(string(m.Metadata)) {
-			continue // end requests, cancels, status and payment messages, and empty rows are not conversation
+	for _, msg := range th.Messages {
+		if msg.Body == "" && len(msg.Attachments) == 0 {
+			continue // empty rows are not conversation (control messages were left out by the kernel)
 		}
-		turn := chatTurn{Role: "assistant", Text: m.Body}
-		if m.From == "them" {
+		turn := chatTurn{Role: "assistant", Text: msg.Body}
+		if msg.From == "them" {
 			turn.Role = "user"
-			for _, a := range m.Attachments {
+			for _, a := range msg.Attachments {
 				if !strings.HasPrefix(a.Mime, "image/") {
 					continue
 				}
-				_, mime, data, aerr := d.AttachmentBytes(th.InteractionID, a.CID)
+				data, aerr := m.turns.TurnAttachment(th.Ix, a.CID)
 				if aerr != nil {
 					return nil, fmt.Errorf("load attachment %s: %w", a.CID, aerr)
 				}
-				turn.Images = append(turn.Images, chatImage{Mime: mime, Data: data})
+				turn.Images = append(turn.Images, chatImage{Mime: a.Mime, Data: data})
 			}
 		}
 		if turn.Text == "" && len(turn.Images) == 0 {
@@ -769,16 +873,16 @@ func (g execGate) agent(cfg AutoReplyConfig) string {
 // invokeReplier runs the backend for one turn under the gating decision: a direct run and the openai
 // backend go to the configured replier; a sandboxed one to runSandboxed, which never falls back to an
 // unconfined run. It returns the turn's record for the caller to write.
-func (d *Daemon) invokeReplier(ctx context.Context, cfg AutoReplyConfig, replier autoReplier, gate execGate,
-	th Thread, rc replyContext, turns []chatTurn) (string, autoReplyRun, error) {
-	run := autoReplyRun{Agent: gate.agent(cfg), InteractionID: th.InteractionID, Peer: th.Peer,
+func (m *autoReplyModule) invokeReplier(ctx context.Context, cfg AutoReplyConfig, replier autoReplier, gate execGate,
+	th module.Turn, rc replyContext, turns []chatTurn) (string, autoReplyRun, error) {
+	run := autoReplyRun{Agent: gate.agent(cfg), InteractionID: th.Ix, Peer: th.Peer,
 		Trusted: gate.trusted, Mode: gate.mode}
 	start := time.Now()
 	var reply string
 	var err error
 	if gate.mode == modeSandbox {
 		var res sandboxResult
-		res, err = d.runSandboxed(ctx, sandboxRequest{Cfg: cfg, RC: rc, Turns: turns})
+		res, err = m.runSandboxed(ctx, sandboxRequest{Cfg: cfg, RC: rc, Turns: turns})
 		reply, run.Sandboxed, run.Egress = res.Reply, res.Sandboxed, res.Egress
 		if res.Sandboxed {
 			run.Kind = sandboxKind
@@ -852,11 +956,8 @@ func (r autoReplyRun) payload() map[string]any {
 	return p
 }
 
-func (d *Daemon) recordAutoReplyInvoked(run autoReplyRun) {
-	if d.ledger == nil {
-		return
-	}
-	if _, err := d.ledger.Append(EvAutoReplyInvoked, run.payload()); err != nil {
+func (m *autoReplyModule) recordAutoReplyInvoked(run autoReplyRun) {
+	if err := m.host.RecordEvidence(EvAutoReplyInvoked, run.payload()); err != nil {
 		log.Printf("anet: auto-reply evidence: %v", err)
 	}
 }
@@ -870,48 +971,43 @@ type sandboxRefused struct {
 	noted map[string]map[string]bool // interaction id -> the exits already logged and recorded
 	// failed: interaction id -> the peer's message count when its backend failed on the turn (UX-R3).
 	failed map[string]int
+	// seen: interaction id -> when it was last among the owed turns; what is not seen for a week is
+	// forgotten (prune), which bounds the memory without the active set the module no longer has.
+	seen map[string]time.Time
 }
+
+// refusedForget is how long an interaction may be out of the owed turns before the memory of it goes.
+const refusedForget = 7 * 24 * time.Hour
 
 // before reports whether this turn of th was already turned away, or its backend already failed on it.
-func (s *sandboxRefused) before(th Thread) bool {
+func (s *sandboxRefused) before(th module.Turn) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if n, ok := s.m[th.InteractionID]; ok && n == len(th.Messages) {
+	if n, ok := s.m[th.Ix]; ok && n == th.MsgCount {
 		return true
 	}
-	n, ok := s.failed[th.InteractionID]
-	return ok && n == peerMessages(th)
-}
-
-// peerMessages is how many messages the peer has sent on th: a failed turn is tried again when it grows.
-func peerMessages(th Thread) int {
-	n := 0
-	for _, m := range th.Messages {
-		if m.From == "them" {
-			n++
-		}
-	}
-	return n
+	n, ok := s.failed[th.Ix]
+	return ok && n == th.PeerMsgCount
 }
 
 // holdFailed keeps the turn th, whose backend failed, from being tried again until the peer writes.
-func (s *sandboxRefused) holdFailed(th Thread) {
+func (s *sandboxRefused) holdFailed(th module.Turn) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.failed == nil {
 		s.failed = map[string]int{}
 	}
-	s.failed[th.InteractionID] = peerMessages(th)
+	s.failed[th.Ix] = th.PeerMsgCount
 }
 
 // hold keeps the outbound turn th from being tried again until the peer writes.
-func (s *sandboxRefused) hold(th Thread) {
+func (s *sandboxRefused) hold(th module.Turn) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.m == nil {
 		s.m = map[string]int{}
 	}
-	s.m[th.InteractionID] = len(th.Messages)
+	s.m[th.Ix] = th.MsgCount
 }
 
 // first reports whether ix is turned away for exit for the first time, and notes it.
@@ -931,23 +1027,45 @@ func (s *sandboxRefused) first(ix, exit string) bool {
 	return true
 }
 
-// prune forgets the interactions that are no longer active.
-func (s *sandboxRefused) prune(active map[string]bool) {
+// prune notes the interactions that are owed now and forgets the ones not owed for a week.
+func (s *sandboxRefused) prune(owed map[string]bool, now time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.seen == nil {
+		s.seen = map[string]time.Time{}
+	}
+	for ix := range owed {
+		s.seen[ix] = now
+	}
+	forget := func(ix string) bool {
+		if owed[ix] {
+			return false
+		}
+		t, ok := s.seen[ix]
+		if !ok {
+			s.seen[ix] = now // first sight of an entry made without a scan: start its clock
+			return false
+		}
+		return now.Sub(t) > refusedForget
+	}
 	for ix := range s.m {
-		if !active[ix] {
+		if forget(ix) {
 			delete(s.m, ix)
 		}
 	}
 	for ix := range s.noted {
-		if !active[ix] {
+		if forget(ix) {
 			delete(s.noted, ix)
 		}
 	}
 	for ix := range s.failed {
-		if !active[ix] {
+		if forget(ix) {
 			delete(s.failed, ix)
+		}
+	}
+	for ix, t := range s.seen {
+		if !owed[ix] && now.Sub(t) > refusedForget {
+			delete(s.seen, ix)
 		}
 	}
 }
@@ -959,115 +1077,30 @@ func (s *sandboxRefused) prune(active map[string]bool) {
 // node is the requester) sends nothing and stays in the inbox. A refusal before anything started is
 // logged and recorded once per interaction and reason; a run killed for its disk use was recorded by
 // its caller, since it counts.
-func (d *Daemon) refuseTurn(ctx context.Context, th Thread, run autoReplyRun, retryAfter time.Duration) error {
-	reason := reasonSandboxUnavailble
+func (m *autoReplyModule) refuseTurn(ctx context.Context, th module.Turn, run autoReplyRun, retryAfter time.Duration) error {
+	reason := module.ReasonSandboxUnavailable
 	if run.Exit == exitBudget {
-		reason = "budget"
+		reason = module.ReasonBudget
 	}
-	if d.sbRefused.first(th.InteractionID, run.Exit) {
+	if m.sbRefused.first(th.Ix, run.Exit) {
 		if run.Exit != exitResource {
-			d.recordAutoReplyInvoked(run)
+			m.recordAutoReplyInvoked(run)
 		}
 		why := run.Exit
 		if run.Unavailable != "" {
 			why += " (" + run.Unavailable + ")"
 		}
 		dir := "nothing sent, the task stays in the inbox"
-		if th.Role == string(interactions.RoleInbound) {
+		if th.Role == roleInbound {
 			dir = "the task is refused"
 		}
-		log.Printf("anet: auto-reply %s: turned away: %s; %s", th.InteractionID, why, dir)
+		log.Printf("anet: auto-reply %s: turned away: %s; %s", th.Ix, why, dir)
 	}
-	if th.Role != string(interactions.RoleInbound) {
-		d.sbRefused.hold(th)
+	if th.Role != roleInbound {
+		m.sbRefused.hold(th)
 		return nil
 	}
-	meta := map[string]any{a2ashape.KeyReason: reason}
-	if run.Exit == exitBudget {
-		meta[a2ashape.KeyRetryAfterMS] = max(retryAfter.Milliseconds(), 1)
-	}
-	sctx, cancel := context.WithTimeout(ctx, hubCallTimeout)
-	defer cancel()
-	return d.SendStatus(sctx, th.InteractionID, interactions.StateRejected, "", meta)
-}
-
-// autoReplySummary is the part of an auto-reply configuration a policy
-// change event records: the backend, the agent, how untrusted and trusted
-// peers' turns run, the run budgets and whether an API key is set (LEC
-// §2.5: never the key). Prompts and paths are left out.
-func autoReplySummary(c *AutoReplyConfig) map[string]any {
-	if c == nil {
-		return nil
-	}
-	backend := c.Backend
-	if backend == "" {
-		backend = "openai"
-	}
-	daily, perPeer := c.runBudgets()
-	return map[string]any{"backend": backend, "agent": c.Agent, "untrusted": c.UntrustedMode(),
-		"trusted": c.TrustedMode(), "runs_per_day": daily, "runs_per_peer_per_day": perPeer,
-		"api_key_set": c.APIKey != ""}
-}
-
-// recordTrustedChange writes anet.policy.changed when a configuration write changes how trusted peers'
-// turns run (LEC §2.5). Turning auto-reply on or off is the auto_reply record's.
-func recordTrustedChange(d *Daemon, from, to *AutoReplyConfig) {
-	if from == nil || to == nil {
-		return
-	}
-	if a, b := from.TrustedMode(), to.TrustedMode(); a != b {
-		d.recordPolicyChange("auto_reply.trusted", a, b, nil)
-	}
-}
-
-// writeConfigRefusal answers a configuration write the checks refused (budget_invalid,
-// work_dir_invalid, config_invalid; LEC §2.3.4) with 400 and the error body with its reason (UX-R9),
-// and reports whether err was one.
-func writeConfigRefusal(w http.ResponseWriter, err error) bool {
-	var ref *a2ashape.Refusal
-	if !errors.As(err, &ref) {
-		return false
-	}
-	writeRefusal(w, http.StatusBadRequest, ref)
-	return true
-}
-
-// checkTrustedMode is config_invalid for an auto_reply.trusted that is neither direct nor sandbox (LEC
-// §3.2).
-func checkTrustedMode(c *AutoReplyConfig) *a2ashape.Refusal {
-	if c == nil {
-		return nil
-	}
-	switch c.Trusted {
-	case "", TrustedDirect, TrustedSandbox:
-		return nil
-	}
-	return a2ashape.Refuse(reasonConfigInvalid, a2ashape.Args{"key": "auto_reply.trusted",
-		"rule": ruleText("只能是 direct 或 sandbox", "it must be direct or sandbox")})
-}
-
-// checkAutoReplyConfig is the refusal for an auto-reply configuration this area does not take (LEC
-// §3.2): auto_reply.trusted neither direct nor sandbox, a run budget out of range, or a work_dir in the
-// data dir or the sandbox work root. dataDir empty skips the data dir.
-func checkAutoReplyConfig(c *AutoReplyConfig, dataDir string) *a2ashape.Refusal {
-	if r := checkTrustedMode(c); r != nil {
-		return r
-	}
-	if r := checkRunBudgets(c); r != nil {
-		return r
-	}
-	return checkWorkDir(c, dataDir)
-}
-
-// The auto-reply configuration is checked when the daemon starts (LEC §3.2); the data dir is checked
-// by New, which knows it (Daemon.validate).
-func init() {
-	configChecks = append(configChecks, func(c Config, _ map[string]any) *a2ashape.Refusal {
-		if r := checkTrustedMode(c.AutoReply); r != nil {
-			return r
-		}
-		return checkWorkDir(c.AutoReply, "")
-	})
+	return m.turns.RefuseTurn(ctx, th.Ix, reason, retryAfter)
 }
 
 // --- streaming (CUX-P5) ---

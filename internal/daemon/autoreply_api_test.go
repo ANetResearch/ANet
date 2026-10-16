@@ -70,18 +70,18 @@ func TestAutoReplyMergesWhatItNames(t *testing.T) {
 		if code != http.StatusOK {
 			t.Fatalf("step %d %s: %d %s", i, s.body, code, raw)
 		}
-		got := d.config().AutoReply
+		got := AutoReplyOf(d.config())
 		if got == nil || !sameAutoReply(*got, s.want) {
 			t.Fatalf("step %d %s: config %+v, want %+v", i, s.body, got, s.want)
 		}
 		saved, err := LoadConfig(d.layout)
-		if err != nil || saved.AutoReply == nil || !sameAutoReply(*saved.AutoReply, s.want) {
-			t.Fatalf("step %d: config.json holds %+v (%v)", i, saved.AutoReply, err)
+		if err != nil || AutoReplyOf(saved) == nil || !sameAutoReply(*AutoReplyOf(saved), s.want) {
+			t.Fatalf("step %d: config.json holds %+v (%v)", i, AutoReplyOf(saved), err)
 		}
 	}
 	code, out, raw := postAutoReply(t, d, `{"off":true}`)
-	if code != http.StatusOK || out["auto_reply"] != nil || d.config().AutoReply != nil {
-		t.Fatalf("off: %d %s, config %+v", code, raw, d.config().AutoReply)
+	if code != http.StatusOK || out["auto_reply"] != nil || AutoReplyOf(d.config()) != nil {
+		t.Fatalf("off: %d %s, config %+v", code, raw, AutoReplyOf(d.config()))
 	}
 }
 
@@ -114,11 +114,11 @@ func TestAutoReplySettingsSentAtOnceAllLand(t *testing.T) {
 	wg.Wait()
 	want := AutoReplyConfig{Backend: "exec", Agent: "claude", Model: "m1", SystemPrompt: "s",
 		MaxHistory: 5, APITimeoutSeconds: 9, APIKey: "sk-at-once", Untrusted: "sandbox", OpenClawAgent: "o"}
-	if got := d.config().AutoReply; got == nil || !sameAutoReply(*got, want) {
+	if got := AutoReplyOf(d.config()); got == nil || !sameAutoReply(*got, want) {
 		t.Fatalf("after %d settings at once: %+v, want %+v", len(bodies), got, want)
 	}
-	if saved, err := LoadConfig(d.layout); err != nil || saved.AutoReply == nil || !sameAutoReply(*saved.AutoReply, want) {
-		t.Fatalf("config.json holds %+v (%v)", saved.AutoReply, err)
+	if saved, err := LoadConfig(d.layout); err != nil || AutoReplyOf(saved) == nil || !sameAutoReply(*AutoReplyOf(saved), want) {
+		t.Fatalf("config.json holds %+v (%v)", AutoReplyOf(saved), err)
 	}
 }
 
@@ -129,20 +129,20 @@ func TestAutoReplyOffIsABoolean(t *testing.T) {
 	if code, _, raw := postAutoReply(t, d, `{"backend":"exec","agent":"claude"}`); code != http.StatusOK {
 		t.Fatalf("%d %s", code, raw)
 	}
-	before := *d.config().AutoReply
+	before := *AutoReplyOf(d.config())
 	for _, body := range []string{`{"off":"true"}`, `{"off":1}`, `{"off":"yes","model":"m"}`, `{"off":{}}`} {
 		code, out, raw := postAutoReply(t, d, body)
 		if code != http.StatusBadRequest || out["reason"] != "config_invalid" || !strings.Contains(raw, "off") {
 			t.Errorf("%s: %d %s", body, code, raw)
 		}
-		if ar := d.config().AutoReply; ar == nil || !sameAutoReply(*ar, before) {
+		if ar := AutoReplyOf(d.config()); ar == nil || !sameAutoReply(*ar, before) {
 			t.Errorf("%s changed the configuration: %+v", body, ar)
 		}
 	}
-	if code, _, raw := postAutoReply(t, d, `{"off":null,"model":"m"}`); code != http.StatusOK || d.config().AutoReply.Model != "m" {
+	if code, _, raw := postAutoReply(t, d, `{"off":null,"model":"m"}`); code != http.StatusOK || AutoReplyOf(d.config()).Model != "m" {
 		t.Fatalf(`{"off":null,"model":"m"}: %d %s`, code, raw)
 	}
-	if code, _, raw := postAutoReply(t, d, `{"off":true}`); code != http.StatusOK || d.config().AutoReply != nil {
+	if code, _, raw := postAutoReply(t, d, `{"off":true}`); code != http.StatusOK || AutoReplyOf(d.config()) != nil {
 		t.Fatalf(`{"off":true}: %d %s`, code, raw)
 	}
 }
@@ -169,7 +169,7 @@ func TestAutoReplyNeverShowsTheKey(t *testing.T) {
 	if ar, _ := st["auto_reply"].(map[string]any); ar["api_key_set"] != true {
 		t.Fatalf("/status: api_key_set is not true: %v", st["auto_reply"])
 	}
-	if d.config().AutoReply.APIKey != key {
+	if AutoReplyOf(d.config()).APIKey != key {
 		t.Fatal("the key was not kept")
 	}
 	// The policy change the write records (anet.policy.changed, LEC §2.5) says whether a key is set, never
@@ -206,7 +206,7 @@ func TestAutoReplyRefusesAnEmptyKey(t *testing.T) {
 			out["error"] != a2ashape.Sentence("api_key_empty", a2ashape.Lang(), nil) {
 			t.Errorf("%s: %d %s", body, code, raw)
 		}
-		if ar := d.config().AutoReply; ar.APIKey != "sk-1" || ar.Model != "" {
+		if ar := AutoReplyOf(d.config()); ar.APIKey != "sk-1" || ar.Model != "" {
 			t.Errorf("%s changed the configuration: %+v", body, ar)
 		}
 	}
@@ -219,7 +219,7 @@ func TestAutoReplyRefusesWhatCannotRun(t *testing.T) {
 	if code, _, raw := postAutoReply(t, d, `{"backend":"exec","agent":"claude"}`); code != http.StatusOK {
 		t.Fatalf("%d %s", code, raw)
 	}
-	before := *d.config().AutoReply
+	before := *AutoReplyOf(d.config())
 	for _, c := range []struct{ body, reason, key string }{
 		{`{"backend":"telepathy"}`, "config_invalid", "auto_reply.backend"},
 		{`{"agent":"opencodex"}`, "config_invalid", "auto_reply.agent"},
@@ -245,8 +245,8 @@ func TestAutoReplyRefusesWhatCannotRun(t *testing.T) {
 		if strings.Contains(raw, "sk-typo") {
 			t.Errorf("%s: a refusal repeated the value: %s", c.body, raw)
 		}
-		if !sameAutoReply(*d.config().AutoReply, before) {
-			t.Errorf("%s changed the configuration: %+v", c.body, d.config().AutoReply)
+		if !sameAutoReply(*AutoReplyOf(d.config()), before) {
+			t.Errorf("%s changed the configuration: %+v", c.body, AutoReplyOf(d.config()))
 		}
 	}
 	// A loopback http model service is fine.

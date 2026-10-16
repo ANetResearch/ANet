@@ -1536,7 +1536,7 @@ func (d *Daemon) ingestMessage(ctx context.Context, m *rxMsg) rxResult {
 			d.publishMessage(m.ix, seq, kind)
 			d.publishState(m.ix)
 			if kind == interactions.MsgText && !ix.IsCapability {
-				d.kickAutoReply()
+				d.kickTurns()
 			}
 			if kind == interactions.MsgPayment && fromRequester {
 				d.onRequesterPayment(ctx, m.ix, ix, cm.Metadata)

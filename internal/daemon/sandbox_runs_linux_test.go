@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
+	"github.com/ANetResearch/ANet/internal/execwork"
+	"github.com/ANetResearch/ANet/internal/pathsafe"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 )
 
@@ -54,8 +56,8 @@ esac
 		t.Fatalf("the sandboxed turn: %q", first)
 	}
 	sandboxDir := strings.TrimPrefix(first, "WROTE ")
-	if !pathWithin(sandboxDir, execSandboxWorkRoot()) {
-		t.Fatalf("the sandboxed turn worked in %s, outside %s", sandboxDir, execSandboxWorkRoot())
+	if !pathsafe.PathWithin(sandboxDir, execwork.SandboxWorkRoot()) {
+		t.Fatalf("the sandboxed turn worked in %s, outside %s", sandboxDir, execwork.SandboxWorkRoot())
 	}
 	if _, err := os.Stat(filepath.Join(sandboxDir, "opencode.json")); err != nil {
 		t.Fatalf("the sandboxed agent's write did not reach its work dir: %v", err)
@@ -67,7 +69,7 @@ esac
 	f.tick(t)
 	second := f.lastPeerMsg(t, id).Body
 	fields := strings.Fields(strings.TrimPrefix(second, "DIRECT "))
-	if !strings.HasPrefix(second, "DIRECT ") || len(fields) == 0 || pathWithin(fields[0], execSandboxWorkRoot()) {
+	if !strings.HasPrefix(second, "DIRECT ") || len(fields) == 0 || pathsafe.PathWithin(fields[0], execwork.SandboxWorkRoot()) {
 		t.Fatalf("the trusted turn: %q", second)
 	}
 	for _, name := range fields[1:] {
@@ -99,7 +101,7 @@ func TestSandboxOutboxLinkSendsNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.tick(t)
-	if _, err := os.Stat(filepath.Join(execSandboxWorkRoot(), aidShort(f.prov.AID()), ixDirName(id), "linked")); err != nil {
+	if _, err := os.Stat(filepath.Join(execwork.SandboxWorkRoot(), execwork.AidShort(f.prov.AID()), execwork.IxDirName(id), "linked")); err != nil {
 		t.Fatalf("the agent did not get to link its outbox: %v", err)
 	}
 	got := f.lastPeerMsg(t, id)
@@ -129,7 +131,7 @@ func TestSandboxDiskWatchKillsTheRun(t *testing.T) {
 	if meta := awaitState(t, f.req, id, interactions.StateRejected); meta[a2ashape.KeyReason] != reasonSandboxUnavailble {
 		t.Fatalf("the requester was told %v", meta)
 	}
-	work := filepath.Join(execSandboxWorkRoot(), aidShort(f.prov.AID()), ixDirName(id))
+	work := filepath.Join(execwork.SandboxWorkRoot(), execwork.AidShort(f.prov.AID()), execwork.IxDirName(id))
 	if _, err := os.Stat(work); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("the work dir survived: %v", err)
 	}
@@ -243,7 +245,7 @@ func TestSandboxLeftoversAreSweptBeforeTheFirstRun(t *testing.T) {
 		_ = os.WriteFile(filepath.Join(ro, "f"), []byte("x"), 0o400)
 		_ = os.Chmod(ro, 0o500)
 	}
-	t.Cleanup(func() { removeWorkTree(other) })
+	t.Cleanup(func() { execwork.RemoveTree(other) })
 	d.sweepSandboxLeftovers()
 	for _, gone := range []string{mine, sock} {
 		if _, err := os.Stat(gone); !errors.Is(err, os.ErrNotExist) {
@@ -259,7 +261,7 @@ func TestSandboxLeftoversAreSweptBeforeTheFirstRun(t *testing.T) {
 	if err := os.MkdirAll(theirs, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { removeWorkTree(theirs) })
+	t.Cleanup(func() { execwork.RemoveTree(theirs) })
 	leftoverOwner = func() int { return os.Getuid() + 1 }
 	removeSandboxLeftovers(d.AID())
 	leftoverOwner = os.Getuid
@@ -270,7 +272,7 @@ func TestSandboxLeftoversAreSweptBeforeTheFirstRun(t *testing.T) {
 	if err := os.MkdirAll(again, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { removeWorkTree(again) })
+	t.Cleanup(func() { execwork.RemoveTree(again) })
 	d.sweepSandboxLeftovers()
 	if _, err := os.Stat(again); err != nil {
 		t.Errorf("a second sweep removed a run directory made after the first: %v", err)
@@ -284,7 +286,7 @@ func TestSandboxLeftoversAreSweptWhenAutoReplyStarts(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(left, "home"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { removeWorkTree(left) })
+	t.Cleanup(func() { execwork.RemoveTree(left) })
 	if err := d.SetAutoReply(&AutoReplyConfig{Backend: "exec", Agent: "claude", Untrusted: UntrustedSandbox}); err != nil {
 		t.Fatal(err)
 	}

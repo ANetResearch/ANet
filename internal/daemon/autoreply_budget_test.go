@@ -20,6 +20,9 @@ import (
 	"time"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
+	"github.com/ANetResearch/ANet/internal/execwork"
+	"github.com/ANetResearch/ANet/internal/localday"
+	"github.com/ANetResearch/ANet/internal/pathsafe"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 )
 
@@ -100,7 +103,7 @@ func checkBudgetRefusal(t *testing.T, req *Daemon, ix string) {
 		t.Fatalf("the requester was told %v", meta)
 	}
 	wait, _ := meta[a2ashape.KeyRetryAfterMS].(float64)
-	_, end := localDayBounds(time.Now())
+	_, end := localday.Bounds(time.Now())
 	want := float64(time.Until(end).Milliseconds())
 	if wait <= 0 || wait > want+5000 || wait < want-60000 {
 		t.Fatalf("anet.retry_after_ms %v, want about %v (to local midnight)", meta[a2ashape.KeyRetryAfterMS], want)
@@ -160,7 +163,7 @@ func TestUntrustedRunsAreBudgeted(t *testing.T) {
 			if r := withExit(recs, exitBudget)[0]; r["trusted"] != false || r["sandboxed"] != false || r["peer_aid"] != f.req.AID() {
 				t.Fatalf("the budget record: %v", r)
 			}
-			if got := f.prov.budget.today(nil); got != runsPerPeerPerDayDefault {
+			if got := f.prov.ar().budget.today(nil); got != runsPerPeerPerDayDefault {
 				t.Fatalf("today's count %d", got)
 			}
 		})
@@ -217,12 +220,7 @@ func TestTheBudgetSurvivesARestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	n := restartDaemon(t, f.prov)
-	n.mu.Lock()
-	if n.autoReplyStop != nil {
-		n.autoReplyStop()
-		n.autoReplyStop = nil
-	}
-	n.mu.Unlock()
+	n.ar().haltLoop()
 	if got := n.SandboxBudget(); got.Today != 2 || got.RunsPerDay != 20 || got.RunsPerPeerPerDay != 2 {
 		t.Fatalf("after the restart: %+v", got)
 	}
@@ -243,7 +241,7 @@ func TestAnOutboundTurnOverTheBudgetStaysInTheInbox(t *testing.T) {
 	f := newAutoReplyFixture(t, AutoReplyConfig{Model: "m", Sandbox: &AutoReplySandboxConfig{RunsPerDay: Budget(1)}}, api)
 	allowPeers(t, f.req, f.prov.AID())
 	// Today's only run is already used (a budget of 0 would be untrusted=off, not a refusal).
-	if tk, v, _ := f.prov.budget.reserve("someone-else", 1, 1, f.prov.budgetRunsOnChain); v != budgetGranted {
+	if tk, v, _ := f.prov.ar().budget.reserve("someone-else", 1, 1, f.prov.budgetRunsOnChain); v != budgetGranted {
 		t.Fatal(v)
 	} else {
 		tk.release(true)
@@ -447,7 +445,7 @@ func TestATrustedPeerOnTheOpenAIBackendIsNotBudgeted(t *testing.T) {
 	if len(recs) != 2 || recs[0]["mode"] != modeOpenAI || recs[0]["trusted"] != true || len(withExit(recs, exitOK)) != 2 {
 		t.Fatalf("records: %v", recs)
 	}
-	if n := f.prov.budget.today(nil); n != 0 {
+	if n := f.prov.ar().budget.today(nil); n != 0 {
 		t.Fatalf("a trusted peer's turns counted %d", n)
 	}
 }
@@ -500,7 +498,7 @@ func TestADiskHogIsKilled(t *testing.T) {
 	if meta := awaitState(t, f.req, id, interactions.StateRejected); meta[a2ashape.KeyReason] != reasonSandboxUnavailble {
 		t.Fatalf("the requester was told %v", meta)
 	}
-	work := filepath.Join(execSandboxWorkRoot(), aidShort(f.prov.AID()), ixDirName(id))
+	work := filepath.Join(execwork.SandboxWorkRoot(), execwork.AidShort(f.prov.AID()), execwork.IxDirName(id))
 	if _, err := os.Stat(work); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("the work dir survived: %v", err)
 	}
@@ -508,7 +506,7 @@ func TestADiskHogIsKilled(t *testing.T) {
 	if len(recs) != 1 || recs[0]["exit"] != exitResource || recs[0]["sandboxed"] != true {
 		t.Fatalf("records: %v", recs)
 	}
-	if n := f.prov.budget.today(nil); n != 1 {
+	if n := f.prov.ar().budget.today(nil); n != 1 {
 		t.Fatalf("the killed run counts %d", n)
 	}
 }
@@ -555,7 +553,7 @@ func TestRemoveWorkTreeStaysInTheTree(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = os.Chmod(ro, 0o500)
-	removeWorkTree(tree)
+	execwork.RemoveTree(tree)
 	if _, err := os.Lstat(tree); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("the tree survived: %v", err)
 	}
@@ -569,7 +567,7 @@ func TestRemoveWorkTreeStaysInTheTree(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = os.Mkdir(filepath.Join(outside, "ro"), 0o500)
-	removeWorkTree(link)
+	execwork.RemoveTree(link)
 	if _, err := os.Lstat(link); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("the link survived: %v", err)
 	}
@@ -586,13 +584,13 @@ func TestRemoveWorkTreeStaysInTheTree(t *testing.T) {
 	}
 	for _, decl := range file.Decls {
 		fd, ok := decl.(*ast.FuncDecl)
-		if !ok || fd.Name.Name != "removeWorkTree" {
+		if !ok || fd.Name.Name != "execwork.RemoveTree" {
 			continue
 		}
 		ast.Inspect(fd.Body, func(n ast.Node) bool {
 			if sel, ok := n.(*ast.SelectorExpr); ok {
 				if x, ok := sel.X.(*ast.Ident); ok && (x.Name == "os" && sel.Sel.Name == "Chmod" || x.Name == "filepath" && sel.Sel.Name == "WalkDir") {
-					t.Errorf("removeWorkTree calls %s.%s on a path, not through its os.Root", x.Name, sel.Sel.Name)
+					t.Errorf("execwork.RemoveTree calls %s.%s on a path, not through its os.Root", x.Name, sel.Sel.Name)
 				}
 			}
 			return true
@@ -614,7 +612,7 @@ func TestRemoveWorkTreeTakesAnUnreadableTop(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(inner, "f"), []byte("x"), 0o600)
 	_ = os.Chmod(inner, 0)
 	_ = os.Chmod(top, 0)
-	removeWorkTree(top)
+	execwork.RemoveTree(top)
 	if _, err := os.Lstat(top); !errors.Is(err, os.ErrNotExist) {
 		_ = os.Chmod(top, 0o700)
 		_ = os.Chmod(inner, 0o700)
@@ -677,7 +675,7 @@ func TestTheDiskWatchCannotBeHiddenFrom(t *testing.T) {
 	if n := dirsSize([]string{deep}, limit); n <= limit {
 		t.Errorf("a tree deeper than the longest path: %d bytes, not over the limit", n)
 	}
-	removeWorkTree(deep)
+	execwork.RemoveTree(deep)
 	if _, err := os.Lstat(deep); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("the deep tree survived its removal: %v", err)
 	}
@@ -712,7 +710,7 @@ func TestASandboxedAgentCannotLinkTheOutboxOut(t *testing.T) {
 	var link atomic.Bool
 	sandboxRunnerForTest = func(_ context.Context, req sandboxRequest, workDir string) (string, *egressSummary, error) {
 		ob := req.RC.Outbox
-		if ob == "" || !pathWithin(ob, workDir) {
+		if ob == "" || !pathsafe.PathWithin(ob, workDir) {
 			return "", nil, errors.New("the outbox is not in the work dir")
 		}
 		if link.Load() {
@@ -832,7 +830,7 @@ fi
 		t.Fatalf("the trusted turn: %q", second)
 	}
 	fields := strings.Fields(strings.TrimPrefix(second, "DIRECT "))
-	if len(fields) == 0 || fields[0] == sandboxDir || pathWithin(fields[0], execSandboxWorkRoot()) {
+	if len(fields) == 0 || fields[0] == sandboxDir || pathsafe.PathWithin(fields[0], execwork.SandboxWorkRoot()) {
 		t.Fatalf("the direct run worked in %v, the sandboxed one in %s", fields, sandboxDir)
 	}
 	for _, leaked := range []string{"opencode.json", "AGENTS.md", ".envrc", ".git", ".cursor"} {
@@ -844,13 +842,13 @@ fi
 	}
 }
 
-// SB-8: deleteExecWorkDir removes one interaction's work dirs under both roots, read-only leftovers
+// SB-8: execwork.DeleteInteraction removes one interaction's work dirs under both roots, read-only leftovers
 // included, and nothing else.
 func TestDeleteExecWorkDir(t *testing.T) {
 	const aid = "bafyreiDeleteWorkDir000000001"
-	for _, root := range []string{execWorkRoot(), execSandboxWorkRoot()} {
+	for _, root := range []string{execwork.WorkRoot(), execwork.SandboxWorkRoot()} {
 		for _, ix := range []string{"ix-gone", "ix-kept"} {
-			ro := filepath.Join(root, aidShort(aid), ixDirName(ix), "cache", "ro")
+			ro := filepath.Join(root, execwork.AidShort(aid), execwork.IxDirName(ix), "cache", "ro")
 			if err := os.MkdirAll(ro, 0o700); err != nil {
 				t.Fatal(err)
 			}
@@ -858,17 +856,17 @@ func TestDeleteExecWorkDir(t *testing.T) {
 			_ = os.Chmod(ro, 0o500)
 		}
 	}
-	deleteExecWorkDir(aid, "ix-gone")
-	for _, root := range []string{execWorkRoot(), execSandboxWorkRoot()} {
-		if _, err := os.Stat(filepath.Join(root, aidShort(aid), ixDirName("ix-gone"))); !errors.Is(err, os.ErrNotExist) {
+	execwork.DeleteInteraction(aid, "ix-gone")
+	for _, root := range []string{execwork.WorkRoot(), execwork.SandboxWorkRoot()} {
+		if _, err := os.Stat(filepath.Join(root, execwork.AidShort(aid), execwork.IxDirName("ix-gone"))); !errors.Is(err, os.ErrNotExist) {
 			t.Errorf("%s: the interaction's work dir survived: %v", root, err)
 		}
-		if _, err := os.Stat(filepath.Join(root, aidShort(aid), ixDirName("ix-kept"))); err != nil {
+		if _, err := os.Stat(filepath.Join(root, execwork.AidShort(aid), execwork.IxDirName("ix-kept"))); err != nil {
 			t.Errorf("%s: another interaction's work dir went: %v", root, err)
 		}
-		removeWorkTree(filepath.Join(root, aidShort(aid)))
+		execwork.RemoveTree(filepath.Join(root, execwork.AidShort(aid)))
 	}
-	deleteExecWorkDir("", "ix") // nothing to do, no panic
+	execwork.DeleteInteraction("", "ix") // nothing to do, no panic
 }
 
 // LEC §3.2, SB-8: auto_reply.work_dir may not lie in, or contain, the data dir or the sandbox work
@@ -882,8 +880,8 @@ func TestTheWorkDirStaysOutOfTheSandboxRoot(t *testing.T) {
 		bad bool
 	}{
 		{elsewhere, false},
-		{filepath.Join(execSandboxWorkRoot(), "x"), true},
-		{filepath.Dir(execSandboxWorkRoot()), true},
+		{filepath.Join(execwork.SandboxWorkRoot(), "x"), true},
+		{filepath.Dir(execwork.SandboxWorkRoot()), true},
 		{filepath.Join(d.layout.Root, "work"), true},
 	} {
 		err := d.SetAutoReply(&AutoReplyConfig{Backend: "exec", Agent: "claude", WorkDir: tc.dir})
@@ -894,7 +892,7 @@ func TestTheWorkDirStaysOutOfTheSandboxRoot(t *testing.T) {
 	}
 	rec := httptest.NewRecorder()
 	d.hAutoReply(rec, httptest.NewRequest(http.MethodPost, "/autoreply", strings.NewReader(
-		`{"backend":"exec","agent":"claude","work_dir":`+jsonString(filepath.Join(execSandboxWorkRoot(), "x"))+`}`)))
+		`{"backend":"exec","agent":"claude","work_dir":`+jsonString(filepath.Join(execwork.SandboxWorkRoot(), "x"))+`}`)))
 	var body a2ashape.ErrorBody
 	_ = json.Unmarshal(rec.Body.Bytes(), &body)
 	if rec.Code != http.StatusBadRequest || body.Reason != "work_dir_invalid" || body.Error == "" {
@@ -903,7 +901,7 @@ func TestTheWorkDirStaysOutOfTheSandboxRoot(t *testing.T) {
 	// At start: the configuration check and New.
 	root := t.TempDir()
 	writeTestConfig(t, root, map[string]any{"control_addr": "127.0.0.1:0",
-		"auto_reply": map[string]any{"backend": "exec", "agent": "claude", "work_dir": filepath.Join(execSandboxWorkRoot(), "y")}})
+		"auto_reply": map[string]any{"backend": "exec", "agent": "claude", "work_dir": filepath.Join(execwork.SandboxWorkRoot(), "y")}})
 	var cr *ConfigRefusal
 	if err := CheckConfigForStart(NewLayout(root)); !errors.As(err, &cr) || cr.Refusals[0].Key != "work_dir_invalid" {
 		t.Fatalf("start check: %v", err)
@@ -913,8 +911,8 @@ func TestTheWorkDirStaysOutOfTheSandboxRoot(t *testing.T) {
 		t.Fatal("the daemon started with a work_dir in the sandbox root")
 	}
 	// A direct run refuses it too.
-	r := &execReplier{cfg: AutoReplyConfig{Backend: "exec", Agent: "claude", WorkDir: filepath.Join(execSandboxWorkRoot(), "z")},
-		dataDir: d.layout.Root, layout: d.layout, aid: d.AID()}
+	r := &execReplier{cfg: AutoReplyConfig{Backend: "exec", Agent: "claude", WorkDir: filepath.Join(execwork.SandboxWorkRoot(), "z")},
+		dataDir: d.layout.Root, aid: d.AID()}
 	if _, err := r.baseOpts(replyContext{InteractionID: "ix"}); err == nil {
 		t.Fatal("a direct run took a work dir in the sandbox root")
 	}
@@ -956,7 +954,7 @@ func TestAutoReplySettingsAreChecked(t *testing.T) {
 		if rec.Code != http.StatusBadRequest || eb.Reason != key {
 			t.Errorf("%s: %d %s, want 400 %s", body, rec.Code, rec.Body, key)
 		}
-		if d.config().AutoReply != nil {
+		if AutoReplyOf(d.config()) != nil {
 			t.Fatalf("%s was saved", body)
 		}
 	}
@@ -966,8 +964,8 @@ func TestAutoReplySettingsAreChecked(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("a valid write: %d %s", rec.Code, rec.Body)
 	}
-	if got := d.SandboxBudget(); got.RunsPerDay != 7 || got.RunsPerPeerPerDay != 2 || d.config().AutoReply.TrustedMode() != TrustedSandbox {
-		t.Fatalf("after the write: %+v %+v", got, d.config().AutoReply)
+	if got := d.SandboxBudget(); got.RunsPerDay != 7 || got.RunsPerPeerPerDay != 2 || AutoReplyOf(d.config()).TrustedMode() != TrustedSandbox {
+		t.Fatalf("after the write: %+v %+v", got, AutoReplyOf(d.config()))
 	}
 	for _, ar := range []map[string]any{
 		{"backend": "openai", "api_base": "http://127.0.0.1:1/v1", "model": "m", "sandbox": map[string]any{"runs_per_day": -1}},
@@ -1038,8 +1036,8 @@ func TestARunTheSandboxRefusedDoesNotCount(t *testing.T) {
 			t.Fatalf("task %d: the requester was told %v (a refused run must not spend the budget)", i, meta)
 		}
 	}
-	if runs() != 0 || f.prov.budget.today(nil) != 0 {
-		t.Fatalf("%d runs, %d counted", runs(), f.prov.budget.today(nil))
+	if runs() != 0 || f.prov.ar().budget.today(nil) != 0 {
+		t.Fatalf("%d runs, %d counted", runs(), f.prov.ar().budget.today(nil))
 	}
 	if recs := withExit(invoked(t, f.prov), exitSandboxUnavailable); len(recs) != 2 || (code != "" && recs[0]["unavailable"] != code) {
 		t.Fatalf("records: %v", recs)

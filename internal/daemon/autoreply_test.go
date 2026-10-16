@@ -85,7 +85,7 @@ func newAutoReplyFixture(t *testing.T, cfg AutoReplyConfig, api *fakeOpenAI) *au
 	if cfg.Backend != "exec" || cfg.Agent != agentClaude {
 		cfg.APIBase = apiSrv.URL + "/v1"
 	}
-	replier, err := newAutoReplier(cfg, prov.layout)
+	replier, err := newAutoReplier(cfg, testEnv(prov.layout))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -417,13 +417,13 @@ func TestAutoReplyOutboxAttachment(t *testing.T) {
 // TestNewAutoReplierValidation ensures a misconfigured block fails loudly instead of silently not replying.
 func TestNewAutoReplierValidation(t *testing.T) {
 	layout := NewLayout(t.TempDir())
-	if _, err := newAutoReplier(AutoReplyConfig{}, layout); err == nil {
+	if _, err := newAutoReplier(AutoReplyConfig{}, testEnv(layout)); err == nil {
 		t.Fatal("want error for missing api_base/model")
 	}
-	if _, err := newAutoReplier(AutoReplyConfig{Backend: "quantum"}, layout); err == nil {
+	if _, err := newAutoReplier(AutoReplyConfig{Backend: "quantum"}, testEnv(layout)); err == nil {
 		t.Fatal("want error for unknown backend")
 	}
-	if _, err := newAutoReplier(AutoReplyConfig{Backend: "exec"}, layout); err == nil {
+	if _, err := newAutoReplier(AutoReplyConfig{Backend: "exec"}, testEnv(layout)); err == nil {
 		t.Fatal("want error for exec without agent")
 	}
 }

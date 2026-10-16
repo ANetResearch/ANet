@@ -1434,7 +1434,7 @@ func (d *Daemon) process(ctx context.Context, m *rxMsg) rxResult {
 	}
 	d.noteLivePeer(m.from)
 	if m.typ == seal.TypeDelegate {
-		d.kickAutoReply()
+		d.kickTurns()
 	}
 	return res
 }

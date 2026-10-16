@@ -38,9 +38,14 @@ type (
 		moduleHost
 		transportPart
 	}
-	// hostSensitive: the never-bind list for a sandbox (autoreply).
-	hostSensitive struct {
+	// hostAutoReply: the seams of the auto-reply module (MOD-3): the turns it
+	// answers, its own configuration block, its own evidence and the
+	// never-bind list for its sandbox.
+	hostAutoReply struct {
 		moduleHost
+		turnPart
+		evidencePart
+		configPart
 		sensitivePart
 	}
 )
@@ -53,7 +58,10 @@ var (
 	_ module.InboundTaskHost    = hostA2A{}
 	_ module.ProxyCardSigner    = hostA2A{}
 	_ module.TransportHost      = hostTransport{}
-	_ module.SensitivePathsHost = hostSensitive{}
+	_ module.SensitivePathsHost = hostAutoReply{}
+	_ module.TurnHost           = hostAutoReply{}
+	_ module.OwnEvidenceHost    = hostAutoReply{}
+	_ module.ModuleConfigHost   = hostAutoReply{}
 )
 
 // newModuleHost is the Host of the module called name, with the state that
@@ -64,14 +72,15 @@ func newModuleHost(d *Daemon, name string) (module.Host, *hostState) {
 	has := func(g module.Grant) bool { return grantedTo(name, g) }
 	inbound, signer, transport, sensitive := has(module.GrantInboundTaskHost), has(module.GrantProxyCardSigner),
 		has(module.GrantTransportHost), has(module.GrantSensitivePaths)
+	turns, ownEv, cfgw := has(module.GrantTurnHost), has(module.GrantOwnEvidenceHost), has(module.GrantModuleConfigHost)
 	switch {
-	case inbound && signer && !transport && !sensitive:
+	case inbound && signer && !transport && !sensitive && !turns && !ownEv && !cfgw:
 		return hostA2A{b, inboundTaskPart{d}, proxySignerPart{d}}, st
-	case transport && !inbound && !signer && !sensitive:
+	case transport && !inbound && !signer && !sensitive && !turns && !ownEv && !cfgw:
 		return hostTransport{b, transportPart{d}}, st
-	case sensitive && !inbound && !signer && !transport:
-		return hostSensitive{b, sensitivePart{d}}, st
-	case !inbound && !signer && !transport && !sensitive:
+	case sensitive && turns && ownEv && cfgw && !inbound && !signer && !transport:
+		return hostAutoReply{b, turnPart{d}, evidencePart{d, name}, configPart{d, name}, sensitivePart{d}}, st
+	case !inbound && !signer && !transport && !sensitive && !turns && !ownEv && !cfgw:
 		return hostBase{b}, st
 	}
 	// A row the combinations above do not cover is a bug in this file;

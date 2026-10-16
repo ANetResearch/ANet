@@ -35,11 +35,12 @@ func TestKnownNameTable(t *testing.T) {
 	if !slices.Equal(got, want) {
 		t.Fatalf("names %v, want %v", got, want)
 	}
-	// The three that have no tag yet, and whose absent path has not landed.
+	// The three that have no tag yet: autoreply's absent path has landed (MOD-3), the other two's has not
+	// (MOD-5 and MOD-8 flip them).
 	for _, n := range []string{"autoreply", "preview", "console"} {
 		k, _ := Lookup(n)
-		if k.Tag != "" || k.AbsenceReady {
-			t.Errorf("%s: tag %q, AbsenceReady %v (MOD-3, MOD-5 and MOD-8 flip these)", n, k.Tag, k.AbsenceReady)
+		if k.Tag != "" || k.AbsenceReady != (n == "autoreply") {
+			t.Errorf("%s: tag %q, AbsenceReady %v", n, k.Tag, k.AbsenceReady)
 		}
 	}
 	if _, ok := Lookup("nothing"); ok {
@@ -78,7 +79,7 @@ func TestNewAvailability(t *testing.T) {
 	}{
 		{[]string{"nope"}, ""},
 		{[]string{"cas", "cas"}, ""},
-		{[]string{"autoreply"}, "without_not_ready"},
+		{[]string{"console"}, "without_not_ready"},
 	} {
 		_, err := NewAvailability(c.without)
 		var ref *a2ashape.Refusal

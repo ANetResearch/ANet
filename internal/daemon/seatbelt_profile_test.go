@@ -14,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/ANetResearch/ANet/internal/pathsafe"
 )
 
 var updateSeatbeltGolden = flag.Bool("update-seatbelt", false, "rewrite testdata/seatbelt from the code")
@@ -584,7 +586,7 @@ func FuzzSeatbeltProfile(f *testing.F) {
 			if !strings.Contains(p, sbplString(path)) {
 				t.Fatalf("%q is not named as given:\n%s", path, p)
 			}
-			if pathWithin(path, "/never") || pathWithin("/never", path) {
+			if pathsafe.PathWithin(path, "/never") || pathsafe.PathWithin("/never", path) {
 				t.Fatalf("a never-allowed path was opened: %q", path)
 			}
 		}

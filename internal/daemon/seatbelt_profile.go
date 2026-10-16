@@ -45,7 +45,37 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/ANetResearch/ANet/internal/pathsafe"
 )
+
+// seatbeltEnabled says whether this build runs sandboxed turns on macOS. It is a compile-time constant:
+// v0.3.0 is released with the value 's first CI run on macOS decides (MOD-V3). While it is false, a
+// turn that would run in the sandbox on a Mac — an untrusted peer's, or any when trusted is sandbox — is
+// turned away before the agent starts, sandbox_unavailable with the local reason
+// platform_unsupported.pending, and never falls back to a direct run (GT-2). The direct and openai paths
+// are not affected.
+const seatbeltEnabled = true
+
+// seatbeltGate is the macOS sandbox's one switch: nil while the sandbox is enabled, else the refusal
+// every sandboxed run and every self-check on macOS answers.
+func seatbeltGate(enabled bool) error {
+	if enabled {
+		return nil
+	}
+	return &sandboxProbeError{Code: sandboxCodePending, Detail: "the macOS sandbox is not part of this version"}
+}
+
+// sandboxCodePending is the local reason of a macOS sandbox this version does not have yet.
+const sandboxCodePending = "platform_unsupported.pending"
+
+// seatbeltPrepareGated is seatbeltPrepare behind the switch.
+func seatbeltPrepareGated(enabled bool, p *sandboxPlan, path string) error {
+	if err := seatbeltGate(enabled); err != nil {
+		return err
+	}
+	return seatbeltPrepare(p, path)
+}
 
 // seatbeltSpec is the input of buildSeatbeltProfile. Every path is absolute, clean and resolved (Seatbelt
 // matches the real path of a file, so /tmp must be given as /private/tmp, a home under /var/folders as
@@ -215,7 +245,7 @@ func buildSeatbeltProfile(spec seatbeltSpec) (string, error) {
 			return "", err
 		}
 	}
-	if pathWithin(spec.WorkDir, spec.RunDir) || pathWithin(spec.RunDir, spec.WorkDir) {
+	if pathsafe.PathWithin(spec.WorkDir, spec.RunDir) || pathsafe.PathWithin(spec.RunDir, spec.WorkDir) {
 		return "", errors.New("the work dir and the run directory overlap")
 	}
 	home, tmp := filepath.Join(spec.RunDir, "home"), filepath.Join(spec.RunDir, "tmp")

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
+	"github.com/ANetResearch/ANet/internal/localday"
 	"github.com/ANetResearch/ANet/module"
 )
 
@@ -35,7 +36,7 @@ type spendCheckCase struct {
 // judged by evalSpend.
 func (c spendCheckCase) inputFor() SpendCheckInput {
 	now := time.Date(2026, 10, 1, 12, 0, 0, 0, time.Local)
-	start, _ := localDayBounds(now)
+	start, _ := localday.Bounds(now)
 	at := start.UnixMilli() + 1000
 	var records []spendRecord
 	if c.AgentSpentToday > 0 {

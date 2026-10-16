@@ -1,6 +1,4 @@
-package daemon
-
-// localday.go — "today" for this node: the local calendar day (LEC BU-2; core G14, X-LEC-3).
+// Package localday: "today" for this node: the local calendar day (LEC BU-2; core G14, X-LEC-3).
 //
 // The run budget for untrusted peers (sandbox_budget.go) and the spending limits (spend.go) both speak of
 // "today", and both mean the calendar day of the machine's own time zone: what the person reading
@@ -13,13 +11,15 @@ package daemon
 // stretch of fixed offset the wall clock only moves forward, so both bounds are found by walking the
 // zone's stretches (time.Time.ZoneBounds) rather than by adding hours.
 
+package localday
+
 import "time"
 
-// localDayBounds returns the local calendar day that holds now, in now's location: start is the first
+// Bounds returns the local calendar day that holds now, in now's location: start is the first
 // instant whose local date is now's date, and end is the first instant after now whose local date is
 // later than now's — the next local midnight, or the transition that jumps over it. end − now is how
 // long until the budget is new again (BU-4's anet.retry_after_ms).
-func localDayBounds(now time.Time) (start, end time.Time) {
+func Bounds(now time.Time) (start, end time.Time) {
 	y, m, d := now.Date()
 	// The first instant of a date lies at most 14 hours (the largest offset east of UTC) before UTC
 	// midnight of that date, plus whatever a transition shifts; a day and more covers it.

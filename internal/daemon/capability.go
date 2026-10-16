@@ -32,6 +32,7 @@ import (
 	"github.com/ANetResearch/ANetCore/tsir"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
+	"github.com/ANetResearch/ANet/internal/pathsafe"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 	"github.com/ANetResearch/ANet/internal/x402a2a"
 	"github.com/ANetResearch/ANet/provider"
@@ -291,7 +292,7 @@ func reservedArgsKey(args map[string]any) string {
 }
 
 // filesOfCall is the attachments of a call as they are sent, and the
-// "$files" list that names them (CUX §2.5): the name through safeName and
+// "$files" list that names them (CUX §2.5): the name through pathsafe.SafeName and
 // at most 255 bytes, the declared type lower case and without parameters,
 // the size, and the content CID.
 func filesOfCall(atts []delegation.Attachment) ([]delegation.Attachment, []any) {
@@ -301,7 +302,7 @@ func filesOfCall(atts []delegation.Attachment) ([]delegation.Attachment, []any) 
 	out := make([]delegation.Attachment, len(atts))
 	list := make([]any, len(atts))
 	for i, a := range atts {
-		name := safeName(a.Name)
+		name := pathsafe.SafeName(a.Name)
 		for len(name) > fileNameMax {
 			_, n := utf8.DecodeLastRuneInString(name)
 			name = name[:len(name)-n]

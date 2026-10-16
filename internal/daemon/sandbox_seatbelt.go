@@ -43,6 +43,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/ANetResearch/ANet/internal/pathsafe"
 )
 
 // seatbeltSecurityTool is the keychain tool the probe must not be able to start (MS-4 item 4), and
@@ -470,7 +472,7 @@ func seatbeltCommand(p *sandboxPlan, workDir string, argv, env []string, stdin [
 func envWithSeatbeltPath(env, runtimeDirs []string) []string {
 	shown := func(d string) bool {
 		for _, s := range append(append([]string{}, seatbeltExecSystem...), runtimeDirs...) {
-			if s != "" && pathWithin(d, s) {
+			if s != "" && pathsafe.PathWithin(d, s) {
 				return true
 			}
 		}

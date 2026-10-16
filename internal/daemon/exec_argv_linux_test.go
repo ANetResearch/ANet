@@ -41,7 +41,7 @@ func TestSandboxHoldsNoSecret(t *testing.T) {
 	plan := &sandboxPlan{Bwrap: "/usr/bin/bwrap", AID: d.AID(), Home: filepath.Join(t.TempDir(), "home"),
 		NeverBind: d.sandboxNeverBind(), Egress: up}
 	r := &execReplier{cfg: AutoReplyConfig{Backend: "exec", Agent: agentClaude, Command: agent, APIKey: canaryKey},
-		dataDir: d.layout.Root, layout: d.layout, sandbox: plan, aid: d.AID()}
+		dataDir: d.layout.Root, sandbox: plan, aid: d.AID()}
 	o, err := r.baseOpts(replyContext{Role: "inbound", Goal: canaryGoal, InteractionID: canaryIX})
 	if err != nil {
 		t.Fatal(err)

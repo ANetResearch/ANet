@@ -340,7 +340,7 @@ func TestRunBudgetProperty(t *testing.T) {
 	}
 }
 
-// G14, X-LEC-3 (M-BU-5): the budget's "today" is localDayBounds, the function the spending limits use
+// G14, X-LEC-3 (M-BU-5): the budget's "today" is localday.Bounds, the function the spending limits use
 // too; neither counts a rolling 24 hours or a UTC day.
 func TestTheBudgetAndTheSpendingLimitsShareTheLocalDay(t *testing.T) {
 	calls := func(file string, funcs ...string) map[string]bool {
@@ -362,12 +362,14 @@ func TestTheBudgetAndTheSpendingLimitsShareTheLocalDay(t *testing.T) {
 			ast.Inspect(fd.Body, func(n ast.Node) bool {
 				switch x := n.(type) {
 				case *ast.CallExpr:
-					if id, ok := x.Fun.(*ast.Ident); ok && id.Name == "localDayBounds" {
-						out[fd.Name.Name] = true
+					if sel, ok := x.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == "Bounds" {
+						if id, ok := sel.X.(*ast.Ident); ok && id.Name == "localday" {
+							out[fd.Name.Name] = true
+						}
 					}
 				case *ast.SelectorExpr:
 					if x.Sel.Name == "Truncate" || x.Sel.Name == "YearDay" {
-						t.Errorf("%s %s counts the day by %s, not localDayBounds", file, fd.Name.Name, x.Sel.Name)
+						t.Errorf("%s %s counts the day by %s, not localday.Bounds", file, fd.Name.Name, x.Sel.Name)
 					}
 				}
 				return true
@@ -378,14 +380,14 @@ func TestTheBudgetAndTheSpendingLimitsShareTheLocalDay(t *testing.T) {
 	got := calls("sandbox_budget.go", "reserve", "today", "loadLocked")
 	for _, fn := range []string{"reserve", "today", "loadLocked"} {
 		if !got[fn] {
-			t.Errorf("sandbox_budget.go %s does not take today from localDayBounds", fn)
+			t.Errorf("sandbox_budget.go %s does not take today from localday.Bounds", fn)
 		}
 	}
 	t.Run("spend", func(t *testing.T) {
 		got := calls("spend.go", "AdmitSpend", "loadSpendLocked", "SpendStatus")
 		for _, fn := range []string{"AdmitSpend", "loadSpendLocked", "SpendStatus"} {
 			if !got[fn] {
-				t.Errorf("spend.go %s does not take today from localDayBounds", fn)
+				t.Errorf("spend.go %s does not take today from localday.Bounds", fn)
 			}
 		}
 	})

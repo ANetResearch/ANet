@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/ANetResearch/ANet/internal/execwork"
 )
 
 // TestAutoReplyExecRoundTrip drives the exec backend with a stub agent binary.
@@ -41,7 +43,7 @@ echo "EXEC-OK: processed delegation"
 func TestExecReplierBuildPromptWithImage(t *testing.T) {
 	layout := NewLayout(t.TempDir())
 	_ = layout.EnsureRoot()
-	r := &execReplier{cfg: AutoReplyConfig{}, layout: layout, dataDir: layout.Root}
+	r := &execReplier{cfg: AutoReplyConfig{}, dataDir: layout.Root}
 	turns := []chatTurn{{
 		Role: "user", Text: "describe",
 		Images: []chatImage{{Mime: "image/png", Data: []byte("fakepng")}},
@@ -93,9 +95,8 @@ f=$(printf '%s' "$last" | sed -n 's/.*Read the file \(.*conversation\.md\): .*/\
 	_ = layout.EnsureRoot()
 	r := &execReplier{
 		cfg:      AutoReplyConfig{Backend: "exec", Agent: "cursor", Command: stub},
-		layout:   layout,
 		dataDir:  layout.Root,
-		sessions: sharedExecSessionStore(layout.Root),
+		sessions: execwork.Sessions(layout.Root),
 	}
 	rc := replyContext{Role: "inbound", Goal: "greet", InteractionID: "int-session-1"}
 
@@ -155,7 +156,6 @@ func TestExecReplierReplyUsesStub(t *testing.T) {
 	_ = layout.EnsureRoot()
 	r := &execReplier{
 		cfg:     AutoReplyConfig{Backend: "exec", Agent: "cursor", Command: stub},
-		layout:  layout,
 		dataDir: layout.Root,
 	}
 	out, err := r.Reply(context.Background(), replyContext{Role: "inbound", Goal: "hi"}, []chatTurn{{Role: "user", Text: "hi"}})

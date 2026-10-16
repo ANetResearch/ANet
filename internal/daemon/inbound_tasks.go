@@ -63,7 +63,7 @@ import (
 
 // inboundFeedInterval is how often a feed looks for tasks when nothing
 // woke it; an arriving delegation or message wakes it at once
-// (kickAutoReply). A variable so tests can shorten it.
+// (kickTurns). A variable so tests can shorten it.
 var inboundFeedInterval = 3 * time.Second
 
 // inboundFeedBuffer bounds the deliveries a subscriber may have unread.

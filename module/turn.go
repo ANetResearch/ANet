@@ -27,6 +27,12 @@ import (
 // Nothing was sent.
 var ErrTurnGone = errors.New("module: the turn is gone")
 
+// ErrConfigConflict is what UpdateModuleConfig answers for a block that
+// conflicts with another setting of the node (the inbound policy open with an
+// A2A backend that accepts untrusted peers); the error text is the kernel's
+// sentence. Nothing was written.
+var ErrConfigConflict = errors.New("module: the configuration conflicts with another setting")
+
 // ErrRefuseReason is what RefuseTurn answers for a reason outside the
 // allowlist (ReasonSandboxUnavailable, ReasonBudget, ReasonBackendFailed).
 var ErrRefuseReason = errors.New("module: a refusal reason outside the allowlist")
