@@ -71,7 +71,7 @@ func witnessedNode(t *testing.T, notices bool) (*Daemon, *httptest.Server, *fake
 	fh.notices = notices
 	fh.mu.Unlock()
 	d, _ := joinDaemon(t)
-	d.join.hooks = witnessJoinHooks{d}
+	d.setJoinHooks(witnessJoinHooks{d})
 	next := base64.StdEncoding.EncodeToString(identitytest.NewNext())
 	if code, out := controlCall(t, d.hHubRegister, "/hub-register", hubRegisterBody(srv.URL, `,"next_digest":"`+next+`"`)); code != 200 ||
 		out["state"] != JoinRegistered {
@@ -325,7 +325,7 @@ func TestTheNoticeIsReadBackAtStart(t *testing.T) {
 		if d, err = New(layout); err != nil {
 			t.Fatal(err)
 		}
-		d.join.hooks = witnessJoinHooks{d}
+		d.setJoinHooks(witnessJoinHooks{d})
 		t.Cleanup(func() { d.Close() })
 		if s := d.identityState(); s.State != want {
 			t.Fatalf("%s: %+v, want %s", step, s, want)

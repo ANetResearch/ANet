@@ -11,15 +11,10 @@ import (
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
 	"github.com/ANetResearch/ANet/module"
-
-	// The modules the templates configure. The kernel names none of them;
-	// this test file registers them so the module blocks are checked by the
-	// same code the daemon runs (CUX-V10).
-	_ "github.com/ANetResearch/ANet/module/blackboard"
-	_ "github.com/ANetResearch/ANet/module/cas"
-	_ "github.com/ANetResearch/ANet/module/org"
-	_ "github.com/ANetResearch/ANet/module/service"
-	_ "github.com/ANetResearch/ANet/module/x402"
+	// The modules the templates configure are registered by
+	// deploy_templates_<name>_test.go, each under its own build tag, so the
+	// module blocks are checked by the same code the daemon runs (CUX-V10)
+	// in a build that has the module.
 )
 
 // deployTemplates is every daemon configuration template under deploy/.

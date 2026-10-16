@@ -381,7 +381,11 @@ func TestAllowOnlyIndistinguishable(t *testing.T) {
 						t.Fatalf("a denied peer %+v, a stranger %+v", deniedAns, absent)
 					}
 				}
-				if got := path.call(listed, "face.compare"); got.outcome != seal.OutcomeProcessed {
+				// The call a listed caller is taken for holds its per_caller_inflight slot until
+				// the task ends, so every sub-test lists a caller of its own.
+				one := newStranger(t)
+				allowPeers(t, prov, one.aid)
+				if got := path.call(one, "face.compare"); got.outcome != seal.OutcomeProcessed {
 					t.Fatalf("a listed caller's call of the allow_only capability: %+v, want taken", got)
 				}
 			})
