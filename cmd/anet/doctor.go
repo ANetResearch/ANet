@@ -743,17 +743,6 @@ func runtimeStatus(env doctorEnv, rep *doctorReport, say func(id, status, key st
 	return nil, false
 }
 
-// runtimeStatusQuiet is runtimeStatus without the unknown finding: for a
-// check that has an answer without the daemon and only refines it with one.
-func runtimeStatusQuiet(env doctorEnv, rep *doctorReport, layout daemon.Layout) (map[string]any, bool) {
-	if rep.Control.Running && env.status != nil {
-		if st, err := env.status(rep.Control.Addr, layout.ControlTokenPath()); err == nil {
-			return st, true
-		}
-	}
-	return nil, false
-}
-
 func tokenCheck(add func(id, status, detail, hint string), id string, fs fileState) {
 	switch {
 	case !fs.Present:
