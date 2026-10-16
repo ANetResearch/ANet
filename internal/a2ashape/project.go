@@ -205,6 +205,10 @@ type Options struct {
 	// a stranger could repeat it, telling the stranger the identity can be
 	// taken over.
 	ForBackend bool
+	// SelfAID is this node's AID: the {aid} of a refusal's sentence that
+	// asks the other side to let this node in (not_accepting: "ask them
+	// to run anet peers allow {aid}").
+	SelfAID string
 }
 
 // Load reads what Project needs for one interaction.
@@ -734,8 +738,9 @@ func (p *projector) statusMessage() (msg *Message, why map[string]any) {
 			// an internal note item P4: an ended task with a reason says so, for a
 			// client that reads only the status text. The reason is the
 			// one the task's metadata carries.
-			if r, _ := p.metadata(nil)[KeyReason].(string); strings.TrimSpace(r) != "" {
-				msg = p.synthesized(reasonText(ix.State, r), nil)
+			meta := p.metadata(nil)
+			if r, _ := meta[KeyReason].(string); strings.TrimSpace(r) != "" {
+				msg = p.synthesized(p.endText(r, meta[KeyRetryAfterMS]), nil)
 			}
 		}
 		// a2a-x402 §7: the final message of a task that took part in the

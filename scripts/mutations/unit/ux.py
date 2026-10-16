@@ -590,6 +590,19 @@ MUTS += [
   edits=[(UX4_INB, '\tpendingMaxPerPeer = 3\n', '\tpendingMaxPerPeer = 4\n')],
   tests=UX4_T('^TestPendingLimitsAreConstants$'),
   full=[DAEMON]),
+ dict(id='ux4-rejected-text', group='UX-4', repo='ANet', desc='被拒任务的状态消息是 "rejected: <码>" 而不是原因表句子(CUX-Q4a、UX-T1)',
+  edits=[('internal/a2ashape/readable.go', '\tif st != interactions.StateRejected || !ok || r.Code != reason || r.Class&ClassR == 0 || r.NoSentence {\n',
+          '\tif true || !ok || r.Code != reason || r.Class&ClassR == 0 || r.NoSentence {\n')],
+  tests=UX4_T('^TestAdmissionRefusalsSayOneSentence$') + [(A2A, '^TestRejectedTasksSayTheirSentence$')],
+  full=[DAEMON]),
+ dict(id='ux4-rejected-retry', group='UX-4', repo='ANet', desc='被拒任务的句子不代入等待时间(写成"稍后")',
+  edits=[('internal/a2ashape/readable.go', '\tif ms := wholeMS(retryMS); ms > 0 {\n', '\tif ms := wholeMS(retryMS); ms < 0 {\n')],
+  tests=UX4_T('^TestAdmissionRefusalsSayOneSentence$') + [(A2A, '^TestRejectedTasksSayTheirSentence$')],
+  full=[DAEMON]),
+ dict(id='ux4-rejected-aid', group='UX-4', repo='ANet', desc='not_accepting 的句子缺本节点 AID(对方不知道该放行谁)',
+  edits=[('internal/daemon/taskview.go', ', SelfAID: d.AID()}', '}')],
+  tests=UX4_T('^TestAdmissionRefusalsSayOneSentence$'),
+  full=[DAEMON]),
 
  # UX-8: the preview kernel (correctness-ux §2.3, §4.3.6, §4.3.7; §7.3 M19, M20, M21, M24, M31, M33, and the
  # kernel half of M36), plus the coalescer's cadence and the cache's bounds.
