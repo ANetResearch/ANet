@@ -779,7 +779,7 @@ MUTS += [
          (FS7_RX, '\tcase errors.Is(err, interactions.ErrRKMismatch):\n\t\treturn rxPermanent(dropRKMismatch, err)\n',
           '\tcase errors.Is(err, interactions.ErrRKMismatch):\n\t\treturn nil\n')],
   tests=[(FS4_D, '^TestRKMismatchRefusedBeforeWrites$')], full=[FS4_D]),
- dict(id='fs-14', group='FS-X7', repo='ANet', desc='终态路径传 CauseNotTerminal(提供方完成文本任务)',
+ dict(id='fs-14', group='FS-X7', repo='ANet', desc='终态路径传 CauseNotTerminal(提供方完成文本任务,CompleteTask)',
   edits=[('internal/daemon/delegation.go',
           'Receipt: signed.receipt, Verified: interactions.VerificationVerified, Meta: meta},\n\t\t\tinteractions.CauseProviderEnd)\n\t})\n',
           'Receipt: signed.receipt, Verified: interactions.VerificationVerified, Meta: meta},\n\t\t\tinteractions.CauseNotTerminal)\n\t})\n')],
@@ -862,4 +862,8 @@ MUTS += [
  dict(id='fs7-u', group='FS-R4', repo='ANet', desc='预览帧不比较 rk',
   edits=[(FS7_RX, 'ix.PeerAID == m.from && interactions.RKConflict(ix.PeerRK, m.rk)', 'false')],
   tests=[(FS4_D, '^TestRKComparedOnHeldAndPreviewRoutes$')], full=[FS4_D]),
+ dict(id='fs7-w', group='FS-X7', repo='ANet', desc='拒收结果(result_refused)按本地终结处置:E_r 留到 close_after 而不是删除',
+  edits=[(FS7_SEAMS, 'Verified: interactions.VerificationUnknown, Meta: b}, interactions.CausePeerEnded); err != nil {',
+          'Verified: interactions.VerificationUnknown, Meta: b}, interactions.CauseLocalEnded); err != nil {')],
+  tests=[(FS4_D, '^TestEveryTerminalPathSettlesIXKey$')], full=[FS4_D]),
 ]

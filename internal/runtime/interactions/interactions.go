@@ -1022,12 +1022,16 @@ func addMessage(e execer, m MessageRecord) (seq int64, stored bool, err error) {
 }
 
 // Messages returns an interaction's conversation log, oldest first.
-func (s *Store) Messages(interactionID string) ([]Message, error) { return messagesOf(s.db, interactionID) }
+func (s *Store) Messages(interactionID string) ([]Message, error) {
+	return messagesOf(s.db, interactionID)
+}
 
 // Messages is Store.Messages inside the transaction: what a write that
 // depends on the log (a transcript a receipt covers) reads, with the rows
 // the same transaction wrote.
-func (t *Tx) Messages(interactionID string) ([]Message, error) { return messagesOf(t.tx, interactionID) }
+func (t *Tx) Messages(interactionID string) ([]Message, error) {
+	return messagesOf(t.tx, interactionID)
+}
 
 // logReader reads a log and opens it: the database handle or an open
 // transaction.
@@ -1141,7 +1145,9 @@ func (s *Store) Attachments(interactionID string) ([]Attachment, error) {
 }
 
 // Attachments is Store.Attachments inside the transaction (Tx.Messages).
-func (t *Tx) Attachments(interactionID string) ([]Attachment, error) { return attachmentsOf(t.tx, interactionID) }
+func (t *Tx) Attachments(interactionID string) ([]Attachment, error) {
+	return attachmentsOf(t.tx, interactionID)
+}
 
 func attachmentsOf(q logReader, interactionID string) ([]Attachment, error) {
 	rows, err := q.Query(
