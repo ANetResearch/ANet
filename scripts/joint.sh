@@ -158,6 +158,14 @@ addr_of(){ case $1 in req) echo "$RC" ;; prov) echo "$PC" ;; str) echo "$SC" ;;
 # ctl <node> <path> <json> — a node's control API. The bearer token goes to curl through a file
 # descriptor, not the command line: on a shared host other users can read argv.
 ctl(){
+  if [ "$2" = /hub-register ]; then
+    local _u _n _st; _u=$(printf %s "$3" | jget hub); _n=$(printf %s "$3" | jget name)
+    ( cd "$RUN" && HOME="$(home_of "$1")" XDG_RUNTIME_DIR="$RUN/xdg" ANET_DATA_DIR="$(home_of "$1")/.anet" setsid -w "$BIN/anet" hub-register "$_u" --name "$_n" </dev/null >"$RUN/reg-$1.out" 2>&1 )
+    _st=$(ctl_raw "$1" /status '{}' | jget hub state); printf '{"status":"%s"}' "$_st"; return
+  fi
+  ctl_raw "$@"
+}
+ctl_raw(){
   local tok; tok=$(cat "$(home_of "$1")/.anet/control_token.txt" 2>/dev/null)
   curl -s -m 30 -H @<(printf 'Authorization: Bearer %s\n' "$tok") -H 'Content-Type: application/json' \
        -d "$3" "http://$(addr_of "$1")$2"
@@ -468,7 +476,7 @@ def write(p, c):
         json.dump(c, f, indent=1)
 write(crp, {"control_addr": crc, "hub_url": tap, "name": "canary-requester",
             "payments": {"auto_max": 5, "agent_max": 0, "agent_daily_max": 20, "explicit_max": 10,
-                         "daily_max": 50, "payees_file": "payees.allow"}})
+                         "daily_max": 50}})
 svc = {"token_file": cptok, "capabilities": [
     {"id": "canary.echo", "url": cpurl, "timeout_ms": 5000,
      "description": "echo (joint.sh SI-1 canary)"},
@@ -476,6 +484,7 @@ svc = {"token_file": cptok, "capabilities": [
      "description": "echo for 3 credits (joint.sh SI-1 canary)"}]}
 write(cpp, {"control_addr": cpc, "hub_url": tap, "name": "canary-provider", "modules": {"service": svc}})
 off = json.load(open(offsvc))
+for _pc in off.get("inbound", {}).get("public_capabilities", []): _pc.pop("evidence", None)
 off.update({"control_addr": ofc, "hub_url": tap, "name": "canary-official"})
 write(offp, off)
 PY
@@ -490,6 +499,7 @@ PY
   done
   CR_AID=$("$FIX" aid --home "$CR/.anet"); CP_AID=$("$FIX" aid --home "$CP/.anet"); OFF_AID=$("$FIX" aid --home "$OFF/.anet")
   [ -n "$CR_AID" ] && [ -n "$CP_AID" ] && [ -n "$OFF_AID" ] || { no "the canary nodes have no identities"; return 1; }
+  "$BIN/anet-hub" --data "$RUN/hub" grant "$CR_AID" --amount 100 --reason joint >/dev/null 2>&1
   peer_allow "$CP/.anet" "$CR_AID"
   _peer_add "$CR/.anet/payees.allow" "$CP_AID"
   r1=$(ctl cr /hub-register "{\"hub\":\"$TAP_URL\",\"name\":\"canary-requester\"}" | jget status)
@@ -887,6 +897,7 @@ fi
 # The hub, on an empty data directory.
 ( cd "$RUN" && exec setsid "$BIN/anet-hub" --addr "$HUB_ADDR" --data "$RUN/hub" ) >"$RUN/hub.log" 2>&1 </dev/null 9>&- &
 for _ in $(seq 1 40); do curl -sf -m 2 "$HUB_URL/healthz" >/dev/null 2>&1 && break; sleep 0.25; done
+"$BIN/anet-hub" --data "$RUN/hub" admission open >/dev/null 2>&1
 curl -sf -m 5 "$HUB_URL/healthz" >/dev/null && ok "hub up on an empty data directory" \
   || { no "hub down: $(tail -2 "$RUN/hub.log")"; exit 1; }
 
@@ -934,6 +945,7 @@ ORG_ID=$(sed 's/^org id: //' "$RUN/orgid.txt")
 # terminal, which a script does not have. The daemon reads the file on every decision. The
 # stranger is on no list.
 peer_allow "$PROV/.anet" "$REQ_AID"
+"$BIN/anet-hub" --data "$RUN/hub" grant "$REQ_AID" --amount 100 --reason joint >/dev/null 2>&1
 peer_allow "$REQ/.anet" "$PROV_AID"
 
 # Two peer processes sharing a rendezvous directory. Without them the p2p module is the one module

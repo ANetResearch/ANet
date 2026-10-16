@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"time"
@@ -181,7 +182,7 @@ func (x *identityCLI) needDaemon() error {
 // post calls a control route and decodes a 200 answer into out; a refusal is said as the daemon
 // words it.
 func (x *identityCLI) post(path string, body, out any) error {
-	b, code, err := x.c.fetch(path, body)
+	b, code, err := x.fetch(path, body)
 	if err != nil {
 		return diagnoseNoDaemon(x.c.base, x.layout.Root, err)
 	}
@@ -197,9 +198,31 @@ func (x *identityCLI) post(path string, body, out any) error {
 	return nil
 }
 
+// fetch sends one control call with the client's token. An emergency rotation makes the daemon
+// replace its local tokens (LEC AV-10) before the command has finished polling, so the old token is
+// answered 401 for the rest of it; on a 401 the token file of the same daemon is read again and, when
+// it holds another token for the same address, the call goes once more with it. A 401 is answered
+// before a route does anything, so the second attempt is the first the daemon acts on.
+func (x *identityCLI) fetch(path string, body any) ([]byte, int, error) {
+	b, code, err := x.c.fetch(path, body)
+	if err != nil || code != http.StatusUnauthorized {
+		return b, code, err
+	}
+	resolve := daemon.ResolveControl
+	if x.explicit {
+		resolve = daemon.ResolveControlStrict
+	}
+	base, token, rerr := resolve(x.layout)
+	if rerr != nil || base != x.c.base || token == x.c.token {
+		return b, code, err
+	}
+	x.c.token = token
+	return x.c.fetch(path, body)
+}
+
 // postRaw is post without the printing, for a call whose refusal the caller words.
 func (x *identityCLI) postRaw(path string, body any) ([]byte, int, error) {
-	b, code, err := x.c.fetch(path, body)
+	b, code, err := x.fetch(path, body)
 	if err != nil {
 		return nil, 0, diagnoseNoDaemon(x.c.base, x.layout.Root, err)
 	}
