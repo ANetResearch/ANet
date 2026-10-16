@@ -70,6 +70,7 @@ func TestAFreshInitIsSafeByDoctorJSON(t *testing.T) {
 		"payments.agent_max":          func(v any) bool { return v == float64(0) },
 		"payments.agent_daily_max":    func(v any) bool { return v == float64(0) },
 		"payments.payees":             emptyList,
+		"without":                     emptyList,
 	}
 	for _, k := range daemon.SI5Keys {
 		check, ok := want[k]
@@ -138,6 +139,8 @@ func TestDoctorReportsEachSI5KeyThatChanged(t *testing.T) {
 		"payments.agent_max":       cfgEdit(func(m map[string]any) { block(m, "payments")["agent_max"] = 1 }),
 		"payments.agent_daily_max": cfgEdit(func(m map[string]any) { block(m, "payments")["agent_daily_max"] = 1 }),
 		"payments.payees":          listFile("payees.allow"),
+		// Listed as info, not a violation (ux §2.7): install.sh --without writes it.
+		"without": cfgEdit(func(m map[string]any) { m["without"] = []any{"cas"} }),
 	}
 	for _, key := range daemon.SI5Keys {
 		mut, ok := mutations[key]

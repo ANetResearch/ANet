@@ -114,6 +114,7 @@ func main() {
 		// Serves over stdio, so it must not share the process with
 		// anything that prints: a stray line on stdout is a protocol
 		// framing error to the client.
+		fail(requireModule(layout, "mcp")) // MOD-F3: before the daemon, before anything is printed
 		fail(runMCP(layout, explicit))
 	case "verify":
 		// Above the daemon resolution on purpose: checking a receipt takes
@@ -124,6 +125,7 @@ func main() {
 	case "logs":
 		printLogs(layout, rest)
 	case "agents": // register the MCP server with local coding agents; files only, no daemon
+		fail(requireModule(layout, "mcp"))
 		fail(runAgents(layout, rest))
 	case "update":
 		fail(runUpdate(rest))
@@ -213,6 +215,11 @@ func shortAID(aid string) string {
 // errQuiet, errNoTTY, errDeclined) was said already: "this receipt does not
 // verify" is an answer, not a malfunction of the tool.
 func exitStatus(err error, w io.Writer) int {
+	var ae absentError
+	if errors.As(err, &ae) {
+		fmt.Fprintln(w, ae.Error())
+		return 2
+	}
 	var ue usageError
 	if errors.As(err, &ue) {
 		fmt.Fprintln(w, ue.Error())

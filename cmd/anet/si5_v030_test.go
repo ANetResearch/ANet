@@ -208,6 +208,13 @@ func TestRemovedKeysStopAnetDaemon(t *testing.T) {
 		for _, key := range slices.Sorted(maps.Keys(keys)) {
 			value := keys[key]
 			t.Run(lang+"/"+key, func(t *testing.T) {
+				// The key of a module block that is not in this build is
+				// also module_absent.configured, which is a second sentence
+				// (MOD-F1); this test is about the removed key alone.
+				if rest, ok := strings.CutPrefix(key, "modules."); ok {
+					m, _, _ := strings.Cut(rest, ".")
+					needModule(t, m)
+				}
 				h := newCLIHome(t, lang)
 				layout := daemon.NewLayout(h.data)
 				if err := initTo(nopWriter{}, layout, false); err != nil {

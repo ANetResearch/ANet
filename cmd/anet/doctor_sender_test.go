@@ -31,6 +31,7 @@ func findingOf(f senderFinding) string {
 }
 
 func TestDoctorSenderPrivacy(t *testing.T) {
+	needModule(t, "p2p")
 	healthy := senderPrivacyView{MailboxRegistered: true, SessionOK: true, Held: 4, Issued: 2}
 	with := func(f func(*senderPrivacyView)) senderPrivacyView { v := healthy; f(&v); return v }
 	okRows := []string{"sender_privacy.mailbox_key ok", "sender_privacy.session ok",
