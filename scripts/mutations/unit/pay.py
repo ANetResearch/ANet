@@ -1012,9 +1012,10 @@ MUTS += [
           'func (d *Daemon) payeesFor(purpose string) (map[string]bool, error) {\n\tif purpose != module.PurposeRedeem {')],
   tests=[(DAEMON, '^(TestTheSpendingPolicyTiers|TestPayeeListRoutes|TestJPAY6AQuoteAboveTheSignedPrice)$')], full=[DAEMON]),
  dict(id='pay12-admit-24h', group='PAY-12', repo='ANet', desc='AdmitSpend 的"今日"回看 24 小时而不是本地零点起',
-  # T-1: the look-back lives in evalSpend (AdmitSpend only prunes records before start, which evalSpend
-  # never counts, so a 24-hour prune alone is an equivalent mutant); mutate the sum evalSpend takes.
-  edits=[('internal/daemon/spend.go', '\tall, agent := spentSince(records, start.UnixMilli())\n\tif countsAgentDaily', '\tall, agent := spentSince(records, min(start.UnixMilli(), now.UnixMilli()-86400000))\n\tif countsAgentDaily')],
+  # T-1: AdmitSpend prunes records before the day's start and evalSpend sums from the day's start;
+  # either alone is an equivalent mutant (the other still excludes the records), so both look back.
+  edits=[('internal/daemon/spend.go', '\tfrom := start.UnixMilli()\n\tkept := b.records[:0]', '\tfrom := min(start.UnixMilli(), now.UnixMilli()-86400000)\n\tkept := b.records[:0]'),
+         ('internal/daemon/spend.go', '\tall, agent := spentSince(records, start.UnixMilli())\n\tif countsAgentDaily', '\tall, agent := spentSince(records, min(start.UnixMilli(), now.UnixMilli()-86400000))\n\tif countsAgentDaily')],
   tests=[(DAEMON, '^TestTheSpendingDayEndsAtLocalMidnight$')], full=[DAEMON]),
  dict(id='pay12-status-24h', group='PAY-12', repo='ANet', desc='SpendStatus 的今日累计回看 24 小时',
   edits=[('internal/daemon/spend.go', '\tout.SpentToday, out.AgentSpentToday = spentSince(b.records, start.UnixMilli())',
