@@ -18,6 +18,7 @@ import (
 // will receive, and a configuration without a match "*" backend that it
 // receives nothing.
 func TestDoctorA2ABackends(t *testing.T) {
+	needModule(t, "a2a")
 	const peer = "bafyreisomepeer000001"
 	cases := []struct {
 		name    string
@@ -82,6 +83,8 @@ func TestDoctorA2ABackends(t *testing.T) {
 // a warning; a socket whose directory others can write is a fail, a socket
 // in a private directory ok, one that is not there a warning.
 func TestDoctorBackendTransport(t *testing.T) {
+	needModule(t, "a2a")
+	needModule(t, "service")
 	private := t.TempDir()
 	if err := os.Chmod(private, 0o700); err != nil {
 		t.Fatal(err)
@@ -159,6 +162,8 @@ func TestDoctorBackendTransport(t *testing.T) {
 // (J10's doctor half); a fail, peer_cred_unsupported, where the platform
 // cannot tell who listens and the backend is not path-only.
 func TestDoctorBackendsPeerCheck(t *testing.T) {
+	needModule(t, "a2a")
+	needModule(t, "anetlink")
 	private := t.TempDir()
 	if err := os.Chmod(private, 0o700); err != nil {
 		t.Fatal(err)
@@ -290,6 +295,7 @@ func checkStatus(out map[string]any, id string) string {
 // (modules.a2a.retry, §11.6) are reported beside the backends, and a value
 // the module refuses fails it too.
 func TestDoctorReportsTheNoResponseDeadlineAndBackendRetries(t *testing.T) {
+	needModule(t, "a2a")
 	layout := freshInit(t)
 	out, err := doctorJSON(t, layout, testDoctorEnv(t))
 	tasks, _ := out["tasks"].(map[string]any)

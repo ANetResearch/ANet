@@ -698,7 +698,7 @@ func TestOpenWithTheSandboxForUntrustedPeers(t *testing.T) {
 	}
 
 	c := newTestDaemon(t, "", false)
-	(moduleHost{c}).DeclareUntrustedBackend()
+	a2aHost(c).DeclareUntrustedBackend()
 	if err := c.SetInboundPolicy(PolicyOpen); !errors.Is(err, ErrPolicyConflict) {
 		t.Fatalf("open with an untrusted backend declared: %v", err)
 	}

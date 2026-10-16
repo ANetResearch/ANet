@@ -146,3 +146,17 @@ func ModuleDir(dataDir, module string) string {
 // A2ADir is the local A2A interface's state directory in dataDir, holding
 // A2AAddrFile and A2ATokenFile.
 func A2ADir(dataDir string) string { return ModuleDir(dataDir, A2AModule) }
+
+// DefaultC1Socket is the socket ANetLink listens on when it is not told
+// another, $XDG_RUNTIME_DIR/anetlink/c1.sock, and so the socket
+// modules.anetlink defaults to: neither side needs configuring for the two
+// to meet. "" when XDG_RUNTIME_DIR is not set. This is its one definition:
+// the daemon's configuration check, the sandbox's never-bind list, doctor
+// and provider/anetlink all ask here (TestOneDefaultC1Socket).
+func DefaultC1Socket() string {
+	rd := os.Getenv("XDG_RUNTIME_DIR")
+	if rd == "" {
+		return ""
+	}
+	return filepath.Join(rd, "anetlink", "c1.sock")
+}

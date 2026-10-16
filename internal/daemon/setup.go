@@ -400,6 +400,7 @@ var SI5Keys = []string{
 	"stream_preview",
 	"content_retention",
 	"modules.p2p.lan",
+	"without",
 }
 
 // si5DefaultText states each key's fresh-install value for reports.
@@ -418,6 +419,7 @@ var si5DefaultText = map[string]string{
 	"stream_preview":              streamPreviewOff,
 	"content_retention":           "30d",
 	"modules.p2p.lan":             "false",
+	"without":                     "empty",
 }
 
 // SI5 returns the value of every SI-5 key and the keys whose value differs
@@ -456,6 +458,7 @@ func (st PolicyState) SI5() (values map[string]any, changed []string) {
 		"stream_preview":              st.Config.streamPreview(),
 		"content_retention":           st.Config.contentRetention().String(),
 		"modules.p2p.lan":             p2pLAN,
+		"without":                     nonNil(st.Config.Without),
 	}
 	safe := map[string]bool{
 		"inbound.policy":              st.Inbound.Policy == PolicyClosed,
@@ -472,6 +475,7 @@ func (st PolicyState) SI5() (values map[string]any, changed []string) {
 		"stream_preview":              st.Config.streamPreview() == streamPreviewOff,
 		"content_retention":           st.Config.contentRetention() == interactions.DefaultRetention(),
 		"modules.p2p.lan":             !p2pLAN,
+		"without":                     len(st.Config.Without) == 0,
 	}
 	for _, k := range SI5Keys {
 		if !safe[k] {

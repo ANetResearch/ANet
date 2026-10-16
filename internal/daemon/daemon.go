@@ -188,8 +188,13 @@ type Daemon struct {
 	quietPeers map[string]bool
 	// transportState carries the optional delivery paths modules add.
 	transportState
-	// modules are the optional subsystems this build carries.
+	// modules are the optional subsystems this node started.
 	modules []module.Module
+	// avail says which optional modules are available on this node: compiled
+	// in, and not in the configuration's `without` (K-1). One per daemon,
+	// built in New and unchanged for its life; nothing else in the process
+	// holds the state.
+	avail module.Availability
 	// ctlAuth is the control plane's credential in force (control_api.go); rotateLocalTokens replaces
 	// it.
 	ctlAuth atomic.Pointer[ctlAuth]
@@ -322,6 +327,10 @@ func New(layout Layout) (*Daemon, error) {
 	if err != nil {
 		return nil, err
 	}
+	avail, err := module.NewAvailability(cfg.Without)
+	if err != nil {
+		return nil, err
+	}
 	self, err := LoadOrGenerateIdentity(layout)
 	if err != nil {
 		return nil, err
@@ -337,7 +346,7 @@ func New(layout Layout) (*Daemon, error) {
 		return nil, fmt.Errorf("anet: open interactions store: %w", err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	d := &Daemon{layout: layout, cfg: cfg, self: self, ix: ix, ctx: ctx, cancel: cancel, started: time.Now(), dataLock: lock,
+	d := &Daemon{layout: layout, cfg: cfg, avail: avail, self: self, ix: ix, ctx: ctx, cancel: cancel, started: time.Now(), dataLock: lock,
 		stop: make(chan struct{}), autoReplyKick: make(chan struct{}, 1), outboxKick: make(chan struct{}, 1),
 		longCalls: make(chan struct{}, maxConcurrentLongCalls), ready: make(chan struct{})}
 	lockOwned = true

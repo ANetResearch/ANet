@@ -206,6 +206,9 @@ func (d *Daemon) SetAutoReply(cfg *AutoReplyConfig) error {
 	d.cfgWrite.Lock()
 	defer d.cfgWrite.Unlock()
 	next := d.config()
+	if err := d.carryDiskConfig(&next); err != nil {
+		return err
+	}
 	next.AutoReply = cfg
 	// The same check as at start and on inbound policy writes (A2A-DESIGN
 	// §5.1).

@@ -37,6 +37,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/ANetResearch/ANet/module"
 	"net"
 	"strconv"
 	"strings"
@@ -876,7 +877,7 @@ type grantPlan struct {
 // grantRel gathers capRel for a message to `to`.
 func (d *Daemon) grantRel(to string, msg capMsg, now uint64) (capRel, error) {
 	ps := d.readPeers()
-	rel := capRel{Listed: ps.allowed(to), Denied: ps.denied(to), P2P: p2pAdvertise(d.config()), Prices: d.pricesSomething()}
+	rel := capRel{Listed: ps.allowed(to), Denied: ps.denied(to), P2P: p2pAdvertise(d.config(), d.avail), Prices: d.pricesSomething()}
 	held, err := d.ix.HeldCaps(to)
 	if err != nil {
 		return rel, err
@@ -978,7 +979,17 @@ func (d *Daemon) pricesSomething() bool {
 // p2pAdvertise is modules.p2p.advertise, the address a contact peer
 // capability tells its holder (Grant key 5, SSR-D8), in the form the grant
 // carries (grantP2PAddr); "" when not set.
-func p2pAdvertise(cfg Config) string {
+//
+// Empty whenever the p2p module is not available, whichever way it is absent
+// (not in this binary, or in `without`): this is the one place the kernel
+// reads a module's block to decide what goes on the wire, so it does not
+// rely on the refusal to start that a configured-but-absent module gets
+// (MOD-F1) — a direct call, a test, a later change, still signs a grant
+// without key 5.
+func p2pAdvertise(cfg Config, av module.Availability) string {
+	if !av.Available("p2p") {
+		return ""
+	}
 	raw, ok := cfg.Modules["p2p"]
 	if !ok {
 		return ""

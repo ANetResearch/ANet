@@ -1047,6 +1047,10 @@ func (d *Daemon) forgetHubIfCurrent(left string) {
 	d.cfg.HubURL = ""
 	cfg := d.cfg
 	d.mu.Unlock()
+	if err := d.carryDiskConfig(&cfg); err != nil {
+		log.Printf("anet: left %s but config.json could not be read to clear hub_url: %v", left, err)
+		return
+	}
 
 	// Stop polling before persisting: the loop is what produces the log
 	// flood, and a failure to write the config should not leave it running.

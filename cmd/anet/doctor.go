@@ -140,6 +140,8 @@ type doctorReport struct {
 		ReleaseRecord   string `json:"release_record,omitempty"`
 	} `json:"version"`
 	Modules []string `json:"modules"`
+	// Without is the modules config.json turns off.
+	Without []string `json:"without"`
 	// Official is the official-agent manifest built into this binary
 	// (A2A-DESIGN §15): "ok", "expired" or "invalid".
 	Official struct {
@@ -438,7 +440,6 @@ func collectDoctor(layout daemon.Layout, env doctorEnv) (*doctorReport, error) {
 	if rep.Modules == nil {
 		rep.Modules = []string{}
 	}
-	add("modules", stInfo, compiledModulesReport(), "")
 	officialCheck(add, rep, time.Now())
 
 	// Configuration and policy.
@@ -463,6 +464,13 @@ func collectDoctor(layout daemon.Layout, env doctorEnv) (*doctorReport, error) {
 		add("config", stOK, st.ConfigPath, "")
 	}
 	removedConfigCheck(say, st.ConfigPath, env)
+	// The optional modules: what this binary contains, what the
+	// configuration turns off, and a block for a module that is not there.
+	// The blocks of modules that are not available are left out of the
+	// checks that read them below: the modules row says it once.
+	avail := daemon.AvailabilityOf(cfg)
+	rep.Without = avail.Without()
+	cfg = modulesChecks(add, say, rep, cfg, avail)
 
 	// Identity.
 	rep.Identity.AID = daemon.ReadIdentityAID(layout)
@@ -491,7 +499,7 @@ func collectDoctor(layout daemon.Layout, env doctorEnv) (*doctorReport, error) {
 	identityChecks(add, say, rep, env, layout, lang)
 
 	// Local A2A interface (module a2a, §11).
-	rep.A2A.Compiled = slices.Contains(rep.Modules, "a2a")
+	rep.A2A.Compiled = avail.Available("a2a")
 	// The module keeps both files in its state directory (anethome.A2ADir),
 	// the same path in every build, no_a2a included.
 	rep.A2A.AddrFile = statFile(filepath.Join(anethome.A2ADir(layout.Root), anethome.A2AAddrFile))
@@ -507,7 +515,7 @@ func collectDoctor(layout daemon.Layout, env doctorEnv) (*doctorReport, error) {
 	const freePort = "free the port (stop the process holding it), restart the node (anet stop && anet up), then: anet agents wire --refresh"
 	switch {
 	case !rep.A2A.Compiled && rep.A2A.Addr == "":
-		add("a2a", stInfo, "the local A2A interface is not in this build (no_a2a)", "")
+		add("a2a", stInfo, a2ashape.Sentence("module_absent", lang, module.AbsentArgs("a2a", avail.Absence("a2a"))), "")
 	case rep.A2A.Addr == "":
 		add("a2a", stWarn, "no "+rep.A2A.AddrFile.Path+": the local A2A interface has not started in this data directory yet",
 			"anet up")
@@ -618,6 +626,7 @@ func collectDoctor(layout daemon.Layout, env doctorEnv) (*doctorReport, error) {
 	autoReplyCheck(rep, cfg.AutoReply, lang)           // doctor_sandbox.go
 	sandboxCheck(say, rep, env, layout, cfg.AutoReply) // doctor_sandbox.go
 	sandboxDetailChecks(add, say, rep, env, layout, cfg.AutoReply, lang)
+	capabilitiesFilesChecks(say, avail, st.ConfigPath)           // doctor_modules.go
 	a2aBackendChecks(add, st.Inbound.Policy, cfg, len(st.Trust)) // doctor_backends.go
 	backendTransportChecks(add, say, cfg)                        // doctor_backends.go
 	anetlinkChecks(add, say, cfg, st.Inbound.PublicCapabilities) // doctor_anetlink.go

@@ -124,3 +124,16 @@ func (m *Module) Start(ctx context.Context, h module.Host) error {
 }
 
 func (m *Module) Stop(context.Context) error { return nil }
+
+// LocalPaths implements module.LocalPaths: the C1 socket, which a sandbox
+// must never be able to open (K-5). The default socket is the kernel's to
+// list whether or not this module is available (anethome.DefaultC1Socket);
+// a configured one is listed here.
+func (m *Module) LocalPaths() []string {
+	if m.prov == nil {
+		return nil
+	}
+	return []string{m.prov.Socket()}
+}
+
+var _ module.LocalPaths = (*Module)(nil)

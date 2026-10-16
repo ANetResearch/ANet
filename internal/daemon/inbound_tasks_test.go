@@ -88,7 +88,7 @@ func (b *fakeA2ABackend) byText(t *testing.T, text string) backendCall {
 // the task's context, and the backend's answer comes back through
 // ReplyTask — a question for a message that starts with "ask", a final
 // answer otherwise. Errors are collected for the test to read.
-func forwardInbound(t testing.TB, ctx context.Context, h moduleHost, tasks <-chan module.Task, b *fakeA2ABackend) *[]error {
+func forwardInbound(t testing.TB, ctx context.Context, h module.InboundTaskHost, tasks <-chan module.Task, b *fakeA2ABackend) *[]error {
 	// The forwarder stops, and is waited for, before the daemons it
 	// replies through close: a reply still on its way would use a store
 	// being closed.
@@ -199,7 +199,7 @@ func TestInboundTasksReachTheBackendOnlyFromTrustedPeers(t *testing.T) {
 
 	fctx, cancel := context.WithCancel(ctx)
 	t.Cleanup(cancel)
-	host := moduleHost{prov}
+	host := a2aHost(prov)
 	tasks, err := host.InboundTasks(fctx)
 	if err != nil {
 		t.Fatal(err)
@@ -334,7 +334,7 @@ func TestInboundTasksWithAnUntrustedBackend(t *testing.T) {
 	if err := prov.SetInboundPolicy(PolicyApprove); err != nil {
 		t.Fatal(err)
 	}
-	host := moduleHost{prov}
+	host := a2aHost(prov)
 	host.DeclareUntrustedBackend()
 	if err := prov.SetInboundPolicy(PolicyOpen); !errors.Is(err, ErrPolicyConflict) {
 		t.Fatalf("policy open with an untrusted backend declared: %v", err)
@@ -492,7 +492,7 @@ func TestInboundFeedStartSettleAndFiles(t *testing.T) {
 	prov.inFeed.mu.Unlock()
 	fctx, cancel := context.WithCancel(ctx)
 	t.Cleanup(cancel)
-	tasks, err := moduleHost{prov}.InboundTasks(fctx)
+	tasks, err := a2aHost(prov).InboundTasks(fctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -550,7 +550,7 @@ func TestInboundTaskIsDecidedAfresh(t *testing.T) {
 	allowed := registered(t, srv.URL, "allowed")
 	trustPeers(t, prov, peer.AID())
 	allowPeers(t, prov, allowed.AID())
-	host := moduleHost{prov}
+	host := a2aHost(prov)
 	answered, err := peer.DelegateIn(ctx, prov.AID(), "answer me", nil, "c1")
 	if err != nil {
 		t.Fatal(err)
@@ -602,7 +602,7 @@ func TestAModuleTellsTheRequesterItsBackendIsWorking(t *testing.T) {
 	prov := registered(t, srv.URL, "prov")
 	peer := registered(t, srv.URL, "peer")
 	trustPeers(t, prov, peer.AID())
-	host := moduleHost{prov}
+	host := a2aHost(prov)
 	id, err := peer.DelegateIn(ctx, prov.AID(), "a long one", nil, "c1")
 	if err != nil {
 		t.Fatal(err)

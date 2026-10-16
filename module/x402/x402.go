@@ -81,7 +81,7 @@ func (m *Module) Start(_ context.Context, h module.Host) error {
 	m.host = h
 	// The proof chain lives in the module's own state directory; without
 	// one it is kept for this run only.
-	m.liab = newLiabStore(h.StateDir("x402"))
+	m.liab = newLiabStore(h.StateDir())
 	seam, ok := h.PaymentSeam()
 	if !ok {
 		// No hub means no ledger. The module stays loaded and answers

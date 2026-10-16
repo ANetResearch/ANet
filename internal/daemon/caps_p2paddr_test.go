@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"encoding/json"
+	"github.com/ANetResearch/ANet/module"
 	"strings"
 	"testing"
 
@@ -36,7 +37,7 @@ func TestGrantP2PAddrIsTheGrantsForm(t *testing.T) {
 			t.Errorf("grantP2PAddr(%q) = %q, which a grant cannot carry", in, got)
 		}
 		cfg := Config{Modules: ModulesConfig{"p2p": json.RawMessage(`{"advertise":` + strconvQuote(in) + `}`)}}
-		if p := p2pAdvertise(cfg); p != want {
+		if p := p2pAdvertise(cfg, module.Availability{}); p != want {
 			t.Errorf("p2pAdvertise with advertise %q = %q, want %q", in, p, want)
 		}
 	}

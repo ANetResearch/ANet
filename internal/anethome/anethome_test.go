@@ -85,7 +85,7 @@ func TestIdentities(t *testing.T) {
 }
 
 // The local A2A interface's files are in the module's state directory, the
-// path the daemon's Host.StateDir("a2a") makes.
+// path the daemon's Host.StateDir() of the a2a module makes.
 func TestModuleDirs(t *testing.T) {
 	if got := ModuleDir("/d", "x402"); got != "/d/modules/x402" {
 		t.Fatalf("ModuleDir = %q", got)

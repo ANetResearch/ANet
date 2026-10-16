@@ -130,7 +130,7 @@ func (s paymentSeam) ReadEvidence(eventType string, limit int) []map[string]any 
 // for empty before doing anything. The grant says what a module may do;
 // it does not snapshot where.
 func (h moduleHost) PaymentSeam() (module.PaymentSeam, bool) {
-	if h.d == nil {
+	if h.d == nil || !h.grants(module.GrantPaymentSeam) {
 		return nil, false
 	}
 	return paymentSeam{Signer: h.d.self, d: h.d}, true
@@ -146,7 +146,7 @@ func (h moduleHost) PaymentSeam() (module.PaymentSeam, bool) {
 // a module holds the seam for its lifetime, and a node that joins a hub
 // after start must not need a restart to notice.
 func (h moduleHost) HubSeam() (module.HubSeam, bool) {
-	if h.d == nil {
+	if h.d == nil || !h.grants(module.GrantHubSeam) {
 		return nil, false
 	}
 	return hubSeam{Signer: h.d.self, d: h.d}, true

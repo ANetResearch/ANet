@@ -98,17 +98,17 @@ func TestReachableNeedsContactGrantWithAddr(t *testing.T) {
 			h.P2P = ""
 		}
 		putHeld(t, d, h)
-		got, ok := moduleHost{d}.P2PAddr(aid)
+		got, ok := p2pHost(d).P2PAddr(aid)
 		if ok != c.want || (ok && got != addr) {
 			t.Errorf("%s: P2PAddr = %q, %v; want %v", c.name, got, ok, c.want)
 		}
 	}
 	// Nobody else's capability answers for an AID, and this node is not
 	// reachable over p2p by itself.
-	if _, ok := (moduleHost{d}).P2PAddr("bafyreinobody"); ok {
+	if _, ok := p2pHost(d).P2PAddr("bafyreinobody"); ok {
 		t.Error("an AID that gave this node nothing has an address")
 	}
-	if _, ok := (moduleHost{d}).P2PAddr(d.AID()); ok {
+	if _, ok := p2pHost(d).P2PAddr(d.AID()); ok {
 		t.Error("this node has a direct address for itself")
 	}
 }
@@ -160,7 +160,7 @@ func TestP2PAddrLiteralPrecheck(t *testing.T) {
 				want = c.lan
 			}
 			before := d.ReceiveStats()[cntP2PAddrRefused]
-			got, ok := moduleHost{d}.P2PAddr(aid)
+			got, ok := p2pHost(d).P2PAddr(aid)
 			if ok != want || (ok && got != c.addr) {
 				t.Errorf("lan=%v %s: P2PAddr = %q, %v; want %v", lan, c.addr, got, ok, want)
 			}

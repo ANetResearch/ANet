@@ -188,6 +188,14 @@ aid_invalid
 cli_removed
 config_key_removed
 config_invalid
+module_absent
+module_absent.configured
+module_absent.payment
+daemon_running
+without_configured
+update_variant_unknown
+update_variant_unknown.mismatch
+build_tag_pending
 api_key_on_argv
 api_key_empty
 egress_allow_invalid
@@ -368,6 +376,8 @@ sender_privacy.hub_epoch_invalid
 p2p.lan_on
 keys.epoch_ok
 capabilities.files_not_service
+payments.unchargeable
+capabilities.files_not_service.absent
 capabilities.inflight_low
 capabilities.allow_only
 capabilities.allow_only_empty

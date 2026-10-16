@@ -75,6 +75,7 @@ func TestAFreshInitIsSafeByDoctorJSON(t *testing.T) {
 		"stream_preview":              func(v any) bool { return v == "off" },
 		"content_retention":           func(v any) bool { return v == "30d" },
 		"modules.p2p.lan":             func(v any) bool { return v == false },
+		"without":                     emptyList,
 	}
 	for _, k := range daemon.SI5Keys {
 		check, ok := want[k]
@@ -147,12 +148,14 @@ func TestDoctorReportsEachSI5KeyThatChanged(t *testing.T) {
 		"payments.daily_max":       cfgEdit(func(m map[string]any) { block(m, "payments")["daily_max"] = 51 }),
 		"stream_preview":           cfgEdit(func(m map[string]any) { m["stream_preview"] = "on" }),
 		"content_retention":        cfgEdit(func(m map[string]any) { m["content_retention"] = "7d" }),
-		"modules.p2p.lan":          cfgEdit(func(m map[string]any) {
+		"modules.p2p.lan": cfgEdit(func(m map[string]any) {
 			if _, ok := m["modules"].(map[string]any); !ok {
 				m["modules"] = map[string]any{}
 			}
 			block(m, "modules")["p2p"] = map[string]any{"lan": true}
 		}),
+		// Listed as info, not a violation (ux §2.7): install.sh --without writes it.
+		"without": cfgEdit(func(m map[string]any) { m["without"] = []any{"cas"} }),
 	}
 	for _, key := range daemon.SI5Keys {
 		mut, ok := mutations[key]

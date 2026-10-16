@@ -750,3 +750,26 @@ func (p *svcProvider) InvokeTimeout(capability string) (time.Duration, bool) {
 }
 
 var _ provider.LongRunning = (*svcProvider)(nil)
+
+// LocalPaths implements module.LocalPaths: the sockets of the capabilities
+// and the token files, which a sandbox must never be able to open (K-5). A
+// URL that is not a socket contributes only its token file.
+func (m *Module) LocalPaths() []string {
+	var out []string
+	add := func(p string) {
+		if p != "" {
+			out = append(out, os.ExpandEnv(p))
+		}
+	}
+	add(m.cfg.TokenFile)
+	for i := range m.cfg.Capabilities {
+		c := &m.cfg.Capabilities[i]
+		add(c.TokenFile)
+		if t, err := backendconn.Parse(c.URL); err == nil && t.Unix() {
+			add(t.Socket)
+		}
+	}
+	return out
+}
+
+var _ module.LocalPaths = (*Module)(nil)

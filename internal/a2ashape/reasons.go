@@ -469,6 +469,9 @@ func present(args Args, name string) bool {
 
 // value is the text of placeholder name, and whether it has one.
 func value(code, variant, name string, lang Language, args Args, now time.Time) (string, bool) {
+	if v, ok := moduleValue(code, variant, name, lang, args); ok {
+		return v, true
+	}
 	switch name {
 	case "aid8", "peer8", "file_aid8":
 		if present(args, name) {
@@ -726,6 +729,13 @@ func phraseSetOf(code, variant, name string) string {
 			return "egress_why"
 		case "agent_unsupported":
 			return "combo_why"
+		case "module_absent":
+			return "module_why" // value: moduleValue; here only so that a sentence begins with a capital
+		}
+	case "fix":
+		switch code {
+		case "module_absent", "payments.unchargeable", "capabilities.files_not_service.absent":
+			return "module_fix"
 		}
 	case "instead":
 		switch code {
@@ -2174,6 +2184,38 @@ var reasonTable = []Row{
 		Zh:       "配置项 {key} 的值不合法：{rule}；请改正后重试。",
 		En:       "The setting {key} is not valid: {rule}; fix it and try again.",
 		NextKind: NextChangeInput},
+	{Code: "module_absent", Class: ClassC | ClassE, A2A: A2A{Err: A2AUnsupportedOperation},
+		Zh:       "{why}，什么都没有做；{fix}。",
+		En:       "{why}, so nothing was done; {fix}.",
+		NextKind: NextChangeInput},
+	{Code: "module_absent", Variant: "configured", Class: ClassC | ClassS, Level: LevelFail,
+		Zh:       "配置里有 {key}，但{why}，anet 没有启动；请删掉 {key}，或{fix}。",
+		En:       "The configuration has {key}, but {why}, so anet did not start; remove {key}, or {fix}.",
+		NextKind: NextChangeInput},
+	{Code: "module_absent", Variant: "payment", Class: ClassIP,
+		Zh:       "这个任务要付 {amount} credits，但{why}，什么都没有签；要付款请{fix}后运行 anet pay {task}，不需要了就运行 anet task cancel {task}。",
+		En:       "This task asks for {amount} credits, but {why}, so nothing was signed; to pay, {fix} and run anet pay {task}; otherwise run anet task cancel {task}.",
+		NextKind: NextCommand, Next: "anet task cancel {task}"},
+	{Code: "daemon_running", Class: ClassC,
+		Zh:       "anet 正在运行（数据目录 {path}），这项改动要在它停止后做，什么都没有改；请先运行 anet down，再重试。",
+		En:       "anet is running (data directory {path}); this change can only be made while it is stopped, so nothing was changed; run anet down first, then try again.",
+		NextKind: NextCommand, Next: "anet down"},
+	{Code: "without_configured", Class: ClassC,
+		Zh:       "配置里有 {key}，先删掉它再关闭{name}模块（{m}）；什么都没有改。",
+		En:       "The configuration has {key}; remove it before turning off the {name} module ({m}). Nothing was changed.",
+		NextKind: NextChangeInput},
+	{Code: "update_variant_unknown", Class: ClassC,
+		Zh:       "这个 anet 是自建的，anet update 只更新发布版本，什么都没有下载；请按原来的方式重新构建，或用 install.sh 改装发布版本。",
+		En:       "This anet was built locally, and anet update only updates released builds, so nothing was downloaded; rebuild it the way you built it, or install a released build with install.sh.",
+		NextKind: NextChangeInput},
+	{Code: "update_variant_unknown", Variant: "mismatch", Class: ClassC,
+		Zh:       "这个 anet 标为 {variant} 版本，但它的模块组合（{modules}）与发布的 {variant} 版本不同，anet update 不会换成别的组合，什么都没有下载；请用 install.sh 改装发布版本。",
+		En:       "This anet is marked as the {variant} build, but its set of modules ({modules}) differs from the released {variant} build, and anet update will not swap it for a different set, so nothing was downloaded; install a released build with install.sh.",
+		NextKind: NextChangeInput},
+	{Code: "build_tag_pending", Class: ClassC,
+		Zh:       "这个版本还不能在构建时去掉{name}模块（{m}），随 v0.3.x 提供；现在可以用 --without {m} 在配置里关闭它，什么都没有构建。",
+		En:       "This version cannot leave the {name} module ({m}) out at build time yet; that comes in v0.3.x. For now you can turn it off in the configuration with --without {m}; nothing was built.",
+		NextKind: NextChangeInput},
 	{Code: "api_key_on_argv", Class: ClassC,
 		Zh:       "API key 不接受命令行参数；这把 key 已出现在命令行里（本机其他用户与 shell 历史可能看到），没有保存；请到服务商更换它、清理 shell 历史，再改用 {next} 读入新 key。",
 		En:       "API keys are not taken on the command line; this one has appeared there (local users and your shell history may have it) and was not saved; replace it with the provider, clear your shell history, then use {next}.",
@@ -2761,6 +2803,12 @@ var reasonTable = []Row{
 	{Code: "capabilities.files_not_service", Class: ClassS, Level: LevelFail,
 		Zh: "能力 {name} 声明了 files，但不是由 service 模块提供；请改由 service 模块提供，或去掉 files。",
 		En: "The capability {name} declares files but is not served by the service module; serve it through the service module, or remove files."},
+	{Code: "payments.unchargeable", Class: ClassS, Level: LevelWarn,
+		Zh: "{n} 个能力标了价，但{why}，这些能力的调用都会被拒绝；请{fix}，或去掉价格。",
+		En: "{n} capabilities have prices, but {why}, so calls to them will be refused; {fix}, or remove the prices."},
+	{Code: "capabilities.files_not_service.absent", Class: ClassS, Level: LevelFail,
+		Zh: "能力 {name} 声明了 files，但{why}，没有能接收文件的服务；请{fix}，或去掉 files。",
+		En: "The capability {name} declares files, but {why}, so nothing can receive the files; {fix}, or remove files."},
 	{Code: "capabilities.inflight_low", Class: ClassS, Level: LevelWarn,
 		Zh: "能力 {name} 的超时超过 60 秒而 max_inflight 小于 2，一个调用就能占满；请调大 max_inflight。",
 		En: "The capability {name} has a timeout over 60 seconds and max_inflight below 2, so one call fills it; raise max_inflight."},
@@ -2808,4 +2856,120 @@ var reasonTable = []Row{
 	{Code: "anetlink.not_remote", Class: ClassS, Level: LevelWarn,
 		Zh: "公开能力 {name} 在 ANetLink 里不接受远端调用（c1.remote 没有匹配），别人调用会得到 provider_policy；请在 ANetLink 配置 c1.remote 放行，或不公开它。",
 		En: "The public capability {name} does not take remote calls in ANetLink (no c1.remote match), so callers get provider_policy; allow it with c1.remote in the ANetLink config, or stop publishing it."},
+}
+
+// --- modules (MOD-1) ---
+
+// moduleNames are the names of the optional modules in a sentence ("付款" /
+// "payment"). module.Known() carries the same two columns; a test in
+// package module holds the two together.
+var moduleNames = map[string]phrasePair{
+	"a2a":        {"本机 A2A 接口", "local A2A interface"},
+	"anetlink":   {"设备能力", "device capability"},
+	"autoreply":  {"自动回复", "auto-reply"},
+	"blackboard": {"共享黑板", "shared blackboard"},
+	"cas":        {"内容存储", "content store"},
+	"console":    {"控制台", "console"},
+	"mcp":        {"MCP", "MCP"},
+	"org":        {"组织", "organisation"},
+	"p2p":        {"直连", "direct delivery"},
+	"preview":    {"预览", "preview"},
+	"service":    {"服务", "service"},
+	"shell":      {"远程命令", "remote command"},
+	"x402":       {"付款", "payment"},
+}
+
+// ModuleName is a module's name as a sentence shows it, in a language; the
+// module's own name when the table has none.
+func ModuleName(m string, lang Language) string {
+	if p, ok := moduleNames[m]; ok {
+		return p.in(lang)
+	}
+	return m
+}
+
+// moduleWhy and moduleFix are {why} and {fix} of module_absent and its
+// relatives, by reason (module.Absent* constants). {name} and {m} inside
+// them are the module's name and its tag-form name.
+var moduleWhy = map[string]phrasePair{
+	"not_compiled": {"这个 anet 不含{name}模块（{m}）", "this anet does not include the {name} module ({m})"},
+	"not_compiled_add": {"这个 anet 不含{name}模块（{m}），它只在 --shell 版本里",
+		"this anet does not include the {name} module ({m}), which comes only in the --shell build"},
+	"without": {"本节点关闭了{name}模块（{m}；config.json 的 without）",
+		"this node has turned off the {name} module ({m}; without in config.json)"},
+}
+
+var moduleFix = map[string]phrasePair{
+	"not_compiled":     {"改装缺省版本（install.sh）", "install the default build (install.sh)"},
+	"not_compiled_add": {"用 install.sh --shell 安装", "install with install.sh --shell"},
+	"without":          {"运行 anet down、anet init --with {m}、anet up", "run anet down, anet init --with {m}, anet up"},
+}
+
+func init() {
+	// The same phrases as phrase sets, for the lint that checks every
+	// sentence carries its next step (reasons_lint_test.go).
+	phraseSets["module_why"], phraseSets["module_fix"] = moduleWhy, moduleFix
+}
+
+// configRules are the phrases of config_invalid's {rule} that name a module.
+var configRules = map[string]phrasePair{
+	"without_not_ready": {"这个构建还不能关闭{name}模块（{m}）", "this build cannot turn off the {name} module ({m}) yet"},
+	"top_level_key":     {"请写顶层 auto_reply / stream_preview", "write the top-level auto_reply / stream_preview"},
+}
+
+// moduleCodes are the codes whose {why} and {fix} (and, for the first
+// group, {name}) are about the module in Args["m"].
+func moduleCode(code, variant string) (nameIsModule, ok bool) {
+	switch code {
+	case "module_absent", "without_configured", "build_tag_pending":
+		return true, true
+	case "payments.unchargeable":
+		return false, true
+	case "capabilities.files_not_service.absent":
+		return false, true
+	}
+	return false, false
+}
+
+// moduleValue is the value of a placeholder of the codes above and of
+// config_invalid's module rules.
+func moduleValue(code, variant, name string, lang Language, args Args) (string, bool) {
+	m := ""
+	if present(args, "m") {
+		m = fmt.Sprint(args["m"])
+	}
+	fill := func(t string) string {
+		t = strings.ReplaceAll(t, "{name}", ModuleName(m, lang))
+		return strings.ReplaceAll(t, "{m}", m)
+	}
+	if code == "config_invalid" && name == "rule" && present(args, "rule") {
+		if p, ok := configRules[fmt.Sprint(args["rule"])]; ok {
+			return fill(p.in(lang)), true
+		}
+		return "", false
+	}
+	nameIsModule, ok := moduleCode(code, variant)
+	if !ok {
+		return "", false
+	}
+	switch name {
+	case "name":
+		if nameIsModule && m != "" {
+			return ModuleName(m, lang), true
+		}
+	case "m":
+		if m != "" {
+			return clean(m, maxNameRunes), true
+		}
+	case "why", "fix":
+		set := moduleWhy
+		if name == "fix" {
+			set = moduleFix
+		}
+		if p, ok := set[fmt.Sprint(args["reason"])]; ok && m != "" {
+			return fill(p.in(lang)), true
+		}
+		return "", false
+	}
+	return "", false
 }

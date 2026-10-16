@@ -93,7 +93,7 @@ func newHost(t *testing.T) *testHost {
 
 func (h *testHost) AID() string                   { return h.self.AID() }
 func (h *testHost) Providers() *provider.Registry { return h.reg }
-func (h *testHost) StateDir(string) string        { return h.stateDir }
+func (h *testHost) StateDir() string        { return h.stateDir }
 
 // RecordEvidence keeps the event with the time it was recorded
 // (module.EvidenceAt), unless the test gave one.

@@ -33,6 +33,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/ANetResearch/ANet/module"
 	"log"
 	"os"
 	"path/filepath"
@@ -799,7 +800,13 @@ func (d *Daemon) admitAt(now int64, caller string, pc PublicCapability, argsLen 
 }
 
 // DeclareUntrustedBackend implements module.Host.DeclareUntrustedBackend.
-func (h moduleHost) DeclareUntrustedBackend() { h.d.untrustedBackend.Store(true) }
+func (h moduleHost) DeclareUntrustedBackend() {
+	if !h.grants(module.GrantDeclareUntrust) {
+		h.deny("DeclareUntrustedBackend")
+		return
+	}
+	h.d.untrustedBackend.Store(true)
+}
 
 // --- refusals: reply, aggregate evidence, local log ---
 
@@ -1010,6 +1017,9 @@ func (d *Daemon) SetInboundPolicy(policy string) error {
 	d.cfgWrite.Lock()
 	defer d.cfgWrite.Unlock()
 	next := d.config()
+	if err := d.carryDiskConfig(&next); err != nil {
+		return err
+	}
 	in := next.inbound()
 	from := in.Policy
 	in.Policy = policy
@@ -1039,6 +1049,9 @@ func (d *Daemon) SetPublicCapabilities(caps []PublicCapability) error {
 	d.cfgWrite.Lock()
 	defer d.cfgWrite.Unlock()
 	next := d.config()
+	if err := d.carryDiskConfig(&next); err != nil {
+		return err
+	}
 	in := next.inbound()
 	from := in.PublicCapabilities
 	in.PublicCapabilities = caps

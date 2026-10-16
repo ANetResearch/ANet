@@ -2,7 +2,6 @@ package main
 
 import (
 	"errors"
-	"slices"
 
 	"github.com/ANetResearch/ANet/module"
 )
@@ -11,7 +10,7 @@ import (
 // -tags no_x402 build has nothing to sign a payment with, so a paying
 // command says so before it asks anything on the terminal. Tests replace
 // it.
-var paymentsCompiled = func() bool { return slices.Contains(module.Compiled(), "x402") }
+var paymentsCompiled = func() bool { return module.Availability{}.Available("x402") }
 
 // errNoPaymentModule is a paying command in a build without the payment
 // module.

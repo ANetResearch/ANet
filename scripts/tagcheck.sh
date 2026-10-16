@@ -5,6 +5,7 @@
 #   bash scripts/tagcheck.sh deps [<tags>]  SI-8: the kernel never reaches a2a-go
 #   bash scripts/tagcheck.sh all            everything below (build.sh --check)
 #   bash scripts/tagcheck.sh list           the two tag lists, one per line
+#   bash scripts/tagcheck.sh pattern <m>    what a module's code is called in `go tool nm`
 #
 # A tag set is comma separated, as `go build -tags` takes it. EVERY tag in
 # it is checked, in its own direction:
@@ -164,6 +165,9 @@ all() {
   # still be what keeps another one linked.
   check "$every" || fail=1
   for m in $ADDITIVE; do check "$m" || fail=1; done
+  # And every removal together with every addition: the build that is the
+  # kernel plus shell and nothing else.
+  check "$every,${ADDITIVE// /,}" || fail=1
   echo "dependency closure"
   deps "" || fail=1
   deps "no_a2a" || fail=1
@@ -175,5 +179,6 @@ case "${1:-}" in
   deps)  deps "${2:-}" ;;
   all)   all ;;
   list)  for m in $SUBTRACTIVE; do echo "no_$m"; done; for m in $ADDITIVE; do echo "$m"; done ;;
+  pattern) pattern "${2:?tagcheck: pattern needs a module name}" ;;
   *) sed -n '2,6p' "$0" >&2; exit 2 ;;
 esac

@@ -18,7 +18,6 @@ import (
 	"github.com/ANetResearch/ANet/internal/a2ashape"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 	"github.com/ANetResearch/ANet/provider"
-	linkprov "github.com/ANetResearch/ANet/provider/anetlink"
 )
 
 // refusingProvider answers every call with a refusal for reason, its log detail naming what the
@@ -218,20 +217,6 @@ func TestTheSandboxIsKeptFromTheModulesSocket(t *testing.T) {
 	t.Setenv("XDG_RUNTIME_DIR", "")
 	if got := anetlinkSockets(Config{}); got != nil {
 		t.Fatalf("no XDG_RUNTIME_DIR, no block: %v", got)
-	}
-}
-
-// The daemon's default socket is the client's, which is anetlinkd's: neither side needs configuring
-// for the two to meet. (The daemon cannot import the client: -tags no_anetlink leaves it out.)
-func TestTheDaemonKnowsANetLinksDefaultSocket(t *testing.T) {
-	t.Setenv("XDG_RUNTIME_DIR", "/run/user/4242")
-	want, err := linkprov.DefaultSocket()
-	if err != nil || anetlinkDefaultSocket() != want {
-		t.Fatalf("daemon %q, client %q (%v)", anetlinkDefaultSocket(), want, err)
-	}
-	t.Setenv("XDG_RUNTIME_DIR", "")
-	if _, err := linkprov.DefaultSocket(); err == nil || anetlinkDefaultSocket() != "" {
-		t.Fatal("without XDG_RUNTIME_DIR neither has a default")
 	}
 }
 

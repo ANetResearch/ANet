@@ -30,7 +30,7 @@ func init() { configChecks = append(configChecks, checkP2PConfig) }
 const cntP2PAddrRefused = "p2p-addr-refused"
 
 // P2PAddr is module.TransportHost's: where aid may be dialled directly now.
-func (h moduleHost) P2PAddr(aid string) (string, bool) { return h.d.p2pAddr(aid, h.d.nowMS()) }
+func (h transportPart) P2PAddr(aid string) (string, bool) { return h.d.p2pAddr(aid, h.d.nowMS()) }
 
 // p2pAddr is the p2p address of a peer capability aid gave this node that
 // is valid at now (heldValid: not given up, not about to expire, under aid's
