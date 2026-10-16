@@ -506,7 +506,7 @@ func (d *Daemon) tryCapabilityPaid(ctx context.Context, interactionID, capID str
 		// far side said (ANetLink's C1 code, the socket it could not reach)
 		// stays in this log.
 		log.Printf("anet: %q: %q: %v", interactionID, capID, err)
-		res.Status, opts = refusalOutcome(refused.Reason)
+		res.Status, opts = providerRefusalOutcome(refused)
 	case isUnknown:
 		// Sent, and the answer lost — or the call's deadline passed while
 		// it ran, whatever the provider: whether the effect happened is not
@@ -527,6 +527,21 @@ func (d *Daemon) tryCapabilityPaid(ctx context.Context, interactionID, capID str
 		}
 	}
 	return d.deliverCapabilityResult(ctx, interactionID, capID, ix, res, eff.Evidence, opts)
+}
+
+// providerRefusalOutcome is refusalOutcome for a provider's refusal, which may
+// also carry a code of the far side's own (CUX-F22: repeated as it is when it
+// has the form of CORE-K19 and the reason table has no row for it; the task
+// then ends failed) and a wait (anet.retry_after_ms).
+func providerRefusalOutcome(r *provider.RefusalError) (string, resultOpts) {
+	status, opts := refusalOutcome(r.Reason)
+	if _, known := a2ashape.Lookup(r.Reason); !known && r.Verbatim && reasonCodeRe.MatchString(r.Reason) {
+		status, opts = string(effect.Failed), resultOpts{state: interactions.StateFailed, reason: r.Reason}
+	}
+	if r.RetryAfterS > 0 && opts.state != interactions.StateFailed {
+		opts.retryAfterMS = int64(r.RetryAfterS) * 1000
+	}
+	return status, opts
 }
 
 // refusalOutcome is how a provider's refusal ends the task: the effect

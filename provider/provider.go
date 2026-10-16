@@ -117,6 +117,16 @@ type RemotePolicy interface {
 // sentence.
 type RefusalError struct {
 	Reason string
+	// Verbatim says Reason is a code the far side chose, in the form of
+	// CORE-K19, that this node repeats as it is (CUX-F22) even when the
+	// reason table has no row for it: the task then ends failed, effect
+	// FAILED. Without it a code the table does not know becomes
+	// backend_failed.
+	Verbatim bool
+	// RetryAfterS is how long the far side asks to wait, in seconds,
+	// already rounded (seal.RetryBucket); 0 for none. The requester gets
+	// it as anet.retry_after_ms.
+	RetryAfterS uint32
 	// Err is what happened, for this node's log only.
 	Err error
 }

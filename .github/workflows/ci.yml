@@ -177,6 +177,11 @@ jobs:
           go vet -tags "${{ matrix.tags }}" ./...
       - name: test without the module
         run: go test -tags "${{ matrix.tags }}" ./...
+      # Without the service module no provider takes files (CUX-F15): the
+      # file admission, discard and allow_only tests run on their own here.
+      - name: files without the service module
+        if: matrix.tags == 'no_service'
+        run: go test -tags no_service ./internal/daemon -run 'Files|Discard|AllowOnly|NoteReason' -timeout 30m
       - name: the binary must still start
         run: |
           go build -tags "${{ matrix.tags }}" -o /tmp/anet ./cmd/anet
