@@ -503,9 +503,6 @@ func TestSenderPrivacyCodesSayOneSentence(t *testing.T) {
 				}
 			}
 			surfaces := taskSurfaces(t, req, prov.AID(), id)
-			if !surfaces[0].hasWait && !surfaces[1].hasWait {
-				t.Skip("v030-todo(RC-5): the task projections carry no anet.delivery_wait yet")
-			}
 			for _, s := range surfaces {
 				if s.wait != w.code {
 					t.Errorf("%s: anet.delivery_wait %q, want %q", s.name, s.wait, w.code)

@@ -158,6 +158,29 @@ type Source struct {
 	// gives an empty map, and the x402 keys of an older PAYMENT_REQUIRED
 	// answer are still read from the answer.
 	Payment map[string]any
+	// Outbox is the outbound rows still queued for the task, as the daemon
+	// reads them (DLV-W-21a): what the projection turns into anet.delivery
+	// = pending. A message with no row here and no stored delivery state
+	// carries no delivery keys.
+	Outbox []OutboxMsg
+}
+
+// OutboxMsg is one queued outbound row of a task, as the projection reads it
+// (engine §2.3, ENG-P1). The daemon computes Detail, Wait and Ordered with
+// the engine's own functions; the projection places them (DLV-P-2).
+type OutboxMsg struct {
+	// MsgID is the id the message is stored under (hex of the row's mid).
+	MsgID string
+	// Detail is DeliveryNotSent, DeliverySent or DeliveryQueuedAtHub.
+	Detail string
+	// Wait is the row's anet.delivery_wait ("" for none).
+	Wait string
+	// Ordered: the row waits for the message before it (DLV-W-21d).
+	Ordered bool
+	// Delegation marks a delegation this node sent; Handed, HandedAt, Exp
+	// and Frozen are what UX-R11's give-up moment reads.
+	Delegation, Handed, Frozen bool
+	HandedAt, Exp              time.Time
 }
 
 // Options says how much of a task to project and how its files travel.
@@ -212,6 +235,9 @@ type Options struct {
 	// asks the other side to let this node in (not_accepting: "ask them
 	// to run anet peers allow {aid}").
 	SelfAID string
+	// NoResponseAfter is the effective no_response_after (0: off); the
+	// projection reads it for the moment a task gives up (UX-R11).
+	NoResponseAfter time.Duration
 }
 
 // Load reads what Project needs for one interaction.
@@ -329,6 +355,8 @@ type projector struct {
 	note *PayNote
 	// inlineLeft is what is left of the inline limit (Options.InlineLimit).
 	inlineLeft int64
+	// outbox is Source.Outbox.
+	outbox []OutboxMsg
 }
 
 func newProjector(src Source, opt Options) *projector {
@@ -345,8 +373,10 @@ func newProjector(src Source, opt Options) *projector {
 		p.contextID = ix.ID
 	}
 	p.metas = make([]map[string]any, len(src.Messages))
+	p.outbox = src.Outbox
 	for i, m := range src.Messages {
 		p.metas[i] = decodeObject([]byte(m.Metadata))
+		p.setDelivery(i)
 	}
 	for _, a := range src.Attachments {
 		p.bySeq[a.MsgSeq] = append(p.bySeq[a.MsgSeq], a)
@@ -1111,6 +1141,7 @@ func (p *projector) metadata(why map[string]any) map[string]any {
 		// From the first decision on, ended or not (HPP §2.7).
 		m[KeyPaymentNote] = PaymentNote(*p.note, Lang())
 	}
+	p.deliveryMeta(m)
 	if next := p.next(m); next != "" {
 		m[KeyNext] = next
 	}
@@ -1126,6 +1157,9 @@ func (p *projector) metadata(why map[string]any) map[string]any {
 // projection does not guess a variant.
 func (p *projector) next(m map[string]any) string {
 	key, _ := m[KeyReason].(string)
+	if p.ix.ReasonVariant != "" && (key == "delivery_unconfirmed" || key == "undeliverable") {
+		key += "." + p.ix.ReasonVariant
+	}
 	args := Args{"task": p.ix.ID, "peer": p.ix.PeerAID}
 	if p.opt.SelfAID != "" {
 		// {aid} is this node's own AID in every row that names it, as in

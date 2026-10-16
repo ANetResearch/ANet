@@ -150,6 +150,8 @@ type Daemon struct {
 	outboxKick  chan struct{}
 	outboxLocks keyedLocks
 	outboxMem   outboxMem
+	// deliveryNotes is what noteDelivery last published per task (RC-5).
+	deliveryNotes deliveryNotes
 	// outboxHold, set by a test (setOutboxHold), skips the passes of the
 	// outbox loop and of the no-response sweep.
 	outboxHold atomic.Bool

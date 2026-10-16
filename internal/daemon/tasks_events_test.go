@@ -166,6 +166,9 @@ func TestTasksEventsEndsAfterTheTerminalTask(t *testing.T) {
 		if !ok {
 			break
 		}
+		if e.name == "delivery" {
+			continue // the confirmation of the delegation (RC-5): it moves no state
+		}
 		if e.name != "task" {
 			t.Fatalf("event %s", e.name)
 		}

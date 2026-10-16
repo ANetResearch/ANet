@@ -809,3 +809,16 @@ func TestAgentToolsSayWhatKeyStateMeans(t *testing.T) {
 		t.Fatalf("%d of the two agent tools found", seen)
 	}
 }
+
+// DLV-Q-2: the honesty sentence carries the delivery paragraph word for word.
+func TestHonestyText(t *testing.T) {
+	const want = "Metadata anet.delivery says whether the other side's node confirmed the latest message this node sent on the task: pending, confirmed, or unconfirmed. " +
+		"While it is pending, anet.delivery_detail is not_sent, sent, or queued_at_hub (waiting at the hub for the other side to collect it), " +
+		"and anet.delivery_wait, when present, names why it is held; the task has not failed and anet retries on its own. " +
+		"TASK_STATE_FAILED with anet.reason=delivery_unconfirmed means the message left this node but was never confirmed: " +
+		"anet asked the other side to cancel, yet it may still have arrived, so do not assume it did not run. " +
+		"anet.reason=undeliverable means it never left this node."
+	if !strings.Contains(honesty, want) {
+		t.Error("honesty lacks the DLV-Q-2 paragraph")
+	}
+}

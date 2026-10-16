@@ -632,6 +632,9 @@ func (d *Daemon) hStatus(w http.ResponseWriter, r *http.Request) {
 	// Receive outcomes by reason since start (receive.go): every envelope
 	// dropped or held back, and why.
 	out["receive"] = d.ReceiveStats()
+	// The outbound queue: what waits for confirmation and what is stuck
+	// (DLV-P-4).
+	out["delivery"] = d.deliveryStatus()
 	// How long task content is kept (FS §2.10): `anet retention` reads it
 	// here while the daemon runs.
 	out["privacy"] = d.privacyRetention()

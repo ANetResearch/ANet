@@ -129,8 +129,7 @@ func TestEveryDispatchedCommandIsInTheFullHelp(t *testing.T) {
 // `anet delegate` itself no longer asks /delegate (the console's route, ux UX-C10): it sends through
 // /tasks/send, whose answer is the task, and there a quiet recipient is the delivery line, the
 // queued_at_hub sentence of anet.delivery_detail (ux §1.4 C3). Until the projection carries it the CLI
-// shows no line for it. v030-todo(RC-5): a test that `anet delegate` to a quiet recipient prints that
-// delivery line.
+// shows that line (TestDelegateToAQuietRecipientPrintsTheDeliveryLine).
 func TestDelegatePrintsTheQuietNotice(t *testing.T) {
 	const warning = "queued, but bafyreiabc has not collected its mail for 3 days — it may not be running"
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -168,5 +167,27 @@ func TestAnOrdinaryAnswerPrintsNoNotice(t *testing.T) {
 	_, errOut := captureCLI(t, func() { _ = c.do("/delegate", nil) })
 	if errOut != "" {
 		t.Errorf("nothing was warned about; there must be no note:\n%s", errOut)
+	}
+}
+
+// DLV-L-2: `anet delegate` to a recipient the hub holds mail for gets the
+// delivery line of its task, the queued_at_hub sentence of ux C3 with how
+// long it has waited and when the task gives up.
+func TestDelegateToAQuietRecipientPrintsTheDeliveryLine(t *testing.T) {
+	since := time.Now().Add(-90 * time.Second).UTC().Format(time.RFC3339)
+	ends := time.Now().Add(10 * time.Minute).UTC().Format(time.RFC3339)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"ix-1","contextId":"c","status":{"state":"TASK_STATE_SUBMITTED"},"metadata":{` +
+			`"anet.delivery":"pending","anet.delivery_detail":"queued_at_hub","anet.delivery_since":"` + since + `",` +
+			`"anet.delivery_ends_at":"` + ends + `"}}`))
+	}))
+	defer srv.Close()
+	c := &client{base: srv.URL, token: "t", timeout: 5 * time.Second}
+	_, errOut := captureCLI(t, func() { _ = c.doTask("/tasks/send", map[string]any{}) })
+	sentence := a2ashape.Sentence("delivery.queued_at_hub", a2ashape.Lang(), nil)
+	if !strings.HasPrefix(errOut, a2ashape.Label("task.delivery", a2ashape.Lang())+": "+sentence) ||
+		(!strings.Contains(errOut, "(waited 2 minutes)") && !strings.Contains(errOut, "(已等 2 分钟)")) {
+		t.Errorf("delivery line: %q", errOut)
 	}
 }
