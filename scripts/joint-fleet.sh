@@ -109,6 +109,7 @@ chmod +x "$J"/agent-*.sh
 
 setsid ./anet-hub --addr "$HUB_ADDR" --data "$J/hub" >"$J/hub.log" 2>&1 </dev/null &
 sleep 3
+./anet-hub admit --data "$J/hub" --window 24h --max 1000 >/dev/null 2>&1 || true
 curl -sf -m 5 "$HUB_URL/agents" >/dev/null && ok "hub 起来了" || no "hub 没起来: $(tail -2 "$J/hub.log")"
 
 # 每个节点一个 HOME,控制端口写死,免得自动分配之后脚本找不到它们。

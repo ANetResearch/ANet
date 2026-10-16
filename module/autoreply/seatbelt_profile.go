@@ -49,13 +49,13 @@ import (
 	"github.com/ANetResearch/ANet/internal/pathsafe"
 )
 
-// seatbeltEnabled says whether this build runs sandboxed turns on macOS. It is a compile-time constant:
-// v0.3.0 is released with the value 's first CI run on macOS decides (MOD-V3). While it is false, a
-// turn that would run in the sandbox on a Mac — an untrusted peer's, or any when trusted is sandbox — is
-// turned away before the agent starts, sandbox_unavailable with the local reason
-// platform_unsupported.pending, and never falls back to a direct run (GT-2). The direct and openai paths
-// are not affected.
-const seatbeltEnabled = true
+// seatbeltEnabled says whether this build runs sandboxed turns on macOS. It is a compile-time constant. In
+// 0.3.0 it is false (MOD-V3): the sandbox's self-check did not pass on the hosted macOS runners of the first
+// CI run, so a turn that would run in the sandbox on a Mac -- an untrusted peer's, or any when trusted is
+// sandbox -- is turned away before the agent starts, sandbox_unavailable with the local reason
+// platform_unsupported.pending, and never falls back to a direct run (GT-2). The direct and openai paths are
+// not affected. The sandbox is switched on again in a later 0.3 release, once its self-check passes on macOS.
+const seatbeltEnabled = false
 
 // seatbeltGate is the macOS sandbox's one switch: nil while the sandbox is enabled, else the refusal
 // every sandboxed run and every self-check on macOS answers.
@@ -68,14 +68,6 @@ func seatbeltGate(enabled bool) error {
 
 // sandboxCodePending is the local reason of a macOS sandbox this version does not have yet.
 const sandboxCodePending = "platform_unsupported.pending"
-
-// seatbeltPrepareGated is seatbeltPrepare behind the switch.
-func seatbeltPrepareGated(enabled bool, p *sandboxPlan, path string) error {
-	if err := seatbeltGate(enabled); err != nil {
-		return err
-	}
-	return seatbeltPrepare(p, path)
-}
 
 // seatbeltSpec is the input of buildSeatbeltProfile. Every path is absolute, clean and resolved (Seatbelt
 // matches the real path of a file, so /tmp must be given as /private/tmp, a home under /var/folders as

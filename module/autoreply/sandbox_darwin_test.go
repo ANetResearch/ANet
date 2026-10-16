@@ -28,6 +28,30 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+// requireSeatbeltEnabled skips a test of the real macOS sandbox while this version does not ship it
+// (seatbeltEnabled false, MOD-V3): the sandbox's self-check did not pass on the hosted macOS runners, so a
+// turn on a Mac is turned away with platform_unsupported.pending (TestDarwinSandboxFailsClosed).
+func requireSeatbeltEnabled(t *testing.T) {
+	t.Helper()
+	if !seatbeltEnabled {
+		t.Skip("the macOS sandbox is not part of this version (MOD-V3)")
+	}
+}
+
+// TestDarwinSandboxFailsClosed: with the macOS sandbox not part of the build, preparing it fails with
+// sandbox_unavailable and the local reason platform_unsupported.pending, and never lets a run proceed
+// unsandboxed.
+func TestDarwinSandboxFailsClosed(t *testing.T) {
+	if seatbeltEnabled {
+		t.Skip("the macOS sandbox is enabled in this build")
+	}
+	err := (&sandboxPlan{}).prepare()
+	var pe *sandboxProbeError
+	if !errors.As(err, &pe) || pe.Code != sandboxCodePending {
+		t.Fatalf("prepare on a Mac without the sandbox: %v, want the local reason %s", err, sandboxCodePending)
+	}
+}
+
 // noSandbox makes the Mac's sandbox unavailable for the test, and returns the local reason a refused run
 // is recorded with: no sandbox-exec.
 func noSandbox(t *testing.T) string {
@@ -54,6 +78,7 @@ func realSeatbeltProbe(t *testing.T) seatbeltProbe {
 // read, another port of the host's loopback cannot be reached, the egress endpoint can, /usr/bin/security
 // does not start, and the work dir takes a file (M-MS-1, M-MS-3).
 func TestSeatbeltProbeFiveItems(t *testing.T) {
+	requireSeatbeltEnabled(t)
 	pr := realSeatbeltProbe(t)
 	if pr.Err != nil {
 		t.Fatalf("the sandbox failed its self-check: %v", pr.Err)
@@ -129,6 +154,7 @@ func leftRunDirs(aid string) []string {
 // or read a file in the host's temp dir, and can write its work dir, the interaction's sandbox work dir;
 // nothing of the run is left after it.
 func TestSeatbeltIntegrationConfinesTheAgent(t *testing.T) {
+	requireSeatbeltEnabled(t)
 	d := newBareDaemon(t)
 	data := d.layout.Root
 	for _, f := range []string{"control_token.txt", "a2a_token.txt"} {
@@ -187,6 +213,7 @@ func TestSeatbeltIntegrationConfinesTheAgent(t *testing.T) {
 // and the bounded output; the service's own address is out of reach; CONNECT is answered by policy with
 // the run's key and 407 without; the run's counts come back.
 func TestSeatbeltIntegrationReachesTheModelOnlyThroughTheNode(t *testing.T) {
+	requireSeatbeltEnabled(t)
 	f := newFakeModelService(t)
 	up := testUpstream(t, egressUpstreamAnthropic, f)
 	d := newBareDaemon(t)
@@ -222,6 +249,7 @@ func TestSeatbeltIntegrationReachesTheModelOnlyThroughTheNode(t *testing.T) {
 // no local token; its command line holds no conversation, no interaction id and no key, while its
 // instructions say it runs in the sandbox.
 func TestSeatbeltIntegrationHoldsNoSecret(t *testing.T) {
+	requireSeatbeltEnabled(t)
 	t.Setenv("ANTHROPIC_API_KEY", canaryEnvKey)
 	t.Setenv("HTTPS_PROXY", "http://user:"+canaryProxy+"@proxy.example:3128")
 	f := newFakeModelService(t)
@@ -333,6 +361,7 @@ func seatbeltRunIn(t *testing.T, run, work string, runtime []string, argv ...str
 // daemon's Mach service is refused, and /usr/bin/security does not start — while a lookup the profile
 // allows succeeds, and the same helper outside the sandbox finds the security daemon.
 func TestSeatbeltKeychainIsOutOfReach(t *testing.T) {
+	requireSeatbeltEnabled(t)
 	if _, err := os.Stat(seatbeltExecPath); err != nil {
 		t.Skipf("needs %s (a Mac): %v", seatbeltExecPath, err)
 	}
@@ -366,6 +395,7 @@ func pidAlive(pid int) bool { return pid > 0 && syscall.Kill(pid, 0) == nil }
 // background ends with the run: when the agent exits (init ends the rest of the group) and on a timeout
 // (the daemon kills the group).
 func TestSeatbeltEndsWhatTheAgentLeftInItsGroup(t *testing.T) {
+	requireSeatbeltEnabled(t)
 	d := newBareDaemon(t)
 	plan := preparedSeatbelt(t, d)
 	work := t.TempDir()
@@ -476,6 +506,7 @@ func init() {
 // ordinary fcntl and process information on itself still work, and outside the sandbox the same link
 // succeeds.
 func TestSeatbeltRefusesWhatItWouldAllowByDefault(t *testing.T) {
+	requireSeatbeltEnabled(t)
 	if _, err := os.Stat(seatbeltExecPath); err != nil {
 		t.Skipf("needs %s (a Mac): %v", seatbeltExecPath, err)
 	}

@@ -26,6 +26,14 @@ const sandboxKind = "seatbelt"
 // process cap.
 func sandboxLimits() string { return "rlimit_only" }
 
+// seatbeltPrepareGated is seatbeltPrepare behind the switch.
+func seatbeltPrepareGated(enabled bool, p *sandboxPlan, path string) error {
+	if err := seatbeltGate(enabled); err != nil {
+		return err
+	}
+	return seatbeltPrepare(p, path)
+}
+
 // prepare checks that sandbox-exec is there and that the probe passes on this Mac.
 func (p *sandboxPlan) prepare() error {
 	return seatbeltPrepareGated(seatbeltEnabled, p, seatbeltExecPath)

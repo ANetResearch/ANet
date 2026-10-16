@@ -35,6 +35,7 @@ func seatbeltAgentCLI(t *testing.T, name string) string {
 // operator's key and the pinned model, never the placeholder — runs the tool the model asks for, writes
 // its result file in the work dir and replies; the run leaves no run directory.
 func TestSeatbeltClaudeCompletesATask(t *testing.T) {
+	requireSeatbeltEnabled(t)
 	claude := seatbeltAgentCLI(t, "claude")
 	if pr := realSeatbeltProbe(t); pr.Err != nil {
 		t.Fatalf("the sandbox failed its self-check: %v", pr.Err)
@@ -93,6 +94,7 @@ func TestSeatbeltClaudeCompletesATask(t *testing.T) {
 // re-executes the interpreter in its app bundle under the prefix: a prefix the agent could only read (the
 // system frameworks) or not at all (/Library/Frameworks, Homebrew, uv, pyenv) is listed.
 func TestSeatbeltPythonRuntimeOutsideTheExecutableSystem(t *testing.T) {
+	requireSeatbeltEnabled(t)
 	for p, want := range map[string]bool{
 		"/usr/bin": true, "/bin": true,
 		"/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9": true,

@@ -218,6 +218,8 @@ rm -rf "$ROOT/hub" "$ROOT/A" "$ROOT/B" "$ROOT/C"
 mkdir -p "$ROOT/hub"
 setsid "$BIN/anet-hub" --addr "127.0.0.1:$HUB_PORT" --data "$ROOT/hub" >"$ROOT/hub.log" 2>&1 </dev/null &
 for _ in $(seq 1 30); do curl -sf -m 2 "$HUB/healthz" >/dev/null && break; sleep 1; done
+# A 0.3 hub admits by AID. The scenario's nodes join through a sign-up window on the fresh data directory.
+"$BIN/anet-hub" admit --data "$ROOT/hub" --window 24h --max 1000 >/dev/null 2>&1 || true
 curl -sf -m 5 "$HUB/healthz" >/dev/null && ok "hub 起来了,数据目录全新" || { no "hub 起不来: $(tail -2 "$ROOT/hub.log")"; exit 1; }
 n=$(curl -s -m 5 "$HUB/agents" | python3 -c 'import sys,json;print(len(json.load(sys.stdin).get("agents") or []))')
 [ "$n" = "0" ] && ok "它认识 0 个 agent —— 只能被加入,不能去邀请" || no "全新 hub 上已有 $n 个 agent"
@@ -307,7 +309,7 @@ p = sys.argv[1]; c = json.load(open(p)); c["name"] = "NodeC"
 # payees.allow, and `anet payments set` asks on a TTY, which a script has
 # not got. The manual tier (explicit_max) is what 6.5 pays through.
 c["payments"] = {"auto_max": 0, "agent_max": 0, "agent_daily_max": 0,
-                 "explicit_max": 100, "daily_max": 200, "payees_file": "payees.allow"}
+                 "explicit_max": 100, "daily_max": 200}
 json.dump(c, open(p, "w"), indent=1)
 PY
 
@@ -329,6 +331,8 @@ ctl B /hub-register "{\"hub\":\"$HUB\",\"name\":\"NodeB\",\"caps\":[\"chat\"]}" 
 ctl C /hub-register "{\"hub\":\"$HUB\",\"name\":\"NodeC\",\"caps\":[]}" >/dev/null
 sleep 2
 A=$(aid_of A); B=$(aid_of B); C=$(aid_of C)
+# A new account holds no credit during its probation; the paid scenarios start from a grant.
+for _g in "$A" "$B" "$C"; do "$BIN/anet-hub" admit "$_g" --grant 100 --data "$ROOT/hub" >/dev/null 2>&1 || true; done
 # Every node runs the default closed inbound policy (A2A-DESIGN §5) and
 # allows the other two by name. Written directly: the CLI's `anet peers
 # allow` asks for confirmation on a terminal. The daemons read the files on
@@ -738,6 +742,7 @@ rm -rf "$ROOT/hub2"; mkdir -p "$ROOT/hub2"
 H1=$(curl -s -m 10 "$HUB/hub/identity" | python3 -c 'import sys,json;print(json.load(sys.stdin)["aid"])')
 setsid "$BIN/anet-hub" --addr "127.0.0.1:$HUB2_PORT" --data "$ROOT/hub2" >"$ROOT/hub2.log" 2>&1 </dev/null &
 for _ in $(seq 1 30); do curl -sf -m 2 "$HUB2/healthz" >/dev/null && break; sleep 1; done
+"$BIN/anet-hub" admit --data "$ROOT/hub2" --window 24h --max 1000 >/dev/null 2>&1 || true
 H2=$(curl -s -m 10 "$HUB2/hub/identity" | python3 -c 'import sys,json;print(json.load(sys.stdin)["aid"])')
 [ -n "$H2" ] && ok "第二个 hub 起来了" || no "第二个 hub 起不来: $(tail -2 "$ROOT/hub2.log")"
 
@@ -1342,7 +1347,7 @@ CFG
     mkdir -p "$XR/$n/.anet"
     cat >"$XR/$n/.anet/config.json" <<CFG
 {"control_addr":"127.0.0.1:${XPORT[$n]}","hub_url":"$HUB1","name":"Node$n",
- "payments":{"auto_max":0,"agent_max":50,"agent_daily_max":500,"explicit_max":50,"daily_max":500,"payees_file":"payees.allow"}}
+ "payments":{"auto_max":0,"agent_max":50,"agent_daily_max":500,"explicit_max":50,"daily_max":500}}
 CFG
     pin_a2a "$XR/$n/.anet" $((${XPORT[$n]} + 24))
     x1_start "$n" || { no "$n 起不来: $(tail -3 "$XR/$n/.anet/daemon.log" 2>/dev/null)"; return 1; }

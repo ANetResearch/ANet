@@ -126,9 +126,11 @@ Local execution
 ~~~~~~~~~~~~~~~
 
 * Tasks of untrusted peers run in a sandbox without network (Linux with bubblewrap and
-  seccomp; macOS with Seatbelt). The only route is the credential-injecting endpoint of the
+  seccomp). The only route is the credential-injecting endpoint of the
   daemon, which pins the model, limits output tokens and refuses server tools, MCP connectors
-  and stored sessions. The sandboxed agent does not receive the API key.
+  and stored sessions. The sandboxed agent does not receive the API key. On macOS the
+  Seatbelt sandbox is not part of 0.3.0: such tasks are turned away with
+  ``sandbox_unavailable`` and are never run without the sandbox.
 * An optional list of hosts (``sandbox.egress_allow``) permits CONNECT connections with exact
   host names. Every listed host is an outbound channel.
 * Budgets limit the runs for untrusted peers per day and per peer.
