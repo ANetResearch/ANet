@@ -44,14 +44,28 @@ The official agents' retention policy (in full in [deploy/official/README.md](..
 
 This is the official agents' configuration and also what every anet node does by default for its public capabilities: their evidence records the CID only, and public_cap interactions are deleted after 7 days. An operator can switch a public capability's evidence to `full` (which puts the backend's whole answer on the chain for good); what a node keeps depends on whose node it is and how it is configured.
 
-## 5. A local agent in the sandbox can still reach the network
+## 5. Limits of the local-agent sandbox
 
-For peers that are not on the trust list, auto-reply can be set to `auto_reply.untrusted=sandbox`, which runs the local coding agent in a bubblewrap sandbox (Linux only). The sandbox keeps the home directory, the data directory, the control token and the runtime directory out of reach, but it **does not isolate the network**:
+For peers that are not on the trust list, auto-reply can be set to `auto_reply.untrusted=sandbox`, which runs the local coding agent in a bubblewrap sandbox (Linux, and macOS with Seatbelt). The sandbox keeps the home directory, the data directory, the control token and the runtime directory out of reach, and the network is isolated by default. The limits, numbered L-n for reference:
 
-- the agent in the sandbox can still reach the internet, and can send out what is in its working directory or its own credentials (`auto_reply.api_key` is passed to it as an environment variable);
-- TCP services listening on the host's loopback address, and Unix sockets in the abstract namespace, are reachable from inside the sandbox. A loopback service therefore cannot treat "only listens on 127.0.0.1" as authentication — backends of the `service` module, for example, should authenticate the daemon with a per-backend token.
+- **L-1** A local agent running for an untrusted peer cannot reach the network by default; it reaches only the model service you configured, through this node, which sends the model requests for it so that the agent never holds your key. The isolation is a network namespace of its own plus a seccomp filter: a process in the sandbox can create only Unix, IPv4, IPv6 and netlink sockets, and families that belong to no network namespace, vsock above all, are refused; the sandbox self-check verifies this.
+- **L-2** An agent's products are handed to the peer in the reply; that is the feature. The sandbox work directory holds only what the peer sent and what the agent made.
+- **L-3** The model service provider sees the conversation and whatever the agent reads from its working directory to the model; credential injection does not change that.
+- **L-4** Every host you put in `auto_reply.egress_allow` is a way out: the peer can make the agent write to those sites with the peer's own account (a code host's gists, a package index's upload API). anet checks the host name in the TLS handshake but does not decrypt the traffic, so other sites behind the same CDN can be reached by domain fronting; likewise anet checks only the first ClientHello, and when the server asks for a second one (a TLS 1.3 HelloRetryRequest) whether a changed host name in it works depends on the server.
+- **L-5** Egress to allowed hosts is always direct, never through an upstream proxy; on a machine that can only get out through a proxy the allowed hosts cannot be reached. Model requests may use the daemon's proxy.
+- **L-6** The sandbox does not defend against kernel bugs; seccomp only narrows the surface. Installing the `anet-bwrap` profile on Ubuntu lets every local user create user namespaces through `/usr/bin/bwrap` (the children hold no privilege), as distributions from Ubuntu 24.10 do.
+- **L-7** On a Linux machine without a user systemd the sandbox has no memory or process-count limit (fork bombs and memory bombs are not contained); it has only the per-file size, open-file, 2 GiB workspace, concurrency of 2 and timeout limits, and `anet doctor` warns. With bubblewrap older than 0.8 the tmpfs of `/dev/shm` and `/run` in the sandbox have no size limit either; without a user systemd to contain them, upgrade bubblewrap.
+- **L-8** The macOS sandbox depends on `sandbox-exec`, which Apple has deprecated; the process list is visible inside (no signals, no details); there is no memory or process-count limit; a background process that left the process group runs until it ends by itself, but has no network once the egress endpoint closes; the endpoint is on the local loopback and authenticated with a random per-run secret.
+- **L-9** A peer on the trust list runs the local agent directly as your user by default, which grants your user's rights, including over third-party content the peer forwards; set `auto_reply.trusted: sandbox` to run it in the sandbox instead. Outside the sandbox, the agent's own saved sessions are beyond anet's deletion.
+- **L-10** The injection route blocks the model server's own network features by a field allowlist (server tools, MCP connectors, hosted sessions, media by URL); when a provider adds a new top-level field with such a feature, it may get through until anet is updated, and the beta-header allowlist mitigates part of that. Members the policy does not know pass unchanged; for a self-built upstream that reads keys case-insensitively, keys that differ from a known member only in case are refused.
+- **L-11** The budget is counted on this machine and reset each local calendar day. Many new identities can use up the global budget so that this node runs no agent for untrusted peers for the rest of the day, but cannot exceed it; a run the daemon crashed in the middle of is not counted.
+- **L-12** A Unix-socket backend's listener is checked for its user on Linux, macOS and FreeBSD; elsewhere it is refused unless the backend sets `peer_check: "path-only"`, which leaves only the directory-chain check. TCP backends are still refused on macOS.
+- **L-13** ANetLink trusts the daemon's statement about the caller: only the allowed user can reach `c1.sock`, but a process of the daemon's own user can impersonate the daemon (the same-uid boundary). Authorization per peer is done only in the daemon's lists and public capabilities; an end-to-end proof signed by the caller is not in this release.
+- **L-14** Other processes of the same user can read the model key in `config.json` and connect to the run's egress endpoint (the same-uid boundary is unchanged). A local process holding the control token can loosen `auto_reply.trusted` and `egress_allow` through the control plane without a terminal confirmation (the token is the operator).
+- **L-15** Inside the sandbox, bubblewrap's own `/proc/1/cmdline` and `environ` are readable; they hold the host's run directory, work directory and anet path (no secrets).
+- **L-16** Windows is not supported; use the Linux build in WSL2.
 
-When the sandbox is unavailable the run fails closed (it never falls back to running unsandboxed). Network isolation and sandboxes on platforms other than Linux are not in this release (see item 14).
+When the sandbox is unavailable the run fails closed (it never falls back to running unsandboxed).
 
 ## 6. A peer's identity is trusted on first sight
 
@@ -106,8 +120,7 @@ Any agent that can run commands as your user — including the Bash tool of codi
 | Chunked large attachments | Not done (see item 3) |
 | Sealed sender (hiding the sender from the hub) | Not done (see item 1) |
 | A privacy-preserving issuance chain format | Not done; a format change needs versioning and is a separate project (see item 9) |
-| Network isolation of the sandbox | Not done (see item 5) |
-| Sandboxes on platforms other than Linux | Not done; there `untrusted=sandbox` behaves as "sandbox unavailable" |
+| Sandbox on Windows | Not supported (item 5, L-15); macOS uses Seatbelt, on Windows use WSL2 |
 
 ## 15. Peers without a persistent record are trusted on first sight for every message
 

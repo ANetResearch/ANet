@@ -26,8 +26,8 @@ v0.2 起新节点**谁的任务都不接**（入站策略 `closed`）。自动�
 两种后端的边界不同：
 
 - **`openai` 后端**不在你机器上运行程序，只把对话发给你的 API，对所有已进门的任务作答。
-- **`exec` 后端**会在你的机器上运行一个带工具的编码 agent，对方写的任务就是它的输入。所以它**只为信任名单里的对端运行**（`anet peers trust <aid>`，终端确认）。对允许但不信任的对端，`auto_reply.untrusted` 决定怎么办：`off`（默认）不调用本机 agent，任务留在收件箱等你处理；`sandbox`（仅 Linux，需要 bubblewrap）在沙箱里运行——家目录换成空的 tmpfs、数据目录与控制令牌不可见，须同时配 `api_key` 以环境变量传入凭据；沙箱不可用时按失败处理，不会退回无沙箱运行。沙箱不隔离网络，见[已知局限](KNOWN-LIMITATIONS-zh.md)第 5 条。
-- `open` 策略与"对不信任的对端启用 exec（`untrusted=sandbox`）"不能同时成立，先写哪一个，后写的都会被拒（409）。
+- **`exec` 后端**会在你的机器上运行一个带工具的编码 agent，对方写的任务就是它的输入。所以它**只为信任名单里的对端运行**（`anet peers trust <aid>`，终端确认）。对允许但不信任的对端，`auto_reply.untrusted` 决定怎么办：`off`（默认）不调用本机 agent，任务留在收件箱等你处理；`sandbox`（仅 Linux，需要 bubblewrap）在沙箱里运行——家目录换成空的 tmpfs、数据目录与控制令牌不可见，须同时配 `api_key`，key 只留在本节点的出站端点，不进沙箱；沙箱不可用时按失败处理，不会退回无沙箱运行。网络默认隔离，只能经本节点访问你配置的模型服务，限制见[已知局限](KNOWN-LIMITATIONS-zh.md)第 5 条。
+- `open` 策略可以与 `untrusted=sandbox` 同时成立：陌生人的任务只会在沙箱里运行，并受每日预算限制；`open` 与"接受不信任对端的 A2A 后端"仍不能同时成立（409）。
 
 ## 工作原理
 
@@ -140,7 +140,7 @@ anet --id vision autoreply test "描述一下这张图能做什么"   # 也可�
 | `openclaw_agent`        | 否                     | OpenClaw 的`--agent` 名（默认 `main`）                                                                                                                                            |
 | `api_base`              | openai 必填            | OpenAI 兼容 API 根地址                                                                                                                                                                |
 | `model`                 | openai 必填；exec 可选 | openai：模型名；exec：传给 agent 的`--model`。**留空时用该 agent 最便宜的默认**（cursor→`auto`、claude→`haiku`；其余用 agent 自身默认）——无人值守服务默认走最省钱的档 |
-| `api_key`               | 否                     | openai：API 需要鉴权时的 Bearer key；exec：以环境变量传给 agent 的模型凭据（`untrusted=sandbox` 时必填，沙箱里看不到你的登录状态）                                             |
+| `api_key`               | 否                     | openai：API 需要鉴权时的 Bearer key；exec：模型凭据（`untrusted=sandbox` 时必填；沙箱里的 agent 拿不到它，由本节点的出站端点代为附上，沙箱里也看不到你的登录状态）                                             |
 | `system_prompt`         | 否                     | 系统提示词，定义你的服务人格与边界                                                                                                                                                    |
 | `require_image`         | 否                     | `true` 时：对话里没有图片附件就回复 `usage_hint` 而不调 API                                                                                                                       |
 | `usage_hint`            | 否                     | 输入不符合约定时回复的用法提示                                                                                                                                                        |

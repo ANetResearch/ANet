@@ -471,8 +471,8 @@ UNAVAILABLE 只给"确定没发出"的调用(连接建立失败、拨号被拒�
   - `--tmpfs` 覆盖 `/tmp`、`/var/tmp`、`/dev/shm`、`/run`、家目录;只绑定本交互工作目录为可写。
   - 不绑定:解析后的数据目录(`ANET_DATA_DIR` 实际指向处)、`/tmp/anet-<uid>`、`$XDG_RUNTIME_DIR`、`/run/user/$UID`、`modules.anetlink.socket`。
   - `--unshare-ipc --unshare-pid --unshare-uts --new-session --die-with-parent`。
-  - 凭据:家目录为 tmpfs,agent 的登录状态不可见;`sandbox` 模式要求配置 `auto_reply.api_key`(经 `agentExecEnv` 以环境变量传入)。未配置时视为 `sandbox_unavailable`,按下条失败闭合;不绑定 `~/.claude`、`~/.codex` 等 agent 配置目录(其中含会话历史与其他项目的凭据);doctor 报告此项 [C7]。
-  - 网络隔离(`--unshare-net` + 只放行模型 API 主机的出站代理)本期不做,§21 写明残余:宿主回环 TCP 服务与抽象 Unix socket 在沙箱内可达;`service` 模块后端须以每后端令牌头认证 daemon。
+  - 凭据:家目录为 tmpfs,agent 的登录状态不可见;`sandbox` 模式要求配置 `auto_reply.api_key`(0.3 起 key 只留在出站端点,不进沙箱)。未配置时视为 `sandbox_unavailable`,按下条失败闭合;不绑定 `~/.claude`、`~/.codex` 等 agent 配置目录(其中含会话历史与其他项目的凭据);doctor 报告此项 [C7]。
+  - 网络隔离(`--unshare-net` + 只放行模型 API 主机的出站代理)在 0.3 实现,残余见 KNOWN-LIMITATIONS-zh 第 5 条;`service` 模块后端仍应以每后端令牌头认证 daemon。
   - 失败闭合按方向:入站回 `status{rejected, anet.reason=sandbox_unavailable}`;出站(本机是 requester)不发任何消息,任务留在收件箱,写 `anet.autoreply.invoked{sandboxed:false, exit:"sandbox_unavailable"}`。
   - 联调在沙箱内断言失败:读控制令牌与 A2A 令牌、连接 D-Bus、连接 `c1.sock`。
 - 所有 exec 统一加固:工作目录在数据目录之外(`$XDG_CACHE_HOME/anet/work/<aid短>/<ix>/`,0700);环境变量白名单;outbox 只收常规文件、拒绝符号链接、规范化后须在 outbox 内、有数量与总量上限;对端只收到通用错误与本地日志关联 id;任务目标作为不可信数据呈现;`ANET_EXEC_COMMAND` 只在测试注入点生效。
@@ -1048,7 +1048,7 @@ r4 时点的进度(剩余阶段按 `an internal note` 的批次推进,已定决�
 2. 前向保密以加密密钥生命周期为界:一条消息在发出后至多 29 天内,可被取得收件人磁盘的一方解开。
 3. 大附件整体缓冲、单次 AEAD。
 4. 官方公共 agent 是端点,能看到调用内容;其保存策略公开写明。
-5. 沙箱内的本地 agent 仍可联网,可外发工作目录内容或自身凭据;宿主回环 TCP 服务与抽象 Unix socket 在沙箱内可达。
+5. 为未信任对端运行的本机 agent 缺省不能联网;沙箱的十五条限制(L-1 至 L-15:域前置、放行主机即外发通道、模型服务商看见对话、无用户级 systemd 时没有内存与进程上限等)见 KNOWN-LIMITATIONS-zh 第 5 条。
 6. 对端 KEL 首次信任:第一次看到某 AID 时接受其自证明 KEL;回退防护只覆盖已有持久记录的对端。hub 可以提供旧卡片与截断 KEL,daemon 只拒绝回退到本机已见状态之前。
 7. `hub:<aid>` 不满足 CAIP-2。
 8. `return_immediately=false` 的 SendMessage 在对端离线时可能等待很久;客户端超时不取消任务,重试会建第二个任务。按 `(contextId, messageId)` 的去重对每次调用生成新 messageId 的客户端(如 Hermes)无效;只带 contextId 的续写有一处偏离规范的宽松处理(§11.5)[Q22]。
@@ -1057,7 +1057,7 @@ r4 时点的进度(剩余阶段按 `an internal note` 的批次推进,已定决�
 11. KEL 轮换没有产品触发路径;轮换宽限默认 1 小时,超过宽限仍在信箱中的旧密钥消息会被拒收。
 12. `A2A-Version` 缺省按 1.0 处理,偏离规范的"缺省按 0.3"。
 13. TTY 门槛(`anet pay`、`anet peers allow`、`anet inbound approve`、修改支出上限)在 CLI 进程内检查,对应的控制面路由凭控制令牌即可调用。它只约束只能经 MCP 工具或本机 A2A 接口行事的 agent。任何能以本用户身份执行命令的 agent(包括 Claude Code 等工具的 Bash,不论有无 TTY),都可以读取控制令牌直接调用这些路由,或直接改 `peers.*`、`config.json` 并重启 daemon。同 uid 下不存在更强的边界,文档如实写明。对**其他本机用户**(不同 uid),anet 自己的客户端在发送控制令牌前核实监听者(§7 第 10 条),票据与邀请码不进命令行(§7 第 2 条、§13.2);但本机 A2A 接口的第三方客户端(Hermes 等)按写入的地址发送 Bearer 令牌、不核实监听者:daemon 停机期间别的本机用户占住记录的端口、收集令牌、再在 daemon 启动前放开端口,daemon 无从察觉(占用期间运行 `anet doctor` 可以发现;daemon 启动时发现端口被占则不启动接口并轮换令牌,§11.1)[redteam:F18]。
-14. 本期不处理(归属与理由):ANetLink `c1.sock` 权限与 `SO_PEERCRED`、按 `caller_aid` 授权(跨仓,ANetLink 单独立项);联邦按卡片 home hub 定向转发(当前按对等表顺序尝试,功能正确;被尝试到的对等 hub 也会收到这封密文及其收件人 [impl:wp/scripts 5834043][B6-02 复核]);交互级临时密钥;大附件分块;sealed sender;发放链隐私格式;沙箱网络隔离;非 Linux 沙箱。
+14. 本期不处理(归属与理由):ANetLink `c1.sock` 权限与 `SO_PEERCRED`、按 `caller_aid` 授权(跨仓,ANetLink 单独立项);联邦按卡片 home hub 定向转发(当前按对等表顺序尝试,功能正确;被尝试到的对等 hub 也会收到这封密文及其收件人 [impl:wp/scripts 5834043][B6-02 复核]);交互级临时密钥;大附件分块;sealed sender;发放链隐私格式;Windows 沙箱。
 15. 没有持久身份记录的对端,每条消息都按首次信任处理:第 6 条的回退防护只覆盖 `peer_identity` 中有记录的对端(允许/信任名单、本节点主动联系过的、经人工批准的)。陌生人的 KEL 与 keys 只进有界内存缓存,仅用于加密拒绝回复,不参与回退比较;`trust=public`/`public_cap` 交互的对端只存在该交互行里、终态后删除(§3.8)。所以对这些对端,第 6 步对每一条消息都重新接受信封内自带的自证明 KEL:KEL 在发送方签名的密文里,hub 改不了;但持有该 AID 已被轮换取代的旧签名钥的一方(旧钥泄露),可以附上截断到旧钥仍为顶端态的 KEL 冒充它,本节点没有已见状态可比(公开能力调用与 `open` 策略下的陌生人任务因此不能依赖对端的轮换历史)[B6-02 复核]。同理,这些对端的卡片高水位只在内存,重启即忘,hub 可以在重启后重放更旧的卡 [impl:wp/proj 78b4963]。
 16. 证据链的完整性有边界:`anet verify --chain` 通过不表示末尾没有被截掉,只有 `--head` 给出从别处得知的记录时才能排除截尾;证据写在业务事务之后,两者之间崩溃会丢事件且不留缺口记录。`anet audit` 不能把"链上没有"当作"没发生"(§14)[impl:wp/cli 971543a][impl:0014 §10 风险 13]。
 17. 官方标注只按 AID,且只来自随二进制内嵌的签名清单:清单过期后不标任何人,直到升级到带新清单的版本;没有独立的吊销通道(靠发布新版本与 `expires_at`),`seq` 不防回退(靠 `anet update` 拒绝降级);标注不给准入、信任、付款或通道。发现结果里只有 VERIFIED 条目的内容来自 agent 签名;`include_uncarded` 列出的 NONE 条目除 AID 外全是 hub 的陈述(§10.5、§15)[Q24][Q27][impl:wp/manifest 76b3ffe]。

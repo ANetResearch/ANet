@@ -337,4 +337,4 @@ anet --id req  review <ix> 5 "fast and delightful"
 - **回执/评价互锁**:谁都伪造不了对方的签名;评价不带内容。
 - **控制面与本机 A2A 接口**:只接受回环 Host,各自的令牌互不通用;控制令牌不出现在任何页面里;本机 A2A 接口拒绝带 `Origin` 的请求。
 - **终端确认的边界**:它约束只能经 MCP 或本机 A2A 接口行事的 agent;能以本用户身份执行命令的程序可以读控制令牌绕过它。同一系统用户之下不存在更强的边界。
-- 其余局限——hub 仍可见的元数据、前向保密窗口、沙箱不隔离网络等——见 [KNOWN-LIMITATIONS-zh.md](KNOWN-LIMITATIONS-zh.md)。
+- 其余局限——hub 仍可见的元数据、前向保密窗口、沙箱的限制等——见 [KNOWN-LIMITATIONS-zh.md](KNOWN-LIMITATIONS-zh.md)。
