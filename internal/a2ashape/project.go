@@ -1121,6 +1121,11 @@ func (p *projector) metadata(why map[string]any) map[string]any {
 func (p *projector) next(m map[string]any) string {
 	key, _ := m[KeyReason].(string)
 	args := Args{"task": p.ix.ID, "peer": p.ix.PeerAID}
+	if p.opt.SelfAID != "" {
+		// {aid} is this node's own AID in every row that names it, as in
+		// the refusal's sentence (endText).
+		args["aid"] = p.opt.SelfAID
+	}
 	if p.waitingNote() {
 		key, args = p.note.Code, PayNoteArgs(*p.note)
 		if args["peer"] == "" {

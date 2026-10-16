@@ -111,6 +111,20 @@ func TestTaskProjectionCarriesNext(t *testing.T) {
 	if _, has := task.Metadata[a2ashape.KeyPaymentNote]; has {
 		t.Error("a payment note on a task with no payment decision")
 	}
+	// {aid} is this node's own AID, as in the refusal's sentence (UX-4's
+	// endText): the command the CLI prints is the one the sentence names.
+	const self = "bafyreiselfselfselfselfselfselfselfselfselfselfselfselfselfse"
+	refused := &interactions.Interaction{ID: "ix_na", Role: interactions.RoleOutbound, PeerAID: notePeer,
+		State: interactions.StateRejected, StateSeq: 2, ContextID: "c", ResultMeta: `{"anet.reason":"not_accepting"}`}
+	task = a2ashape.Project(a2ashape.Source{Interaction: refused}, a2ashape.Options{SelfAID: self})
+	if want := "anet peers allow " + self; task.Metadata[a2ashape.KeyNext] != want ||
+		task.Status.Message == nil || !strings.Contains(task.Status.Message.Parts[0].Text, want) {
+		t.Errorf("not_accepting: anet.next %v, status.message %+v, want both to name %q", task.Metadata[a2ashape.KeyNext], task.Status.Message, want)
+	}
+	task = a2ashape.Project(a2ashape.Source{Interaction: refused}, a2ashape.Options{})
+	if v, has := task.Metadata[a2ashape.KeyNext]; has {
+		t.Errorf("not_accepting without this node's AID: anet.next %v (a command with a hole)", v)
+	}
 	bare := waitingOn(t, a2ashape.PayNote{}, "needs_operator_approval")
 	if _, has := bare.Metadata[a2ashape.KeyNext]; has {
 		t.Errorf("needs_operator_approval with no variant: anet.next %v", bare.Metadata[a2ashape.KeyNext])
