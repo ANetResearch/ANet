@@ -260,7 +260,9 @@ func TestDoctorHubReadsTheJoinRecord(t *testing.T) {
 			case "hub":
 				hub = &rep.Checks[i]
 			case "hub.probation":
-				probation = &rep.Checks[i]
+				if rep.Checks[i].Status != stUnknown { // unknown: the runtime item, daemon not running
+					probation = &rep.Checks[i]
+				}
 			}
 		}
 		if hub == nil || hub.Status != tc.status || (tc.state != "registered" && hub.Reason != tc.reason) {

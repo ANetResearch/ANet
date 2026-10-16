@@ -565,7 +565,13 @@ func collectDoctor(layout daemon.Layout, env doctorEnv) (*doctorReport, error) {
 	add("payments", stOK, payDetail, "")
 	paymentsCardCheck(say, add, rep, env, layout) // doctor_payments.go
 	paymentsAuditCheck(say, add, rep, env, layout)
-	hubProbationCheck(say, add, rep, env, layout)
+	haveProbation := false // hubCheck already told it from the join record
+	for _, c := range rep.Checks {
+		haveProbation = haveProbation || c.ID == "hub.probation"
+	}
+	if !haveProbation {
+		hubProbationCheck(say, add, rep, env, layout)
+	}
 	clockRetriesCheck(say, add, rep, env, layout)
 
 	// Tasks this node sends (§4.2): how long one may hear nothing at all
