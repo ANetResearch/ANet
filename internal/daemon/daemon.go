@@ -94,8 +94,10 @@ type Daemon struct {
 	unknownKeyDrops hourCounts
 	// peers is the resolver's state: where this node learns another
 	// agent's material without naming it to a hub (peer_resolve.go).
-	peers       peerResolver
-	running     sync.Map // interaction id -> *runningCall
+	peers   peerResolver
+	running sync.Map // interaction id -> *runningCall
+	// callFiles are the files of the calls running, in memory only (files_admit.go).
+	callFiles   sync.Map // interaction id -> []provider.File
 	logOnceMu   sync.Mutex
 	logOnceSeen map[string]bool
 	// join is the hub join loop's state (hubjoin_daemon.go).

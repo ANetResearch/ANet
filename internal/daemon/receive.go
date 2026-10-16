@@ -1046,7 +1046,7 @@ func (d *Daemon) authorizeDelegate(m *rxMsg, now uint64) *rxResult {
 		r := d.drop(dropCanceled, nil)
 		return &r
 	}
-	form := readDelegateForm(m.td)
+	form := readDelegateForm(m.td, m.dr.Attachments...)
 	dec := d.decideDelegate(m.from, form)
 	switch dec.action {
 	case actRefuse:
@@ -1915,6 +1915,7 @@ func (d *Daemon) receiveMaintenance(ctx context.Context) {
 			d.flushInboundSummary(false)
 			d.expirePending()
 			d.revocationSweep()
+			d.sweepCallFiles()
 		}
 	}
 }

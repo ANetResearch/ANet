@@ -33,6 +33,7 @@ import (
 
 	"github.com/ANetResearch/ANetCore/anetcid"
 	"github.com/ANetResearch/ANetCore/delegation"
+	"github.com/ANetResearch/ANetCore/effect"
 	"github.com/ANetResearch/ANetCore/identity"
 	"github.com/ANetResearch/ANetCore/seal"
 	"github.com/ANetResearch/ANetCore/tsir"
@@ -274,7 +275,19 @@ func (d *Daemon) ApprovePending(ixID string) (*interactions.Interaction, error) 
 	d.publishState(ixID)
 	if isCap {
 		_, args, _ := capabilityCall(td)
-		d.goBackground(func() { d.runCapabilityCall(ixID, capID, args, nil) })
+		d.goBackground(func() {
+			if declaresFiles(args) {
+				// A held delegation keeps no file bytes (only their
+				// metadata), so an approval has nothing to hand the
+				// capability: it is told so, not run on nothing.
+				if ix, err := d.ix.Get(ixID); err == nil {
+					d.deliverCapabilityResult(d.ctx, ixID, capID, ix, capabilityResult{Capability: capID,
+						Status: string(effect.Unavailable)}, nil, resultOpts{reason: admitFilesCount})
+				}
+				return
+			}
+			d.runCapabilityCall(ixID, capID, args, nil)
+		})
 	} else {
 		d.kickAutoReply()
 		for _, f := range item.Followups {

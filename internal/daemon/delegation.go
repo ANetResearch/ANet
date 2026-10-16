@@ -1256,6 +1256,11 @@ func (d *Daemon) ingestDelegate(ctx context.Context, m *rxMsg) rxResult {
 	// natural-language task waits for the operator's agent or auto-reply.
 	if isCap {
 		released = true
+		if declaresFiles(args) {
+			// The files were checked at step 9 (admitFiles) and are held in
+			// memory for the run, nowhere else (CUX-F13).
+			d.putCallFiles(m.ix, providerFiles(m.dr.Attachments))
+		}
 		if !d.runCapabilityCall(m.ix, capID, args, release) {
 			// Cut off by the daemon stopping (SI-10): nothing was
 			// answered, and the delegation is not acknowledged, so its
@@ -1326,12 +1331,23 @@ func (d *Daemon) redeliveredDelegate(ctx context.Context, m *rxMsg) bool {
 	if !ok {
 		return true
 	}
+	if filesLost(prior) && d.leftByEarlierProcess(prior) {
+		// Its files were in memory only and went with the process
+		// (CUX-F13 item 5); the redelivery does not bring them back.
+		d.reportInterrupted(prior, capID)
+		return true
+	}
 	if d.longCall(capID) {
 		if d.leftoverAction(prior, capID) == leftoverInterrupted && d.leftByEarlierProcess(prior) {
 			d.reportInterrupted(prior, capID)
 			return true
 		}
 		log.Printf("anet: %s: long call %s was interrupted before it answered; not running it again", m.ix, capID)
+		return true
+	}
+	if declaresFiles(args) {
+		// Made by this process and not started yet, or running: the files
+		// are the first run's; nothing is run again on a copy.
 		return true
 	}
 	return d.runCapabilityCall(m.ix, capID, args, nil)

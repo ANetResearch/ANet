@@ -688,6 +688,10 @@ type Finish struct {
 	Verified Verification
 	// Meta is the result's metadata object (JSON), or nil.
 	Meta []byte
+	// Scrub, with a terminal State, clears the request document and the
+	// result in the same write (CUX-F13 item 3): what stays is the request
+	// CID, the result CID, the state and the metadata.
+	Scrub bool
 }
 
 // Finish stores a result and moves the interaction to f.State in one guarded
@@ -734,6 +738,10 @@ func finish(e execer, id string, f Finish, cause Cause, nowMS int64) error {
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	q := `UPDATE interaction SET state=?, state_at=?, state_seq=state_seq+1, result=?, result_cid=?, receipt=?,
 	        receipt_verified=?, result_meta=?, updated_at=?`
+	if f.Scrub && f.State.IsTerminal() {
+		result = nil
+		q += `, request_doc=NULL`
+	}
 	if f.State.IsTerminal() {
 		q += peerMaterialCleared
 	}
