@@ -154,7 +154,14 @@ func writeCard(w io.Writer, ra cardAnswer, lang a2ashape.Language) {
 			break
 		}
 	}
+	// The last line follows the card shown (CORE-K23 rule 4): a card that
+	// declares no a2a-x402 — the public card, or an extended card whose
+	// skills are all free (a free list-only skill, J-PAY-4's face node) —
+	// ends with card.footer_free; signed prices end with card.footer; and
+	// prices that should have been had and were not, with the daemon's note.
 	switch {
+	case len(ra.Prices) > 0 && ra.Charge == "free":
+		fmt.Fprintln(w, a2ashape.Sentence("card.footer_free", lang, nil))
 	case len(ra.Prices) > 0:
 		args := a2ashape.Args{}
 		if t, err := time.Parse(time.RFC3339Nano, ra.PricesFetchedAt); err == nil {

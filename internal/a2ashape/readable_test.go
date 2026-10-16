@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
 
@@ -215,8 +216,8 @@ func TestReasonsBecomeText(t *testing.T) {
 	setState(t, st, "ix_r", interactions.StateRejected)
 	task, err = a2ashape.ProjectStored(st, "ix_r", a2ashape.Options{})
 	must(t, err)
-	if got := firstText(contract(t, task)); got != "rejected: "+a2ashape.ReasonUnavailable {
-		t.Fatalf("rejected capability reads %q", got)
+	if got, want := firstText(contract(t, task)), a2ashape.Sentence(a2ashape.ReasonUnavailable, a2ashape.Lang(), nil); got != want {
+		t.Fatalf("rejected capability reads %q, want the reason's sentence %q", got, want)
 	}
 
 	// A metadata-only status row.
@@ -228,5 +229,82 @@ func TestReasonsBecomeText(t *testing.T) {
 	sdk = contract(t, task)
 	if m := sdk.Status.Message; m == nil || len(m.Parts) != 1 || m.Parts[0].Text() != "submitted: pending_approval" {
 		t.Fatalf("pending approval row: %+v", sdk.Status.Message)
+	}
+}
+
+// A task the other side refused says the sentence of its reason, in the
+// language this node speaks, with the wait and the two AIDs put in
+// (CUX-Q4a, ENG-C6; UX-T1 and UX-T13 for the rows of class R): every code
+// of the reason table that means "not run", the ones a delivery-confirmation
+// note carries among them (ux §1.4 A, CUX-Q1). A failed task, and a refusal
+// under a code the table does not have, still read "<state>: <reason>"
+// (P4).
+func TestRejectedTasksSayTheirSentence(t *testing.T) {
+	for _, env := range []string{"zh_CN.UTF-8", "C"} {
+		t.Run(env, func(t *testing.T) {
+			t.Setenv("LC_ALL", env)
+			n := 0
+			for _, r := range a2ashape.Rows() {
+				if r.Class&a2ashape.ClassR == 0 || r.NoSentence || r.Key() != r.Code {
+					continue
+				}
+				n++
+				st := openStore(t)
+				const ix = "ix_refused"
+				must(t, st.Create(interactions.New{ID: ix, Role: interactions.RoleOutbound, PeerAID: peer, Goal: "g", ContextID: "c"}))
+				msg(t, st, ix, self, interactions.MsgText, "g", "m1", nil)
+				must(t, st.Finish(ix, interactions.Finish{State: interactions.StateRejected, Verified: interactions.VerificationUnknown,
+					Meta: []byte(`{"anet.reason":"` + r.Code + `","anet.retry_after_ms":5000}`)}, interactions.CausePeerEnded))
+				task, err := a2ashape.ProjectStored(st, ix, a2ashape.Options{SelfAID: self})
+				must(t, err)
+				want := a2ashape.Sentence(r.Code, a2ashape.Lang(), a2ashape.Args{"peer": peer, "aid": self, "retry": 5 * time.Second})
+				if got := firstText(contract(t, task)); got != want {
+					t.Errorf("%s: %q, want %q", r.Code, got, want)
+				}
+			}
+			for _, code := range []string{"not_accepting", "busy", "caller_busy", "quota_caller_per_min", "quota_caller_per_day",
+				"capability_not_public", "pending_full", "args_too_large", "bad_request", "denied", "refused"} {
+				if row, ok := a2ashape.Lookup(code); !ok || row.Class&a2ashape.ClassR == 0 {
+					t.Errorf("%s is not a row of class R", code)
+				}
+			}
+			if n == 0 {
+				t.Fatal("no row of class R")
+			}
+
+			for _, c := range []struct {
+				state  interactions.State
+				reason string
+			}{{interactions.StateFailed, "busy"}, {interactions.StateRejected, "no_such_code"}} {
+				st := openStore(t)
+				const ix = "ix_plain"
+				must(t, st.Create(interactions.New{ID: ix, Role: interactions.RoleOutbound, PeerAID: peer, Goal: "g", ContextID: "c"}))
+				msg(t, st, ix, self, interactions.MsgText, "g", "m1", nil)
+				must(t, st.Finish(ix, interactions.Finish{State: c.state, Verified: interactions.VerificationUnknown,
+					Meta: []byte(`{"anet.reason":"` + c.reason + `"}`)}, interactions.CausePeerEnded))
+				task, err := a2ashape.ProjectStored(st, ix, a2ashape.Options{SelfAID: self})
+				must(t, err)
+				if got, want := firstText(contract(t, task)), string(c.state)+": "+c.reason; got != want {
+					t.Errorf("%s with %s reads %q, want %q", c.state, c.reason, got, want)
+				}
+			}
+		})
+	}
+}
+
+// A stored wait far beyond what the protocol allows must not wrap around to
+// a negative duration and read as "0 seconds".
+func TestRejectedTaskWithHugeWaitDoesNotWrap(t *testing.T) {
+	t.Setenv("LC_ALL", "C")
+	st := openStore(t)
+	const ix = "ix_huge"
+	must(t, st.Create(interactions.New{ID: ix, Role: interactions.RoleOutbound, PeerAID: peer, Goal: "g", ContextID: "c"}))
+	msg(t, st, ix, self, interactions.MsgText, "g", "m1", nil)
+	must(t, st.Finish(ix, interactions.Finish{State: interactions.StateRejected, Verified: interactions.VerificationUnknown,
+		Meta: []byte(`{"anet.reason":"busy","anet.retry_after_ms":9000000000000000}`)}, interactions.CausePeerEnded))
+	task, err := a2ashape.ProjectStored(st, ix, a2ashape.Options{SelfAID: self})
+	must(t, err)
+	if got := firstText(contract(t, task)); strings.Contains(got, " 0 second") || strings.Contains(got, "later") {
+		t.Errorf("wrapped wait: %q", got)
 	}
 }

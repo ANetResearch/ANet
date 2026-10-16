@@ -488,39 +488,5 @@ func HasOutboxRowsTx(tx *interactions.Tx, ix string) (bool, error) { return tx.H
 // v030-todo(RC-5): compare and publish the delivery event (DLV-P-3).
 func (d *Daemon) noteDelivery(ix string) {}
 
-// previewCoalescer is how the engine reaches the stream_preview coalescer
-// (UX-8, CUX-P6–P8; engine ENG-G3): the provider's frames of a task go out
-// only through oneShotSend (ENG-K18), and a round's frames stop once its
-// real answer or result is queued (ENG-K20).
-type previewCoalescer interface {
-	// CancelRound drops the frames of task ix not yet handed over: a real
-	// answer or result of the round was queued in the same call, and no
-	// frame of that round goes after it (ENG-K20, CUX-P8).
-	CancelRound(ix string)
-}
-
-// noPreviews is the coalescer until UX-8's (engine ENG-G3): it never sends
-// a frame, so there is nothing to cancel.
-//
-// v030-todo(UX-8): previewCoalescer, the frames and CancelRound.
-type noPreviews struct{}
-
-func (noPreviews) CancelRound(string) {}
-
-// previews is this node's preview coalescer.
-func (d *Daemon) previews() previewCoalescer {
-	if p := d.previewer.Load(); p != nil && *p != nil {
-		return *p
-	}
-	return noPreviews{}
-}
-
-// setPreviewer makes c this node's preview coalescer; nil restores the
-// stub. It may be called while the daemon runs.
-func (d *Daemon) setPreviewer(c previewCoalescer) {
-	if c == nil {
-		d.previewer.Store(nil)
-		return
-	}
-	d.previewer.Store(&c)
-}
+// previewCoalescer, d.previews() and setPreviewer are in preview.go (UX-8):
+// queueSendAs ends a round's previews through it (ENG-K20).

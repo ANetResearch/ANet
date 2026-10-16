@@ -846,3 +846,121 @@ func TestABurstOverTheQuotaIsToldWhenToSendAgain(t *testing.T) {
 		t.Fatalf("rejected %d, invoked %d; want 4 and at most 2", rejected, len(lamp.invoked))
 	}
 }
+
+// UX-T1 for the codes of ux §1.4 A that step 9 gives (CUX-Q1): the
+// requester's task, refused with the code, says the code's sentence — with
+// the wait the note gave (CUX-Q4a, ENG-C6) and the AIDs it names — word for
+// word and under the same code on the control plane and the local A2A
+// interface (MCP returns the control plane's task as it is; the CLI prints
+// its status message, TestCLISaysTheControlPlanesSentence). bad_request and
+// the files_* codes are a request the requester itself does not send (it
+// refuses a "$" key at home, CUX-F2): TestRejectedTasksSayTheirSentence in
+// a2ashape covers their rows.
+func TestAdmissionRefusalsSayOneSentence(t *testing.T) {
+	ctx := context.Background()
+	call := func(t *testing.T, req, prov *Daemon, args map[string]any) string {
+		t.Helper()
+		id, err := req.DelegateCapability(ctx, prov.AID(), lampCap, args)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	text := func(t *testing.T, req, prov *Daemon, body string) string {
+		t.Helper()
+		id, err := req.Delegate(ctx, prov.AID(), body, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	lamp := func(t *testing.T, prov *Daemon, pc PublicCapability) {
+		t.Helper()
+		if err := prov.Providers().Register(ctx, &lampProvider{}); err != nil {
+			t.Fatal(err)
+		}
+		if err := prov.SetPublicCapabilities([]PublicCapability{pc}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	on := map[string]any{"on": true}
+	for _, c := range []struct {
+		code  string
+		wait  bool
+		setup func(t *testing.T, req, prov *Daemon) []string // the tasks sent, the refused one last
+	}{
+		{seal.NoteNotAccepting, false, func(t *testing.T, req, prov *Daemon) []string {
+			return []string{text(t, req, prov, "a stranger's task")}
+		}},
+		{seal.NoteDenied, false, func(t *testing.T, req, prov *Daemon) []string {
+			setPolicy(t, prov, PolicyApprove)
+			denyPeers(t, prov, req.AID())
+			return []string{text(t, req, prov, "a blocked peer's task")}
+		}},
+		{seal.NoteCapabilityNotPublic, false, func(t *testing.T, req, prov *Daemon) []string {
+			setPolicy(t, prov, PolicyOpen)
+			return []string{call(t, req, prov, on)}
+		}},
+		{seal.NotePendingFull, false, func(t *testing.T, req, prov *Daemon) []string {
+			setPolicy(t, prov, PolicyApprove)
+			var ids []string
+			for i := range pendingMaxPerPeer + 1 {
+				ids = append(ids, text(t, req, prov, fmt.Sprintf("held %d", i)))
+			}
+			return ids
+		}},
+		{seal.NoteBusy, true, func(t *testing.T, req, prov *Daemon) []string {
+			pc := PublicCapability{ID: lampCap, MaxInflight: 1}
+			lamp(t, prov, pc)
+			holdSlot(t, prov, time.Now().UnixMilli(), "did:anet:someoneelse0001", pc)
+			return []string{call(t, req, prov, on)}
+		}},
+		{seal.NoteCallerBusy, true, func(t *testing.T, req, prov *Daemon) []string {
+			pc := PublicCapability{ID: lampCap, MaxInflight: 2, PerCallerInflight: 1}
+			lamp(t, prov, pc)
+			holdSlot(t, prov, time.Now().UnixMilli(), req.AID(), pc)
+			return []string{call(t, req, prov, on)}
+		}},
+		{seal.NoteQuotaCallerPerMin, true, func(t *testing.T, req, prov *Daemon) []string {
+			lamp(t, prov, PublicCapability{ID: lampCap, PerCallerPerMin: 1, MaxInflight: 4, PerCallerInflight: 4})
+			return []string{call(t, req, prov, on), call(t, req, prov, on)}
+		}},
+		{seal.NoteQuotaCallerPerDay, true, func(t *testing.T, req, prov *Daemon) []string {
+			lamp(t, prov, PublicCapability{ID: lampCap, PerCallerPerMin: 10, PerCallerPerDay: 1, MaxInflight: 4, PerCallerInflight: 4})
+			return []string{call(t, req, prov, on), call(t, req, prov, on)}
+		}},
+		{seal.NoteArgsTooLarge, false, func(t *testing.T, req, prov *Daemon) []string {
+			lamp(t, prov, PublicCapability{ID: lampCap, MaxArgsBytes: 16})
+			return []string{call(t, req, prov, map[string]any{"on": true, "pad": strings.Repeat("x", 64)})}
+		}},
+	} {
+		t.Run(c.code, func(t *testing.T) {
+			srv := newFakeHub(t)
+			prov := registered(t, srv.URL, "prov")
+			req := registered(t, srv.URL, "req")
+			ids := c.setup(t, req, prov)
+			if err := prov.pollOnce(ctx); err != nil {
+				t.Fatal(err)
+			}
+			id := ids[len(ids)-1]
+			st, meta := lastStatusMeta(t, req, id)
+			if st != interactions.StateRejected || meta[a2ashape.KeyReason] != c.code {
+				t.Fatalf("the task is %s with %v, want rejected with %s", st, meta, c.code)
+			}
+			args := a2ashape.Args{"peer": prov.AID(), "aid": req.AID()}
+			ms, _ := meta[a2ashape.KeyRetryAfterMS].(float64)
+			if (ms >= 1000) != c.wait {
+				t.Fatalf("anet.retry_after_ms %v (a wait: %v)", meta[a2ashape.KeyRetryAfterMS], c.wait)
+			}
+			if c.wait {
+				args["retry"] = time.Duration(ms) * time.Millisecond
+			}
+			want := a2ashape.Sentence(c.code, a2ashape.Lang(), args)
+			for _, s := range taskSurfaces(t, req, prov.AID(), id) {
+				if s.text != want || s.reason != c.code {
+					t.Errorf("%s: %q under %q, want %q under %q", s.name, s.text, s.reason, want, c.code)
+				}
+			}
+		})
+	}
+}

@@ -27,6 +27,8 @@ const (
 	EventState   = "state"   // the interaction's state changed
 	EventMessage = "message" // a message was stored
 	EventResult  = "result"  // a result or receipt was stored
+	// EventPreview (preview.go) is a preview frame taken in memory; it
+	// changes nothing stored.
 )
 
 // Event is one change to an interaction.
@@ -39,6 +41,9 @@ type Event struct {
 	MsgSeq  int64  `json:"msg_seq,omitempty"`
 	MsgKind string `json:"msg_kind,omitempty"`
 	At      uint64 `json:"at"`
+	// preview is the frame of an EventPreview: never serialized, and only
+	// for the control plane's event stream (CUX-P17, P18).
+	preview *previewFrame
 }
 
 // eventBufferSize bounds the events one subscriber may have undelivered.
@@ -143,16 +148,26 @@ func (d *Daemon) publishState(ix string) {
 	if err != nil {
 		return
 	}
+	if cur.IsTerminal() {
+		d.clearPreview(ix) // CUX-P16
+	}
 	d.bus.publish(Event{IX: ix, Kind: EventState, State: cur.State, StateSeq: cur.StateSeq, At: d.nowMS()})
 }
 
-// publishMessage publishes a stored message.
+// publishMessage publishes a stored message. A conversation message ends
+// the preview the task showed (CUX-P16): the round it previewed was
+// answered, or a new one began.
 func (d *Daemon) publishMessage(ix string, seq int64, kind string) {
+	if kind == interactions.MsgText {
+		d.clearPreview(ix)
+	}
 	d.bus.publish(Event{IX: ix, Kind: EventMessage, MsgSeq: seq, MsgKind: kind, At: d.nowMS()})
 }
 
 // publishResult publishes a stored result, followed by the state it set.
+// A result ends the task's preview (CUX-P16).
 func (d *Daemon) publishResult(ix string) {
+	d.clearPreview(ix)
 	d.bus.publish(Event{IX: ix, Kind: EventResult, At: d.nowMS()})
 	d.publishState(ix)
 }

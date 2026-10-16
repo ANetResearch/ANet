@@ -821,7 +821,10 @@ func (r *encKeyRing) regenerate(tag, floor uint64, in ringInputs) (bool, error) 
 	}
 	r.mu.Lock()
 	r.keys, r.lastSeq, r.prevSeq, r.signed, r.regenTag, r.mbox = keys, seq, lastSeq, b, tag, mbox
-	r.ownPrev = own
+	// A rollback accounts for every set up to the hub's, the other copy's
+	// earlier ones included: a hub that replays one of those later must not
+	// make a second finding (FS-B4a).
+	r.ownPrev = max(own, floor)
 	r.mu.Unlock()
 	return true, nil
 }

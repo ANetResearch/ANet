@@ -902,3 +902,24 @@ rounds:'''),
   full=[D],
  ),
 ]
+
+MUTS += [
+ dict(
+  id='eng1b-busy-codes', group='ENG-1b', repo='ANet',
+  desc='取价请求遇任何 429 都重发(ENG-O8a 只对 rate_limited、strangers_busy)',
+  edits=[
+   ('internal/daemon/oneshot.go', '''(a.code != "rate_limited" && a.code != "strangers_busy")''', '''false'''),
+  ],
+  tests=[(D, 'TestAHubRefusalOtherThanBusyIsNotRetried')],
+  full=[D],
+ ),
+ dict(
+  id='eng1b-oneshot-backoff', group='ENG-1b', repo='ANet',
+  desc='直连拒收一次性信封后不进 p2p 退避(DLV-S-30)',
+  edits=[
+   ('internal/daemon/oneshot.go', '''			d.outboxMem.p2pFailed(to, d.nowMS())''', ''''''),
+  ],
+  tests=[(D, 'TestADirectPathThatRefusesAOneShotBacksOff')],
+  full=[D],
+ ),
+]
