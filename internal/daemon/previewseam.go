@@ -9,7 +9,7 @@ package daemon
 // to 3 for a frame that arrived), keeps the small table of the rounds a
 // requester asked previews for, builds and validates the frame, sends it
 // through the one-shot envelope, and drops what arrives while previews are
-// not available. The Previewer (preview.go) gets the cadence, the
+// not available. The Previewer (module/preview) gets the cadence, the
 // stream_seq marks and the cache, and reaches the node only through
 // previewSeam: it cannot read the store, the outbox or the evidence chain,
 // and the frame it hands over is checked here again.
@@ -55,55 +55,21 @@ func (d *Daemon) setPreviewer(c module.Previewer) {
 	d.previewer.Store(&c)
 }
 
-// startPreviews gives the daemon its Previewer and runs it until the
-// daemon stops. A node without the preview module has none: previews()
-// then answers previewsUnavailable, no round is recorded and no frame is
-// taken.
-func (d *Daemon) startPreviews(ctx context.Context) {
-	if !d.previewAvailable() {
-		return
-	}
-	co := d.newPreviewer()
-	d.setPreviewer(co)
-	d.goBackground(func() { co.run(ctx, func(f func()) { d.goBackground(f) }) })
-}
-
-// newPreviewer is the implementation, wired to the node through the seam
-// and nothing else.
-func (d *Daemon) newPreviewer() *memPreviews {
-	seam := previewSeam{d}
-	co := newMemPreviews(d.nowMS, func(o previewOut) { d.handOverPreview(seam, o) }, d.count)
-	co.mode, co.published = seam.Mode, seam.Published
-	return co
-}
-
-// handOverPreview is the implementation's hand-over of a frame: through
-// the seam, within the time one frame may take.
-func (d *Daemon) handOverPreview(seam module.PreviewSeam, o previewOut) {
-	if o.live != nil && !o.live() {
-		return // the round was answered while the frame was being made
-	}
-	ctx, cancel := context.WithTimeout(d.ctx, previewSendTimeout)
-	defer cancel()
-	seam.SendFrame(ctx, o.IX, module.PreviewOut{Answers: o.Answers, Seq: o.Seq, PreviewContent: o.previewContent})
-}
-
-// sendPreviewFrame is handOverPreview on this node's own seam.
-func (d *Daemon) sendPreviewFrame(o previewOut) { d.handOverPreview(previewSeam{d}, o) }
-
 // previewSeam is the module.PreviewSeam of this node (K-9).
 type previewSeam struct{ d *Daemon }
 
 var _ module.PreviewSeam = previewSeam{}
 
 // Mode implements module.PreviewSeam: this node's stream_preview, "off"
-// while previews are not available.
-func (s previewSeam) Mode() string {
-	if !s.d.previewAvailable() {
-		return streamPreviewOff
-	}
-	return s.d.config().streamPreview()
-}
+// while previews are not available or the setting is not a mode.
+func (s previewSeam) Mode() string { return s.d.nodeStreamPreview() }
+
+// NowMS implements module.PreviewSeam: the node's clock.
+func (s previewSeam) NowMS() uint64 { return s.d.nowMS() }
+
+// Dropped implements module.PreviewSeam: a frame the implementation did not
+// send is counted as preview-dropped.
+func (s previewSeam) Dropped() { s.d.count(cntPreviewDropped) }
 
 // Published implements module.PreviewSeam: task ix has a new preview to
 // show. The event carries no text; a subscriber reads it with Current.

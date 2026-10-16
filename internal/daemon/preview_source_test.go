@@ -38,6 +38,7 @@ func previewBody(id, text string) string {
 
 // CUX §4.8: 409 task_not_open, 409 preview_off, 200 not_requested, 200 sent.
 func TestTasksPreviewRoute(t *testing.T) {
+	needPreviewModule(t)
 	req, prov, co, clk, id, log := previewPair(t, previewModeOn)
 	_ = req
 
@@ -103,6 +104,7 @@ func TestPreviewRoutesAreBearerOnly(t *testing.T) {
 
 // previewWanted and previewOffer follow CUX-P4: off, no ask, ended.
 func TestPreviewWantedFollowsCUXP4(t *testing.T) {
+	needPreviewModule(t)
 	_, prov, _, _, id, _ := previewPair(t, previewModeOn)
 	if _, err := prov.SetStreamPreview(streamPreviewOff); err != nil {
 		t.Fatal(err)
@@ -130,6 +132,7 @@ func TestPreviewWantedFollowsCUXP4(t *testing.T) {
 // stream_preview is checked at start, set through SetStreamPreview and
 // saved before it is in force.
 func TestStreamPreviewSetting(t *testing.T) {
+	needPreviewModule(t)
 	if DefaultConfig().StreamPreview != "off" {
 		t.Fatal("a fresh config.json does not say off")
 	}
@@ -177,6 +180,7 @@ func TestStreamPreviewSetting(t *testing.T) {
 // moving between off and on republishes it, on and with_reasoning does
 // not, and a node without a hub publishes nothing.
 func TestPreviewToggleRepublishesCard(t *testing.T) {
+	needPreviewModule(t)
 	srv, _, prov := quietPair(t)
 	setPolicyQuiet(prov, PolicyOpen) // an open node publishes a chat skill, so it has a card
 	fh := fakeHubAt(t, srv.URL)
@@ -362,6 +366,7 @@ func TestStreamErrors(t *testing.T) {
 // There is no second call without stream, and the requester gets
 // backend_failed.
 func TestStreamFailureNoRecall(t *testing.T) {
+	needPreviewModule(t)
 	for name, status := range map[string]int{"HTTP error": 500, "broken stream": 0} {
 		t.Run(name, func(t *testing.T) {
 			// A stream that ends before it finished.
@@ -394,6 +399,7 @@ func TestStreamFailureNoRecall(t *testing.T) {
 // A round that asked for previews is answered by a streamed call, and the
 // answer sent is the one the non-streamed call gives.
 func TestAutoReplyStreamsAPreviewedRound(t *testing.T) {
+	needPreviewModule(t)
 	f0 := sseFixtures[0]
 	srv, plain, streamed := openAIStreamServer(t, f0.stream, f0.whole, 0)
 	f := newAutoReplyFixture(t, AutoReplyConfig{Model: "m"}, &fakeOpenAI{})

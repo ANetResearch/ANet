@@ -142,7 +142,7 @@ func TestBuildShTagPending(t *testing.T) {
 		env  string
 		lang a2ashape.Language
 	}{{"LANG=C", a2ashape.English}, {"LANG=zh_CN.UTF-8", a2ashape.Chinese}} {
-		for _, m := range []string{"autoreply", "preview", "console"} {
+		for _, m := range []string{"autoreply", "console"} {
 			_, stderr, code := bashOut(t, []string{c.env}, "build.sh", "--without", "x402,"+m)
 			want := a2ashape.Sentence("build_tag_pending", c.lang, a2ashape.Args{"m": m}) + "\n"
 			if code != 2 || stderr != want {

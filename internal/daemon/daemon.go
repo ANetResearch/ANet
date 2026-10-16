@@ -157,7 +157,7 @@ type Daemon struct {
 	outboxHold atomic.Bool
 	// reviewsGivenUp counts the reviews this daemon gave up uploading since it started (review.go).
 	reviewsGivenUp atomic.Int64
-	// previewer is the stream_preview implementation (preview.go, set with
+	// previewer is the stream_preview implementation (module/preview, set with
 	// setPreviewer); none leaves previews unavailable (previewsUnavailable).
 	// previewRounds is the kernel's table of the rounds a requester asked
 	// previews for (previewseam.go).
@@ -381,7 +381,6 @@ func New(layout Layout) (*Daemon, error) {
 	// finished first (KEL D-35), by the identity loop started below.
 	d.initIdentityOps()
 	d.purgeReplay()
-	d.startPreviews(ctx) // before anything can arrive (preview.go)
 	d.goBackground(func() { d.receiveMaintenance(ctx) })
 	d.goBackground(func() { d.keyMaintenanceLoop(ctx) })
 	d.goBackground(func() { d.mboxLoop(ctx) }) // mbox.go

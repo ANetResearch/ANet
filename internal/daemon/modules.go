@@ -78,6 +78,12 @@ func (d *Daemon) startModules(ctx context.Context, cfg Config) error {
 			return fmt.Errorf("anet: module %s called %s, which the name table does not grant it", m.Name(), what)
 		}
 		d.modules = append(d.modules, m)
+		// The preview module is this node's Previewer from here on: frames
+		// that arrive from now on are judged by it (the kernel answers as a
+		// node without previews until then).
+		if p, ok := m.(module.Previewer); ok && m.Name() == "preview" {
+			d.setPreviewer(p)
+		}
 		// A module that can take and make payments becomes this node's
 		// payer. Type-asserted rather than imported, exactly like
 		// Confidential above: the kernel knows that something may be able

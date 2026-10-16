@@ -35,9 +35,9 @@ func TestKnownNameTable(t *testing.T) {
 	if !slices.Equal(got, want) {
 		t.Fatalf("names %v, want %v", got, want)
 	}
-	// The two that have no tag yet and whose absent path has landed (preview's with MOD-5, console's with MOD-8;
-	// autoreply's with MOD-3 -- none has a tag until MOD-4/6).
-	for _, n := range []string{"autoreply", "preview", "console"} {
+	// The two that have no tag yet and whose absent path has landed (console's with MOD-8, autoreply's with
+	// MOD-3 -- neither has a tag until MOD-4 and v0.3.x).
+	for _, n := range []string{"autoreply", "console"} {
 		k, _ := Lookup(n)
 		if k.Tag != "" || !k.AbsenceReady {
 			t.Errorf("%s: tag %q, AbsenceReady %v", n, k.Tag, k.AbsenceReady)

@@ -35,6 +35,7 @@ func summaryOf(t *testing.T, m map[string]json.RawMessage) []a2ashape.SummaryLin
 // and says the inbound, payments and privacy lines of a fresh install; the
 // profile text moved to profile.summary.
 func TestStatusSummaryOfAFreshNodeWithoutAHub(t *testing.T) {
+	needPreviewModule(t)
 	p := newPlane(t)
 	if _, err := p.d.updateConfig(func(c *Config) error { c.Summary = "my profile"; return nil },
 		func(c *Config) { c.Summary = "my profile" }); err != nil {
@@ -79,6 +80,7 @@ func TestStatusSummaryOfAFreshNodeWithoutAHub(t *testing.T) {
 // The inbound line follows the policy and the auto-reply configuration; the
 // preview line shows only when previews are on.
 func TestStatusSummaryFollowsPolicyAndPreview(t *testing.T) {
+	needPreviewModule(t)
 	p := newPlane(t)
 	d := p.d
 	if _, err := d.updateConfig(func(c *Config) error {

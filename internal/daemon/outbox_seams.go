@@ -480,5 +480,5 @@ func (d *Daemon) hurryAnswerQueue(ix, to string) bool {
 // sealed again outlives the row (ENG-S7).
 func HasOutboxRowsTx(tx *interactions.Tx, ix string) (bool, error) { return tx.HasOutboxRows(ix) }
 
-// previewCoalescer, d.previews() and setPreviewer are in preview.go (UX-8):
+// previewCoalescer, d.previews() and setPreviewer are in previewseam.go and previewkernel.go (UX-8, MOD-6):
 // queueSendAs ends a round's previews through it (ENG-K20).

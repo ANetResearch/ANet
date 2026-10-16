@@ -7,7 +7,7 @@ package daemon
 // refresh of step 6½ is the peer key state's (peerkel.go, KEL-11). The
 // interaction key lookup of step 3a (FS-7) is the store's. A card answer is
 // taken by cardAnswerArrived (extcard_fetch.go, PAY-11), and a preview
-// frame by previewArrived (preview.go, UX-8). The reply grant of
+// frame by previewArrived (previewseam.go, UX-8). The reply grant of
 // anet.card.get/1 is kept here for the one-shot sender (ENG-1b), which
 // seals the answer.
 
@@ -79,7 +79,7 @@ func wipeLookup(l seal.IXKeyLookup) {
 }
 
 // previewArrived, receive step 9 for a stream_preview frame, is in
-// preview.go (UX-8).
+// previewseam.go (UX-8).
 
 // resultRefused is CUX-R7's terminal transaction: before a result refused
 // for result-refused or reply-mismatch is answered with tok(2), the task
