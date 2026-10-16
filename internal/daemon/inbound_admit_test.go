@@ -505,9 +505,6 @@ func TestPendingLimitsAreConstants(t *testing.T) {
 	}
 	for _, k := range []string{"inbound.pending", "inbound.reject_notice", "inbound.allow_file", "inbound.deny_file",
 		"inbound.trust_file", "accept_delegations"} {
-		if p := removedStillWritten[k]; p != "" {
-			t.Errorf("%s is still exempted from refusal (%s)", k, p)
-		}
 		l := NewLayout(t.TempDir())
 		m := freshConfigFile(t)
 		withKey(m, k, removedValue(k))

@@ -851,6 +851,8 @@ var phraseSets = map[string]map[string]phrasePair{
 		"accept_end": {"请改用 anet end <编号>", "use anet end <id>"},
 		"install":    {"请改用 anet agents wire <工具>", "use anet agents wire <tool>"},
 		"evidence":   {"请改用 anet audit（加 --type 按事件类型筛选）", "use anet audit (add --type to filter by event type)"},
+		"require_image": {"视觉服务已改为带文件的公开能力；请删掉这个参数，改用 public_capabilities 的 files",
+			"the vision service is now a public capability that takes files; remove this flag and use files in public_capabilities"},
 		"payments_payees_file": {"付款名单固定在数据目录的 payees.allow，请改用 anet payees 管理",
 			"the payee list lives in payees.allow in the data directory; use anet payees to manage it"},
 	},

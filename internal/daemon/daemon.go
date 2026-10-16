@@ -307,6 +307,11 @@ func New(layout Layout) (*Daemon, error) {
 			lock.Release()
 		}
 	}()
+	// A config.json holding a removed key or a value that is not a setting
+	// does not start (ux UX-D3, §2.3), whoever starts the daemon.
+	if err := CheckConfigForStart(layout); err != nil {
+		return nil, err
+	}
 	cfg, err := LoadConfig(layout)
 	if err != nil {
 		return nil, err

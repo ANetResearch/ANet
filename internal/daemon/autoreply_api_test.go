@@ -99,9 +99,8 @@ func TestAutoReplySettingsSentAtOnceAllLand(t *testing.T) {
 	if code, _, raw := postAutoReply(t, d, `{"backend":"exec","agent":"claude"}`); code != http.StatusOK {
 		t.Fatalf("%d %s", code, raw)
 	}
-	bodies := []string{`{"model":"m1"}`, `{"system_prompt":"s"}`, `{"usage_hint":"u"}`, `{"error_reply":"e"}`,
-		`{"max_history":5}`, `{"poll_interval_seconds":7}`, `{"api_timeout_seconds":9}`, `{"max_auto_replies":11}`,
-		`{"api_key":"sk-at-once"}`, `{"untrusted":"sandbox"}`, `{"openclaw_agent":"o"}`, `{"require_image":true}`}
+	bodies := []string{`{"model":"m1"}`, `{"system_prompt":"s"}`, `{"max_history":5}`,
+		`{"api_timeout_seconds":9}`, `{"api_key":"sk-at-once"}`, `{"untrusted":"sandbox"}`, `{"openclaw_agent":"o"}`}
 	var wg sync.WaitGroup
 	for _, b := range bodies {
 		wg.Add(1)
@@ -113,9 +112,8 @@ func TestAutoReplySettingsSentAtOnceAllLand(t *testing.T) {
 		}()
 	}
 	wg.Wait()
-	want := AutoReplyConfig{Backend: "exec", Agent: "claude", Model: "m1", SystemPrompt: "s", UsageHint: "u",
-		ErrorReply: "e", MaxHistory: 5, PollIntervalSeconds: 7, APITimeoutSeconds: 9, MaxAutoReplies: 11,
-		APIKey: "sk-at-once", Untrusted: "sandbox", OpenClawAgent: "o", RequireImage: true}
+	want := AutoReplyConfig{Backend: "exec", Agent: "claude", Model: "m1", SystemPrompt: "s",
+		MaxHistory: 5, APITimeoutSeconds: 9, APIKey: "sk-at-once", Untrusted: "sandbox", OpenClawAgent: "o"}
 	if got := d.config().AutoReply; got == nil || !sameAutoReply(*got, want) {
 		t.Fatalf("after %d settings at once: %+v, want %+v", len(bodies), got, want)
 	}

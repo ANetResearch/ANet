@@ -39,7 +39,6 @@ var commandTree = []string{
 // off here, or this test is red (the help would be promising nothing, or listing it twice).
 var pendingCommands = map[string]string{
 	"task watch": "UX-10", // v030-todo(UX-10)
-	"preview":    "UX-9",  // v030-todo(UX-9)
 }
 
 // helpForms reads the invocations a help text lists: "anet <word>", and "anet <word> <sub>" for the

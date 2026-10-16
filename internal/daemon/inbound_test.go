@@ -762,9 +762,9 @@ func TestAFreshInstallIsClosed(t *testing.T) {
 	}
 }
 
-// The wire-1 accept_delegations key maps to closed in every case and is not
-// written back (A2A-DESIGN §5.1).
-func TestAcceptDelegationsMigratesToClosed(t *testing.T) {
+// 0.3.0 migrates nothing: a config.json that still holds accept_delegations
+// does not start (ux §2.3), and one without it gets the closed policy.
+func TestAcceptDelegationsIsRefusedNotMigrated(t *testing.T) {
 	for _, legacy := range []string{`true`, `false`, ``} {
 		root := t.TempDir()
 		raw := `{"control_addr":"127.0.0.1:0"}`
@@ -775,16 +775,23 @@ func TestAcceptDelegationsMigratesToClosed(t *testing.T) {
 			t.Fatal(err)
 		}
 		d, err := New(NewLayout(root))
+		if legacy != "" {
+			var cr *ConfigRefusal
+			if !errors.As(err, &cr) {
+				t.Fatalf("accept_delegations=%s: %v", legacy, err)
+			}
+			continue
+		}
 		if err != nil {
 			t.Fatal(err)
 		}
 		if p := d.config().inbound().Policy; p != PolicyClosed {
-			t.Errorf("accept_delegations=%q → policy %s", legacy, p)
+			t.Errorf("no accept_delegations → policy %s", p)
 		}
 		d.Close()
 		b, _ := os.ReadFile(filepath.Join(root, "config.json"))
-		if strings.Contains(string(b), "accept_delegations") || !strings.Contains(string(b), `"policy": "closed"`) {
-			t.Errorf("accept_delegations=%q: saved config %s", legacy, b)
+		if !strings.Contains(string(b), `"policy": "closed"`) {
+			t.Errorf("saved config %s", b)
 		}
 	}
 }

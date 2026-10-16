@@ -737,9 +737,21 @@ func TestASandboxedAgentCannotLinkTheOutboxOut(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.tick(t)
-	got := f.lastPeerMsg(t, id)
-	if len(got.Attachments) != 0 || got.Body == "here you are" || strings.Contains(got.Body, secret) {
-		t.Fatalf("an outbox linked out of the work dir was read: %+v", got)
+	// The turn fails (backend_failed, UX-R3): the peer gets a status with no text and no file.
+	if err := f.req.pollOnce(f.ctx); err != nil {
+		t.Fatal(err)
+	}
+	msgs, err := f.req.ix.Messages(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range msgs {
+		if m.SenderAID == f.prov.AID() && (m.Body != "" || strings.Contains(string(m.Metadata), secret)) {
+			t.Fatalf("an outbox linked out of the work dir was read: %+v", m)
+		}
+	}
+	if ix, err := f.req.ix.Get(id); err != nil || ix.State != interactions.StateInputRequired {
+		t.Fatalf("the failed turn: %+v %v", ix, err)
 	}
 	// The same at the unit: a link in the outbox's place is refused, not followed.
 	ob := filepath.Join(t.TempDir(), ".anet-outbox-1")

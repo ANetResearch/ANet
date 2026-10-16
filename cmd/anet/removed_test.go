@@ -17,7 +17,7 @@ func removedInvocation(r removedCLI) []string {
 	switch r.cmd {
 	case "delegate":
 		args = append(args, "bafyreixtplpft7v4seh2kvj72ceuvw75efr6edt4sywb5wkh7d6kx2wxyz", "--capability", "translate")
-	case "profile", "payments":
+	case "profile", "payments", "autoreply", "auto-reply":
 		args = append(args, "set")
 	case "hub-register":
 		args = append(args, "https://hub.example")
@@ -37,8 +37,9 @@ func removedInvocation(r removedCLI) []string {
 }
 
 func TestRemovedCommandsAreRefusedBeforeTheDaemon(t *testing.T) {
-	if len(removedCommands) != 13 {
-		t.Fatalf("ux §4.3 has 13 removed commands and flags (api-key aside), the table %d", len(removedCommands))
+	// ux §4.3 has 14 removed commands and flags (api-key aside); autoreply is also spelled auto-reply.
+	if len(removedCommands) != 15 {
+		t.Fatalf("ux §4.3 has 14 removed commands and flags (api-key aside) and one alias spelling, the table %d", len(removedCommands))
 	}
 	for _, lang := range []string{"C", "zh_CN.UTF-8"} {
 		for _, r := range removedCommands {
@@ -117,7 +118,7 @@ func TestRemovedCommandsHaveTheirPhrases(t *testing.T) {
 	}
 	for _, id := range []string{"x402_authorize", "delegate_pay", "profile_pricing", "hub_register_token",
 		"hub_register_accept_delegations", "p2p_advertise", "accept", "accept_end", "install", "evidence",
-		"payments_payees_file"} {
+		"payments_payees_file", "require_image"} {
 		if !used[id] {
 			t.Errorf("phrase %s is no removed entry's", id)
 		}
