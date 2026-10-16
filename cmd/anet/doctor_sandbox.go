@@ -1,6 +1,7 @@
 package main
 
 import (
+	"runtime"
 	"slices"
 	"strings"
 
@@ -12,7 +13,11 @@ import (
 // that are about this host's sandbox itself. The agent's and the model service's own reasons are
 // sandbox.agent's and sandbox.upstream's.
 var sandboxPlatformReasons = []string{"platform_unsupported", "no_bwrap", "userns_blocked", "userns_unavailable",
-	"netns_failed", "seccomp_failed", "fs_isolation_failed", "no_sandbox_exec"}
+	"netns_failed", "seccomp_failed", "fs_isolation_failed", "no_sandbox_exec", "sandbox_start_failed"}
+
+// sandboxSelfCheckReasons are the reasons that have a .doctor variant: in doctor the sentence carries what
+// the self-check saw (ux §1.4 H); everywhere else it asks to run doctor.
+var sandboxSelfCheckReasons = []string{"netns_failed", "seccomp_failed", "fs_isolation_failed"}
 
 // sandboxCheck is doctor's sandbox item (ux §5.2, LEC §5.5): shown only when untrusted or trusted peers
 // run in the sandbox (UX-K6); ok with sandbox.ready, or sandbox.ready_egress when hosts are allowed; fail
@@ -35,7 +40,14 @@ func sandboxCheck(say func(id, status, key string, args a2ashape.Args), rep *doc
 	}
 	rep.Sandbox = &c
 	if c.Reason != "" {
-		say("sandbox", stFail, c.Reason, nil)
+		key, args := c.Reason, a2ashape.Args(nil)
+		switch {
+		case slices.Contains(sandboxSelfCheckReasons, c.Reason) && c.Detail != "":
+			key, args = c.Reason+".doctor", a2ashape.Args{"detail": c.Detail}
+		case c.Reason == "sandbox_start_failed":
+			args = a2ashape.Args{"error": c.Detail}
+		}
+		say("sandbox", stFail, key, args)
 		return
 	}
 	var hosts []string
@@ -64,11 +76,108 @@ func sandboxFromStatus(env doctorEnv, rep *doctorReport, layout daemon.Layout) (
 	state, _ := sb["state"].(string)
 	reason, _ := sb["reason"].(string)
 	kind, _ := sb["kind"].(string)
+	detail, _ := sb["detail"].(string)
 	switch {
 	case state == "ready":
 		return daemon.SandboxCheck{Kind: kind}, true
 	case state == "unavailable" && slices.Contains(sandboxPlatformReasons, reason):
-		return daemon.SandboxCheck{Kind: kind, Reason: reason}, true
+		return daemon.SandboxCheck{Kind: kind, Reason: reason, Detail: detail}, true
 	}
 	return daemon.SandboxCheck{}, false
+}
+
+// autoReplyCheck is doctor's auto_reply item: off, or the backend and agent or model, with how trusted
+// peers' tasks run when the backend runs a local agent (ux §5.2 auto_reply).
+func autoReplyCheck(rep *doctorReport, ar *daemon.AutoReplyConfig, lang a2ashape.Language) {
+	if ar == nil {
+		rep.Checks = append(rep.Checks, sayCheck("auto_reply", stInfo, "autoreply.off", nil, lang))
+		return
+	}
+	name := ar.Model
+	if rep.AutoReply.Backend == "exec" {
+		name = ar.Agent
+	}
+	c := sayCheck("auto_reply", stOK, "autoreply.summary", a2ashape.Args{"backend": rep.AutoReply.Backend, "name": name}, lang)
+	if rep.AutoReply.Backend == "exec" {
+		key := "sandbox.trusted_direct"
+		if ar.TrustedMode() == daemon.TrustedSandbox {
+			key = "sandbox.trusted_sandbox"
+		}
+		c.Detail += " " + a2ashape.Sentence(key, lang, nil)
+	}
+	rep.Checks = append(rep.Checks, c)
+}
+
+// sandboxDetailChecks adds the items that follow sandbox, shown when it is (ux §5.2, UX-K6): the agent
+// and the model service, the hosts the sandbox may reach, today's budget, and the resource limits.
+func sandboxDetailChecks(add func(id, status, detail, hint string), say func(id, status, key string, args a2ashape.Args),
+	rep *doctorReport, env doctorEnv, layout daemon.Layout, ar *daemon.AutoReplyConfig, lang a2ashape.Language) {
+	if ar == nil || (ar.UntrustedMode() != daemon.UntrustedSandbox && ar.TrustedMode() != daemon.TrustedSandbox) {
+		return
+	}
+	if ar.Backend == "exec" {
+		key, args := ar.SandboxUpstreamProblem()
+		code, _, _ := strings.Cut(key, ".")
+		switch {
+		case code == "agent_unsupported":
+			say("sandbox.agent", stFail, key, args)
+		case key != "":
+			add("sandbox.agent", stOK, "", "")
+			say("sandbox.upstream", stFail, key, args)
+		default:
+			add("sandbox.agent", stOK, "", "")
+			add("sandbox.upstream", stOK, "", "")
+		}
+	}
+	// sandbox.egress: the list as the daemon would check it, then the proxy variables the sandbox does
+	// not use.
+	var hosts []string
+	if ar.Sandbox != nil {
+		hosts = ar.Sandbox.EgressAllow
+	}
+	switch _, ref := daemon.CheckEgressAllow(hosts, ar.APIBase); {
+	case ref != nil:
+		say("sandbox.egress", stFail, ref.Key, ref.Args)
+	case len(hosts) > 0:
+		say("sandbox.egress", stInfo, "sandbox.ready_egress", a2ashape.Args{"n": len(hosts), "hosts": strings.Join(hosts, ", ")})
+	default:
+		add("sandbox.egress", stOK, "", "")
+	}
+	for _, k := range []string{"HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY", "https_proxy", "http_proxy", "all_proxy"} {
+		if env.env(k) != "" {
+			say("sandbox.egress", stWarn, "sandbox.proxy_env", a2ashape.Args{"key": k})
+			break
+		}
+	}
+	// sandbox.budget: today's count is the daemon's.
+	if st, ok := runtimeStatusQuiet(env, rep, layout); ok {
+		ar, _ := st["auto_reply"].(map[string]any)
+		sb, _ := ar["sandbox"].(map[string]any)
+		b, _ := sb["budget"].(map[string]any)
+		num := func(k string) int { f, _ := b[k].(float64); return int(f) }
+		c := sayCheck("sandbox.budget", stOK, "sandbox.budget", a2ashape.Args{"n": num("today"), "daily": num("runs_per_day"),
+			"per_peer": num("runs_per_peer_per_day")}, lang)
+		c.Detail += " " + a2ashape.Sentence("sandbox.worst_case", lang, a2ashape.Args{"daily": num("runs_per_day")})
+		rep.Checks = append(rep.Checks, c)
+	} else {
+		say("sandbox.budget", stUnknown, doctorDaemonDown, nil)
+	}
+	if runtime.GOOS == "linux" {
+		if daemon.SandboxLimits() == "no_cgroup" {
+			say("sandbox.limits", stWarn, "no_cgroup_limits", nil)
+		} else {
+			add("sandbox.limits", stOK, "", "")
+		}
+	}
+}
+
+// runtimeStatusQuiet is GET /status of the running daemon, without saying anything when it does not
+// answer.
+func runtimeStatusQuiet(env doctorEnv, rep *doctorReport, layout daemon.Layout) (map[string]any, bool) {
+	if rep.Control.Running && env.status != nil {
+		if st, err := env.status(rep.Control.Addr, layout.ControlTokenPath()); err == nil {
+			return st, true
+		}
+	}
+	return nil, false
 }

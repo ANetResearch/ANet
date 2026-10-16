@@ -12,6 +12,7 @@ package main
 // reports; the probe is skipped then.
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -33,8 +34,8 @@ const anetlinkProbeTimeout = 5 * time.Second
 func anetlinkChecks(add func(id, status, detail, hint string), say func(id, status, key string, args a2ashape.Args),
 	cfg daemon.Config, public []daemon.PublicCapability) {
 	raw, ok := cfg.Modules["anetlink"]
-	if !ok {
-		return
+	if !ok || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return // not configured; "anetlink": null is the same as no block (the daemon's check says so too)
 	}
 	var m struct {
 		Socket string `json:"socket"`

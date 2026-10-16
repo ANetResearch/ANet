@@ -894,6 +894,9 @@ func runAutoReply(c *client, rest []string) error {
 		"  set --backend openai --api-base URL --model M [--system-prompt S]\n" +
 		"  set --api-key-stdin < FILE   # the model API key: from a file, or typed on the terminal (never on the command line)\n" +
 		"  common: [--max-history N] [--api-timeout SEC]\n" +
+		"  set --untrusted off|sandbox   # run untrusted peers' tasks in the sandbox, or not at all (default off)\n" +
+		"  set --trusted direct|sandbox  # run trusted peers' tasks directly (default), or also in the sandbox\n" +
+		"  show [--json]\n" +
 		"  set --egress-allow host[,host…]   # hosts the sandbox may reach on 443 (\"\" clears; adding asks on the terminal)\n" +
 		"  test [\"question\"]    # run the configured backend once on this machine (no hub, no identity)\n" +
 		"  off"
@@ -914,27 +917,48 @@ func runAutoReply(c *client, rest []string) error {
 			AutoReply json.RawMessage `json:"auto_reply"`
 		}
 		_ = json.Unmarshal(b, &st)
-		if len(st.AutoReply) == 0 || string(st.AutoReply) == "null" {
-			fmt.Println("auto-reply: off")
+		_, showFlags := splitFlags(rest[1:])
+		_, asJSON := showFlags["json"]
+		if asJSON {
+			if len(st.AutoReply) == 0 {
+				st.AutoReply = json.RawMessage("null")
+			}
+			var pretty bytes.Buffer
+			_ = json.Indent(&pretty, st.AutoReply, "", "  ")
+			fmt.Fprintln(outW(), pretty.String())
 			return nil
 		}
-		var pretty bytes.Buffer
-		_ = json.Indent(&pretty, st.AutoReply, "", "  ")
-		fmt.Println("auto-reply:", pretty.String())
+		var view map[string]any
+		if len(st.AutoReply) > 0 {
+			_ = json.Unmarshal(st.AutoReply, &view)
+		}
+		printAutoReplyShow(outW(), view, a2ashape.Lang())
 		return nil
 	case "off":
 		return c.do("/autoreply", map[string]any{"off": true})
 	case "test":
 		c.timeout = 15 * time.Minute // exec agents (cursor/claude/…) can take tens of seconds
 		prompt := strings.TrimSpace(strings.Join(rest[1:], " "))
-		return c.do("/autoreply-test", map[string]any{"prompt": prompt})
+		out, code, err := c.fetch("/autoreply-test", map[string]any{"prompt": prompt})
+		if err != nil {
+			return diagnoseNoDaemon(c.base, c.dataDir, err)
+		}
+		if code < 200 || code >= 300 {
+			return answerError(code, out)
+		}
+		return printAutoReplyTest(out)
 	case "set":
 		_, flags := splitFlags(rest[1:])
 		body := map[string]any{}
 		// --egress-allow first: the list is checked here (CN-1) and an added host confirmed on the
 		// terminal before anything else is read or sent; it rides in the same request as the rest.
+		if v, ok := flags["trusted"]; ok && v == "direct" {
+			if err := confirmTrustedDirect(c); err != nil {
+				return err
+			}
+		}
 		if v, ok := flags["egress-allow"]; ok {
-			sandbox, err := egressAllowRequest(c, v, flags["api-base"])
+			sandbox, err := egressAllowRequest(c, v, flags["api-base"], flags["backend"] != "" || flags["agent"] != "")
 			if err != nil {
 				return err
 			}
@@ -950,7 +974,7 @@ func runAutoReply(c *client, rest []string) error {
 		strFlags := map[string]string{
 			"agent": "agent", "work-dir": "work_dir", "command": "command",
 			"openclaw-agent": "openclaw_agent", "model": "model", "api-base": "api_base",
-			"system-prompt": "system_prompt", "untrusted": "untrusted",
+			"system-prompt": "system_prompt", "untrusted": "untrusted", "trusted": "trusted",
 		}
 		for cliKey, jsonKey := range strFlags {
 			if v, ok := flags[cliKey]; ok && v != "true" {
@@ -978,7 +1002,16 @@ func runAutoReply(c *client, rest []string) error {
 		if len(body) == 0 {
 			return usageError{usage}
 		}
-		return c.do("/autoreply", body)
+		out, code, err := c.fetch("/autoreply", body)
+		if err != nil {
+			return diagnoseNoDaemon(c.base, c.dataDir, err)
+		}
+		if code < 200 || code >= 300 {
+			return answerError(code, out)
+		}
+		_, keyGiven := body["api_key"]
+		printAutoReplySet(out, keyGiven)
+		return nil
 	default:
 		return usageError{usage}
 	}
@@ -1033,7 +1066,7 @@ func readAPIKeyStdin(in *os.File, out io.Writer) (string, error) {
 	var raw []byte
 	var err error
 	if fd := int(in.Fd()); term.IsTerminal(fd) {
-		fmt.Fprint(out, "API key: ")
+		fmt.Fprint(out, a2ashape.Sentence("autoreply.prompt.api_key", lang, nil)+" ")
 		raw, err = term.ReadPassword(fd)
 		fmt.Fprintln(out)
 	} else {
@@ -1101,7 +1134,7 @@ var knownFlags = map[string][]string{
 	"version":  {},
 	"update":   {"check", "base"},
 	"init":     {"json"},
-	"doctor":   {"json"},
+	"doctor":   {"json", "apparmor-profile"},
 	"audit":    {"since", "peer", "interaction", "type", "json", "export"},
 
 	// through the daemon when it runs, from the data directory when not
@@ -1120,12 +1153,12 @@ var knownFlags = map[string][]string{
 	"autoreply": {
 		"backend", "agent", "api-base", "api-key-stdin", "model", "system-prompt", "work-dir", "untrusted",
 		"openclaw-agent", "command",
-		"max-history", "api-timeout", "egress-allow",
+		"max-history", "api-timeout", "egress-allow", "trusted", "json",
 	},
 	"auto-reply": {
 		"backend", "agent", "api-base", "api-key-stdin", "model", "system-prompt", "work-dir", "untrusted",
 		"openclaw-agent", "command",
-		"max-history", "api-timeout", "egress-allow",
+		"max-history", "api-timeout", "egress-allow", "trusted", "json",
 	},
 	"profile": {"summary", "readme"},
 	"console": {"url", "print"},

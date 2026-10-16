@@ -357,6 +357,10 @@ func render(r Row, key string, lang Language, args Args) string {
 			t = strings.ReplaceAll(t, "in {retry}", "later")
 		}
 	}
+	if r.Code == "sandbox_start_failed" && !present(args, "error") {
+		// bubblewrap said nothing: no brackets, no placeholder (ux §1.4 H).
+		t = strings.ReplaceAll(strings.ReplaceAll(t, "（{error}）", ""), " ({error})", "")
+	}
 	_, variant, _ := strings.Cut(strings.TrimPrefix(key, r.Code), ".")
 	if variant == "" {
 		variant = r.Variant
@@ -523,8 +527,12 @@ func value(code, variant, name string, lang Language, args Args, now time.Time) 
 	case "name":
 		s = clean(s, maxNameRunes)
 		return s, s != ""
-	case "value", "error":
+	case "value":
 		s = clean(s, maxShortRunes)
+		return s, s != ""
+	case "error":
+		// bwrap's first line (sandbox_start_failed) is cut at 120 characters (ux §1.4 H).
+		s = clean(s, maxErrorRunes)
 		return s, s != ""
 	case "code":
 		// A code is shown only in a code's form (CORE-K19): a hub's or a
@@ -542,6 +550,7 @@ func value(code, variant, name string, lang Language, args Args, now time.Time) 
 // Bounds on a placeholder value (ux UX-G8 and the notes under §1.4 C4, G).
 const (
 	maxNameRunes  = 64
+	maxErrorRunes = 120
 	maxValueRunes = 512
 )
 
@@ -715,6 +724,8 @@ func phraseSetOf(code, variant, name string) string {
 			return "hub_why"
 		case "egress_allow_invalid":
 			return "egress_why"
+		case "agent_unsupported":
+			return "combo_why"
 		}
 	case "instead":
 		switch code {
@@ -784,6 +795,12 @@ var phraseSets = map[string]map[string]phrasePair{
 		// LEC EXE-3: any other shape (a URL, one label, a character a host
 		// name cannot have); ux §1.4 G names no phrase for it.
 		"not_host": {"不是完整的主机名", "is not a whole host name"},
+	},
+	// ux §1.4 H: why an agent cannot use the model service address (agent_unsupported.combo).
+	"combo_why": {
+		"openai_only":    {"codex 只能用 api.openai.com", "codex works only with api.openai.com"},
+		"anthropic_only": {"claude 只能用 api.anthropic.com", "claude works only with api.anthropic.com"},
+		"no_chat":        {"api.anthropic.com 不提供它用的 chat completions 接口", "api.anthropic.com does not offer the chat completions interface it uses"},
 	},
 	// ux §1.4 D1: the payment tier, and its form in .off.
 	"tier": {
@@ -943,6 +960,14 @@ var labels = map[string]phrasePair{
 	"status.payments": {"付款", "payments"},
 	"status.privacy":  {"隐私", "privacy"},
 	"status.preview":  {"预览", "preview"},
+
+	// LEC §5.2: the rows of `anet autoreply show`, and the line of `anet autoreply set` that says
+	// where the sandbox stands.
+	"autoreply.backend":   {"自动回复", "auto-reply"},
+	"autoreply.trusted":   {"信任对端", "trusted"},
+	"autoreply.untrusted": {"未信任", "untrusted"},
+	"autoreply.key":       {"API key", "API key"},
+	"autoreply.budget":    {"预算", "budget"},
 
 	"task.reason":   {"原因", "reason"},
 	"task.delivery": {"送达", "delivery"},
@@ -2106,8 +2131,8 @@ var reasonTable = []Row{
 		En:       "An http --api-base must point at this machine's loopback (127.0.0.1, ::1, localhost); use https for anything else.",
 		NextKind: NextChangeInput},
 	{Code: "work_dir_invalid", Class: ClassC,
-		Zh:       "auto_reply.work_dir 不能位于数据目录或沙箱工作目录之内；请换一个目录。",
-		En:       "auto_reply.work_dir cannot be inside the data directory or the sandbox work directory; use another directory.",
+		Zh:       "auto_reply.work_dir 不能位于数据目录或沙箱工作目录之内，也不能包含它们；请换一个目录。",
+		En:       "auto_reply.work_dir cannot be inside the data directory or the sandbox work directory, or contain either of them; use another directory.",
 		NextKind: NextChangeInput},
 	{Code: "budget_invalid", Class: ClassC,
 		Zh:       "预算必须是 0 到 1000 的整数，且每个对端的上限不能大于全局上限；请改正后重试。",
@@ -2122,8 +2147,8 @@ var reasonTable = []Row{
 		Zh: "未信任对端的任务在沙箱中运行：只能经本节点访问模型；可联网访问 {n} 个主机（{hosts}），每个都可能被用来外发数据。",
 		En: "Tasks from untrusted peers run in the sandbox: they reach models only through this node, and may reach {n} hosts ({hosts}), each of which could be used to send data out."},
 	{Code: "sandbox.off", Class: ClassS, Level: LevelInfo,
-		Zh: "不为未信任对端运行本机 agent（untrusted=off）。",
-		En: "Local agents are not run for untrusted peers (untrusted=off)."},
+		Zh: "不为未信任对端运行本机 agent（untrusted=off，或预算设为 0）。",
+		En: "Local agents are not run for untrusted peers (untrusted=off, or a budget of 0)."},
 	{Code: "sandbox.trusted_direct", Class: ClassS, Level: LevelInfo,
 		Zh: "信任的对端直接以你的用户身份运行本机 agent，等同授予你的用户权限。",
 		En: "Trusted peers run local agents directly as your user, which is the same as giving them your user's rights."},
@@ -2153,9 +2178,28 @@ var reasonTable = []Row{
 		Zh:       "沙箱自检失败（文件与进程隔离）；请运行 anet doctor 查看详情。",
 		En:       "The sandbox self-check failed (file and process isolation); run anet doctor for details.",
 		NextKind: NextCommand, Next: "anet doctor"},
+	{Code: "netns_failed", Variant: "doctor", Class: ClassS, Level: LevelFail,
+		Zh:       "沙箱自检失败（网络隔离：{detail}），沙箱不可用，未信任对端的任务不会运行；请运行 anet doctor --json 并提交问题报告，或设 --untrusted off。",
+		En:       "The sandbox self-check failed (network isolation: {detail}), so the sandbox is unavailable and tasks from untrusted peers will not run; run anet doctor --json and file a report, or set --untrusted off.",
+		NextKind: NextCommand, Next: "anet doctor --json"},
+	{Code: "seccomp_failed", Variant: "doctor", Class: ClassS, Level: LevelFail,
+		Zh:       "沙箱自检失败（系统调用过滤：{detail}），沙箱不可用，未信任对端的任务不会运行；请运行 anet doctor --json 并提交问题报告，或设 --untrusted off。",
+		En:       "The sandbox self-check failed (system call filter: {detail}), so the sandbox is unavailable and tasks from untrusted peers will not run; run anet doctor --json and file a report, or set --untrusted off.",
+		NextKind: NextCommand, Next: "anet doctor --json"},
+	{Code: "fs_isolation_failed", Variant: "doctor", Class: ClassS, Level: LevelFail,
+		Zh:       "沙箱自检失败（文件与进程隔离：{detail}），沙箱不可用，未信任对端的任务不会运行；请运行 anet doctor --json 并提交问题报告，或设 --untrusted off。",
+		En:       "The sandbox self-check failed (file and process isolation: {detail}), so the sandbox is unavailable and tasks from untrusted peers will not run; run anet doctor --json and file a report, or set --untrusted off.",
+		NextKind: NextCommand, Next: "anet doctor --json"},
+	{Code: "sandbox_start_failed", Class: ClassS, Level: LevelFail,
+		Zh:       "bubblewrap 没能建立沙箱（{error}），沙箱不可用；请运行 anet doctor --json 并提交问题报告，或设 --untrusted off。",
+		En:       "bubblewrap could not set up the sandbox ({error}), so the sandbox is unavailable; run anet doctor --json and file a report, or set --untrusted off.",
+		NextKind: NextCommand, Next: "anet doctor --json"},
 	{Code: "agent_unsupported", Class: ClassS, Level: LevelFail,
 		Zh: "{name} 不能在沙箱里运行（它不能把模型请求交给本节点代发）；请换用 {agents}，或设 --untrusted off。",
 		En: "{name} cannot run in the sandbox (it cannot send its model requests through this node); use {agents} instead, or set --untrusted off."},
+	{Code: "agent_unsupported", Variant: "combo", Class: ClassS, Level: LevelFail,
+		Zh: "{name} 在沙箱里不能用这个模型服务地址（{why}）；请改或去掉 --api-base，或设 --untrusted off。",
+		En: "{name} cannot use this model service address in the sandbox ({why}); change or remove --api-base, or set --untrusted off."},
 	{Code: "no_api_key", Class: ClassS, Level: LevelFail,
 		Zh:       "沙箱里的 agent 由本节点代为调用模型，需要 API key；请执行 anet autoreply set --api-key-stdin < 存放 key 的文件。",
 		En:       "In the sandbox this node calls the model for the agent and needs an API key; run anet autoreply set --api-key-stdin < file-with-the-key.",
@@ -2206,6 +2250,9 @@ var reasonTable = []Row{
 	{Code: "egress_upstream_unreachable", Class: ClassModel,
 		Zh: "anet: 本节点暂时连不上模型服务；请稍后再试，或根据已有结果作答。",
 		En: "anet: this node cannot reach the model service right now; try again later, or answer with what you have."},
+	{Code: "egress_host_unresolved", Class: ClassModel,
+		Zh: "anet: 放行的主机 {host} 现在解析不到地址；请稍后再试，或在回复里说明做不到。",
+		En: "anet: the allowed host {host} does not resolve right now; try again later, or say in your reply that you cannot do it."},
 	{Code: "policy_server_tool", Class: ClassModel,
 		Zh: "anet: 沙箱里不允许模型服务端工具 {type}（它会绕过本节点的网络限制）；请改用本机工具。",
 		En: "anet: the server-side model tool {type} is not allowed in the sandbox (it would bypass this node's network limits); use a local tool instead."},
@@ -2468,6 +2515,9 @@ var reasonTable = []Row{
 	{Code: "trusted_direct_confirm", Class: ClassT,
 		Zh: "改回直接运行：信任的对端将以你的用户身份运行本机 agent，等同授予你的用户权限。",
 		En: "Switch back to direct runs: trusted peers will run local agents as your user, which is the same as giving them your user's rights."},
+	{Code: "autoreply.prompt.api_key", Class: ClassT,
+		Zh: "API key：",
+		En: "API key:"},
 
 	// ux §1.4 M4: cards, payments, audit and balance.
 	{Code: "card.header", Class: ClassI,

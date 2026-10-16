@@ -621,7 +621,7 @@ func (d *Daemon) hStatus(w http.ResponseWriter, r *http.Request) {
 		"console_url":    consoleURL(cfg),
 	}
 	if ar := cfg.AutoReply; ar != nil {
-		out["auto_reply"] = autoReplyView(ar)
+		out["auto_reply"] = d.autoReplyView(ar)
 	}
 	// The hub join state (LEC §2.3.3): what the node is waiting for, and
 	// the one command, if any, that moves it on.
@@ -916,10 +916,17 @@ func (d *Daemon) hAutoReply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var view any
+	resp := map[string]any{"status": "updated"}
 	if cfg != nil {
-		view = autoReplyView(cfg)
+		v := d.autoReplyView(cfg)
+		view = v
+		resp["sandbox"] = v["sandbox"]
+		if sb, ok := v["sandbox"].(map[string]any); ok {
+			resp["message"] = sb["message"]
+		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"auto_reply": view, "status": "updated"})
+	resp["auto_reply"] = view
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // readJSONMembers reads a request body that is one JSON object into its members.
@@ -932,29 +939,6 @@ func readJSONMembers(r *http.Request) (map[string]json.RawMessage, error) {
 		return nil, errors.New("not a JSON object")
 	}
 	return m, nil
-}
-
-// autoReplyView is the auto-reply configuration as /status and /autoreply show it (LEC §2.3.3): what
-// it does, never the key — only whether one is set (AV-8) — and the sandbox's CONNECT allowlist, [] when
-// there is none.
-func autoReplyView(ar *AutoReplyConfig) map[string]any {
-	backend := ar.Backend
-	if backend == "" {
-		backend = "openai"
-	}
-	entry := map[string]any{"backend": backend, "untrusted": ar.UntrustedMode(), "api_key_set": ar.APIKey != ""}
-	switch backend {
-	case "exec":
-		entry["agent"] = ar.Agent
-		if ar.WorkDir != "" {
-			entry["work_dir"] = ar.WorkDir
-		}
-	default:
-		entry["model"] = ar.Model
-		entry["api_base"] = ar.APIBase
-	}
-	entry["sandbox"] = map[string]any{"egress_allow": egressAllowOf(ar)}
-	return entry
 }
 
 // mergeAutoReply is the configuration a POST /autoreply asks for (LEC §2.3.4): cur with the request's
@@ -1148,19 +1132,20 @@ func init() {
 	})
 }
 
-// hAutoReplyTest runs the configured backend once on a synthetic prompt (no Hub, no identity) so an
-// operator/agent can verify auto-reply works without registering a throwaway node. Behind `anet autoreply test`.
+// hAutoReplyTest runs the enabled paths once on a synthetic prompt (no Hub, no identity) so an operator
+// or agent can verify auto-reply works without registering a throwaway node. Behind `anet autoreply
+// test` (LEC §2.3.5, CL-3). A run here is not counted in the budget (BU-7).
 func (d *Daemon) hAutoReplyTest(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Prompt string `json:"prompt"`
 	}
 	_ = readJSON(r, &req)
-	reply, err := d.TestAutoReply(r.Context(), req.Prompt)
+	results, err := d.TestAutoReplyPaths(r.Context(), req.Prompt)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"reply": reply, "status": "ok"})
+	writeJSON(w, http.StatusOK, map[string]any{"results": results})
 }
 
 // hDelegate queues a task on a provider AID via the Hub relay and returns an interaction_id immediately.

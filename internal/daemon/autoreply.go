@@ -442,6 +442,8 @@ func (d *Daemon) autoReplyThread(ctx context.Context, cfg AutoReplyConfig, repli
 	// starts (LEC BU-2 to BU-5).
 	ticket, verdict, wait := d.reserveRun(cfg, th.Peer)
 	switch verdict {
+	case budgetOff:
+		return nil // a budget of 0 is untrusted=off: left in the inbox for the operator
 	case budgetBusy:
 		return nil // no free slot: the next scan tries again; nothing is refused
 	case budgetSpent:

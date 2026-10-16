@@ -258,6 +258,9 @@ type egressEndpoint struct {
 	net         egressConnectNet
 	connectWait egressConnectWait
 	tunnels     egressTunnels
+	// unresolved are the allowed hosts that did not resolve in this run, each logged once (CN-4).
+	unresolvedMu sync.Mutex
+	unresolved   map[string]bool
 	// bodySlot lets one request body at a time be read and rewritten. Decoding a JSON body takes many
 	// times its size in memory (an 8 MiB body of empty arrays is several hundred MiB), and the run's
 	// egressMaxConns connections must not multiply that in the daemon.

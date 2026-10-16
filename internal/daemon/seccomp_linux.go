@@ -16,7 +16,7 @@ package daemon
 //   - clone and unshare with CLONE_NEWUSER → EPERM, whether or not bwrap could add --disable-userns;
 //   - keyrings, bpf, perf, userfaultfd, io_uring, ptrace and process_vm_*, kexec and modules, mounts (the
 //     old call and the new mount API: fsopen, fsconfig, fsmount, fspick, move_mount, open_tree,
-//     mount_setattr) and setns, file handles, acct, swap, reboot and syslog → EPERM;
+//     open_tree_attr, mount_setattr) and setns, file handles, acct, swap, reboot and syslog → EPERM;
 //   - personality other than PER_LINUX and the query 0xffffffff (which changes nothing, and which some
 //     runtimes make at start-up), and the TIOCSTI and TIOCLINUX ioctls → EPERM.
 //
@@ -73,13 +73,15 @@ var seccompDeniedEPERM = []string{
 	"name_to_handle_at", "acct", "swapon", "swapoff", "reboot", "syslog",
 	// The new mount API reaches what mount does (SB-6, 2026-10-04).
 	"fsopen", "fsconfig", "fsmount", "fspick", "move_mount", "open_tree", "mount_setattr",
+	// open_tree_attr (Linux 6.15) is open_tree with mount_setattr in one call (SB-6, 2026-10-10).
+	"open_tree_attr",
 }
 
 // seccompNewMountNr are the new mount API's numbers, the same on both architectures (they were added after
 // the system call tables were unified: include/uapi/asm-generic/unistd.h, syscall_64.tbl).
 var seccompNewMountNr = map[string]uint32{
 	"open_tree": 428, "move_mount": 429, "fsopen": 430, "fsconfig": 431, "fsmount": 432, "fspick": 433,
-	"mount_setattr": 442,
+	"mount_setattr": 442, "open_tree_attr": 467,
 }
 
 func init() {

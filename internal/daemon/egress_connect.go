@@ -220,16 +220,13 @@ func (e *egressEndpoint) connect(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithCancel(e.ctx)
 	defer cancel()
 	addrs, status, code := e.resolveConnect(ctx, host)
-	switch {
-	case code != "":
-		e.refuseConnect(w, status, code, a2ashape.Args{"host": host})
+	if code == "egress_host_unresolved" {
+		// The host does not resolve: the policy did not say no, so it is not counted as a refusal.
+		e.answerConnect(w, status, code, a2ashape.Args{"host": host})
 		return
-	case status != 0:
-		// The host does not resolve: there is nothing to refuse, and no sentence for it.
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		w.Header().Set("Connection", "close")
-		w.WriteHeader(status)
-		_, _ = io.WriteString(w, http.StatusText(status)+"\n")
+	}
+	if code != "" {
+		e.refuseConnect(w, status, code, a2ashape.Args{"host": host})
 		return
 	}
 	hj, ok := w.(http.Hijacker)
@@ -288,6 +285,11 @@ func (e *egressEndpoint) connect(w http.ResponseWriter, r *http.Request) {
 // §2.6.4), counted by code (CN-7).
 func (e *egressEndpoint) refuseConnect(w http.ResponseWriter, status int, code string, args a2ashape.Args) {
 	e.stats.connectRefused(code)
+	e.answerConnect(w, status, code, args)
+}
+
+// answerConnect writes the answer of a CONNECT that was not tunnelled, without counting it.
+func (e *egressEndpoint) answerConnect(w http.ResponseWriter, status int, code string, args a2ashape.Args) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("Connection", "close")
 	w.WriteHeader(status)
@@ -295,8 +297,8 @@ func (e *egressEndpoint) refuseConnect(w http.ResponseWriter, status int, code s
 }
 
 // resolveConnect resolves an allowed host (CN-4): the addresses to dial on port 443, or the refusal
-// (403 egress_private_address) when one of them is special or this machine's, or 502 when the host does
-// not resolve.
+// (403 egress_private_address) when one of them is special or this machine's, or 502
+// egress_host_unresolved when the host does not resolve (logged once per host and run).
 func (e *egressEndpoint) resolveConnect(ctx context.Context, host string) (addrs []netip.AddrPort, status int, code string) {
 	rctx, cancel := context.WithTimeout(ctx, e.connectWait.resolve)
 	defer cancel()
@@ -304,8 +306,17 @@ func (e *egressEndpoint) resolveConnect(ctx context.Context, host string) (addrs
 	// (with ndots above 1) or after a failure, and answer for another host than the one allowed.
 	ips, err := e.net.lookup(rctx, host+".")
 	if err != nil || len(ips) == 0 {
-		log.Printf("anet: sandbox egress: CONNECT %s: the host does not resolve: %v", host, err)
-		return nil, http.StatusBadGateway, ""
+		e.unresolvedMu.Lock()
+		first := !e.unresolved[host]
+		if e.unresolved == nil {
+			e.unresolved = map[string]bool{}
+		}
+		e.unresolved[host] = true
+		e.unresolvedMu.Unlock()
+		if first {
+			log.Printf("anet: sandbox egress: CONNECT %s: the host does not resolve: %v", host, err)
+		}
+		return nil, http.StatusBadGateway, "egress_host_unresolved"
 	}
 	local := e.net.local()
 	for _, ip := range ips {

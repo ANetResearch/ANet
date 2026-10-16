@@ -149,9 +149,6 @@ func peerPrompt(c *client, sub, aid string) string {
 
 // trustedMode is how this node runs a trusted peer's tasks (auto_reply.trusted:
 // direct or sandbox), as /status says it; "" when it does not say.
-//
-// v030-todo(EXE-7): /status.auto_reply carries trusted; until it does the
-// prompt says direct, the stronger of the two statements.
 func trustedMode(c *client) string {
 	b, code, err := c.fetch("/status", nil)
 	if err != nil || code != 200 {

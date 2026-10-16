@@ -14,6 +14,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/ANetResearch/ANet/deploy/apparmor"
 	"io"
 	"net/url"
 	"os"
@@ -364,6 +365,12 @@ func releaseCheck(env doctorEnv) release.InstalledCheck {
 
 func runDoctor(layout daemon.Layout, rest []string) error {
 	_, flags := splitFlags(rest)
+	if _, ok := flags["apparmor-profile"]; ok {
+		// The profile that lets bubblewrap make user namespaces under Ubuntu's AppArmor policy, for the
+		// userns_blocked sentence's command: stdout only, no file written, no root needed.
+		_, err := io.WriteString(outW(), apparmor.Profile)
+		return err
+	}
 	return doctorTo(os.Stdout, layout, defaultDoctorEnv(), flags["json"] == "true")
 }
 
@@ -528,14 +535,8 @@ func collectDoctor(layout daemon.Layout, env doctorEnv) (*doctorReport, error) {
 		tokenCheck(add, "a2a.token", rep.A2A.Token)
 	}
 
-	// Hub.
-	rep.Hub.URL = cfg.HubURL
-	rep.Hub.Registered = cfg.HubURL != ""
-	if rep.Hub.Registered {
-		add("hub", stOK, "registered with "+cfg.HubURL+" (per config)", "")
-	} else {
-		add("hub", stInfo, "not registered with a hub", "anet hub-register <url>")
-	}
+	// Hub (doctor_hub.go).
+	hubCheck(add, say, rep, env, layout, lang)
 
 	// Inbound.
 	rep.Inbound.Policy = st.Inbound.Policy
@@ -600,19 +601,9 @@ func collectDoctor(layout daemon.Layout, env doctorEnv) (*doctorReport, error) {
 		rep.SI5Changed = []string{}
 	}
 	rep.AutoReply.Untrusted, _ = rep.SI5["auto_reply.untrusted"].(string)
-	switch {
-	case !rep.AutoReply.Configured:
-		add("auto_reply", stInfo, "auto-reply off", "")
-	case rep.AutoReply.Backend == "exec" && rep.AutoReply.Untrusted == daemon.UntrustedSandbox && !rep.AutoReply.APIKeyConfigured:
-		add("auto_reply.sandbox", stFail, "auto_reply.untrusted=sandbox without auto_reply.api_key: the sandboxed agent "+
-			"cannot log in, so every untrusted task fails closed (sandbox_unavailable)",
-			"set auto_reply.api_key, or auto_reply.untrusted=off")
-	case rep.AutoReply.Backend == "exec" && rep.AutoReply.Untrusted == daemon.UntrustedSandbox:
-		add("auto_reply.sandbox", stOK, "exec auto-reply runs the local agent for untrusted peers in the sandbox, with auto_reply.api_key", "")
-	default:
-		add("auto_reply", stOK, fmt.Sprintf("backend %s; untrusted peers: %s", rep.AutoReply.Backend, rep.AutoReply.Untrusted), "")
-	}
-	sandboxCheck(say, rep, env, layout, cfg.AutoReply)           // doctor_sandbox.go
+	autoReplyCheck(rep, cfg.AutoReply, lang)           // doctor_sandbox.go
+	sandboxCheck(say, rep, env, layout, cfg.AutoReply) // doctor_sandbox.go
+	sandboxDetailChecks(add, say, rep, env, layout, cfg.AutoReply, lang)
 	a2aBackendChecks(add, st.Inbound.Policy, cfg, len(st.Trust)) // doctor_backends.go
 	backendTransportChecks(add, say, cfg)                        // doctor_backends.go
 	anetlinkChecks(add, say, cfg, st.Inbound.PublicCapabilities) // doctor_anetlink.go

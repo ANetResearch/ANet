@@ -713,3 +713,29 @@ func TestTheOtherSendRoutesWaitForTheHub(t *testing.T) {
 		t.Fatalf("a refused send queued %d rows", n)
 	}
 }
+
+// doctor reads the hub item from the data directory when no daemon answers: ReadHubView says what
+// /status.hub says, from hub_join.json alone, and no record is no hub.
+func TestReadHubViewIsTheStatusViewFromTheFile(t *testing.T) {
+	l := NewLayout(t.TempDir())
+	v, err := ReadHubView(l, a2ashape.English)
+	if err != nil || v.State != JoinNone || v.Reason != "no_hub_yet" || v.Message != a2ashape.Sentence("no_hub_yet", a2ashape.English, nil) {
+		t.Fatalf("no record: %+v %v", v, err)
+	}
+	rec := joinRecord{V: joinRecordVersion, Hub: "https://hub.example", State: JoinPendingAdmission, Reason: reasonPending,
+		Since: time.Now().UnixMilli()}
+	if err := saveJoinRecord(l, &rec); err != nil {
+		t.Fatal(err)
+	}
+	v, err = ReadHubView(l, a2ashape.English)
+	if err != nil || v.State != JoinPendingAdmission || v.Reason != reasonPending || v.URL != "https://hub.example" ||
+		!strings.Contains(v.Message, "https://hub.example") {
+		t.Fatalf("pending admission: %+v %v", v, err)
+	}
+	if err := os.WriteFile(l.hubJoinPath(), []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ReadHubView(l, a2ashape.English); err == nil {
+		t.Fatal("a record that cannot be read is an error, not no hub")
+	}
+}

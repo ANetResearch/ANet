@@ -240,8 +240,14 @@ func TestTheBudgetSurvivesARestart(t *testing.T) {
 // turn is not retried every scan, and a refusal for the same reason is logged and recorded once.
 func TestAnOutboundTurnOverTheBudgetStaysInTheInbox(t *testing.T) {
 	api := &fakeOpenAI{reply: "an answer"}
-	f := newAutoReplyFixture(t, AutoReplyConfig{Model: "m", Sandbox: &AutoReplySandboxConfig{RunsPerDay: Budget(0)}}, api)
+	f := newAutoReplyFixture(t, AutoReplyConfig{Model: "m", Sandbox: &AutoReplySandboxConfig{RunsPerDay: Budget(1)}}, api)
 	allowPeers(t, f.req, f.prov.AID())
+	// Today's only run is already used (a budget of 0 would be untrusted=off, not a refusal).
+	if tk, v, _ := f.prov.budget.reserve("someone-else", 1, 1, f.prov.budgetRunsOnChain); v != budgetGranted {
+		t.Fatal(v)
+	} else {
+		tk.release(true)
+	}
 	out, err := f.prov.Delegate(f.ctx, f.req.AID(), "a question", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -1037,5 +1043,34 @@ func TestARunTheSandboxRefusedDoesNotCount(t *testing.T) {
 	}
 	if recs := withExit(invoked(t, f.prov), exitSandboxUnavailable); len(recs) != 2 || (code != "" && recs[0]["unavailable"] != code) {
 		t.Fatalf("records: %v", recs)
+	}
+}
+
+// BU-3: a budget of 0 is untrusted = off. The task stays in the inbox, nothing runs and no refusal is
+// recorded, since "try again tomorrow" would not be true.
+func TestABudgetOfZeroIsUntrustedOff(t *testing.T) {
+	api := &fakeOpenAI{reply: "an answer"}
+	f := newAutoReplyFixture(t, AutoReplyConfig{Model: "m", Sandbox: &AutoReplySandboxConfig{RunsPerDay: Budget(0)}}, api)
+	allowPeers(t, f.req, f.prov.AID())
+	out, err := f.prov.Delegate(f.ctx, f.req.AID(), "a question", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.req.pollOnce(f.ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.req.SendMessage(f.ctx, out, "more", nil); err != nil {
+		t.Fatal(err)
+	}
+	f.tick(t)
+	f.tick(t)
+	if n := api.calls.Load(); n != 0 {
+		t.Fatalf("the model was called %d times", n)
+	}
+	if recs := withExit(invoked(t, f.prov), exitBudget); len(recs) != 0 {
+		t.Fatalf("%d budget records for a budget of 0, want none", len(recs))
+	}
+	if st := stateOf(t, f.prov, out); st.IsTerminal() {
+		t.Fatalf("the task was ended: %s", st)
 	}
 }

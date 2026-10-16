@@ -576,6 +576,7 @@ func egressRefusalSamples(up *egressUpstream) []egressRefusal {
 		{429, "egress_tunnels", nil},
 		{413, "egress_too_large", a2ashape.Args{"n": egressMaxBody >> 20}},
 		{502, "egress_upstream_unreachable", nil},
+		{502, "egress_host_unresolved", a2ashape.Args{"host": "pypi.org"}},
 		{403, "policy_server_tool", a2ashape.Args{"type": "web_search_20260209"}},
 		{403, "policy_mcp_servers", nil},
 		{403, "policy_field", a2ashape.Args{"field": "previous_response_id"}},
