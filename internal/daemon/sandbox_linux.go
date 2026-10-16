@@ -174,6 +174,7 @@ const (
 	sandboxCodeUsernsUnavailable = "userns_unavailable"
 	sandboxCodeNetnsFailed       = "netns_failed"
 	sandboxCodeSeccompFailed     = "seccomp_failed"
+	sandboxCodeStartFailed       = "sandbox_start_failed"
 )
 
 // apparmorRestrictUsernsPath is the Ubuntu sysctl that stops unconfined programs from using user
@@ -344,8 +345,11 @@ func runBwrapProbe(path string, feats bwrapFeatures) bwrapProbe {
 	return res
 }
 
-// classifyBwrapFailure names why bwrap ran no probe (SB-2): a filter it could not load, a user namespace
-// Ubuntu's AppArmor policy forbids, or one this kernel or container does not allow.
+// classifyBwrapFailure names why bwrap ran no probe (SB-2): a filter it could not load; a user namespace
+// it could not create, which is userns_blocked when Ubuntu's AppArmor restriction is on and
+// userns_unavailable when it is not (max_user_namespaces = 0, a container); a probe that died inside a
+// sandbox bwrap did build (netns_failed); and every other start failure, sandbox_start_failed, so that
+// no unrelated failure sends the operator to the wrong fix.
 func classifyBwrapFailure(runErr error, stderr string) string {
 	var ee *exec.ExitError
 	if errors.As(runErr, &ee) {
@@ -357,14 +361,47 @@ func classifyBwrapFailure(runErr error, stderr string) string {
 	if strings.Contains(low, "seccomp") {
 		return sandboxCodeSeccompFailed
 	}
-	if !strings.Contains(low, "bwrap:") && stderr != "" {
+	if stderr == "" {
+		return sandboxCodeStartFailed
+	}
+	if !strings.Contains(low, "bwrap:") {
 		// bwrap built the sandbox; the probe inside failed before it could report.
 		return sandboxCodeNetnsFailed
 	}
+	restricted := false
 	if b, err := os.ReadFile(apparmorRestrictUsernsPath); err == nil && strings.TrimSpace(string(b)) == "1" {
+		restricted = true
+	}
+	switch {
+	case bwrapUsernsFailure(low) && restricted:
+		return sandboxCodeUsernsBlocked
+	case bwrapUsernsFailure(low):
+		return sandboxCodeUsernsUnavailable
+	case restricted && strings.Contains(low, "loopback:"):
+		// With the restriction on, Ubuntu lets bwrap create the namespace and then withholds its
+		// capabilities: the first thing bwrap does with them, bringing lo up, is what fails.
 		return sandboxCodeUsernsBlocked
 	}
-	return sandboxCodeUsernsUnavailable
+	return sandboxCodeStartFailed
+}
+
+// bwrapUsernsFailure reports whether bwrap's message (lower case) says it could not create or set up the
+// user namespace: the wording of bubblewrap 0.4 to 0.9 for a denied clone, unshare or uid and gid map.
+func bwrapUsernsFailure(low string) bool {
+	for _, m := range []string{
+		"creating new namespace failed",
+		"no permissions to create new namespace",
+		"unprivileged user namespaces",
+		"setting up uid map",
+		"setting up gid map",
+		"unshare failed",
+		"user namespace",
+	} {
+		if strings.Contains(low, m) {
+			return true
+		}
+	}
+	return false
 }
 
 // summary lists the checks that failed, for the operator's detail line.

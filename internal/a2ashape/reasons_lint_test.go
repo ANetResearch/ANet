@@ -256,7 +256,7 @@ var placeholders = map[string]bool{
 	"file_aid8": true, "auto_max": true, "agent_max": true, "agent_left": true, "explicit_max": true,
 	"from": true, "to": true, "old": true, "file": true, "how": true, "skill": true, "state": true,
 	"charge": true, "backend": true, "m": true, "k": true, "host": true, "field": true, "type": true,
-	"paths": true, "auto_reply": true,
+	"paths": true, "auto_reply": true, "detail": true,
 }
 
 // UX-T4: every placeholder is defined; with no values at all a sentence

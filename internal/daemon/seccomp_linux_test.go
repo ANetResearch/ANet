@@ -33,13 +33,15 @@ var specDenied = []string{
 	"name_to_handle_at", "acct", "swapon", "swapoff", "reboot", "syslog",
 	// The new mount API, refused for the same reason as mount (SB-6, 2026-10-04).
 	"fsopen", "fsconfig", "fsmount", "fspick", "move_mount", "open_tree", "mount_setattr",
+	// open_tree_attr, added in Linux 6.15 (SB-6, 2026-10-10).
+	"open_tree_attr",
 }
 
 // The new mount API has the same numbers on every architecture (include/uapi/asm-generic/unistd.h;
 // arch/x86/entry/syscalls/syscall_64.tbl), checked against golang.org/x/sys/unix v0.47.0.
 var specNewMountNr = map[string]uint32{
 	"open_tree": 428, "move_mount": 429, "fsopen": 430, "fsconfig": 431, "fsmount": 432, "fspick": 433,
-	"mount_setattr": 442,
+	"mount_setattr": 442, "open_tree_attr": 467,
 }
 
 func init() {
@@ -449,7 +451,7 @@ var seccompSelfTestDenied = []string{"add_key", "request_key", "bpf", "perf_even
 	"io_uring_enter", "io_uring_register", "ptrace", "process_vm_readv", "process_vm_writev", "kexec_load",
 	"kexec_file_load", "init_module", "finit_module", "delete_module", "mount", "umount2", "pivot_root",
 	"setns", "open_by_handle_at", "name_to_handle_at", "acct", "swapon", "swapoff", "reboot", "syslog",
-	"fsopen", "fsconfig", "fsmount", "fspick", "move_mount", "open_tree", "mount_setattr"}
+	"fsopen", "fsconfig", "fsmount", "fspick", "move_mount", "open_tree", "mount_setattr", "open_tree_attr"}
 
 // runSeccompSelfTest is the child of TestSeccompFilterInKernel. It prints a JSON object mapping each
 // probe to the errno name it got ("ok" for success).
@@ -546,6 +548,7 @@ func runSeccompSelfTest(mode string) int {
 	res["move_mount"] = call("move_mount", bad, 0, bad, 0, 0xffffffff)
 	res["open_tree"] = call("open_tree", bad, 0, 0)
 	res["mount_setattr"] = call("mount_setattr", bad, 0, 0, 0, 0)
+	res["open_tree_attr"] = call("open_tree_attr", bad, 0, 0, 0, 0)
 	res["ioctl-tiocsti"] = call("ioctl", bad, 0x5412, 0)
 	res["ioctl-tioclinux"] = call("ioctl", bad, 0x541c, 0)
 	res["ioctl-tiocsti-high"] = call("ioctl", bad, uintptr(uint64(0x1_0000_5412)), 0)

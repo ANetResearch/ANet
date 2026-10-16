@@ -203,7 +203,12 @@ userns_unavailable
 netns_failed
 seccomp_failed
 fs_isolation_failed
+netns_failed.doctor
+seccomp_failed.doctor
+fs_isolation_failed.doctor
+sandbox_start_failed
 agent_unsupported
+agent_unsupported.combo
 no_api_key
 no_api_base
 no_model
@@ -219,6 +224,7 @@ egress_unauthorized
 egress_tunnels
 egress_too_large
 egress_upstream_unreachable
+egress_host_unresolved
 policy_server_tool
 policy_mcp_servers
 policy_field
@@ -304,6 +310,7 @@ trust_confirm.direct
 trust_confirm.sandbox
 egress_confirm
 trusted_direct_confirm
+autoreply.prompt.api_key
 card.header
 card.price
 card.price_free
