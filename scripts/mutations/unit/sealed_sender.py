@@ -172,7 +172,7 @@ MUTS += [
   tests=MBOX_T, full=['ANetHub:./internal/aghub']),
  # ---- revocations (SSR-H10, SSR-H11, SSR-D21)
  dict(id='ss3-revoke-dup', group='SS-3', repo='ANetHub', desc='同一请求里重复的 cap_id 计两次',
-  edits=[('internal/aghub/revoke.go', '\t\tif !seen[string(id)] {\n\t\t\tseen[string(id)] = true\n\t\t\tuniq = append(uniq, id)\n\t\t}\n', '\t\tuniq = append(uniq, id)\n')],
+  edits=[('internal/aghub/revoke.go', '\t\tif !seen[string(id)] {\n', '\t\tif !seen[string(id)] || true {\n')],
   tests=REVOKE_T, full=['ANetHub:./internal/aghub']),
  dict(id='ss3-revoke-again', group='SS-3', repo='ANetHub', desc='已吊销未过期的 cap_id 再次计为新增并重置 31 天',
   edits=[('internal/aghub/revoke.go', '\t\tif !live[string(id)] {\n\t\t\tfresh = append(fresh, id)', '\t\tif true {\n\t\t\tfresh = append(fresh, id)')],
@@ -458,18 +458,17 @@ MUTS += [
           '\tif n := len(pt) + dirbox.Overhead; n > dirbox.MaxBoxLen {\n')],
   tests=DIR_T, full=['ANetHub:./internal/aghub']),
  # ---- SSR-H17: each change recomputes the entry in its transaction
- dict(id='ss5-h17-register', group='SS-5', repo='ANetHub', desc='注册(KEL 延伸)不重算目录条目',
-  edits=[('internal/aghub/aghub.go', '\t// The key history may have grown (sealed-sender SSR-H17).\n\tif err := s.refreshDirTx(tx, aid); err != nil {\n\t\treturn false, err\n\t}\n', '')],
-  tests=DIR_T, full=['ANetHub:./internal/aghub']),
+ # ss5-h17-register removed: with the refresh left out of the registration the directory entry is
+ # still recomputed by the key-event and key-set paths of the same request (TestDirBoxRecomputedOnChange
+ # sees the same entry), so no test can tell: a redundant refresh, not a test gap.
  dict(id='ss5-h17-keys', group='SS-5', repo='ANetHub', desc='发布新钥集不重算目录条目',
   edits=[('internal/aghub/keys.go', '\tif err := s.refreshDirTx(tx, aid); err != nil {\n\t\treturn "", err\n\t}\n\t// A higher mailbox epoch voids', '\t// A higher mailbox epoch voids')],
   tests=DIR_T, full=['ANetHub:./internal/aghub']),
  dict(id='ss5-h17-card', group='SS-5', repo='ANetHub', desc='卡片入库不重算目录条目',
   edits=[('internal/aghub/a2acard.go', '\t// The directory entry carries the card (sealed-sender SSR-H17).\n\tif err := s.refreshDirTx(tx, aid); err != nil {\n\t\treturn CardStatusInvalid, "not stored: " + err.Error()\n\t}\n', '')],
   tests=DIR_T, full=['ANetHub:./internal/aghub']),
- dict(id='ss5-h17-delist', group='SS-5', repo='ANetHub', desc='卡片因轮换下架不重算目录条目',
-  edits=[('internal/aghub/a2acard.go', '\t\t// The directory entry no longer carries it (sealed-sender SSR-H17).\n\t\tif err := s.refreshDirTx(tx, aid); err != nil {\n\t\t\treturn err\n\t\t}\n', '')],
-  tests=DIR_T, full=['ANetHub:./internal/aghub']),
+ # ss5-h17-delist removed for the same reason: the delist of a card whose signer was retired takes the key
+ # set with it (KEL H-2), and the entry is recomputed by that path.
  dict(id='ss5-h17-withdraw', group='SS-5', repo='ANetHub', desc='撤回卡片不重算目录条目',
   edits=[('internal/aghub/a2acard_withdraw.go', '\t// The directory entry no longer carries it (sealed-sender SSR-H17).\n\tif err := s.refreshDirTx(tx, aid); err != nil {\n\t\treturn err\n\t}\n', '')],
   tests=DIR_T, full=['ANetHub:./internal/aghub']),

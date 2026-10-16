@@ -16,6 +16,7 @@ import (
 	"net/http/httptest"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
 
@@ -299,6 +300,11 @@ func FuzzReceiveInner(f *testing.F) {
 				}
 				doc, _, err := x.req.signTaskDoc(goal, bind)
 				if err != nil {
+					// A task document is text: a capability id that is not UTF-8 cannot
+					// be one, which is the fixture's limit and not the receive path's.
+					if !utf8.ValidString(capID) {
+						t.Skip("capability id is not UTF-8")
+					}
 					t.Fatal(err)
 				}
 				rcid, err := anetcid.Sum(doc)
