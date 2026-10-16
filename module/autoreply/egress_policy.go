@@ -33,6 +33,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
 )
@@ -211,6 +212,9 @@ func rewriteInjectBody(up *egressUpstream, kind egressRouteKind, body []byte) ([
 	if !ok {
 		return nil, refuseEgress(http.StatusBadRequest, "policy_encoding", nil)
 	}
+	if k := foldedAlias(obj); k != "" {
+		return nil, refuseEgress(http.StatusForbidden, "policy_field", a2ashape.Args{"field": egressArg(k)})
+	}
 	var r *egressRefusal
 	switch kind {
 	case routeAnthropicMessages, routeAnthropicCountTokens:
@@ -231,6 +235,49 @@ func rewriteInjectBody(up *egressUpstream, kind egressRouteKind, body []byte) ([
 		return nil, refuseEgress(http.StatusBadRequest, "policy_encoding", nil)
 	}
 	return out, nil
+}
+
+// egressPolicyMembers are the top-level members a body policy reads or rewrites. A server that reads keys
+// case-insensitively, with Unicode folding as Go's encoding/json does, would take "Store" or "ſtore" for
+// "store" and let the alias override the value the policy pinned, so a key that differs from one of these
+// only by case or fold is refused (T-1 EXE F-5).
+var egressPolicyMembers = []string{"model", "max_tokens", "max_output_tokens", "max_completion_tokens", "thinking",
+	"store", "n", "service_tier", "tools", "tool_choice", "mcp_servers", "container", "previous_response_id",
+	"conversation", "prompt", "background", "web_search_options", "stream", "input", "messages", "system"}
+
+// foldKey is s with every rune replaced by the smallest of its case-fold orbit (ſ and s, K and k alike).
+func foldKey(s string) string {
+	return strings.Map(func(r rune) rune {
+		m := r
+		for f := unicode.SimpleFold(r); f != r; f = unicode.SimpleFold(f) {
+			if f < m {
+				m = f
+			}
+		}
+		return m
+	}, s)
+}
+
+// foldedAlias is the first top-level key of obj (in order) that equals a policy member after folding but
+// not byte for byte, or "".
+func foldedAlias(obj map[string]any) string {
+	known := map[string]bool{}
+	folded := map[string]bool{}
+	for _, m := range egressPolicyMembers {
+		known[m] = true
+		folded[foldKey(m)] = true
+	}
+	keys := make([]string, 0, len(obj))
+	for k := range obj {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+	for _, k := range keys {
+		if !known[k] && folded[foldKey(k)] {
+			return k
+		}
+	}
+	return ""
 }
 
 // decodeJSONObject decodes one JSON object and nothing after it. Numbers stay as written.
@@ -364,6 +411,10 @@ func egressInlineData(u string) bool {
 func responsesMediaByURL(obj map[string]any) *egressRefusal {
 	return mediaByURL(obj["input"], "input", func(m map[string]any) string {
 		switch typ, _ := m["type"].(string); {
+		case typ == "item_reference":
+			return "type" // a reference to an item stored in the operator's account
+		case (typ == "input_image" || typ == "input_file") && presentMember(m, "file_id"):
+			return "file_id" // a file in the operator's account
 		case typ == "input_image" && presentMember(m, "image_url"):
 			if u, isStr := m["image_url"].(string); !isStr || !egressInlineData(u) {
 				return "image_url"
@@ -399,6 +450,9 @@ func chatMediaByURL(obj map[string]any) *egressRefusal {
 			}
 		}
 		if f, ok := m["file"].(map[string]any); ok {
+			if presentMember(f, "file_id") {
+				return "file.file_id"
+			}
 			if d, ok := f["file_data"].(string); ok && strings.Contains(d, ":") && !egressInlineData(d) {
 				return "file.file_data"
 			}
