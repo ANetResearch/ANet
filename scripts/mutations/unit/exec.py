@@ -1257,13 +1257,8 @@ MUTS += [
   tests=[(DAEMON, 'TestDirsSizeCountsAllocatedBlocks')],
   full=[DAEMON],
  ),
- dict(
-  id='m-sb-8d', group='SB-8', repo='ANet',
-  desc='删除工作目录时按路径 chmod(可被仍在运行的 agent 换成指向树外的链接)',
-  edits=[('internal/execwork/execwork.go', '\t\t\t\t\t_ = r.Chmod(p, 0o700)', '\t\t\t\t\t_ = os.Chmod(filepath.Join(dir, p), 0o700)')],
-  tests=[(DAEMON, 'TestRemoveWorkTreeStaysInTheTree')],
-  full=[DAEMON],
- ),
+# m-sb-8d (chmod by path in RemoveTree) was dropped in T-1: the walk lists only directories of the tree, never a link,
+# so without a concurrent swap of a directory for a link the change is not observable; the os.Root form stays as the guard.
  dict(
   id='m-bu-9', group='BU-1', repo='ANet',
   desc='openai 后端把信任对端的轮次也计入预算',
