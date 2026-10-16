@@ -76,7 +76,7 @@ func TestCardPrintsTextC(t *testing.T) {
 }
 
 // The other endings (CORE-K23 rule 4): a card that charges nothing ends
-// with card.footer_free; one whose prices should have been had and were not
+// with card.footer_free, the extended card of a free list included; one whose prices should have been had and were not
 // lists its public skills at "—" and ends with the daemon's priceNote, word
 // for word (what MCP's priceNote and the local A2A error say); a key not
 // confirmed lately says so; an unverified card shows nothing of its own.
@@ -93,6 +93,18 @@ func TestCardOtherEndings(t *testing.T) {
 				"  " + a2ashape.Sentence("card.price_free", l, a2ashape.Args{"skill": "translate"}),
 				"  " + a2ashape.Sentence("card.price_free", l, a2ashape.Args{"skill": "summarize"}),
 				"  " + a2ashape.Sentence("card.price_free", l, a2ashape.Args{"skill": "chat     "}),
+				a2ashape.Sentence("card.footer_free", l, nil),
+			}},
+		// J-PAY-4's face node seen from its list: the extended card adds a
+		// free list-only skill and declares no a2a-x402, so every skill is
+		// listed free and the card ends as a free card does, not with the
+		// signed-price footer.
+		{"free extended", `{"aid":"` + wholeAID + `","verification":"VERIFIED","key_state":"fresh","charge":"free","card":` + cardJSON +
+			`,"prices":[{"skill":"face.detect","amount":"0","unit":"credits"},{"skill":"face.compare","amount":"0","unit":"credits"}],"pricesFetchedAt":"2026-10-01T06:05:00.000Z"}`,
+			[]string{
+				a2ashape.Sentence("card.header", l, a2ashape.Args{"name": "翻译助手", "peer": wholeAID, "state": "verified", "charge": "free"}),
+				"  " + a2ashape.Sentence("card.price_free", l, a2ashape.Args{"skill": "face.detect "}),
+				"  " + a2ashape.Sentence("card.price_free", l, a2ashape.Args{"skill": "face.compare"}),
 				a2ashape.Sentence("card.footer_free", l, nil),
 			}},
 		{"unavailable", `{"aid":"` + wholeAID + `","verification":"VERIFIED","key_state":"fresh","charge":"paid","card":` + cardJSON +

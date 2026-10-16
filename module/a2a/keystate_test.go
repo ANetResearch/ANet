@@ -55,3 +55,36 @@ func TestProxyCardAndListSayTheKeyState(t *testing.T) {
 		}
 	}
 }
+
+// HPP PAY-C15: the local agent list says each verified agent's charge as
+// its public card declares it (the kernel's Agents, which never fetches an
+// extended card), the same column anet find and MCP list_agents show; an
+// agent whose card did not verify has none, whatever the kernel handed over.
+func TestTheAgentListSaysTheCharge(t *testing.T) {
+	e := newEnv(t)
+	paid := verifiedRemote(agentA)
+	paid.Charge = module.ChargePartial
+	free := verifiedRemote(agentB)
+	free.Charge = module.ChargeFree
+	e.seam.agents = []module.RemoteAgent{paid, free,
+		{AID: "bafyunverifiedcharge", Verification: unverified, Charge: module.ChargePaid}}
+	resp, raw := e.raw("GET", agentsPath, map[string]string{"Authorization": "Bearer " + testToken}, "")
+	if resp.StatusCode != 200 {
+		t.Fatalf("%d %s", resp.StatusCode, raw)
+	}
+	var out struct {
+		Agents []map[string]any `json:"agents"`
+	}
+	if err := json.Unmarshal(raw, &out); err != nil || len(out.Agents) != 3 {
+		t.Fatalf("agents: %v %s", err, raw)
+	}
+	want := map[string]any{agentA: "partial", agentB: "free", "bafyunverifiedcharge": nil}
+	for _, a := range out.Agents {
+		if a["charge"] != want[a["aid"].(string)] {
+			t.Errorf("%v: charge %v, want %v", a["aid"], a["charge"], want[a["aid"].(string)])
+		}
+	}
+	if e.seam.extCalls != 0 {
+		t.Fatalf("the list asked for %d extended cards", e.seam.extCalls)
+	}
+}

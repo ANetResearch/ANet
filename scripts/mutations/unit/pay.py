@@ -958,4 +958,10 @@ MUTS += [
  dict(id='pay11-peername-prices', group='PAY-11', repo='ANet', desc='确认提示取名字时让 daemon 去联系对方取价',
   edits=[('cmd/anet/peers.go', 'map[string]any{"aid": aid, "prices": false}', 'map[string]any{"aid": aid}')],
   tests=[('ANet:./cmd/anet', '^TestPeerNameAsksNoPrices$')], full=['ANet:./cmd/anet']),
+ dict(id='pay11-free-ext-footer', group='PAY-11', repo='ANet', desc='anet card 取到全部免费的扩展卡(名单内看 face 节点)时末行写签名价的 card.footer,而不是 card.footer_free(J-PAY-4)',
+  edits=[('cmd/anet/card.go', '\tcase len(ra.Prices) > 0 && ra.Charge == "free":', '\tcase false && len(ra.Prices) > 0 && ra.Charge == "free":')],
+  tests=[('ANet:./cmd/anet', '^TestCardOtherEndings$')], full=['ANet:./cmd/anet']),
+ dict(id='pay11-local-list-charge', group='PAY-11', repo='ANet', desc='本机 A2A 的 agent 列表不带 charge(PAY-C15 的四个列表之一)',
+  edits=[('module/a2a/server.go', '\t\t\te.Charge = a.Charge\n', '')],
+  tests=[(A2AMOD, '^TestTheAgentListSaysTheCharge$')], full=[A2AMOD]),
 ]
