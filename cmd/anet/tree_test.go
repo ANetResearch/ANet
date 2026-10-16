@@ -37,8 +37,7 @@ var commandTree = []string{
 // pendingCommands are the ux §4.2 commands this binary does not have yet, each with the work package
 // that adds it. It may only shrink: the package that adds a command lists it in the help and takes it
 // off here, or this test is red (the help would be promising nothing, or listing it twice).
-var pendingCommands = map[string]string{
-}
+var pendingCommands = map[string]string{}
 
 // helpForms reads the invocations a help text lists: "anet <word>", and "anet <word> <sub>" for the
 // commands whose subcommands ux §4.2 lists on rows of their own.
