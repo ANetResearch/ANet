@@ -67,7 +67,6 @@
 # host, everything else under /dl/. On agentnetwork.org.cn that root is
 # /var/www/anet-release, never the website's public/ (a website deploy
 # replaced install.sh there once): deploy/release/apex/publish.sh --dist dist/
-# (an internal note).
 #
 # Usage:
 #   ANET_RELEASE_KEY=~/.ssh/anet-release ./deploy/release/build-release.sh

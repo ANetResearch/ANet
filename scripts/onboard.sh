@@ -2,7 +2,7 @@
 # onboard.sh — a new user, from a fresh binary to working, on each
 # distribution variant.
 #
-# scenario.sh and prodtest.sh both start from a topology that is already
+# scenario.sh and the other scripted runs start from a topology that is already
 # configured. Nothing walked the path a person actually takes: download a
 # build, start it, join a hub, find somebody, delegate, get an answer.
 # That path crosses first-run behaviour — key generation, config

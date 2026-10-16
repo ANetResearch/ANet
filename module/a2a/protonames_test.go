@@ -1,3 +1,5 @@
+//go:build !no_a2a
+
 package a2a
 
 import (

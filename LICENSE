@@ -5,8 +5,8 @@ Copyright (c) 2026 Agent Network Research (anet0.com)
 ANet is licensed under a modified version of the Apache License 2.0, with
 the following additional conditions. In these conditions, "ANet" means the
 software and documentation published under this License in the ANet,
-ANetCore and ANetHub repositories, in Source or Object form, including any
-Derivative Works of them; "the producer" means Agent Network Research.
+ANetCore, ANetHub and ANetLink repositories, in Source or Object form,
+including any Derivative Works of them; "the producer" means Agent Network Research.
 
 1. ANet may be utilized commercially, including as a backend service for
    other applications (for example, by embedding the anet daemon, the anet
