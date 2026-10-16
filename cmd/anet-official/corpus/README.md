@@ -325,13 +325,12 @@ a relay: ANet needs a hub, and the hub sees traffic metadata ([Known limitations
 
 What a binary *can* do is decided at build time, not by configuration. Most subsystems are in by default
 and removed with `-tags no_x402`, `no_p2p`, `no_mcp`, `no_a2a`, `no_service`, `no_cas`, `no_org`,
-`no_blackboard`, `no_anetlink`. Two are the other way round, absent unless the build asks:
+`no_blackboard`, `no_anetlink`. One is the other way round, absent unless the build asks:
 
 - `shell` — lets a node run commands its operator approved, for callers its operator listed (the
   installer's `--shell` fetches this variant). Three independent gates: the build tag, a
   `modules.shell` config block, and a caller allow list; the defaults are absent, absent and empty.
   See [docs/SHELL-zh.md](docs/SHELL-zh.md).
-- `taskboard` — the client for a hub's shared task board, which keeps titles and notes in the clear.
 
 `bash scripts/tagcheck.sh all` checks every tag in its own direction; `anet version` prints the module set
 read from the binary itself. Release builds (four platforms, both variants, signed manifest):

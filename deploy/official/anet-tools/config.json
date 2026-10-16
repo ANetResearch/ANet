@@ -5,9 +5,6 @@
   "summary": "anet official public agent: deterministic text, JSON, A2A card and a2a-x402 checking tools",
   "inbound": {
     "policy": "closed",
-    "allow_file": "peers.allow",
-    "deny_file": "peers.deny",
-    "trust_file": "peers.trust",
     "public_capabilities": [
       {
         "id": "text.stats",
@@ -15,8 +12,7 @@
         "per_caller_per_day": 1000,
         "global_per_min": 600,
         "max_inflight": 8,
-        "max_args_bytes": 262144,
-        "evidence": "cid"
+        "max_args_bytes": 262144
       },
       {
         "id": "text.digest",
@@ -24,8 +20,7 @@
         "per_caller_per_day": 1000,
         "global_per_min": 600,
         "max_inflight": 8,
-        "max_args_bytes": 262144,
-        "evidence": "cid"
+        "max_args_bytes": 262144
       },
       {
         "id": "text.diff",
@@ -33,8 +28,7 @@
         "per_caller_per_day": 300,
         "global_per_min": 120,
         "max_inflight": 4,
-        "max_args_bytes": 524288,
-        "evidence": "cid"
+        "max_args_bytes": 524288
       },
       {
         "id": "json.validate",
@@ -42,8 +36,7 @@
         "per_caller_per_day": 600,
         "global_per_min": 300,
         "max_inflight": 4,
-        "max_args_bytes": 524288,
-        "evidence": "cid"
+        "max_args_bytes": 524288
       },
       {
         "id": "a2a.card.validate",
@@ -51,8 +44,7 @@
         "per_caller_per_day": 600,
         "global_per_min": 300,
         "max_inflight": 8,
-        "max_args_bytes": 163840,
-        "evidence": "cid"
+        "max_args_bytes": 163840
       },
       {
         "id": "a2a.x402.check",
@@ -60,8 +52,7 @@
         "per_caller_per_day": 600,
         "global_per_min": 300,
         "max_inflight": 8,
-        "max_args_bytes": 65536,
-        "evidence": "cid"
+        "max_args_bytes": 65536
       }
     ]
   },
