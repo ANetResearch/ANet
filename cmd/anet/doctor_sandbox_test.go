@@ -329,3 +329,30 @@ func TestDoctorAutoReplyIDsFollowTheModule(t *testing.T) {
 		}
 	}
 }
+
+// With the module off, the auto_reply item is the module_absent sentence
+// (UX-K6), not "Auto-reply is off".
+func TestDoctorAutoReplyIsModuleAbsentWhenTheModuleIsOff(t *testing.T) {
+	layout := freshInit(t)
+	b, _ := os.ReadFile(layout.ConfigPath())
+	var m map[string]any
+	_ = json.Unmarshal(b, &m)
+	m["without"] = []string{"autoreply"}
+	b, _ = json.Marshal(m)
+	if err := os.WriteFile(layout.ConfigPath(), b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	rep, err := collectDoctor(layout, testDoctorEnv(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range rep.Checks {
+		if c.ID == "auto_reply" {
+			if c.Reason != "module_absent" || c.Status != stInfo {
+				t.Errorf("auto_reply = %s %s %q", c.Status, c.Reason, c.Detail)
+			}
+			return
+		}
+	}
+	t.Error("no auto_reply item")
+}
