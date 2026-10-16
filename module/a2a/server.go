@@ -282,6 +282,9 @@ func (s *server) binding(next http.Handler, jsonrpc bool) http.Handler {
 			return
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, maxBody)
+		if jsonrpc {
+			normalizeJSONRPCBody(r)
+		}
 
 		info := &reqInfo{aid: aid, requested: mergeExtensions(r.Header)}
 		info.versionErr = checkVersion(r)

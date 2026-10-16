@@ -12,6 +12,7 @@ import (
 	"errors"
 	"io"
 	"log"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -52,6 +53,9 @@ type hubJoin struct {
 	// the last attempt whose registration was accepted began (unix ns): a
 	// kick older than that attempt has been answered by it.
 	kickAt, okAt atomic.Int64
+	// probeAt is when the hub was last asked whether this node is still on
+	// probation (unix ms; refreshProbation).
+	probeAt atomic.Int64
 	// waitHook, when set, is told each time the loop starts to wait. Tests
 	// only, through setJoinWait (testhooks.go).
 	waitHook atomic.Pointer[func(nextAttemptAt int64)]
@@ -541,6 +545,48 @@ func joinViewOf(r *joinRecord, now time.Time, lang a2ashape.Language, aid string
 		v.HubCode, v.HubError = "", ""
 	}
 	return v
+}
+
+// probationRecheck is the least time between two questions to the hub about
+// a probation the join record still shows.
+const probationRecheck = 30 * time.Second
+
+// refreshProbation brings the join record's probation up to date. The record
+// holds the end of the probation the hub named when this node registered; an
+// operator who admits the account at the hub ends it earlier, and nothing in
+// the record would say so. While the record shows a probation, the account
+// is read off the hub (at most once in probationRecheck, within a few
+// seconds, and a hub that cannot be reached leaves the record as it is) and
+// a probation the hub no longer reports is taken out of the record.
+func (d *Daemon) refreshProbation(ctx context.Context) {
+	r := d.joinSnapshot()
+	now := time.Now()
+	if r == nil || r.State != JoinRegistered || r.Reason != reasonProbation || r.ProbationUntil <= uint64(now.UnixMilli()) {
+		return
+	}
+	last := d.join.probeAt.Load()
+	if now.UnixMilli()-last < probationRecheck.Milliseconds() || !d.join.probeAt.CompareAndSwap(last, now.UnixMilli()) {
+		return
+	}
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	acct, err := d.HubAccount(ctx)
+	if err != nil {
+		return
+	}
+	var until uint64
+	if p := acct.ProbationUntil; p != nil && *p > uint64(now.UnixMilli()) && *p <= math.MaxInt64 {
+		until = *p
+	}
+	if until == r.ProbationUntil {
+		return
+	}
+	cp := *r
+	cp.ProbationUntil = until
+	if until == 0 {
+		cp.set(JoinRegistered, reasonRegistered, now)
+	}
+	d.keepJoinRecord(r.Hub, cp)
 }
 
 // HubView is the hub object of /status (§2.3.3), in this process's

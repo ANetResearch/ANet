@@ -29,6 +29,8 @@ import json
 import os
 import re
 import sys
+import time
+import urllib.request
 
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -269,6 +271,30 @@ def _sut_matcher():
     return match
 
 
+def _open_task_ids() -> set | None:
+    """SUT 上处于 SUBMITTED 或 WORKING 的任务 id;取不到(接口或令牌不可用)时为 None。"""
+    sut = os.environ.get("ANET_TCK_SUT", "")
+    try:
+        token = _read_token()
+        ids: set = set()
+        for state in ("TASK_STATE_SUBMITTED", "TASK_STATE_WORKING"):
+            req = urllib.request.Request(
+                sut + "/jsonrpc",
+                data=json.dumps(
+                    {"jsonrpc": "2.0", "id": 1, "method": "ListTasks",
+                     "params": {"status": state, "pageSize": 100, "historyLength": 0}}
+                ).encode(),
+                headers={"Content-Type": "application/json", "A2A-Version": "1.0",
+                         **({"Authorization": f"Bearer {token}"} if token else {})},
+            )
+            with urllib.request.urlopen(req, timeout=10) as r:
+                res = json.loads(r.read()).get("result") or {}
+            ids.update(t["id"] for t in res.get("tasks") or [])
+        return ids
+    except Exception:
+        return None
+
+
 def _install_http_hooks() -> None:
     import httpx
 
@@ -334,6 +360,25 @@ if pytest is not None:
                 skipped=True,
             )
         pytest.skip(f"anet {'不适用' if group.kind == NA else '需对端'}:{group.key}(理由见 anet-skips.json / 0019)")
+
+    @pytest.fixture(autouse=True)
+    def _anet_tck_settle():
+        """每个用例之后等对端把它发起的任务答完(最多 5 秒)。
+
+        TCK 的非阻塞用例(return_immediately)一返回就进入下一个用例,而下一个用例常用同一个 messageId
+        (一个会话一个前缀)。经 anet 的任务要走 hub 和对端才完成;任务未结束时同一 messageId 配不同内容
+        按去重规则被拒(MESSAGE_ID_REUSED)。这是夹具的时序,不是接口问题:先等前一个任务结束。
+        用例开始前已经开着的任务(如永不完成的 url 产物)不等。"""
+        before = _open_task_ids()
+        yield
+        if before is None:
+            return
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline:
+            now = _open_task_ids()
+            if now is None or now <= before:
+                return
+            time.sleep(0.1)
 
     def pytest_sessionfinish(session, exitstatus) -> None:
         out = os.environ.get("ANET_TCK_SKIPS_OUT")

@@ -633,6 +633,7 @@ func (d *Daemon) hStatus(w http.ResponseWriter, r *http.Request) {
 	d.statusMembers(out)
 	// The hub join state (LEC §2.3.3): what the node is waiting for, and
 	// the one command, if any, that moves it on.
+	d.refreshProbation(r.Context())
 	out["hub"] = d.HubView()
 	// The identity, as /identity/status says it (KEL M-2): MCP node_status
 	// passes it on, the recovery reminder included (KEL D-15).
