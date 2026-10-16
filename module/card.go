@@ -32,6 +32,11 @@ const (
 	// public card: the kernel drops it there, and a hub refuses a public card
 	// that carries it.
 	ExtPriceURI = "https://agentnetwork.org.cn/a2a/ext/anet-price/v1"
+	// ExtPreviewURI is the preview extension (CUX-P30): an agent that
+	// declares it sends previews of its reply while it is being written; a
+	// client that activates it receives them as updates of the anet.reply
+	// artifact. It has no params and is never required.
+	ExtPreviewURI = "https://agentnetwork.org.cn/a2a/ext/anet-preview/v1"
 )
 
 // CardVariant names one of the two extended cards a node signs at a time.

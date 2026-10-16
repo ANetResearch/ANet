@@ -212,8 +212,9 @@ type TaskSeam interface {
 	// Watch is SubscribeToTask: the task as it is now and its later
 	// events, taken together so that no change falls between them. The
 	// channel closes after the terminal status update, when ctx ends, or
-	// when the watcher falls too far behind (it may Watch again).
-	Watch(ctx context.Context, peerAID, taskID string) (Task, <-chan TaskEvent, error)
+	// when the watcher falls too far behind (it may Watch again). Only a
+	// watcher that opts in receives preview events (CUX-A3).
+	Watch(ctx context.Context, peerAID, taskID string, opts WatchOpts) (Task, <-chan TaskEvent, error)
 	// Agents lists the remote agents a client may address.
 	Agents(ctx context.Context, q AgentQuery) ([]RemoteAgent, error)
 	// Card is one remote agent, with its verified network card if it has
@@ -231,6 +232,15 @@ type TaskSeam interface {
 	// authorization within the agent-tier limits and sends it; reject
 	// declines. The purpose is always task-agent.
 	Pay(ctx context.Context, peerAID, taskID string, decision PayDecision) (Task, error)
+}
+
+// WatchOpts are what a subscriber asks of Watch.
+type WatchOpts struct {
+	// Preview is set for a subscriber that activated the preview extension
+	// (ExtPreviewURI): it receives the task's preview frames as artifact
+	// updates, and one for the preview the task shows when it subscribes.
+	// A subscriber that did not receives none.
+	Preview bool
 }
 
 // TaskSend is one SendMessage as the local A2A interface received it.
@@ -253,6 +263,10 @@ type TaskSend struct {
 	// Extensions are the extension URIs the client activated for this
 	// request, from A2A-Extensions and X-A2A-Extensions merged.
 	Extensions []string
+	// Preview asks the provider for previews of the round this message
+	// opens: "on" or "with_reasoning" (CUX-P10); empty or "off" asks for
+	// none.
+	Preview string
 }
 
 // TaskFilter selects tasks for List (A2A ListTasksRequest).

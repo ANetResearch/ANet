@@ -503,6 +503,12 @@ func activate(requested, supported []string) []string {
 	var out []string
 	for _, u := range requested {
 		switch {
+		case u == module.ExtPreviewURI:
+			// The preview extension is a capability of this node's kernel,
+			// not of the remote agent: the client may activate it whatever
+			// the remote card says, because the card may be older than the
+			// agent's settings, and a provider that does not preview
+			// answers as if none was asked (CUX-P30).
 		case slices.Contains(supported, u):
 		case x402a2a.Activated([]string{u}) && slices.Contains(supported, x402a2a.ExtensionURI):
 			u = x402a2a.ExtensionURI
@@ -515,6 +521,9 @@ func activate(requested, supported []string) []string {
 	}
 	return out
 }
+
+// previews reports whether the request activated the preview extension.
+func (i *reqInfo) previews() bool { return i != nil && slices.Contains(i.active, module.ExtPreviewURI) }
 
 // reqInfo is what the HTTP layer tells the handler about one request.
 type reqInfo struct {

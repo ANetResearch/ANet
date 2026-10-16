@@ -52,7 +52,7 @@ func TestTaskGetAsksForTheBoundOrTheWholeTask(t *testing.T) {
 		}
 	}
 	n := len(bodies)
-	for _, bad := range [][]string{{}, {"get"}, {"watch", "ix_1"}, {"get", "a", "b"}, {"get", "ix_1", "--history", "x"},
+	for _, bad := range [][]string{{}, {"get"}, {"watch"}, {"get", "a", "b"}, {"get", "ix_1", "--history", "x"},
 		{"list", "x"}, {"list", "--role", "boss"}, {"cancel"}, {"cancel", "a", "b"}} {
 		if err := taskCommand(c, bad); !isUsage(err) {
 			t.Errorf("%v: %v, want a usage error", bad, err)

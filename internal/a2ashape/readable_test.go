@@ -53,6 +53,10 @@ func completedText(t *testing.T, st *interactions.Store, ix string, last *transc
 	turns := []transcript.Message{{From: "requester", Body: "g"}}
 	if last != nil {
 		turns = append(turns, *last)
+		seq := msg(t, st, ix, peer, interactions.MsgText, last.Body, "m2", nil)
+		for _, a := range last.Attachments {
+			must(t, st.AddAttachment(ix, seq, interactions.Attachment{Name: a.Name, Mime: a.Mime, Size: a.Size, CID: a.CID, Data: []byte{9, 9}}))
+		}
 	}
 	tr, err := transcript.EncodeV2("n", turns)
 	must(t, err)
@@ -306,5 +310,40 @@ func TestRejectedTaskWithHugeWaitDoesNotWrap(t *testing.T) {
 	must(t, err)
 	if got := firstText(contract(t, task)); strings.Contains(got, " 0 second") || strings.Contains(got, "later") {
 		t.Errorf("wrapped wait: %q", got)
+	}
+}
+
+// CUX-A1: a text task has anet.reply as soon as the provider has spoken —
+// at input-required it is the question, the same message as status.message —
+// and a capability task is still gated by its receipt.
+func TestReplyArtifactBeforeTheTaskEnds(t *testing.T) {
+	st := openStore(t)
+	must(t, st.Create(interactions.New{ID: "ix_q", Role: interactions.RoleOutbound, PeerAID: peer, Goal: "g", ContextID: "c", TaskNonce: "n"}))
+	msg(t, st, "ix_q", self, interactions.MsgText, "g", "m1", nil)
+	task, err := a2ashape.ProjectStored(st, "ix_q", a2ashape.Options{Artifacts: true, SafeName: safe})
+	must(t, err)
+	if len(task.Artifacts) != 0 {
+		t.Fatalf("before the provider spoke: %+v", task.Artifacts)
+	}
+	msg(t, st, "ix_q", peer, interactions.MsgText, "which language?", "m2", nil)
+	must(t, func() error {
+		_, err := st.SetState("ix_q", interactions.StateInputRequired, interactions.CauseNotTerminal)
+		return err
+	}())
+	task, err = a2ashape.ProjectStored(st, "ix_q", a2ashape.Options{Artifacts: true, SafeName: safe})
+	must(t, err)
+	sdk := contract(t, task)
+	if len(sdk.Artifacts) != 1 || sdk.Artifacts[0].ID != a2ashape.ArtifactReply || sdk.Artifacts[0].Parts[0].Text() != "which language?" {
+		t.Fatalf("at input-required: %+v", sdk.Artifacts)
+	}
+	if sdk.Metadata[a2ashape.KeyReceipt] != nil {
+		t.Fatal("a receipt before there is one")
+	}
+	// The newest message wins.
+	msg(t, st, "ix_q", peer, interactions.MsgText, "and which dialect?", "m3", nil)
+	task, err = a2ashape.ProjectStored(st, "ix_q", a2ashape.Options{Artifacts: true, SafeName: safe})
+	must(t, err)
+	if got := contract(t, task).Artifacts[0].Parts[0].Text(); got != "and which dialect?" {
+		t.Fatalf("anet.reply = %q", got)
 	}
 }

@@ -222,6 +222,9 @@ func exitStatus(err error, w io.Writer) int {
 		fmt.Fprintln(w, ue.Error())
 		return 2
 	}
+	if errors.Is(err, errInputRequired) {
+		return 3 // task watch: the task waits for the user (UX-C4)
+	}
 	if err.Error() != "" {
 		fmt.Fprintln(w, "error:", err)
 	}
@@ -1168,10 +1171,10 @@ var knownFlags = map[string][]string{
 	// through. Neither name is worth breaking scripts over, so both work.
 	"find":       {"cap", "capability", "json"},
 	"card":       {"json"},
-	"delegate":   {"cap", "capability", "args", "attach"},
+	"delegate":   {"cap", "capability", "args", "attach", "watch"},
 	"inbox":      {"pending"},
 	"thread":     {},
-	"task":       {"full", "history", "role", "state", "peer"},
+	"task":       {"full", "history", "role", "state", "peer", "reasoning"},
 	"message":    {"file", "attach"},
 	"msg":        {"file", "attach"},
 	"pull":       {"out"},
@@ -1525,7 +1528,7 @@ const cliTaskBytes = 24 << 10
 // list_tasks and cancel_task take. A task's JSON goes to stdout and its
 // human lines to stderr (UX-C1, UX-C2).
 func taskCommand(c *client, rest []string) error {
-	const use = "anet task get <id> [--full] [--history N] | task list [--role requester|provider] [--state S] [--peer AID] | task cancel <id>"
+	const use = "anet task get <id> [--full] [--history N] | task list [--role requester|provider] [--state S] [--peer AID] | task watch <id> [--reasoning] | task cancel <id>"
 	sub := ""
 	if len(rest) > 0 {
 		sub = rest[0]
@@ -1535,6 +1538,8 @@ func taskCommand(c *client, rest []string) error {
 		return taskGet(c, rest[1:])
 	case "list", "ls":
 		return taskList(c, rest[1:])
+	case "watch":
+		return taskWatchCommand(c, rest[1:])
 	case "cancel":
 		pos, _ := splitFlags(rest[1:])
 		if len(pos) != 1 || strings.TrimSpace(pos[0]) == "" {
@@ -1771,7 +1776,8 @@ func wideRune(r rune) bool {
 // (return_immediately); the files are read here and sent as raw parts, the
 // same message MCP send_message builds from skill, args and files (CUX-F4).
 func delegateCommand(c *client, rest []string) error {
-	const use = "anet delegate <aid> <goal> [--attach P …] | anet delegate <aid> --capability <id> [--args J] [--attach P …]"
+	const use = "anet delegate <aid> <goal> [--attach P …] [--watch] | anet delegate <aid> --capability <id> [--args J] [--attach P …]"
+	watch, rest := extractBool(rest, "watch")
 	attachPaths, rest2 := extractAttach(rest)
 	pos, flags := splitFlags(rest2)
 	if len(pos) < 1 || pos[0] == "" {
@@ -1805,6 +1811,12 @@ func delegateCommand(c *client, rest []string) error {
 	body["to"] = to
 	body["return_immediately"] = true
 	body["max_task_bytes"] = cliTaskBytes
+	if watch {
+		if skill != "" {
+			return usageError{use + "  (--watch is for a text task: a capability call has no preview)"}
+		}
+		return watchDelegate(c, body)
+	}
 	return c.doTask("/tasks/send", body)
 }
 

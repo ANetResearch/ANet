@@ -67,7 +67,6 @@ import (
 
 	"github.com/ANetResearch/ANet/internal/jsonread"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
-	"github.com/ANetResearch/ANet/internal/transcript"
 )
 
 // StateOf is the A2A state of a stored task state.
@@ -1284,55 +1283,65 @@ func (p *projector) hasOutputReceipt() bool {
 	return len(p.ix.Receipt) > 0 && !p.quoted()
 }
 
-// artifacts are the task's outputs. Nothing is an output until a receipt
-// covers it: the receipt's result CID is what binds the deliverable to the
-// provider, and a result without one — a failure detail, a result that did
-// not verify — is reported in the status, not offered as the work. The
-// receipt itself is evidence and travels in the task's metadata
-// (anet.receipt), so that a client taking the first artifact with text as
-// the answer never takes the receipt (an internal note item P2).
-//
-// A text task whose provider never spoke (it ended at the requester's end
-// request) has no output, and so no artifact.
+// artifacts are the task's outputs. A text task's is anet.reply, the
+// provider's newest conversation message (replyArtifact). A capability
+// task's is its deliverable, and nothing is one until a receipt covers it:
+// the receipt's result CID is what binds the deliverable to the provider,
+// and a result without one — a failure detail, a result that did not
+// verify — is reported in the status, not offered as the work. The receipt
+// itself is evidence and travels in the task's metadata (anet.receipt), so
+// that a client taking the first artifact with text as the answer never
+// takes the receipt (an internal note item P2).
 func (p *projector) artifacts() []Artifact {
 	ix := p.ix
+	if !ix.IsCapability {
+		// A text task's anet.reply is the provider's newest conversation
+		// message, wherever the task stands (CUX-A1): a stream replaces the
+		// artifact as a preview and as each message is stored, so a task
+		// aggregated from the stream matches what GetTask returns. When
+		// the task is completed this is the final reply (CUX-R2).
+		return p.replyArtifact()
+	}
 	if !p.hasOutputReceipt() {
 		// A quote's receipt covers the quote; the quote is in the status
 		// message, and a stream must not hand it over as the result.
 		return nil
 	}
 	var out []Artifact
-	if ix.IsCapability {
-		if v, err := decodeJSON(ix.Result); err == nil && v != nil {
-			name := p.skill()
-			if name == "" {
-				name = ArtifactResult
-			}
-			out = append(out, Artifact{ID: ArtifactResult, Name: name, Parts: []Part{DataPart(v)}})
+	if v, err := decodeJSON(ix.Result); err == nil && v != nil {
+		name := p.skill()
+		if name == "" {
+			name = ArtifactResult
 		}
-	} else if tr, err := transcript.Parse(ix.Result); err == nil {
-		for i := len(tr.Messages) - 1; i >= 0; i-- {
-			m := tr.Messages[i]
-			if m.From != "provider" {
-				continue
-			}
-			// The reply is one artifact: its text, when it has any, then
-			// its files (an internal note item P1). An empty text part would be read
-			// as "no answer here" by a client that looks for text.
-			var parts []Part
-			if m.Body != "" {
-				parts = append(parts, TextPart(m.Body))
-			}
-			for _, a := range m.Attachments {
-				parts = append(parts, p.filePart(interactions.Attachment{Name: a.Name, Mime: a.Mime, Size: a.Size, CID: a.CID}, true))
-			}
-			if len(parts) > 0 {
-				out = append(out, Artifact{ID: ArtifactReply, Name: ArtifactReply, Parts: parts})
-			}
-			break
-		}
+		out = append(out, Artifact{ID: ArtifactResult, Name: name, Parts: []Part{DataPart(v)}})
 	}
 	return out
+}
+
+// replyArtifact is anet.reply of a text task: the newest conversation
+// message the provider stored, its text and then its files (an internal note item P1;
+// an empty text part would be read as "no answer here"). Nil when the
+// provider has said nothing, as on a task that ended at the requester's
+// end request.
+func (p *projector) replyArtifact() []Artifact {
+	for i := len(p.msgs) - 1; i >= 0; i-- {
+		m := p.msgs[i]
+		if !p.fromProvider(m.SenderAID) || !p.conversational(i) {
+			continue
+		}
+		var parts []Part
+		if m.Body != "" {
+			parts = append(parts, TextPart(m.Body))
+		}
+		for _, a := range p.bySeq[m.Seq] {
+			parts = append(parts, p.filePart(a, true))
+		}
+		if len(parts) == 0 {
+			return nil
+		}
+		return []Artifact{{ID: ArtifactReply, Name: ArtifactReply, Parts: parts}}
+	}
+	return nil
 }
 
 // receiptData is the anet.receipt metadata value: the signed receipt as

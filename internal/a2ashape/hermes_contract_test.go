@@ -831,6 +831,7 @@ func hermesCases() []hermesCase {
 			task: func(t *testing.T) a2ashape.Task {
 				st := openStore(t)
 				hermesTextTask(t, st, "ix", "g")
+				msg(t, st, "ix", peer, interactions.MsgText, "ok", "msg_2", nil)
 				tr, _ := transcript.EncodeV2("n", []transcript.Message{{From: "requester", Body: "g"}, {From: "provider", Body: "ok"}})
 				must(t, st.Finish("ix", interactions.Finish{State: interactions.StateCompleted, Result: tr, ResultCID: "bafyresult",
 					Receipt: receipt(t, "ix", self, peer, "bafyresult"), Verified: interactions.VerificationUnverified}, interactions.CausePeerEnded))

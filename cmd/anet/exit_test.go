@@ -232,7 +232,4 @@ func TestDeclinedIsExit1(t *testing.T) {
 
 // The statuses this binary does not reach yet, with the package that brings each.
 func TestExitStatusPending(t *testing.T) {
-	t.Run("task watch: 3 at input-required, 1 at failed, rejected or canceled", func(t *testing.T) {
-		t.Skip("v030-todo(UX-10)")
-	})
 }

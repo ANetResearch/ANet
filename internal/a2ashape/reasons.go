@@ -943,7 +943,7 @@ func C1Reason(c1 string) string {
 // (ux §4.7), the human lines of a task command (UX-C2), `anet identity
 // status` (ux §1.4 M2), the columns of `anet find` (ux §3.1 text B) and of
 // `anet peers list` (sealed-sender §5.2). Keys: "status.<topic>",
-// "task.<line>", "identity_status.<line>", "find.<column>",
+// "task.<line>", "watch.<tag>", "identity_status.<line>", "find.<column>",
 // "peers_list.<column>".
 // "" for a key it does not know.
 func Label(key string, lang Language) string {
@@ -974,6 +974,19 @@ var labels = map[string]phrasePair{
 	"task.payment":  {"付款", "payment"},
 	"task.kept":     {"保存", "kept"},
 	"task.note":     {"提示", "note"},
+
+	// `anet task watch` (CUX §4.5): the state tags of its status lines, and
+	// the headings of a preview. {time} is HH:MM:SS, {n} a byte count.
+	"watch.submitted":      {"已提交", "submitted"},
+	"watch.working":        {"处理中", "working"},
+	"watch.input_required": {"等待输入", "input required"},
+	"watch.completed":      {"已完成", "completed"},
+	"watch.failed":         {"已失败", "failed"},
+	"watch.rejected":       {"已拒绝", "rejected"},
+	"watch.canceled":       {"已取消", "canceled"},
+	"watch.delivered":      {"已送达", "delivered"},
+	"watch.preview":        {"预览（{time}，前略 {n} 字节）", "preview ({time}, first {n} bytes left out)"},
+	"watch.reasoning":      {"推理（{time}，前略 {n} 字节）", "reasoning ({time}, first {n} bytes left out)"},
 
 	"identity_status.identity": {"身份", "identity"},
 	"identity_status.key":      {"密钥", "key"},
