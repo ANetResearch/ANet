@@ -100,6 +100,23 @@ var publicRoutes = map[string]bool{
 	"POST /console/session": true,
 }
 
+// sessionRouteSet is the session allowlist in force: empty while the console module is not available.
+func (d *Daemon) sessionRouteSet() map[string]sessionRule {
+	if !d.avail.Available("console") {
+		return nil
+	}
+	return sessionRoutes
+}
+
+// publicRouteSet is the set of routes open without the bearer token: only /ping while the console module
+// is not available.
+func (d *Daemon) publicRouteSet() map[string]bool {
+	if !d.avail.Available("console") {
+		return map[string]bool{"GET /ping": true}
+	}
+	return publicRoutes
+}
+
 // routeMux is an http.ServeMux that records every pattern registered on it. The session route test
 // walks the recorded patterns, which is how a route added later (by any file) is covered without anyone
 // remembering to list it.
@@ -232,13 +249,18 @@ func (d *Daemon) authGate(auth *ctlAuth, cs *consoleSessions, api *routeMux) htt
 			api.ServeHTTP(w, r)
 			return
 		}
-		sess := cs.fromRequest(r)
+		// MOD-8: without the console module the session path does not exist; a cookie, however it was
+		// obtained, is the same as no session.
+		var sess *consoleSession
+		if d.avail.Available("console") {
+			sess = cs.fromRequest(r)
+		}
 		if sess == nil {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
 		_, pattern := api.Handler(r)
-		rule, ok := sessionRoutes[pattern]
+		rule, ok := d.sessionRouteSet()[pattern]
 		if !ok {
 			sessionRefusal(w, "this route is not available to a console session; use the anet CLI")
 			return

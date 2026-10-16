@@ -160,3 +160,19 @@ func needModule(t *testing.T, name string) {
 		t.Skipf("needs the %s module: build without -tags no_%s", name, name)
 	}
 }
+
+// MOD-8: `anet console` is refused before any daemon is contacted when config.json turns the console off.
+func TestRequireModuleConsole(t *testing.T) {
+	layout := daemonLayout(t)
+	if err := os.WriteFile(layout.ConfigPath(), []byte(`{"without":["console"]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := requireModule(layout, "console")
+	if err == nil {
+		t.Fatal("console not refused")
+	}
+	var sb strings.Builder
+	if code := exitStatus(err, &sb); code != 2 || !strings.Contains(sb.String(), "console") {
+		t.Errorf("exit %d, %q", code, sb.String())
+	}
+}

@@ -182,7 +182,7 @@ var known = []Info{
 	{Name: "console", Zh: "控制台", En: "console",
 		Routes: []string{"GET /console", "GET /{$}", "POST /console/session", "POST /console/switch",
 			"POST /console/ticket"},
-		CLICommands: []string{"console"}},
+		CLICommands: []string{"console"}, AbsenceReady: true},
 	{Name: "mcp", Tag: "no_mcp", Packages: []string{"internal/mcpserv", "internal/agentwire"},
 		Zh: "MCP", En: "MCP", MCPTools: mcpTools, CLICommands: []string{"agents", "mcp"},
 		DoctorIDs: []string{"agents", "agents.*", "hermes.*"}, AbsenceReady: true},

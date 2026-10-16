@@ -128,6 +128,9 @@ func main() {
 		fail(verify(layout, rest))
 	case "logs":
 		printLogs(layout, rest)
+	case "console": // MOD-8: the console module decides before the daemon is contacted
+		fail(requireModule(layout, "console"))
+		fail(runClient(layout, cmd, rest, explicit))
 	case "agents": // register the MCP server with local coding agents; files only, no daemon
 		fail(requireModule(layout, "mcp"))
 		fail(runAgents(layout, rest))

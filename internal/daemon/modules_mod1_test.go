@@ -264,7 +264,7 @@ func TestWithoutIsValidated(t *testing.T) {
 // MOD-3, MOD-5 and MOD-8 each flip their module in the same commit that
 // lands the path, and change the list here.
 func TestWithoutNamesOnlyReadyModules(t *testing.T) {
-	notReady := []string{"autoreply", "console", "preview"}
+	notReady := []string{"autoreply", "preview"}
 	for _, info := range module.Known() {
 		_, err := module.NewAvailability([]string{info.Name})
 		if want := slices.Contains(notReady, info.Name); (err != nil) != want {
@@ -275,12 +275,12 @@ func TestWithoutNamesOnlyReadyModules(t *testing.T) {
 		}
 	}
 	// The sentence names the module.
-	_, err := module.NewAvailability([]string{"console"})
+	_, err := module.NewAvailability([]string{"autoreply"})
 	var ref *a2ashape.Refusal
 	if !errors.As(err, &ref) {
 		t.Fatal(err)
 	}
-	if s := a2ashape.Sentence(ref.Key, a2ashape.English, ref.Args); !strings.Contains(s, "console") || strings.Contains(s, "{") {
+	if s := a2ashape.Sentence(ref.Key, a2ashape.English, ref.Args); !strings.Contains(s, "autoreply") || strings.Contains(s, "{") {
 		t.Errorf("sentence %q", s)
 	}
 }
