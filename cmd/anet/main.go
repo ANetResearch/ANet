@@ -79,6 +79,11 @@ func main() {
 		}
 		os.Exit(exitStatus(err, os.Stderr))
 	}
+	// A module's command asks whether the module is available before it contacts the daemon or asks the
+	// terminal anything (MOD-F3); the API key on the command line was refused above, ahead of it (AV-8).
+	if cmd == "autoreply" || cmd == "auto-reply" {
+		fail(requireModule(layout, "autoreply"))
+	}
 	// A misspelled flag is a typo, not a silent no-op. See knownFlags.
 	if err := checkFlags(cmd, rest); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)

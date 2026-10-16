@@ -12,10 +12,10 @@ func TestSaveConfigWritesVerbatimIncludingClear(t *testing.T) {
 	root := t.TempDir()
 	l := NewLayout(root)
 	auto := &AutoReplyConfig{Backend: "exec", Agent: "cursor"}
-	if err := SaveConfig(l, Config{ControlAddr: "127.0.0.1:39999", AutoReply: auto}); err != nil {
+	if err := SaveConfig(l, Config{ControlAddr: "127.0.0.1:39999", AutoReply: rawAR(auto)}); err != nil {
 		t.Fatal(err)
 	}
-	if got, err := LoadConfig(l); err != nil || got.AutoReply == nil || got.AutoReply.Agent != "cursor" {
+	if got, err := LoadConfig(l); err != nil || AutoReplyOf(got) == nil || AutoReplyOf(got).Agent != "cursor" {
 		t.Fatalf("auto_reply not persisted: %+v (err %v)", got.AutoReply, err)
 	}
 	// Clear it: nil block must not be resurrected from disk.

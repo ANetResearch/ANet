@@ -612,7 +612,8 @@ func collectDoctor(layout daemon.Layout, env doctorEnv) (*doctorReport, error) {
 	privacyChecks(say, rep, env, layout, cfg, time.Now())
 
 	// Auto-reply and the sandbox (§6).
-	if ar := cfg.AutoReply; ar != nil {
+	arCfg := daemon.ParseAutoReply(cfg.AutoReply) // the auto_reply block, decoded (the daemon keeps it raw)
+	if ar := arCfg; ar != nil {
 		rep.AutoReply.Configured = true
 		rep.AutoReply.Backend = ar.Backend
 		if rep.AutoReply.Backend == "" {
@@ -625,9 +626,9 @@ func collectDoctor(layout daemon.Layout, env doctorEnv) (*doctorReport, error) {
 		rep.SI5Changed = []string{}
 	}
 	rep.AutoReply.Untrusted, _ = rep.SI5["auto_reply.untrusted"].(string)
-	autoReplyCheck(rep, cfg.AutoReply, lang)           // doctor_sandbox.go
-	sandboxCheck(say, rep, env, layout, cfg.AutoReply) // doctor_sandbox.go
-	sandboxDetailChecks(add, say, rep, env, layout, cfg.AutoReply, lang)
+	autoReplyCheck(rep, arCfg, lang)           // doctor_sandbox.go
+	sandboxCheck(say, rep, env, layout, arCfg) // doctor_sandbox.go
+	sandboxDetailChecks(add, say, rep, env, layout, arCfg, lang)
 	capabilitiesFilesChecks(say, avail, st.ConfigPath)           // doctor_modules.go
 	a2aBackendChecks(add, st.Inbound.Policy, cfg, len(st.Trust)) // doctor_backends.go
 	backendTransportChecks(add, say, cfg)                        // doctor_backends.go

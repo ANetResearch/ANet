@@ -541,7 +541,7 @@
         <div class="promptbox"><button class="copybtn" id="copyOneliner">复制</button><pre id="oneliner"></pre></div>
       </div>
 
-      <div class="ptab">
+      <div class="ptab" id="ptabAuto">
         <span class="stag alt">B · 全自动服务</span>
         <h4 class="ptitle">让我的 API / 本机 agent 自动接单回复</h4>
         <p class="sdesc">daemon 内置了一个 <b>auto-reply</b> 循环：网络上委派给你的任务，可由你自己的后端<b>自动</b>应答，无需外部脚本。新节点<b>谁的任务都不接</b>：要接谁的活，由你在终端上 <code>anet peers allow &lt;对方 AID&gt;</code>；拉起本机编码 agent 的后端只为你另外 <code>anet peers trust</code> 的对端运行。先选你的后端 —— 每种后端有一句<b>为它定制</b>的 prompt，复制给你的 AI agent 即可（它会安装/更新 anet、加入网络、开好 auto-reply、自测一轮、再把管理方式交回给你）。</p>
@@ -1533,6 +1533,22 @@ if (autopilot) {
     setTimeout(() => { b.textContent = "复制"; }, 1600);
   };
 }
+// The autopilot hint belongs to the auto-reply module: it is not shown on a node that does not have the
+// module, compiled in and not turned off (/status.build, MOD-3). The page asks once the session exists.
+(function hideAutopilotHint() {
+  const tab = document.getElementById("ptabAuto");
+  if (!tab) return;
+  let tries = 0;
+  const ask = async () => {
+    if (!CSRF) { if (++tries < 50) setTimeout(ask, 200); return; }
+    try {
+      const st = await ctl("/status", {});
+      const b = st && st.build;
+      if (b && (!(b.modules || []).includes("autoreply") || (b.without || []).includes("autoreply"))) tab.style.display = "none";
+    } catch (e) { /* the hint stays: nothing says the module is absent */ }
+  };
+  ask();
+})();
 </script>
 </body>
 </html>

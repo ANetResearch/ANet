@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -41,6 +42,24 @@ func (d *Daemon) startModules(ctx context.Context, cfg Config) error {
 	mods, err := module.BuildWith(d.avail, raw)
 	if err != nil {
 		return err
+	}
+	// The modules that still live in this package are built beside the registered ones. A turned-off
+	// module is not built; a block for an absent module was refused by ModuleRefusals.
+	names := make([]string, 0, len(inProcModules))
+	for n := range inProcModules {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	for _, n := range names {
+		if !d.avail.Available(n) {
+			continue
+		}
+		info, _ := module.Lookup(n)
+		m, err := inProcModules[n](moduleBlock(cfg, info))
+		if err != nil {
+			return fmt.Errorf("module %q: %w", n, err)
+		}
+		mods = append(mods, m)
 	}
 	for _, m := range mods {
 		h, st := newModuleHost(d, m.Name())
@@ -360,6 +379,9 @@ func (d *Daemon) statusMembers(out map[string]any) {
 		}
 		info, _ := module.Lookup(m.Name())
 		key, v := sc.StatusMember()
+		if v == nil {
+			continue // the module has no member to show now (auto-reply not configured)
+		}
 		if !info.MayStatus(key) {
 			log.Printf("anet: module %s: /status member %q is not in its name-table row; dropped", m.Name(), key)
 			continue

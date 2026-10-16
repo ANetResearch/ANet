@@ -19,6 +19,8 @@ import (
 	"github.com/ANetResearch/ANetCore/anetcid"
 	"github.com/ANetResearch/ANetCore/delegation"
 
+	"github.com/ANetResearch/ANet/internal/execwork"
+	"github.com/ANetResearch/ANet/internal/pathsafe"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 )
 
@@ -265,7 +267,7 @@ func TestPullRefusesEmptyRelativeAndProtectedOutDirs(t *testing.T) {
 	if _, err := d.Pull("ix", filepath.Join(link, "deeper")); err == nil {
 		t.Error("a path through a symlink into the data dir accepted")
 	}
-	work := execWorkRoot()
+	work := execwork.WorkRoot()
 	if _, err := d.Pull("ix", filepath.Join(work, "x")); err == nil {
 		t.Error("the exec work dir accepted as out_dir")
 	}
@@ -411,13 +413,13 @@ func TestSafeName(t *testing.T) {
 		"/":                   "attachment",
 		"‏x⁦y⁩.md":            "xy.md",
 	} {
-		if got := safeName(in); got != want {
-			t.Errorf("safeName(%q) = %q, want %q", in, got, want)
+		if got := pathsafe.SafeName(in); got != want {
+			t.Errorf("pathsafe.SafeName(%q) = %q, want %q", in, got, want)
 		}
 	}
 	long := strings.Repeat("é", 200) + ".tar.gz"
-	got := safeName(long)
-	if len(got) > maxSafeNameBytes || !strings.HasSuffix(got, ".gz") || !utf8.ValidString(got) {
+	got := pathsafe.SafeName(long)
+	if len(got) > pathsafe.MaxSafeNameBytes || !strings.HasSuffix(got, ".gz") || !utf8.ValidString(got) {
 		t.Errorf("long name -> %q (%d bytes)", got, len(got))
 	}
 }

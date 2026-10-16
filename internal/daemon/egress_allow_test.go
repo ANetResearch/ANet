@@ -24,10 +24,10 @@ func savedEgressAllow(t *testing.T, d *Daemon) []string {
 	if err := json.Unmarshal(b, &c); err != nil {
 		t.Fatal(err)
 	}
-	if c.AutoReply == nil {
+	if AutoReplyOf(c) == nil {
 		return nil
 	}
-	return egressAllowOf(c.AutoReply)
+	return egressAllowOf(AutoReplyOf(c))
 }
 
 // LEC §2.3.4, CN-1, CN-8: POST /autoreply takes sandbox.egress_allow: checked and saved in its normal
@@ -41,14 +41,14 @@ func TestAutoReplyEgressAllowRoute(t *testing.T) {
 		t.Fatalf("set: %d %v; saved %v", code, out, savedEgressAllow(t, d))
 	}
 	code, out, _ = postAutoReply(t, d, `{"sandbox":{"egress_allow":["pypi.org","files.pythonhosted.org"]}}`)
-	cur := d.config().AutoReply
+	cur := AutoReplyOf(d.config())
 	if code != 200 || cur.Backend != "exec" || cur.Agent != "cursor" || cur.UntrustedMode() != UntrustedSandbox ||
 		fmt.Sprint(egressAllowOf(cur)) != "[pypi.org files.pythonhosted.org]" {
 		t.Fatalf("sandbox only: %d %v; now %+v", code, out, cur)
 	}
 	if code, _, _ := postAutoReply(t, d, `{"backend":"exec","agent":"cursor","untrusted":"sandbox","model":"sonnet"}`); code != 200 ||
-		len(egressAllowOf(d.config().AutoReply)) != 2 {
-		t.Fatalf("a request without sandbox dropped the list: %d %v", code, d.config().AutoReply)
+		len(egressAllowOf(AutoReplyOf(d.config()))) != 2 {
+		t.Fatalf("a request without sandbox dropped the list: %d %v", code, AutoReplyOf(d.config()))
 	}
 	for _, tc := range []struct{ body, reason, sentence string }{
 		{`{"sandbox":{"egress_allow":["10.0.0.1"]}}`, "egress_allow_invalid",
@@ -80,8 +80,8 @@ func TestAutoReplyEgressAllowRoute(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &st); err != nil || fmt.Sprint(st.AutoReply.Sandbox.EgressAllow) != "[pypi.org files.pythonhosted.org]" {
 		t.Errorf("/status: %v %s", err, rec.Body)
 	}
-	if code, _, _ := postAutoReply(t, d, `{"sandbox":{"egress_allow":[]}}`); code != 200 || d.config().AutoReply.Sandbox != nil {
-		t.Fatalf("clear: %d %+v", code, d.config().AutoReply)
+	if code, _, _ := postAutoReply(t, d, `{"sandbox":{"egress_allow":[]}}`); code != 200 || AutoReplyOf(d.config()).Sandbox != nil {
+		t.Fatalf("clear: %d %+v", code, AutoReplyOf(d.config()))
 	}
 	rec = httptest.NewRecorder()
 	d.hStatus(rec, httptest.NewRequest(http.MethodGet, "/status", nil))
@@ -117,7 +117,7 @@ func TestAutoReplyAnswerHasNoKey(t *testing.T) {
 			t.Errorf("%s: %d %s", body, rec.Code, rec.Body)
 		}
 	}
-	if got := d.config().AutoReply.APIKey; got != key {
+	if got := AutoReplyOf(d.config()).APIKey; got != key {
 		t.Errorf("the stored key is %q after changing only the allowlist", got)
 	}
 }

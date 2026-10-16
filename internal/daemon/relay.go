@@ -713,16 +713,6 @@ func (d *Daemon) drainInputs() (uint64, kidSet) {
 	return mark, held
 }
 
-// kickAutoReply wakes the auto-reply loop immediately (non-blocking; coalesces bursts). No-op when the
-// channel is full (a wake is already pending) or auto-reply is off (the loop just isn't selecting on it).
-func (d *Daemon) kickAutoReply() {
-	select {
-	case d.autoReplyKick <- struct{}{}:
-	default:
-	}
-	d.inFeed.wake() // and the modules' A2A backends (inbound_tasks.go)
-}
-
 // withServedCapabilities folds this node's actual capability ids into what
 // it advertises.
 //

@@ -17,6 +17,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/ANetResearch/ANet/internal/pathsafe"
 )
 
 const (
@@ -489,7 +491,7 @@ func invokeCodex(ctx context.Context, o execInvokeOpts) (string, error) {
 		return "", cmdError(o.Command, args, stdout, stderr, err)
 	}
 	// Read through the work dir, never through a link put in the reply file's place (readWorkFile).
-	if b, err := readWorkFile(dir, filepath.Base(outFile), maxAttachmentBytes); err == nil && len(strings.TrimSpace(string(b))) > 0 {
+	if b, err := readWorkFile(dir, filepath.Base(outFile), pathsafe.MaxAttachmentBytes); err == nil && len(strings.TrimSpace(string(b))) > 0 {
 		return trimReply(string(b)), nil
 	}
 	reply := trimReply(string(stdout))

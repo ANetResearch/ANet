@@ -43,7 +43,7 @@ const taskWaitCap = time.Hour
 // taskBodyMax bounds a /tasks/send or /tasks/reply body, which may carry
 // files as base64 raw parts: the local A2A interface's limit (A2A-DESIGN
 // §11.4), well under the control plane's general one. Each file is held to
-// maxAttachmentBytes on its own.
+// pathsafe.MaxAttachmentBytes on its own.
 const taskBodyMax = 96 << 20
 
 // keyWait marks a /tasks/wait answer whose bound elapsed first: the task

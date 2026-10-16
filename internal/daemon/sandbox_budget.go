@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
+	"github.com/ANetResearch/ANet/internal/localday"
 )
 
 const (
@@ -123,30 +124,6 @@ func checkRunBudgets(c *AutoReplyConfig) *a2ashape.Refusal {
 	return nil
 }
 
-// The budgets are checked when the daemon starts as well as when they are written (LEC §3.2).
-func init() {
-	configChecks = append(configChecks, func(c Config, _ map[string]any) *a2ashape.Refusal {
-		return checkRunBudgets(c.AutoReply)
-	})
-}
-
-// recordBudgetChange writes anet.policy.changed for each budget a configuration write changed (LEC
-// §2.5), with the values in force before and after. Turning auto-reply on or off is the auto_reply
-// record's, which carries the budgets.
-func recordBudgetChange(d *Daemon, from, to *AutoReplyConfig) {
-	if from == nil || to == nil {
-		return
-	}
-	fd, fp := from.runBudgets()
-	td, tp := to.runBudgets()
-	if fd != td {
-		d.recordPolicyChange("auto_reply.sandbox.runs_per_day", fd, td, nil)
-	}
-	if fp != tp {
-		d.recordPolicyChange("auto_reply.sandbox.runs_per_peer_per_day", fp, tp, nil)
-	}
-}
-
 // --- the counts ---
 
 // budgetVerdict is the answer to a run asking for its place.
@@ -218,9 +195,9 @@ func (b *runBudget) loadLocked(now time.Time, runs func(since time.Time) []budge
 	if runs == nil {
 		return
 	}
-	start, _ := localDayBounds(now)
+	start, _ := localday.Bounds(now)
 	for _, r := range runs(start.Add(-48 * time.Hour)) {
-		ds, _ := localDayBounds(r.start.In(now.Location()))
+		ds, _ := localday.Bounds(r.start.In(now.Location()))
 		b.dayLocked(ds.UnixMilli()).add(r.peer, 1)
 	}
 	b.pruneLocked(start)
@@ -266,7 +243,7 @@ func (b *runBudget) reserve(peer string, daily, perPeer int, runs func(since tim
 	defer b.mu.Unlock()
 	now := b.clock()
 	b.loadLocked(now, runs)
-	start, end := localDayBounds(now)
+	start, end := localday.Bounds(now)
 	key := start.UnixMilli()
 	day := b.dayLocked(key)
 	if day.total >= daily || day.peer[peer] >= perPeer {
@@ -313,7 +290,7 @@ func (b *runBudget) today(runs func(since time.Time) []budgetRun) int {
 	defer b.mu.Unlock()
 	now := b.clock()
 	b.loadLocked(now, runs)
-	start, _ := localDayBounds(now)
+	start, _ := localday.Bounds(now)
 	if d := b.days[start.UnixMilli()]; d != nil {
 		return d.total
 	}
@@ -356,26 +333,28 @@ func int64Of(v any) int64 {
 	return 0
 }
 
-// --- the daemon's ---
+// --- the module's ---
 
-// budgetRunsOnChain is the counted runs on this node's evidence chain recorded at or after since.
-func (d *Daemon) budgetRunsOnChain(since time.Time) []budgetRun {
-	if d.ledger == nil {
+// budgetRunsOnChain is the counted runs on this node's evidence chain recorded at or after since, read
+// back through the module's own evidence (OwnEvidenceHost, BU-2).
+func (m *autoReplyModule) budgetRunsOnChain(since time.Time) []budgetRun {
+	evs, err := m.ev.ReadOwnEvidence(EvAutoReplyInvoked, since)
+	if err != nil {
 		return nil
 	}
 	var out []budgetRun
-	d.ledger.scan(EvAutoReplyInvoked, since.UnixMilli(), func(at int64, p map[string]any) {
-		if r, ok := budgetRunOf(at, p); ok {
+	for _, e := range evs {
+		if r, ok := budgetRunOf(e.At.UnixMilli(), e.Payload); ok {
 			out = append(out, r)
 		}
-	})
+	}
 	return out
 }
 
 // reserveRun asks the budget for a run for peer under cfg's budgets (BU-2 to BU-5).
-func (d *Daemon) reserveRun(cfg AutoReplyConfig, peer string) (*budgetTicket, budgetVerdict, time.Duration) {
+func (m *autoReplyModule) reserveRun(cfg AutoReplyConfig, peer string) (*budgetTicket, budgetVerdict, time.Duration) {
 	daily, perPeer := cfg.runBudgets()
-	return d.budget.reserve(peer, daily, perPeer, d.budgetRunsOnChain)
+	return m.budget.reserve(peer, daily, perPeer, m.budgetRunsOnChain)
 }
 
 // SandboxBudget is the run budget as `anet status` and doctor show it (LEC §2.3.3): the runs counted
@@ -387,13 +366,13 @@ type SandboxBudget struct {
 }
 
 // SandboxBudget is today's count under the current auto-reply configuration.
-func (d *Daemon) SandboxBudget() SandboxBudget {
+func (m *autoReplyModule) SandboxBudget() SandboxBudget {
 	var cfg AutoReplyConfig
-	if ar := d.config().AutoReply; ar != nil {
+	if ar := m.current(); ar != nil {
 		cfg = *ar
 	}
 	daily, perPeer := cfg.runBudgets()
-	return SandboxBudget{Today: d.budget.today(d.budgetRunsOnChain), RunsPerDay: daily, RunsPerPeerPerDay: perPeer}
+	return SandboxBudget{Today: m.budget.today(m.budgetRunsOnChain), RunsPerDay: daily, RunsPerPeerPerDay: perPeer}
 }
 
 // BudgetOff reports whether a budget of 0 turns the sandbox off for untrusted peers (BU-3).

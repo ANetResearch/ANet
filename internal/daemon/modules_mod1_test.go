@@ -76,6 +76,9 @@ func TestHostGrantsFollowNameTable(t *testing.T) {
 			_, signer := h.(module.ProxyCardSigner)
 			_, transport := h.(module.TransportHost)
 			_, sensitive := h.(module.SensitivePathsHost)
+			_, turns := h.(module.TurnHost)
+			_, ownEv := h.(module.OwnEvidenceHost)
+			_, cfgw := h.(module.ModuleConfigHost)
 			for _, c := range []struct {
 				name      string
 				got, want bool
@@ -84,6 +87,9 @@ func TestHostGrantsFollowNameTable(t *testing.T) {
 				{"ProxyCardSigner", signer, has(module.GrantProxyCardSigner)},
 				{"TransportHost", transport, has(module.GrantTransportHost)},
 				{"SensitivePathsHost", sensitive, has(module.GrantSensitivePaths)},
+				{"TurnHost", turns, has(module.GrantTurnHost)},
+				{"OwnEvidenceHost", ownEv, has(module.GrantOwnEvidenceHost)},
+				{"ModuleConfigHost", cfgw, has(module.GrantModuleConfigHost)},
 			} {
 				if c.got != c.want {
 					t.Errorf("%s asserted = %v, row says %v", c.name, c.got, c.want)
@@ -127,9 +133,9 @@ func TestHostGrantsFollowNameTable(t *testing.T) {
 func TestEveryRowHasAHostType(t *testing.T) {
 	d := &Daemon{}
 	for _, info := range module.Known() {
-		if info.Name == "autoreply" || info.Name == "preview" {
-			// Their Host interfaces (TurnHost, PreviewHost) arrive with the
-			// packages that build the seams; the base Host stands in.
+		if info.Name == "preview" {
+			// Its Host interface (PreviewHost) arrives with the package that
+			// builds the seam (MOD-5); the base Host stands in.
 			continue
 		}
 		func() {
@@ -242,7 +248,7 @@ func TestWithoutIsValidated(t *testing.T) {
 	for name, without := range map[string][]string{
 		"unknown":   {"nothing"},
 		"duplicate": {"x402", "x402"},
-		"not ready": {"autoreply"},
+		"not ready": {"console"},
 	} {
 		root := t.TempDir()
 		writeTestConfig(t, root, map[string]any{"control_addr": "127.0.0.1:0", "without": without})
@@ -259,12 +265,10 @@ func TestWithoutIsValidated(t *testing.T) {
 	}
 }
 
-// TestWithoutNamesOnlyReadyModules: the modules whose absent path has not
-// landed are refused in `without`, and every other name is accepted. MOD-3
-// each flip their module in the same commit that lands the path,
-// and change the list here (MOD-5 flipped preview, MOD-8 console).
+// TestWithoutNamesOnlyReadyModules: the modules whose absent path has not landed are refused in `without`,
+// and every other name is accepted. MOD-3 flipped autoreply, MOD-5 preview, MOD-8 console.
 func TestWithoutNamesOnlyReadyModules(t *testing.T) {
-	notReady := []string{"autoreply"}
+	var notReady []string
 	for _, info := range module.Known() {
 		_, err := module.NewAvailability([]string{info.Name})
 		if want := slices.Contains(notReady, info.Name); (err != nil) != want {
@@ -724,8 +728,6 @@ func TestKernelReadsOnlyAllowedModuleBlocks(t *testing.T) {
 		"p2p_addr.go":        "checkP2PConfig, before the module starts",
 		"setup.go":           "SI5, which reports modules.p2p.lan (UX-D5); the P2P module work item moves it",
 		"init_without.go":    "init --without, which writes the without list and keeps the module blocks as they are",
-		// MOD-3 removes the next line: autoreply reads its own block then.
-		"autoreply_exec.go": "anetlinkSockets, the sandbox's never-bind list",
 	}
 	files, err := os.ReadDir(".")
 	if err != nil {

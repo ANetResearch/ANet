@@ -35,6 +35,9 @@ func modulesChecks(add func(id, status, detail, hint string), say func(id, statu
 		add("modules", stInfo, "turned off in config.json (without): "+strings.Join(rep.Without, ", "), "")
 	}
 	live := cfg
+	if !av.Available("autoreply") {
+		live.AutoReply = nil // its block is the module_absent.configured fail above, not a configuration to check
+	}
 	live.Modules = daemon.ModulesConfig{}
 	for n, raw := range cfg.Modules {
 		if av.Available(n) {

@@ -18,6 +18,10 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/ANetResearch/ANet/internal/execwork"
+	"github.com/ANetResearch/ANet/internal/pathsafe"
+	"github.com/ANetResearch/ANet/module"
 )
 
 // bindSources returns the source path of every bind flag in a bwrap argv.
@@ -330,9 +334,8 @@ func TestSandboxCommandRefusesAnOversizedSpec(t *testing.T) {
 func TestSandboxPlanNeverBindListIsComplete(t *testing.T) {
 	d := newBareDaemon(t)
 	sock := filepath.Join(t.TempDir(), "c1.sock")
-	d.mu.Lock()
-	d.cfg.Modules = ModulesConfig{"anetlink": json.RawMessage(`{"socket":"` + sock + `"}`)}
-	d.mu.Unlock()
+	// The configured socket is the anetlink module's to declare (LocalPaths, K-5); the module stands in.
+	d.modules = append(d.modules, localPathsModule{"anetlink", []string{sock}})
 	xdg := t.TempDir()
 	t.Setenv("XDG_RUNTIME_DIR", xdg)
 	bwrapLookPath = func(string) (string, error) { return "", exec.ErrNotFound }
@@ -347,7 +350,7 @@ func TestSandboxPlanNeverBindListIsComplete(t *testing.T) {
 	home, _ := os.UserHomeDir()
 	realData, _ := filepath.EvalSymlinks(d.layout.Root)
 	for _, want := range []string{realData, legacyRuntimeDir(), xdg, sock, filepath.Join(xdg, "anetlink", "c1.sock"),
-		execWorkRoot(), filepath.Join(home, ".claude"), filepath.Join(home, ".codex")} {
+		execwork.WorkRoot(), filepath.Join(home, ".claude"), filepath.Join(home, ".codex")} {
 		found := false
 		for _, n := range never {
 			if n == want {
@@ -375,7 +378,7 @@ func TestSandboxPlanNeverBindListIsComplete(t *testing.T) {
 	if _, err := buildBwrapArgs(spec); err != nil {
 		t.Errorf("the sandbox work dir was refused: %v", err)
 	}
-	if pathWithin(sandboxed, execWorkRoot()) || pathWithin(direct, execSandboxWorkRoot()) {
+	if pathsafe.PathWithin(sandboxed, execwork.WorkRoot()) || pathsafe.PathWithin(direct, execwork.SandboxWorkRoot()) {
 		t.Errorf("the two work roots overlap: %s %s", direct, sandboxed)
 	}
 }
@@ -389,9 +392,9 @@ func TestSandboxedTurnsWorkUnderTheSandboxRoot(t *testing.T) {
 	for _, tc := range []struct {
 		sandbox *sandboxPlan
 		root    string
-	}{{&sandboxPlan{Bwrap: "/usr/bin/bwrap"}, execSandboxWorkRoot()}, {nil, execWorkRoot()}} {
+	}{{&sandboxPlan{Bwrap: "/usr/bin/bwrap"}, execwork.SandboxWorkRoot()}, {nil, execwork.WorkRoot()}} {
 		r := &execReplier{cfg: AutoReplyConfig{Backend: "exec", Agent: "claude", WorkDir: "/configured/for/direct"},
-			dataDir: d.layout.Root, layout: d.layout, sandbox: tc.sandbox, aid: aid}
+			dataDir: d.layout.Root, sandbox: tc.sandbox, aid: aid}
 		if tc.sandbox == nil {
 			r.cfg.WorkDir = ""
 		}
@@ -399,31 +402,31 @@ func TestSandboxedTurnsWorkUnderTheSandboxRoot(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if want := filepath.Join(tc.root, aidShort(aid), ixDirName("ix-root")); o.WorkDir != want {
+		if want := filepath.Join(tc.root, execwork.AidShort(aid), execwork.IxDirName("ix-root")); o.WorkDir != want {
 			t.Errorf("sandboxed %v: work dir %s, want %s", tc.sandbox != nil, o.WorkDir, want)
 		}
 		ob, cleanup, err := d.newExecOutbox("ix-root", tc.sandbox != nil)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !pathWithin(ob, filepath.Join(tc.root, aidShort(d.AID()))) {
+		if !pathsafe.PathWithin(ob, filepath.Join(tc.root, execwork.AidShort(d.AID()))) {
 			t.Errorf("sandboxed %v: outbox %s is not under %s", tc.sandbox != nil, ob, tc.root)
 		}
 		cleanup()
 	}
-	for _, root := range []string{execWorkRoot(), execSandboxWorkRoot()} {
-		if err := os.MkdirAll(filepath.Join(root, aidShort(aid), "ix-old"), 0o700); err != nil {
+	for _, root := range []string{execwork.WorkRoot(), execwork.SandboxWorkRoot()} {
+		if err := os.MkdirAll(filepath.Join(root, execwork.AidShort(aid), "ix-old"), 0o700); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if err := pruneExecWorkDirs(aid, func() (map[string]bool, error) { return map[string]bool{"ix-root": true}, nil }); err != nil {
+	if err := execwork.PruneExecWorkDirs(aid, func() (map[string]bool, error) { return map[string]bool{"ix-root": true}, nil }); err != nil {
 		t.Fatal(err)
 	}
-	for _, root := range []string{execWorkRoot(), execSandboxWorkRoot()} {
-		if _, err := os.Stat(filepath.Join(root, aidShort(aid), "ix-old")); !errors.Is(err, os.ErrNotExist) {
+	for _, root := range []string{execwork.WorkRoot(), execwork.SandboxWorkRoot()} {
+		if _, err := os.Stat(filepath.Join(root, execwork.AidShort(aid), "ix-old")); !errors.Is(err, os.ErrNotExist) {
 			t.Errorf("an inactive interaction's work dir under %s survived pruning: %v", root, err)
 		}
-		if _, err := os.Stat(filepath.Join(root, aidShort(aid), ixDirName("ix-root"))); err != nil {
+		if _, err := os.Stat(filepath.Join(root, execwork.AidShort(aid), execwork.IxDirName("ix-root"))); err != nil {
 			t.Errorf("an active interaction's work dir under %s was pruned: %v", root, err)
 		}
 	}
@@ -1094,3 +1097,14 @@ func TestSandboxIntegrationHoldsNoSecret(t *testing.T) {
 		t.Errorf("the sandboxed agent was not told it runs in the sandbox: %s", got.Cmdline)
 	}
 }
+
+// localPathsModule is a module that declares only local endpoints (module.LocalPaths).
+type localPathsModule struct {
+	name  string
+	paths []string
+}
+
+func (m localPathsModule) Name() string                             { return m.name }
+func (m localPathsModule) Start(context.Context, module.Host) error { return nil }
+func (m localPathsModule) Stop(context.Context) error               { return nil }
+func (m localPathsModule) LocalPaths() []string                     { return m.paths }

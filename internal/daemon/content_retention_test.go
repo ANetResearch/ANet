@@ -22,7 +22,9 @@ import (
 	"github.com/ANetResearch/ANetCore/seal"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
+	"github.com/ANetResearch/ANet/internal/anethome"
 	"github.com/ANetResearch/ANet/internal/evtypes"
+	"github.com/ANetResearch/ANet/internal/execwork"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 )
 
@@ -433,8 +435,10 @@ func TestWorkDirsPrunedWithinS(t *testing.T) {
 		t.Fatal(err)
 	}
 	endedTask(t, d, "ix_done", interactions.ClassPeer, now)
-	dirOf := func(root, ix string) string { return filepath.Join(root, aidShort(d.AID()), ixDirName(ix)) }
-	roots := []string{execWorkRoot(), execSandboxWorkRoot()}
+	dirOf := func(root, ix string) string {
+		return filepath.Join(root, execwork.AidShort(d.AID()), execwork.IxDirName(ix))
+	}
+	roots := []string{execwork.WorkRoot(), execwork.SandboxWorkRoot()}
 	for _, root := range roots {
 		for _, ix := range []string{"ix_open", "ix_done", "ix_never_a_task", ""} {
 			dir := dirOf(root, ix)
@@ -451,7 +455,7 @@ func TestWorkDirsPrunedWithinS(t *testing.T) {
 	}
 	t.Cleanup(func() {
 		for _, root := range roots {
-			removeWorkTree(filepath.Join(root, aidShort(d.AID())))
+			execwork.RemoveTree(filepath.Join(root, execwork.AidShort(d.AID())))
 		}
 	})
 	own := filepath.Join(t.TempDir(), "operator-work")
@@ -461,9 +465,9 @@ func TestWorkDirsPrunedWithinS(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(own, "notes"), []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	sess := sharedExecSessionStore(d.layout.Root)
-	sess.set("ix_done", "s-done")
-	sess.set("ix_open", "s-open")
+	sess := execwork.Sessions(anethome.ModuleDir(d.layout.Root, "autoreply"))
+	sess.Set("ix_done", "s-done")
+	sess.Set("ix_open", "s-open")
 	exists := func(p string) bool { _, err := os.Lstat(p); return err == nil }
 
 	d.keyMaintenance()
@@ -477,8 +481,8 @@ func TestWorkDirsPrunedWithinS(t *testing.T) {
 	if !exists(filepath.Join(own, "notes")) {
 		t.Error("the operator's own work dir was touched")
 	}
-	if sess.get("ix_done") != "" || sess.get("ix_open") != "s-open" {
-		t.Errorf("session bindings: done %q, open %q", sess.get("ix_done"), sess.get("ix_open"))
+	if sess.Get("ix_done") != "" || sess.Get("ix_open") != "s-open" {
+		t.Errorf("session bindings: done %q, open %q", sess.Get("ix_done"), sess.Get("ix_open"))
 	}
 	if _, err := d.ix.SetState("ix_open", interactions.StateCompleted, interactions.CauseProviderEnd); err != nil {
 		t.Fatal(err)
@@ -489,7 +493,7 @@ func TestWorkDirsPrunedWithinS(t *testing.T) {
 			t.Errorf("a period after its task ended the work dir under %s stays", root)
 		}
 	}
-	if sess.get("ix_open") != "" {
+	if sess.Get("ix_open") != "" {
 		t.Error("the ended task's session binding stays")
 	}
 }
@@ -500,13 +504,13 @@ func TestWorkDirsPrunedWithinS(t *testing.T) {
 // not name it yet.
 func TestWorkDirPruneListsBeforeItAsks(t *testing.T) {
 	aid := "bafyreiexampleexampleexampleexample"
-	root := execWorkRoot()
-	late := filepath.Join(root, aidShort(aid), ixDirName("ix_late"))
-	t.Cleanup(func() { removeWorkTree(filepath.Join(root, aidShort(aid))) })
-	if err := os.MkdirAll(filepath.Join(root, aidShort(aid), ixDirName("ix_gone")), 0o700); err != nil {
+	root := execwork.WorkRoot()
+	late := filepath.Join(root, execwork.AidShort(aid), execwork.IxDirName("ix_late"))
+	t.Cleanup(func() { execwork.RemoveTree(filepath.Join(root, execwork.AidShort(aid))) })
+	if err := os.MkdirAll(filepath.Join(root, execwork.AidShort(aid), execwork.IxDirName("ix_gone")), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	err := pruneExecWorkDirs(aid, func() (map[string]bool, error) {
+	err := execwork.PruneExecWorkDirs(aid, func() (map[string]bool, error) {
 		if err := os.MkdirAll(late, 0o700); err != nil {
 			t.Fatal(err)
 		}
@@ -518,7 +522,7 @@ func TestWorkDirPruneListsBeforeItAsks(t *testing.T) {
 	if _, err := os.Stat(late); err != nil {
 		t.Fatalf("the new task's dir went: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(root, aidShort(aid), ixDirName("ix_gone"))); !errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(filepath.Join(root, execwork.AidShort(aid), execwork.IxDirName("ix_gone"))); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("the ended task's dir stays: %v", err)
 	}
 }

@@ -425,12 +425,10 @@ var si5DefaultText = map[string]string{
 // SI5 returns the value of every SI-5 key and the keys whose value differs
 // from the fresh-install default, in SI5Keys order.
 func (st PolicyState) SI5() (values map[string]any, changed []string) {
+	// The auto-reply module's value (its ConfigSpec.SI5): "off" without a block, an invalid one as written.
 	untrusted := UntrustedOff
-	if ar := st.Config.AutoReply; ar != nil {
-		untrusted = ar.UntrustedMode()
-		if ar.Untrusted != "" && ar.Untrusted != UntrustedOff && ar.Untrusted != UntrustedSandbox {
-			untrusted = ar.Untrusted // invalid; shown as written
-		}
+	if v, ok := moduleSI5(st.Config)["auto_reply.untrusted"].(string); ok {
+		untrusted = v
 	}
 	caps := make([]string, 0, len(st.Inbound.PublicCapabilities))
 	for _, c := range st.Inbound.PublicCapabilities {

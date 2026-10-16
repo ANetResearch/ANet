@@ -290,11 +290,3 @@ func egressAllowOf(c *AutoReplyConfig) []string {
 	}
 	return append([]string{}, c.Sandbox.EgressAllow...)
 }
-
-// recordEgressAllowChange writes anet.policy.changed for the allowlist, old and new value, when a change
-// of configuration changed it (LEC §2.5).
-func recordEgressAllowChange(d *Daemon, from, to *AutoReplyConfig) {
-	if a, b := egressAllowOf(from), egressAllowOf(to); !slices.Equal(a, b) {
-		d.recordPolicyChange("auto_reply.sandbox.egress_allow", a, b, nil)
-	}
-}

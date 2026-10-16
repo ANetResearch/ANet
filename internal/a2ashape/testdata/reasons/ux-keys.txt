@@ -225,6 +225,7 @@ no_api_key
 no_api_base
 no_model
 platform_unsupported
+platform_unsupported.pending
 no_sandbox_exec
 no_cgroup_limits
 sandbox.budget
@@ -320,6 +321,7 @@ autoreply_test.pass_sandbox
 autoreply_test.fail
 trust_confirm.direct
 trust_confirm.sandbox
+trust_confirm.no_agent
 egress_confirm
 trusted_direct_confirm
 autoreply.prompt.api_key

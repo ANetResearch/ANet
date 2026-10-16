@@ -25,9 +25,6 @@ package daemon
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -43,7 +40,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
-	"github.com/ANetResearch/ANet/internal/anethome"
+	"github.com/ANetResearch/ANet/internal/execwork"
+	"github.com/ANetResearch/ANet/internal/pathsafe"
 	"github.com/ANetResearch/ANetCore/anetcid"
 	"github.com/ANetResearch/ANetCore/delegation"
 )
@@ -151,31 +149,20 @@ var execCommandForTest string
 type execReplier struct {
 	cfg      AutoReplyConfig
 	dataDir  string
-	layout   Layout
-	sessions *execSessionStore // interaction_id -> agent-native chat id (cursor session mode)
+	sessions *execwork.SessionStore // interaction_id -> agent-native chat id (cursor session mode)
 	// sandbox, when set, confines every agent process of this replier (runSandboxed).
 	sandbox *sandboxPlan
 
-	aidOnce sync.Once
-	aid     string
+	// aid is this node's AID; it names the per-identity work dir.
+	aid string
 }
 
-func (r *execReplier) sessionStore() *execSessionStore {
-	if r.sessions == nil {
-		r.sessions = sharedExecSessionStore(r.layout.Root)
-	}
+func (r *execReplier) sessionStore() *execwork.SessionStore {
 	return r.sessions
 }
 
-// identityAID is this node's AID, read once from the data dir; it names the per-identity work dir.
-func (r *execReplier) identityAID() string {
-	r.aidOnce.Do(func() {
-		if r.aid == "" {
-			r.aid = ReadIdentityAID(r.layout)
-		}
-	})
-	return r.aid
-}
+// identityAID is this node's AID, which names the per-identity work dir.
+func (r *execReplier) identityAID() string { return r.aid }
 
 func (r *execReplier) Reply(ctx context.Context, rc replyContext, turns []chatTurn) (string, error) {
 	rc.Goal, turns = boundConversation(rc.Goal, turns) // AV-9
@@ -213,7 +200,7 @@ func (r *execReplier) Reply(ctx context.Context, rc replyContext, turns []chatTu
 // to the legacy full-transcript one-shot.
 func (r *execReplier) replyCursorSession(ctx context.Context, rc replyContext, turns []chatTurn, base execInvokeOpts, instructions string) (string, bool, error) {
 	store := r.sessionStore()
-	sid := store.get(rc.InteractionID)
+	sid := store.Get(rc.InteractionID)
 	firstTurn := sid == ""
 
 	// Only the turns since our last reply are new to the agent's session.
@@ -233,7 +220,7 @@ func (r *execReplier) replyCursorSession(ctx context.Context, rc replyContext, t
 			return "", false, nil // degrade to replay path
 		}
 		sid = newID
-		store.set(rc.InteractionID, sid)
+		store.Set(rc.InteractionID, sid)
 		// Seed the fresh chat with the instructions and the goal (once).
 		base.Instructions = instructions
 		body = execConversation(rc.Goal, body)
@@ -431,36 +418,16 @@ func cutMessage(s string) string {
 // unconfined agent starts. The sandbox never binds the direct root or the configured work_dir, and the
 // configured work_dir may neither lie in the sandbox root nor contain it.
 
-// execWorkRoot is <user cache dir>/anet/work ($XDG_CACHE_HOME/anet/work on Linux), or "" when the
-// cache dir is unknown.
-func execWorkRoot() string {
-	c, err := os.UserCacheDir()
-	if err != nil || c == "" {
-		return ""
-	}
-	return filepath.Join(c, "anet", "work")
-}
-
-// execSandboxWorkRoot is <user cache dir>/anet/work-sandbox, the root of sandboxed runs' work dirs. It
-// never overlaps execWorkRoot, which is on the sandbox's never-bind list (LEC SB-3), so a direct run
-// never starts in a directory a sandboxed run wrote.
-func execSandboxWorkRoot() string {
-	if root := execWorkRoot(); root != "" {
-		return root + "-sandbox"
-	}
-	return ""
-}
-
 // execInteractionDir returns (creating it, mode 0700) the work dir of one interaction:
-// <execWorkRoot>/<aidShort>/<ixDirName(interaction id)>. An empty interaction id (the `anet autoreply
+// <execwork.WorkRoot>/<execwork.AidShort>/<execwork.IxDirName(interaction id)>. An empty interaction id (the `anet autoreply
 // test` self-check) uses "selftest". The directory must lie outside the data dir.
 func execInteractionDir(dataDir, aid, ix string) (string, error) {
-	return interactionDirUnder(execWorkRoot(), dataDir, aid, ix)
+	return interactionDirUnder(execwork.WorkRoot(), dataDir, aid, ix)
 }
 
-// execSandboxInteractionDir is execInteractionDir under execSandboxWorkRoot, for sandboxed runs.
+// execSandboxInteractionDir is execInteractionDir under execwork.SandboxWorkRoot, for sandboxed runs.
 func execSandboxInteractionDir(dataDir, aid, ix string) (string, error) {
-	return interactionDirUnder(execSandboxWorkRoot(), dataDir, aid, ix)
+	return interactionDirUnder(execwork.SandboxWorkRoot(), dataDir, aid, ix)
 }
 
 func interactionDirUnder(root, dataDir, aid, ix string) (string, error) {
@@ -470,7 +437,7 @@ func interactionDirUnder(root, dataDir, aid, ix string) (string, error) {
 	if aid == "" {
 		aid = "unknown"
 	}
-	dir := filepath.Join(root, aidShort(aid), ixDirName(ix))
+	dir := filepath.Join(root, execwork.AidShort(aid), execwork.IxDirName(ix))
 	if err := checkOutsideDataDir(dir, dataDir); err != nil {
 		return "", fmt.Errorf("exec work dir: %w", err)
 	}
@@ -483,34 +450,13 @@ func interactionDirUnder(root, dataDir, aid, ix string) (string, error) {
 	return dir, nil
 }
 
-// ixDirName names an interaction's work dir: "ix-" and a digest of its id, "selftest" for none. The id
-// of an interaction that another node started is that node's text, and the work dir's path goes on
-// command lines — bwrap's --bind, the agent's --workspace or -C — that every local user can read, and
-// into the agent's own context; a digest carries nothing of it there (LEC AV-1), and its length is fixed.
-func ixDirName(ix string) string {
-	if ix == "" {
-		return "selftest"
-	}
-	h := sha256.Sum256([]byte(ix))
-	return "ix-" + hex.EncodeToString(h[:16])
-}
-
-// aidShort names an identity's work dir: the last 16 characters of the AID. AIDs are CIDs whose leading
-// characters are a fixed multibase and codec prefix ("bafyrei…"), so the tail is the part that differs.
-func aidShort(aid string) string {
-	if len(aid) > 16 {
-		aid = aid[len(aid)-16:]
-	}
-	return safeName(aid)
-}
-
 // checkOutsideDataDir refuses p when, after resolving symbolic links, it equals or lies inside the data
 // dir, or contains it.
 func checkOutsideDataDir(p, dataDir string) error {
 	if dataDir == "" {
 		return nil
 	}
-	rp, err := resolveThroughExisting(filepath.Clean(p))
+	rp, err := pathsafe.ResolveThroughExisting(filepath.Clean(p))
 	if err != nil {
 		return err
 	}
@@ -518,11 +464,11 @@ func checkOutsideDataDir(p, dataDir string) error {
 	if err != nil {
 		return err
 	}
-	rd, err := resolveThroughExisting(absData)
+	rd, err := pathsafe.ResolveThroughExisting(absData)
 	if err != nil {
 		return err
 	}
-	if pathWithin(rp, rd) || pathWithin(rd, rp) {
+	if pathsafe.PathWithin(rp, rd) || pathsafe.PathWithin(rd, rp) {
 		return fmt.Errorf("%s overlaps the data dir %s", p, dataDir)
 	}
 	return nil
@@ -531,19 +477,19 @@ func checkOutsideDataDir(p, dataDir string) error {
 // checkOutsideSandboxRoot refuses p when, after resolving symbolic links, it equals or lies inside the
 // sandbox work root, or contains it (LEC SB-8).
 func checkOutsideSandboxRoot(p string) error {
-	root := execSandboxWorkRoot()
+	root := execwork.SandboxWorkRoot()
 	if root == "" {
 		return nil
 	}
-	rp, err := resolveThroughExisting(filepath.Clean(p))
+	rp, err := pathsafe.ResolveThroughExisting(filepath.Clean(p))
 	if err != nil {
 		return err
 	}
-	rr, err := resolveThroughExisting(root)
+	rr, err := pathsafe.ResolveThroughExisting(root)
 	if err != nil {
 		return err
 	}
-	if pathWithin(rp, rr) || pathWithin(rr, rp) {
+	if pathsafe.PathWithin(rp, rr) || pathsafe.PathWithin(rr, rp) {
 		return fmt.Errorf("%s overlaps the sandbox work root %s", p, root)
 	}
 	return nil
@@ -570,12 +516,12 @@ func checkWorkDir(c *AutoReplyConfig, dataDir string) *a2ashape.Refusal {
 
 // newExecOutbox creates the outbox for one auto-reply turn inside the interaction's work dir (the
 // sandbox work dir for a sandboxed turn, so the agent can write to it) and returns it with its cleanup.
-func (d *Daemon) newExecOutbox(interactionID string, sandboxed bool) (string, func(), error) {
+func (m *autoReplyModule) newExecOutbox(interactionID string, sandboxed bool) (string, func(), error) {
 	dirFor := execInteractionDir
 	if sandboxed {
 		dirFor = execSandboxInteractionDir
 	}
-	dir, err := dirFor(d.layout.Root, d.AID(), interactionID)
+	dir, err := dirFor(m.env.DataDir, m.env.AID, interactionID)
 	if err != nil {
 		return "", func() {}, err
 	}
@@ -584,98 +530,6 @@ func (d *Daemon) newExecOutbox(interactionID string, sandboxed bool) (string, fu
 		return "", func() {}, err
 	}
 	return ob, func() { _ = os.RemoveAll(ob) }, nil
-}
-
-// deleteExecWorkDir removes the work dirs of one interaction under both roots (LEC SB-8): the content
-// retention deletes them within five minutes of the interaction's end (FS-L11). An agent may have left
-// directories without write permission; they are removed all the same.
-func deleteExecWorkDir(aid, ix string) {
-	if aid == "" || ix == "" {
-		return
-	}
-	for _, root := range []string{execWorkRoot(), execSandboxWorkRoot()} {
-		if root != "" {
-			removeWorkTree(filepath.Join(root, aidShort(aid), ixDirName(ix)))
-		}
-	}
-}
-
-// removeWorkTree removes a directory an agent wrote into: directories are made writable first (an
-// agent can leave read-only ones, which os.RemoveAll alone cannot empty); symbolic links are removed,
-// never followed. The walk and the mode changes go through an os.Root: an agent that is still running
-// (its task ended under it) can swap a directory for a link between the walk and the change, and a
-// plain chmod would follow that link to a file of the operator's outside the tree. The agent can take
-// the permissions of its work dir itself away as well, so the top is made writable first, through its
-// parent (a link put in its place is not followed out of that).
-func removeWorkTree(dir string) {
-	if dir == "" {
-		return
-	}
-	if fi, err := os.Lstat(dir); err == nil && fi.IsDir() {
-		if fi.Mode().Perm()&0o700 != 0o700 {
-			if pr, err := os.OpenRoot(filepath.Dir(dir)); err == nil {
-				_ = pr.Chmod(filepath.Base(dir), 0o700)
-				_ = pr.Close()
-			}
-		}
-		if r, err := os.OpenRoot(dir); err == nil {
-			_ = fs.WalkDir(r.FS(), ".", func(p string, d fs.DirEntry, err error) error {
-				if err == nil && d.IsDir() {
-					_ = r.Chmod(p, 0o700)
-				}
-				return nil
-			})
-			_ = r.Close()
-		}
-	}
-	_ = os.RemoveAll(dir)
-}
-
-// pruneExecWorkDirs removes the work dirs of the interactions that are not open (FS-L11), under both
-// roots. The directories are listed first and only then is open asked which interactions are, so a
-// directory made for a task that started in between is never taken for an ended one's: its task is
-// open by the time open answers. Interaction ids are never reused, so a removed dir is never needed
-// again; "selftest" (`anet autoreply test`) is not a task's and stays. A task that ended while its
-// agent still runs has its directory removed under it; removeWorkTree does not follow what the agent
-// may have put in its place.
-func pruneExecWorkDirs(aid string, open func() (map[string]bool, error)) error {
-	if aid == "" {
-		return nil
-	}
-	type workDir struct{ name, path string }
-	var found []workDir
-	for _, root := range []string{execWorkRoot(), execSandboxWorkRoot()} {
-		if root == "" {
-			continue
-		}
-		base := filepath.Join(root, aidShort(aid))
-		ents, err := os.ReadDir(base)
-		if err != nil {
-			continue
-		}
-		for _, e := range ents {
-			if e.IsDir() && e.Name() != "selftest" {
-				found = append(found, workDir{e.Name(), filepath.Join(base, e.Name())})
-			}
-		}
-	}
-	if len(found) == 0 {
-		return nil
-	}
-	ids, err := open()
-	if err != nil {
-		return err
-	}
-	keep := make(map[string]bool, len(ids))
-	for ix := range ids {
-		keep[ixDirName(ix)] = true
-	}
-	for _, w := range found {
-		if !keep[w.name] {
-			removeWorkTree(w.path)
-		}
-	}
-	return nil
 }
 
 // --- environment ---
@@ -871,7 +725,7 @@ func collectOutbox(dir string) ([]delegation.Attachment, error) {
 		if err != nil {
 			return nil, err
 		}
-		data, rerr := readRegular(f, maxAttachmentBytes)
+		data, rerr := readRegular(f, pathsafe.MaxAttachmentBytes)
 		_ = f.Close()
 		if rerr != nil {
 			return nil, fmt.Errorf("outbox entry %q: %w", name, rerr)
@@ -888,7 +742,7 @@ func collectOutbox(dir string) ([]delegation.Attachment, error) {
 			return nil, err
 		}
 		out = append(out, delegation.Attachment{
-			Name: safeName(name), Mime: detectMime(name, data), Size: int64(len(data)), CID: cid, Data: data,
+			Name: pathsafe.SafeName(name), Mime: pathsafe.DetectMime(name, data), Size: int64(len(data)), CID: cid, Data: data,
 		})
 	}
 	return out, nil
@@ -939,16 +793,6 @@ func readRegular(f *os.File, limit int64) ([]byte, error) {
 		return nil, fmt.Errorf("over the %d MiB limit", limit>>20)
 	}
 	return data, nil
-}
-
-// sendAutoReplyAttachments sends the auto-reply text plus the attachments collected from the outbox as
-// one relayed message, with meta as its metadata. A reply that completes the task is not sent this way:
-// it goes in the result (completeWithReply).
-func (d *Daemon) sendAutoReplyAttachments(ctx context.Context, interactionID, body string, atts []delegation.Attachment,
-	meta map[string]any) error {
-	sctx, cancel := context.WithTimeout(ctx, relayCallTimeout)
-	defer cancel()
-	return d.SendMessageOpts(sctx, interactionID, body, atts, meta)
 }
 
 // --- sandbox entry point ---
@@ -1061,8 +905,8 @@ func dirsSize(dirs []string, limit int64) int64 {
 
 // sweepSandboxLeftovers removes, once per daemon and before its first sandboxed run, what the runs of
 // an earlier process of this identity left behind: run directories and socket directories (LEC SB-9).
-func (d *Daemon) sweepSandboxLeftovers() {
-	d.sandboxSwept.Do(func() { removeSandboxLeftovers(d.AID()) })
+func (m *autoReplyModule) sweepSandboxLeftovers() {
+	m.swept.Do(func() { removeSandboxLeftovers(m.env.AID) })
 }
 
 // allocatedBytes is the space the file system gave fi.
@@ -1079,6 +923,11 @@ func allocatedBytes(fi fs.FileInfo) int64 {
 // endpoint. Only tests set it, to drive the budget, the records and the work-dir rules where the host
 // has no usable bubblewrap.
 var sandboxRunnerForTest func(ctx context.Context, req sandboxRequest, workDir string) (string, *egressSummary, error)
+
+// sandboxPrepareForTest, when set, replaces the platform's check that the sandbox can run (the part of
+// newSandboxPlan that differs by platform). Only tests set it, to stand in for a Mac on any host
+// (seatbeltEnabled false).
+var sandboxPrepareForTest func(*sandboxPlan) error
 
 // sandboxRequest is one auto-reply turn for an untrusted peer under auto_reply.untrusted=sandbox.
 type sandboxRequest struct {
@@ -1211,10 +1060,10 @@ type sandboxLaunch struct {
 // entry point the auto-reply gating uses for a peer outside the trust list when auto_reply.untrusted is
 // "sandbox". It never falls back to an unconfined run: every reason the sandbox cannot be used returns
 // errSandboxUnavailable before the agent starts.
-func (d *Daemon) runSandboxed(ctx context.Context, req sandboxRequest) (sandboxResult, error) {
+func (m *autoReplyModule) runSandboxed(ctx context.Context, req sandboxRequest) (sandboxResult, error) {
 	cfg := req.Cfg
 	if cfg.Backend != "exec" {
-		r, err := newAutoReplier(cfg, d.layout)
+		r, err := newAutoReplier(cfg, m.env)
 		if err != nil {
 			return sandboxResult{}, err
 		}
@@ -1226,7 +1075,7 @@ func (d *Daemon) runSandboxed(ctx context.Context, req sandboxRequest) (sandboxR
 		return sandboxResult{}, err
 	}
 	// What a run killed in the middle left behind is removed before this daemon's first run (SB-9).
-	d.sweepSandboxLeftovers()
+	m.sweepSandboxLeftovers()
 	// The agent reaches its model only through the run's egress endpoint, which adds the operator's key
 	// (LEC UP-1 to UP-4): the sandbox hides the agent's own login state, and binding it in would expose
 	// session history and other projects' credentials. Without a key (or, for a custom service, an
@@ -1237,13 +1086,13 @@ func (d *Daemon) runSandboxed(ctx context.Context, req sandboxRequest) (sandboxR
 	}
 	var plan *sandboxPlan
 	if sandboxRunnerForTest == nil {
-		if plan, err = d.newSandboxPlan(); err != nil {
+		if plan, err = m.newSandboxPlan(); err != nil {
 			return sandboxResult{}, err
 		}
 		plan.Egress = up
 		plan.AgentHome = spec.sandbox.homeFor(up) // resolveEgressUpstream refused an agent without a sandbox
 	}
-	workDir, err := execSandboxInteractionDir(d.layout.Root, d.AID(), req.RC.InteractionID)
+	workDir, err := execSandboxInteractionDir(m.env.DataDir, m.env.AID, req.RC.InteractionID)
 	if err != nil {
 		return sandboxResult{}, sandboxUnavailable("work dir: %v", err)
 	}
@@ -1260,13 +1109,13 @@ func (d *Daemon) runSandboxed(ctx context.Context, req sandboxRequest) (sandboxR
 	if sandboxRunnerForTest != nil {
 		reply, res.Egress, err = sandboxRunnerForTest(ctx, sandboxRequest{Cfg: cfg, RC: req.RC, Turns: req.Turns}, workDir)
 	} else {
-		r := &execReplier{cfg: cfg, dataDir: d.layout.Root, layout: d.layout, sandbox: plan, aid: d.AID()}
+		r := &execReplier{cfg: cfg, dataDir: m.env.DataDir, sessions: execwork.Sessions(m.env.StateDir), sandbox: plan, aid: m.env.AID}
 		reply, err = r.Reply(ctx, req.RC, req.Turns)
 		res.Egress = plan.egressSummary()
 	}
 	watch.end()
 	if watch.over.Load() {
-		removeWorkTree(workDir)
+		execwork.RemoveTree(workDir)
 		return res, errSandboxResource
 	}
 	if errors.Is(err, errSandboxUnavailable) {
@@ -1283,30 +1132,32 @@ func (d *Daemon) runSandboxed(ctx context.Context, req sandboxRequest) (sandboxR
 // the identities container, the runtime dirs (/tmp/anet-<uid>, $XDG_RUNTIME_DIR, /run/user/<uid>), the
 // configured ANetLink sockets, and the agent CLIs' own configuration and credential directories, then
 // checks that bubblewrap is present and usable.
-func (d *Daemon) newSandboxPlan() (*sandboxPlan, error) {
+func (m *autoReplyModule) newSandboxPlan() (*sandboxPlan, error) {
 	home, _ := os.UserHomeDir()
-	plan := &sandboxPlan{Home: home, AID: d.AID(), NeverBind: d.sandboxNeverBind()}
-	if err := plan.prepare(); err != nil {
+	plan := &sandboxPlan{Home: home, AID: m.env.AID, NeverBind: m.sandboxNeverBind()}
+	prepare := plan.prepare
+	if sandboxPrepareForTest != nil {
+		prepare = func() error { return sandboxPrepareForTest(plan) }
+	}
+	if err := prepare(); err != nil {
 		return nil, err
 	}
 	return plan, nil
 }
 
 // sandboxNeverBind is the never-bind list of newSandboxPlan, each entry in absolute and resolved form
-// (LEC SB-3): the data dir, the identities container, the runtime dirs, the direct-run work root and the
-// configured work_dir (a trusted peer's agent works there as the operator's user), the configured and
-// the default ANetLink sockets, and the agent CLIs' own configuration and credential directories.
-func (d *Daemon) sandboxNeverBind() []string {
+// (LEC SB-3): what the kernel says is sensitive (SensitivePathsHost: the data dir, the identities
+// container, the runtime dirs, the control and local A2A tokens, the default ANetLink socket and what
+// the available modules declare), the direct-run work root and the configured work_dir (a trusted
+// peer's agent works there as the operator's user), and the agent CLIs' own configuration and
+// credential directories.
+func (m *autoReplyModule) sandboxNeverBind() []string {
 	home, _ := os.UserHomeDir()
-	never := []string{d.layout.Root, AnetHome(), legacyRuntimeDir(), filepath.Join("/run/user", fmt.Sprint(os.Getuid())),
-		execWorkRoot()}
-	if x := os.Getenv("XDG_RUNTIME_DIR"); x != "" {
-		never = append(never, x, anethome.DefaultC1Socket())
-	}
-	never = append(never, anetlinkSockets(d.config())...)
+	never := append([]string{}, m.sens.SensitivePaths()...)
+	never = append(never, execwork.WorkRoot())
 	// The operator's work_dir is where a trusted peer's agent works unconfined (LEC SB-8): no sandboxed
 	// run sees it.
-	if ar := d.config().AutoReply; ar != nil && ar.WorkDir != "" {
+	if ar := m.current(); ar != nil && ar.WorkDir != "" {
 		never = append(never, ar.WorkDir)
 	}
 	if home != "" {
@@ -1317,25 +1168,6 @@ func (d *Daemon) sandboxNeverBind() []string {
 		}
 	}
 	return resolvedAll(never)
-}
-
-// anetlinkSockets returns the ANetLink C1 socket (CC-6): modules.anetlink.socket, or its default when
-// that is not set (anetlinkDefaultSocket; none without XDG_RUNTIME_DIR). The kernel reads this one key
-// only to keep the socket out of the sandbox; it does not interpret the module's configuration
-// otherwise.
-func anetlinkSockets(cfg Config) []string {
-	if raw, ok := cfg.Modules["anetlink"]; ok {
-		var mc struct {
-			Socket string `json:"socket"`
-		}
-		if json.Unmarshal(raw, &mc) == nil && mc.Socket != "" {
-			return []string{mc.Socket}
-		}
-	}
-	if def := anethome.DefaultC1Socket(); def != "" {
-		return []string{def}
-	}
-	return nil
 }
 
 // resolvedAll returns each path in its absolute form and, where it exists, also its symbolic-link
@@ -1358,7 +1190,7 @@ func resolvedAll(paths []string) []string {
 			continue
 		}
 		add(filepath.Clean(abs))
-		if r, err := resolveThroughExisting(abs); err == nil {
+		if r, err := pathsafe.ResolveThroughExisting(abs); err == nil {
 			add(r)
 		}
 	}
@@ -1369,7 +1201,7 @@ func resolvedAll(paths []string) []string {
 // it, or lies inside it.
 func bindConflict(src string, never []string) (string, bool) {
 	for _, n := range never {
-		if pathWithin(src, n) || pathWithin(n, src) {
+		if pathsafe.PathWithin(src, n) || pathsafe.PathWithin(n, src) {
 			return n, true
 		}
 	}

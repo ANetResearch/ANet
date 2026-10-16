@@ -140,7 +140,7 @@ func TestCapabilityUnresolvableIsAnsweredWithAutoReplyConfigured(t *testing.T) {
 		t.Fatal(err)
 	}
 	prov.mu.Lock()
-	prov.cfg.AutoReply = &AutoReplyConfig{Backend: "exec", Agent: "cursor"}
+	prov.cfg.AutoReply = rawAR(&AutoReplyConfig{Backend: "exec", Agent: "cursor"})
 	prov.mu.Unlock()
 
 	id, err := req.DelegateCapability(ctx, prov.AID(), "ghost.capability", nil)

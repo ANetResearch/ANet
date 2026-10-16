@@ -1,4 +1,4 @@
-package daemon
+package localday
 
 import (
 	"math/rand"
@@ -31,7 +31,7 @@ func dateOf(t time.Time) time.Time {
 	return time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
 }
 
-// bruteDayBounds is localDayBounds by walking the clock a minute at a time (every offset and every
+// bruteDayBounds is Bounds by walking the clock a minute at a time (every offset and every
 // transition since 1990 falls on a whole minute): the first minute whose date is on or after now's,
 // and the first minute after now whose date is later.
 func bruteDayBounds(now time.Time) (start, end time.Time) {
@@ -86,7 +86,7 @@ func TestLocalDayBoundsKnownDays(t *testing.T) {
 	} {
 		loc := loadZone(t, tc.zone)
 		now, _ := time.Parse(time.RFC3339, tc.now)
-		start, end := localDayBounds(now.In(loc))
+		start, end := Bounds(now.In(loc))
 		ws, _ := time.Parse(time.RFC3339, tc.start)
 		we, _ := time.Parse(time.RFC3339, tc.end)
 		if !start.Equal(ws) || !end.Equal(we) {
@@ -101,7 +101,7 @@ func TestLocalDayBoundsKnownDays(t *testing.T) {
 	}
 }
 
-// localDayBounds agrees with the minute-by-minute walk for random instants in many zones, and for
+// Bounds agrees with the minute-by-minute walk for random instants in many zones, and for
 // instants around every transition of those zones (P-BU's retry_after_ms is end − now).
 func TestLocalDayBoundsMatchesTheClock(t *testing.T) {
 	rng := rand.New(rand.NewSource(1))
@@ -110,7 +110,7 @@ func TestLocalDayBoundsMatchesTheClock(t *testing.T) {
 	check := func(loc *time.Location, now time.Time) {
 		t.Helper()
 		now = now.In(loc)
-		start, end := localDayBounds(now)
+		start, end := Bounds(now)
 		bs, be := bruteDayBounds(now)
 		if !start.Equal(bs) || !end.Equal(be) {
 			t.Fatalf("%s at %s: [%s, %s), the clock says [%s, %s)", loc, now, start, end, bs, be)

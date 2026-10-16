@@ -18,34 +18,14 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
-	"unicode"
-	"unicode/utf8"
 
 	"github.com/ANetResearch/ANetCore/anetcid"
 	"github.com/ANetResearch/ANetCore/delegation"
 
+	"github.com/ANetResearch/ANet/internal/execwork"
+	"github.com/ANetResearch/ANet/internal/pathsafe"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 )
-
-// maxAttachmentBytes bounds a single attachment. Larger payloads must be split or (future) uploaded to a
-// chunked blob store; inline transport is bounded by the Hub relay body cap (see the Hub's request cap /
-// nginx client_max_body_size, sized to accommodate this plus base64 overhead).
-const maxAttachmentBytes = 64 << 20 // 64 MiB
-
-// detectMime picks a media type from the filename extension, falling back to content sniffing.
-func detectMime(name string, data []byte) string {
-	if t := mime.TypeByExtension(filepath.Ext(name)); t != "" {
-		return t
-	}
-	n := len(data)
-	if n > 512 {
-		n = 512
-	}
-	if n == 0 {
-		return "application/octet-stream"
-	}
-	return http.DetectContentType(data[:n])
-}
 
 // attachmentFromPath reads a local file into a self-verified Attachment (bytes + content CID).
 func attachmentFromPath(path string) (delegation.Attachment, error) {
@@ -57,9 +37,9 @@ func attachmentFromPath(path string) (delegation.Attachment, error) {
 	if info.IsDir() {
 		return zero, fmt.Errorf("attachment %q is a directory — compress it first (e.g. `zip -r out.zip .`)", path)
 	}
-	if info.Size() > maxAttachmentBytes {
+	if info.Size() > pathsafe.MaxAttachmentBytes {
 		return zero, fmt.Errorf("attachment %q is %d bytes, over the %d MiB limit — compress or split it",
-			path, info.Size(), maxAttachmentBytes>>20)
+			path, info.Size(), pathsafe.MaxAttachmentBytes>>20)
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -70,7 +50,7 @@ func attachmentFromPath(path string) (delegation.Attachment, error) {
 		return zero, err
 	}
 	name := filepath.Base(path)
-	return delegation.Attachment{Name: name, Mime: detectMime(name, data), Size: int64(len(data)), CID: cid, Data: data}, nil
+	return delegation.Attachment{Name: name, Mime: pathsafe.DetectMime(name, data), Size: int64(len(data)), CID: cid, Data: data}, nil
 }
 
 // attachmentFromBytes builds a self-verified Attachment from in-memory bytes. The web console uploads file
@@ -85,15 +65,15 @@ func attachmentFromBytes(name string, data []byte) (delegation.Attachment, error
 	if len(data) == 0 {
 		return zero, fmt.Errorf("attachment %q is empty", name)
 	}
-	if int64(len(data)) > maxAttachmentBytes {
+	if int64(len(data)) > pathsafe.MaxAttachmentBytes {
 		return zero, fmt.Errorf("attachment %q is %d bytes, over the %d MiB limit — compress or split it",
-			name, len(data), maxAttachmentBytes>>20)
+			name, len(data), pathsafe.MaxAttachmentBytes>>20)
 	}
 	cid, err := anetcid.SumRaw(data)
 	if err != nil {
 		return zero, err
 	}
-	return delegation.Attachment{Name: name, Mime: detectMime(name, data), Size: int64(len(data)), CID: cid, Data: data}, nil
+	return delegation.Attachment{Name: name, Mime: pathsafe.DetectMime(name, data), Size: int64(len(data)), CID: cid, Data: data}, nil
 }
 
 // attachmentsFromPaths builds attachments for every path, failing fast on the first unreadable/oversized.
@@ -120,7 +100,7 @@ func verifyAttachment(a delegation.Attachment) error {
 	if int64(len(a.Data)) != a.Size {
 		return fmt.Errorf("attachment %q size mismatch (declared %d, got %d)", a.Name, a.Size, len(a.Data))
 	}
-	if len(a.Data) > maxAttachmentBytes {
+	if len(a.Data) > pathsafe.MaxAttachmentBytes {
 		return fmt.Errorf("attachment %q over size limit", a.Name)
 	}
 	got, err := anetcid.SumRaw(a.Data)
@@ -257,7 +237,7 @@ const maxPullNameAttempts = 1000
 //     overwritten and a symbolic link placed at the destination is never followed. When the name is
 //     taken by a regular file with the same content CID, the attachment counts as already pulled, which
 //     keeps a repeated pull idempotent; otherwise the next free name is used.
-//   - safeName neutralizes a leading dot, strips control and bidirectional-override characters and
+//   - pathsafe.SafeName neutralizes a leading dot, strips control and bidirectional-override characters and
 //     limits the length.
 func (d *Daemon) Pull(interactionID, outDir string) ([]PullResult, error) {
 	real, err := d.checkPullOutDir(outDir)
@@ -290,7 +270,7 @@ func pullInto(real, interactionID string, atts []*interactions.Attachment) ([]Pu
 		return nil, err
 	}
 	defer parent.Close()
-	name := "anet-" + safeName(prefix(interactionID, 12))
+	name := "anet-" + pathsafe.SafeName(prefix(interactionID, 12))
 	sub := filepath.Join(real, name)
 	dir, opened, err := openDirIn(parent, name, 0o700)
 	if err != nil {
@@ -302,7 +282,7 @@ func pullInto(real, interactionID string, atts []*interactions.Attachment) ([]Pu
 	}
 	used := map[string]bool{}
 	for _, a := range atts {
-		res, err := pullOne(dir, sub, safeName(a.Name), a, used)
+		res, err := pullOne(dir, sub, pathsafe.SafeName(a.Name), a, used)
 		if err != nil {
 			return nil, err
 		}
@@ -442,12 +422,12 @@ func (d *Daemon) checkPullOutDir(outDir string) (string, error) {
 	if !filepath.IsAbs(outDir) {
 		return "", fmt.Errorf("%w %q is not an absolute path", errPullOutDir, outDir)
 	}
-	real, err := resolveThroughExisting(filepath.Clean(outDir))
+	real, err := pathsafe.ResolveThroughExisting(filepath.Clean(outDir))
 	if err != nil {
 		return "", fmt.Errorf("%w %q: %v", errPullOutDir, outDir, err)
 	}
 	for _, root := range d.pullForbiddenRoots() {
-		if pathWithin(real, root) {
+		if pathsafe.PathWithin(real, root) {
 			return "", fmt.Errorf("%w %q lies inside %s, which anet does not write peer files into", errPullOutDir, outDir, root)
 		}
 	}
@@ -491,7 +471,7 @@ func pullOne(dir *os.Root, subPath, name string, a *interactions.Attachment, use
 // has the given CID.
 func regularFileHasCID(dir *os.Root, name, cid string) bool {
 	fi, err := dir.Lstat(name)
-	if err != nil || !fi.Mode().IsRegular() || fi.Size() > maxAttachmentBytes {
+	if err != nil || !fi.Mode().IsRegular() || fi.Size() > pathsafe.MaxAttachmentBytes {
 		return false
 	}
 	f, err := dir.OpenFile(name, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
@@ -502,7 +482,7 @@ func regularFileHasCID(dir *os.Root, name, cid string) bool {
 	if st, err := f.Stat(); err != nil || !os.SameFile(fi, st) {
 		return false
 	}
-	data, err := io.ReadAll(io.LimitReader(f, maxAttachmentBytes+1))
+	data, err := io.ReadAll(io.LimitReader(f, pathsafe.MaxAttachmentBytes+1))
 	if err != nil {
 		return false
 	}
@@ -530,7 +510,7 @@ func prefix(s string, n int) string {
 // data dir and the exec work dir.
 func (d *Daemon) pullForbiddenRoots() []string {
 	var out []string
-	for _, p := range []string{d.layout.Root, execWorkRoot()} {
+	for _, p := range []string{d.layout.Root, execwork.WorkRoot()} {
 		if p == "" {
 			continue
 		}
@@ -538,45 +518,11 @@ func (d *Daemon) pullForbiddenRoots() []string {
 		if err != nil {
 			continue
 		}
-		if r, err := resolveThroughExisting(abs); err == nil {
+		if r, err := pathsafe.ResolveThroughExisting(abs); err == nil {
 			out = append(out, r)
 		}
 	}
 	return out
-}
-
-// resolveThroughExisting resolves symbolic links in the longest existing prefix of the absolute path p
-// and appends the components that do not exist yet (which cannot be links). The result is what p would
-// name once created.
-func resolveThroughExisting(p string) (string, error) {
-	cur := p
-	var rest []string
-	for {
-		if _, err := os.Lstat(cur); err == nil {
-			real, err := filepath.EvalSymlinks(cur)
-			if err != nil {
-				return "", err
-			}
-			for i := len(rest) - 1; i >= 0; i-- {
-				real = filepath.Join(real, rest[i])
-			}
-			return real, nil
-		} else if !errors.Is(err, fs.ErrNotExist) {
-			return "", err
-		}
-		parent := filepath.Dir(cur)
-		if parent == cur {
-			return p, nil
-		}
-		rest = append(rest, filepath.Base(cur))
-		cur = parent
-	}
-}
-
-// pathWithin reports whether p equals root or lies below it. Both must be cleaned absolute paths.
-func pathWithin(p, root string) bool {
-	rel, err := filepath.Rel(root, p)
-	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 // AttachmentBytes returns one attachment's name/mime/bytes for streaming to the web console.
@@ -586,87 +532,4 @@ func (d *Daemon) AttachmentBytes(interactionID, cid string) (name, mimeType stri
 		return "", "", nil, err
 	}
 	return a.Name, a.Mime, a.Data, nil
-}
-
-// maxSafeNameBytes caps a file name derived from a peer-supplied name.
-const maxSafeNameBytes = 128
-
-// safeName turns a peer-supplied file name into one that is safe to create in a directory and to show
-// in a download prompt:
-//   - only the last path element survives (both / and \ count as separators);
-//   - control characters and bidirectional formatting characters are removed, so a name cannot hide
-//     its real extension (for example "invoice\u202Efdp.exe");
-//   - a leading dot is replaced by "_", so the file is not hidden and cannot be a tool's dotfile
-//     (.envrc, .npmrc);
-//   - trailing dots and spaces are removed and Windows device names (CON, NUL, COM1, …) get a "_"
-//     prefix, for clients that save the name on Windows;
-//   - the result is limited to maxSafeNameBytes, keeping a short extension.
-//
-// An empty result becomes "attachment".
-func safeName(name string) string {
-	if i := strings.LastIndexAny(name, `/\`); i >= 0 {
-		name = name[i+1:]
-	}
-	var b strings.Builder
-	for _, r := range name {
-		if r == utf8.RuneError || unicode.IsControl(r) || isBidiFormat(r) {
-			continue
-		}
-		b.WriteRune(r)
-	}
-	name = strings.TrimRight(strings.TrimSpace(b.String()), ". ")
-	if strings.HasPrefix(name, ".") {
-		name = "_" + strings.TrimLeft(name, ".")
-	}
-	stem := name
-	if i := strings.IndexByte(stem, '.'); i >= 0 {
-		stem = stem[:i]
-	}
-	if windowsReservedName(stem) {
-		name = "_" + name
-	}
-	if len(name) > maxSafeNameBytes {
-		ext := filepath.Ext(name)
-		if len(ext) > 16 {
-			ext = ""
-		}
-		name = truncateUTF8(name[:len(name)-len(ext)], maxSafeNameBytes-len(ext)) + ext
-	}
-	if name == "" || name == "_" {
-		return "attachment"
-	}
-	return name
-}
-
-// isBidiFormat reports the Unicode bidirectional formatting characters (embeddings, overrides,
-// isolates and marks).
-func isBidiFormat(r rune) bool {
-	switch {
-	case r >= 0x202A && r <= 0x202E, r >= 0x2066 && r <= 0x2069:
-		return true
-	case r == 0x200E, r == 0x200F, r == 0x061C:
-		return true
-	}
-	return false
-}
-
-func windowsReservedName(stem string) bool {
-	switch strings.ToUpper(stem) {
-	case "CON", "PRN", "AUX", "NUL",
-		"COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
-		"LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9":
-		return true
-	}
-	return false
-}
-
-// truncateUTF8 cuts s to at most n bytes without splitting a UTF-8 sequence.
-func truncateUTF8(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	for n > 0 && !utf8.RuneStart(s[n]) {
-		n--
-	}
-	return s[:n]
 }

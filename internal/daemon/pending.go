@@ -289,7 +289,7 @@ func (d *Daemon) ApprovePending(ixID string) (*interactions.Interaction, error) 
 			d.runCapabilityCall(ixID, capID, args, nil)
 		})
 	} else {
-		d.kickAutoReply()
+		d.kickTurns()
 		for _, f := range item.Followups {
 			if f.Kind == delegation.ChatEndRequest {
 				d.goBackground(func() {

@@ -12,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
+	"github.com/ANetResearch/ANet/internal/execwork"
 )
 
 // Values of auto_reply.sandbox.state.
@@ -24,7 +25,7 @@ const (
 // autoReplyView is the auto-reply configuration as /status and /autoreply show it: what it does, never
 // the key (only whether one is set, AV-8), the model service address, and the sandbox with its state,
 // reason and sentence, CONNECT allowlist, limits and today's budget.
-func (d *Daemon) autoReplyView(ar *AutoReplyConfig) map[string]any {
+func (m *autoReplyModule) autoReplyView(ar *AutoReplyConfig) map[string]any {
 	backend := ar.Backend
 	if backend == "" {
 		backend = "openai"
@@ -45,22 +46,22 @@ func (d *Daemon) autoReplyView(ar *AutoReplyConfig) map[string]any {
 		entry["model"] = ar.Model
 		entry["api_base"] = ar.APIBase
 	}
-	entry["sandbox"] = d.sandboxView(ar)
+	entry["sandbox"] = m.sandboxView(ar)
 	return entry
 }
 
 // sandboxView is auto_reply.sandbox: state "off" when no run is sandboxed (untrusted=off or a budget of
 // 0, and trusted=direct, or a backend that starts no process), "unavailable" with the reason when one
 // would be but cannot, else "ready".
-func (d *Daemon) sandboxView(ar *AutoReplyConfig) map[string]any {
+func (m *autoReplyModule) sandboxView(ar *AutoReplyConfig) map[string]any {
 	lang := a2ashape.Lang()
-	v := map[string]any{"egress_allow": egressAllowOf(ar), "kind": "", "limits": "", "budget": d.SandboxBudget()}
+	v := map[string]any{"egress_allow": egressAllowOf(ar), "kind": "", "limits": "", "budget": m.SandboxBudget()}
 	key, state := "sandbox.off", sandboxStateOff
 	var args a2ashape.Args
 	untrusted := ar.UntrustedMode() == UntrustedSandbox && !ar.BudgetOff()
 	if ar.Backend == "exec" && (untrusted || ar.TrustedMode() == TrustedSandbox) {
 		v["kind"], v["limits"] = sandboxKind, sandboxLimits()
-		key, state, args = d.sandboxProblem(ar)
+		key, state, args = m.sandboxProblem(ar)
 	}
 	// The reason is the sentence's key where the sentence is a status one (sandbox.off, sandbox.ready,
 	// sandbox.ready_egress), else the code of the refusal (a variant such as .combo is not part of it).
@@ -82,7 +83,7 @@ func (d *Daemon) sandboxView(ar *AutoReplyConfig) map[string]any {
 // sandboxProblem is the sentence of a sandbox that runs: the first thing that stops it (the platform's
 // self-check, then the agent and the model service, in resolveEgressUpstream's order), or sandbox.ready
 // and sandbox.ready_egress.
-func (d *Daemon) sandboxProblem(ar *AutoReplyConfig) (key, state string, args a2ashape.Args) {
+func (m *autoReplyModule) sandboxProblem(ar *AutoReplyConfig) (key, state string, args a2ashape.Args) {
 	if c := SandboxSelfCheck(); c.Reason != "" {
 		return c.Reason, sandboxStateUnavailable, a2ashape.Args{"error": c.Detail, "detail": c.Detail}
 	}
@@ -159,10 +160,8 @@ type autoReplyTestEgress struct {
 // TestAutoReplyPaths runs the enabled paths, in order: direct, then sandbox when untrusted or trusted is
 // sandbox and the backend starts a local process. A path that fails is a result, not an error; the error
 // is only that auto-reply is not configured.
-func (d *Daemon) TestAutoReplyPaths(ctx context.Context, prompt string) ([]AutoReplyTestResult, error) {
-	d.mu.Lock()
-	arp := d.cfg.AutoReply
-	d.mu.Unlock()
+func (m *autoReplyModule) TestAutoReplyPaths(ctx context.Context, prompt string) ([]AutoReplyTestResult, error) {
+	arp := m.current()
 	if arp == nil {
 		return nil, errors.New(a2ashape.Sentence("autoreply.off", a2ashape.Lang(), nil))
 	}
@@ -176,7 +175,7 @@ func (d *Daemon) TestAutoReplyPaths(ctx context.Context, prompt string) ([]AutoR
 			Message: a2ashape.Sentence("autoreply_test.fail", lang, a2ashape.Args{"path": path, "why": why})}
 	}
 	var out []AutoReplyTestResult
-	reply, err := d.TestAutoReply(ctx, prompt)
+	reply, err := m.TestAutoReply(ctx, prompt)
 	if err != nil {
 		out = append(out, fail("direct", "", err.Error()))
 	} else {
@@ -188,7 +187,7 @@ func (d *Daemon) TestAutoReplyPaths(ctx context.Context, prompt string) ([]AutoR
 		return out, nil
 	}
 	// The sandbox path: the state first (a sandbox that cannot run says why), then one real run.
-	if key, state, args := d.sandboxProblem(&cfg); state == sandboxStateUnavailable {
+	if key, state, args := m.sandboxProblem(&cfg); state == sandboxStateUnavailable {
 		out = append(out, fail("sandbox", a2ashape.ReasonCode(key), a2ashape.Sentence(key, lang, args)))
 		return out, nil
 	}
@@ -198,10 +197,10 @@ func (d *Daemon) TestAutoReplyPaths(ctx context.Context, prompt string) ([]AutoR
 	}
 	rctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	res, err := d.runSandboxed(rctx, sandboxRequest{Cfg: cfg, RC: replyContext{Role: "inbound", Goal: prompt},
+	res, err := m.runSandboxed(rctx, sandboxRequest{Cfg: cfg, RC: replyContext{Role: "inbound", Goal: prompt},
 		Turns: []chatTurn{{Role: "user", Text: prompt}}})
-	if dir, derr := execSandboxInteractionDir(d.layout.Root, d.AID(), ""); derr == nil {
-		removeWorkTree(dir)
+	if dir, derr := execSandboxInteractionDir(m.env.DataDir, m.env.AID, ""); derr == nil {
+		execwork.RemoveTree(dir)
 	}
 	if err != nil {
 		reason, why := "", err.Error()

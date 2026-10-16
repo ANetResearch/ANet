@@ -139,16 +139,22 @@ func peerPrompt(c *client, sub, aid string) string {
 	}
 	key := "allow_confirm"
 	if sub == "trust" {
-		key = "trust_confirm.direct"
-		if trustedMode(c) == "sandbox" {
+		// Without auto-reply (no auto_reply block, or the module is not available) nothing runs a local
+		// agent for the peer: trust only decides whether local backends take its tasks (MOD-3).
+		switch trustedMode(c) {
+		case "sandbox":
 			key = "trust_confirm.sandbox"
+		case "direct":
+			key = "trust_confirm.direct"
+		case "":
+			key = "trust_confirm.no_agent"
 		}
 	}
 	return a2ashape.Sentence(key, a2ashape.Lang(), args)
 }
 
 // trustedMode is how this node runs a trusted peer's tasks (auto_reply.trusted:
-// direct or sandbox), as /status says it; "" when it does not say.
+// direct or sandbox), as /status says it; "" when auto-reply is off or it does not say.
 func trustedMode(c *client) string {
 	b, code, err := c.fetch("/status", nil)
 	if err != nil || code != 200 {

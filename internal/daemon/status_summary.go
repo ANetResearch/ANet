@@ -73,10 +73,9 @@ func (d *Daemon) statusSummary(out map[string]any, lang a2ashape.Language) []a2a
 
 	in.Delivery = deliverySaid(asMap(out["delivery"]))
 
-	in.Inbound = d.inboundSaid(cfg)
+	in.Inbound = d.inboundSaid(cfg, asMap(out["auto_reply"]) != nil)
 
-	if ar := asMap(out["auto_reply"]); ar != nil && cfg.AutoReply != nil &&
-		(cfg.AutoReply.UntrustedMode() == UntrustedSandbox || cfg.AutoReply.TrustedMode() == TrustedSandbox) {
+	if ar := asMap(out["auto_reply"]); ar != nil && (str(ar, "untrusted") == UntrustedSandbox || str(ar, "trusted") == TrustedSandbox) {
 		in.Sandbox, in.SandboxBudget = sandboxSaid(asMap(ar["sandbox"]))
 	}
 
@@ -123,10 +122,10 @@ func (d *Daemon) clockSaid(state string) *a2ashape.Said {
 // allow list names, how many capabilities are public and whether auto-reply
 // is on. Auto-reply is on when /status has an auto_reply member (it is
 // absent when auto-reply is not configured or not in this build).
-func (d *Daemon) inboundSaid(cfg Config) a2ashape.Said {
+func (d *Daemon) inboundSaid(cfg Config, autoReplyOn bool) a2ashape.Said {
 	in := cfg.inbound()
 	auto := "off"
-	if cfg.AutoReply != nil {
+	if autoReplyOn {
 		auto = "on"
 	}
 	args := a2ashape.Args{"m": len(in.PublicCapabilities), "auto_reply": auto}

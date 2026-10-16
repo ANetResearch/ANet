@@ -52,6 +52,7 @@ import (
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
 	"github.com/ANetResearch/ANet/internal/jsonread"
+	"github.com/ANetResearch/ANet/internal/pathsafe"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 	"github.com/ANetResearch/ANet/internal/x402a2a"
 	"github.com/ANetResearch/ANet/module"
@@ -1507,12 +1508,12 @@ func (d *Daemon) refusalNote(ctx context.Context, ix *interactions.Interaction, 
 // formatting characters, cut to max bytes.
 func plainText(s string, max int) string {
 	s = strings.Map(func(r rune) rune {
-		if r == utf8.RuneError || unicode.IsControl(r) || isBidiFormat(r) {
+		if r == utf8.RuneError || unicode.IsControl(r) || pathsafe.IsBidiFormat(r) {
 			return -1
 		}
 		return r
 	}, s)
-	return truncateUTF8(s, max)
+	return pathsafe.TruncateUTF8(s, max)
 }
 
 // PayTask carries out a decision on a task's quote: submit signs (or, on

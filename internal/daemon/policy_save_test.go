@@ -106,7 +106,7 @@ func TestPublicCapabilitiesAndAutoReplyWritesThatFailedToSaveAreNotInForce(t *te
 	if !failed {
 		t.Fatal("the auto-reply save did not fail")
 	}
-	if ar := prov.config().AutoReply; ar != nil {
+	if ar := AutoReplyOf(prov.config()); ar != nil {
 		t.Fatalf("auto-reply in force after a failed save: %+v", ar)
 	}
 }

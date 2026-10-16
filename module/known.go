@@ -52,9 +52,8 @@ const (
 	GrantTransportHost   Grant = "TransportHost"
 	GrantSensitivePaths  Grant = "SensitivePathsHost"
 
-	// Named here so that the table is complete; the interfaces themselves
-	// arrive with the packages that build the seams (MOD-3: the first
-	// three; MOD-5: PreviewHost).
+	// The interfaces of the first three are in turn.go (MOD-3); PreviewHost
+	// arrives with MOD-5.
 	GrantTurnHost         Grant = "TurnHost"
 	GrantOwnEvidenceHost  Grant = "OwnEvidenceHost"
 	GrantModuleConfigHost Grant = "ModuleConfigHost"
@@ -133,6 +132,24 @@ func (i Info) MayRecord(eventType string) bool {
 	return false
 }
 
+// MayRead reports whether the module may read back events of this type
+// (OwnEvidenceHost): a type in its EvidenceTypes, the same list that bounds
+// RecordEvidence, without the exclusion of anet.policy.* (which no list holds).
+func (i Info) MayRead(eventType string) bool {
+	for _, t := range i.EvidenceTypes {
+		if p, ok := strings.CutSuffix(t, "*"); ok {
+			if strings.HasPrefix(eventType, p) && len(eventType) > len(p) {
+				return true
+			}
+			continue
+		}
+		if t == eventType {
+			return true
+		}
+	}
+	return false
+}
+
 // MayStatus reports whether the module may contribute /status member key.
 func (i Info) MayStatus(key string) bool { return slices.Contains(i.StatusKeys, key) }
 
@@ -159,8 +176,9 @@ var known = []Info{
 		DoctorIDs: []string{"anetlink.publish", "anetlink.socket"},
 		Grants:    []Grant{GrantProviders}, AbsenceReady: true},
 	// autoreply has no tag and no registration yet: it is declared compiled
-	// (internal/daemon/declare.go) until MOD-4 moves it out. AbsenceReady is
-	// false until MOD-3 lands the seam that makes its absence a real path.
+	// (internal/daemon/declare.go) until MOD-4 moves it out. Its absent path
+	// is real since MOD-3 (the loop, the routes and the status member are all
+	// behind the seams), so it may be written into `without`.
 	{Name: "autoreply", ConfigKey: "auto_reply", Zh: "自动回复", En: "auto-reply",
 		Routes:      []string{"POST /autoreply", "POST /autoreply-test"},
 		CLICommands: []string{"autoreply"},
@@ -170,7 +188,8 @@ var known = []Info{
 		EvidenceTypes: []string{"anet.autoreply.invoked"},
 		StatusKeys:    []string{"auto_reply"},
 		AuditFields: []string{"trusted", "sandbox.egress_allow", "sandbox.runs_per_day", "sandbox.runs_per_peer_per_day",
-			"api_key_set"}},
+			"api_key_set"},
+		AbsenceReady: true},
 	{Name: "blackboard", Tag: "no_blackboard", Packages: []string{"module/blackboard"}, ConfigKey: "modules.blackboard",
 		Zh: "共享黑板", En: "shared blackboard",
 		Grants: []Grant{GrantProviders, GrantResolveKEL}, AbsenceReady: true},

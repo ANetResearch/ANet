@@ -58,13 +58,11 @@ type Config struct {
 	// payments block; New saves the config with the block written out, so
 	// the file states the defaults explicitly (SI-5).
 	rewriteConfig bool
-	// AutoReply, when set, turns this daemon into a SELF-DRIVING provider: a background loop watches
-	// inbound conversations and answers them by calling the operator's own service (e.g. a self-hosted
-	// small model behind an OpenAI-compatible REST API). This keeps anet's core promise — anet itself
-	// still runs no model — while removing the need for an external harness process: the "poll inbox →
-	// call my API → message back" loop lives in the daemon, driven purely by this config block.
-	// Requires a daemon restart to take effect. See autoreply.go.
-	AutoReply *AutoReplyConfig `json:"auto_reply,omitempty"`
+	// AutoReply is the auto_reply block, kept raw: the kernel neither parses nor interprets it. The
+	// auto-reply module (autoreply_config.go) reads it, checks it through the ConfigSpec it registers
+	// and writes it only through ModuleConfigHost.UpdateModuleConfig (K-6); the kernel carries it
+	// byte for byte through every other write of config.json (carryDiskConfig).
+	AutoReply json.RawMessage `json:"auto_reply,omitempty"`
 	// Payments is the spending policy (A2A-DESIGN §8.6; spend.go). A key
 	// left out gets its default (PaymentsConfig.limits); a config without
 	// the block is given defaultPayments at load and rewritten, so the file
@@ -95,103 +93,6 @@ type Config struct {
 	// "off"; a config without the key gets it. `anet preview` changes it;
 	// any other value stops the daemon from starting (config_invalid).
 	StreamPreview string `json:"stream_preview,omitempty"`
-}
-
-// AutoReplyConfig configures the daemon's built-in auto-reply loop (see autoreply.go). Backend selects
-// HOW a reply is produced; "openai" (the default and only v0.1 backend) posts the conversation to any
-// OpenAI-compatible /chat/completions endpoint (ollama / vLLM / llama.cpp server / a cloud API). Future
-// backends (e.g. "exec" — spawn a local coding agent like cursor/claude to compose the reply) plug into
-// the same autoReplier seam without changing this loop.
-type AutoReplyConfig struct {
-	Backend string `json:"backend,omitempty"` // reply engine: "openai" (default) or "exec"
-	// Untrusted says what the exec backend does for a peer that is not on
-	// the inbound trust list (A2A-DESIGN §6): "off" (the default; the local
-	// agent is not run for that peer) or "sandbox" (run it in the sandbox,
-	// which fails closed when the sandbox is unavailable). The openai
-	// backend runs no local program and is not gated by it.
-	Untrusted string `json:"untrusted,omitempty"`
-	// Trusted says how the exec backend runs for a peer on the trust list
-	// (LEC GT-1): "direct" (the default; as the operator's user) or
-	// "sandbox" (in the sandbox, outside the run budget).
-	Trusted string `json:"trusted,omitempty"`
-	// --- "openai" backend ---
-	APIBase      string `json:"api_base,omitempty"` // e.g. http://127.0.0.1:11434/v1
-	APIKey       string `json:"api_key,omitempty"`  // bearer key, if the endpoint needs one
-	Model        string `json:"model,omitempty"`    // openai: model name; exec: optional agent model override
-	SystemPrompt string `json:"system_prompt,omitempty"`
-	// --- "exec" backend (spawn local coding agent) ---
-	Agent         string   `json:"agent,omitempty"`          // one of daemon.SupportedExecAgents()
-	WorkDir       string   `json:"work_dir,omitempty"`       // agent workspace (default: identity data dir)
-	Command       string   `json:"command,omitempty"`        // override agent binary path
-	ExtraArgs     []string `json:"extra_args,omitempty"`     // extra CLI args passed to the agent
-	OpenClawAgent string   `json:"openclaw_agent,omitempty"` // openclaw --agent value (default main)
-	// --- tuning (0 ⇒ default) ---
-	MaxHistory        int `json:"max_history,omitempty"`         // max conversation turns sent to the backend (default 20)
-	APITimeoutSeconds int `json:"api_timeout_seconds,omitempty"` // one backend call (default 180)
-	// Sandbox configures the sandbox's network and its run budget (LEC §3.2, ux §2.2); absent, the
-	// defaults apply: no network beyond the model route, and the default budget.
-	Sandbox *AutoReplySandboxConfig `json:"sandbox,omitempty"`
-}
-
-// AutoReplySandboxConfig is auto_reply.sandbox.
-type AutoReplySandboxConfig struct {
-	// EgressAllow is the CONNECT allowlist (LEC CN-1): the hosts, each by its exact name, that a
-	// sandboxed agent may reach on port 443. Empty, the default: none. Each one is a way for the
-	// untrusted peer's task to send data out, so adding one is confirmed on a terminal (UX-C12);
-	// removing one is not.
-	EgressAllow []string `json:"egress_allow,omitempty"`
-	// RunsPerDay and RunsPerPeerPerDay are the run budget for untrusted
-	// peers per local calendar day (LEC BU-3): 20 and 5 when unset, 0 for
-	// no runs (sandbox_budget.go).
-	RunsPerDay        *BudgetValue `json:"runs_per_day,omitempty"`
-	RunsPerPeerPerDay *BudgetValue `json:"runs_per_peer_per_day,omitempty"`
-}
-
-// empty reports a sandbox block that sets nothing.
-func (s *AutoReplySandboxConfig) empty() bool {
-	return s == nil || (len(s.EgressAllow) == 0 && s.RunsPerDay == nil && s.RunsPerPeerPerDay == nil)
-}
-
-// The egress allowlist is checked when the daemon starts (CN-1, LEC §3.2): a config.json edited by hand
-// to hold an address, a wildcard or a model host does not start.
-func init() { configChecks = append(configChecks, checkEgressAllowConfig) }
-
-func checkEgressAllowConfig(c Config, _ map[string]any) *a2ashape.Refusal {
-	if c.AutoReply == nil || c.AutoReply.Sandbox == nil {
-		return nil
-	}
-	_, ref := checkEgressAllow(c.AutoReply.Sandbox.EgressAllow, c.AutoReply.APIBase)
-	return ref
-}
-
-// Values of AutoReplyConfig.Untrusted.
-const (
-	UntrustedOff     = "off"
-	UntrustedSandbox = "sandbox"
-)
-
-// UntrustedMode is the effective auto_reply.untrusted value: "off" unless
-// the operator set "sandbox".
-func (c AutoReplyConfig) UntrustedMode() string {
-	if c.Untrusted == UntrustedSandbox {
-		return UntrustedSandbox
-	}
-	return UntrustedOff
-}
-
-// Values of AutoReplyConfig.Trusted.
-const (
-	TrustedDirect  = "direct"
-	TrustedSandbox = "sandbox"
-)
-
-// TrustedMode is the effective auto_reply.trusted value: "direct" unless
-// the operator set "sandbox".
-func (c AutoReplyConfig) TrustedMode() string {
-	if c.Trusted == TrustedSandbox {
-		return TrustedSandbox
-	}
-	return TrustedDirect
 }
 
 // DefaultConfig is the out-of-the-box daemon config. The inbound block is
@@ -442,7 +343,7 @@ func ModuleRefusals(c Config) []*a2ashape.Refusal {
 			}
 		}
 	}
-	if c.AutoReply != nil {
+	if blockOrNil(c.AutoReply) != nil {
 		if r := av.Absent("autoreply", "configured"); r != nil {
 			r.Args["key"] = "auto_reply"
 			out = append(out, r)
@@ -677,7 +578,8 @@ func CheckConfigForStart(l Layout) error {
 		if err := json.Unmarshal(raw, &m); err != nil {
 			return fmt.Errorf("anet: parse config %s: %w", l.ConfigPath(), err)
 		}
-		refusals = append(refusals, ModuleRefusals(c)...) // MOD-F1, K-2
+		refusals = append(refusals, ModuleRefusals(c)...)           // MOD-F1, K-2
+		refusals = append(refusals, moduleConfigRefusals(c, "")...) // the modules' own ConfigSpec.Check (K-6)
 		for _, check := range configChecks {
 			if r := check(c, m); r != nil {
 				refusals = append(refusals, r)

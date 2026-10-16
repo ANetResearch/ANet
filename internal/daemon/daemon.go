@@ -167,15 +167,6 @@ type Daemon struct {
 	// or "with_reasoning"); nil reads as "off" (preview_card.go).
 	// v030-todo(UX-9): the config key reads through here.
 	streamPreviewFn func() string
-	// sbRefused remembers outbound auto-reply turns that failed closed
-	// because the sandbox was unavailable (autoreply.go).
-	sbRefused sandboxRefused
-	// budget counts the auto-reply runs for untrusted peers per local day
-	// and holds their slots (sandbox_budget.go, LEC BU); sandboxSwept is
-	// the sweep of what an earlier process's sandboxed runs left (SB-9).
-	budget       runBudget
-	sandboxSwept sync.Once
-
 	// spend holds the payments signed in the last 24 hours, for the
 	// spending policy (spend.go); settling tracks the task payments whose
 	// settlement is being retried (x402task.go).
@@ -204,9 +195,6 @@ type Daemon struct {
 	// ctlAuth is the control plane's credential in force (control_api.go); rotateLocalTokens replaces
 	// it.
 	ctlAuth atomic.Pointer[ctlAuth]
-	// autoReplyWrite makes POST /autoreply's read of the configuration, its merge and its save one step,
-	// so that two settings sent at once both land (control_api.go hAutoReply).
-	autoReplyWrite sync.Mutex
 	// lastCardSeq is the highest sequence this process has minted for its
 	// own AgentCard. See cardSeq — the clock alone cannot keep the number
 	// strictly increasing, and the hub refuses a card that does not.
@@ -264,14 +252,14 @@ type Daemon struct {
 	// disk; and two writes at once can neither leave memory and disk
 	// disagreeing — one saving a copy read before the other took effect —
 	// nor lose one of the two (redteam F9).
-	cfgWrite      sync.Mutex
-	relayStop     context.CancelFunc // cancels the currently-running relay poll loop, if any
-	autoReplyStop context.CancelFunc // cancels the currently-running auto-reply loop, if any
+	cfgWrite  sync.Mutex
+	relayStop context.CancelFunc // cancels the currently-running relay poll loop, if any
 
-	// autoReplyKick wakes the auto-reply loop the instant an inbound delegate/message lands (via the
-	// relay poll), instead of waiting up to a full poll interval. Buffered (cap 1) so bursts coalesce
-	// and a send never blocks the relay loop. Created in New; safe to signal even when auto-reply is off.
-	autoReplyKick chan struct{}
+	// turnWake wakes whatever answers owed turns (TurnHost.Wake) the instant an inbound delegate/message
+	// lands (via the relay poll), instead of waiting for its next scan. Buffered (cap 1) so bursts
+	// coalesce and a send never blocks the relay loop. Created in New; safe to signal when no module
+	// listens.
+	turnWake chan struct{}
 
 	// pollMu serializes mailbox polls so the background loop (generous timeout, does the heavy inbound
 	// transfers) and a read command's best-effort freshness poll never run concurrently — otherwise two
@@ -358,7 +346,7 @@ func New(layout Layout) (*Daemon, error) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	d := &Daemon{layout: layout, cfg: cfg, avail: avail, self: self, ix: ix, ctx: ctx, cancel: cancel, started: time.Now(), dataLock: lock,
-		stop: make(chan struct{}), autoReplyKick: make(chan struct{}, 1), outboxKick: make(chan struct{}, 1),
+		stop: make(chan struct{}), turnWake: make(chan struct{}, 1), outboxKick: make(chan struct{}, 1),
 		longCalls: make(chan struct{}, maxConcurrentLongCalls), ready: make(chan struct{})}
 	lockOwned = true
 	d.caps.push.kick = make(chan struct{}, 1)
@@ -446,9 +434,6 @@ func New(layout Layout) (*Daemon, error) {
 	}
 	d.startJoinLoop()
 	d.startIdentityLoop()
-	if cfg.AutoReply != nil {
-		d.startAutoReply(*cfg.AutoReply)
-	}
 	d.inFeed.open() // modules' A2A backends get tasks from here on (inbound_tasks.go)
 	// Deliveries a transport module received during start-up are processed
 	// from here on, after recovery has classified what the previous process

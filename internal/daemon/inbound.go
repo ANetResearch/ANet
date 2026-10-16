@@ -251,13 +251,6 @@ func validatePolicy(c Config, untrustedBackend bool) error {
 	default:
 		return fmt.Errorf("anet: inbound.policy %q is not one of closed, approve, open", in.Policy)
 	}
-	if ar := c.AutoReply; ar != nil {
-		switch ar.Untrusted {
-		case "", UntrustedOff, UntrustedSandbox:
-		default:
-			return fmt.Errorf("anet: auto_reply.untrusted %q is not one of off, sandbox", ar.Untrusted)
-		}
-	}
 	if _, err := c.noResponseAfter(); err != nil {
 		return err
 	}
@@ -331,8 +324,8 @@ func (d *Daemon) validate(c Config) error {
 	if err := d.checkFilesReceivers(c); err != nil {
 		return err
 	}
-	if ref := checkAutoReplyConfig(c.AutoReply, d.layout.Root); ref != nil {
-		return ref
+	for _, ref := range moduleConfigRefusals(c, d.layout.Root) {
+		return ref // the first: the module's own checks that need the data dir (LEC §3.2)
 	}
 	return nil
 }
@@ -997,8 +990,8 @@ func (d *Daemon) InboundStatus() InboundState {
 	st := InboundState{Policy: in.Policy,
 		Allow: sortedKeys(ps.allow), Deny: sortedKeys(ps.deny), Trust: sortedKeys(ps.trust),
 		PublicCapabilities: in.PublicCapabilities, UntrustedAutoReply: UntrustedOff}
-	if cfg.AutoReply != nil {
-		st.UntrustedAutoReply = cfg.AutoReply.UntrustedMode()
+	if v, ok := moduleSI5(cfg)["auto_reply.untrusted"].(string); ok {
+		st.UntrustedAutoReply = v
 	}
 	if items, err := d.ix.ListPending(); err == nil {
 		st.Pending = len(items)

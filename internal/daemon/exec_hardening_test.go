@@ -11,7 +11,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ANetResearch/ANet/internal/execwork"
+	"github.com/ANetResearch/ANet/internal/pathsafe"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
+	"github.com/ANetResearch/ANet/module"
 )
 
 // setExecCommand points every agent at a stub binary for the duration of the test.
@@ -111,7 +114,7 @@ func TestExecRunsInThePerInteractionWorkDir(t *testing.T) {
 	layout := NewLayout(t.TempDir())
 	_ = layout.EnsureRoot()
 	setExecCommand(t, writeStub(t, "#!/bin/sh\npwd\n"))
-	r := &execReplier{cfg: AutoReplyConfig{Backend: "exec", Agent: "claude"}, layout: layout, dataDir: layout.Root, aid: "EaidForWorkDirTest0000"}
+	r := &execReplier{cfg: AutoReplyConfig{Backend: "exec", Agent: "claude"}, dataDir: layout.Root, aid: "EaidForWorkDirTest0000"}
 	out, err := r.Reply(context.Background(), replyContext{Role: "inbound", Goal: "g", InteractionID: "ix-work"}, []chatTurn{{Role: "user", Text: "hi"}})
 	if err != nil {
 		t.Fatal(err)
@@ -123,7 +126,7 @@ func TestExecRunsInThePerInteractionWorkDir(t *testing.T) {
 	if strings.TrimSpace(out) != want {
 		t.Fatalf("agent ran in %q, want %q", out, want)
 	}
-	if !strings.HasPrefix(want, execWorkRoot()) || pathWithin(want, layout.Root) {
+	if !strings.HasPrefix(want, execwork.WorkRoot()) || pathsafe.PathWithin(want, layout.Root) {
 		t.Fatalf("work dir %q is not under the work root or is inside the data dir", want)
 	}
 	fi, err := os.Stat(want)
@@ -145,7 +148,7 @@ func TestExecWorkDirInsideTheDataDirIsRefused(t *testing.T) {
 	_ = layout.EnsureRoot()
 	setExecCommand(t, writeStub(t, "#!/bin/sh\necho ran\n"))
 	r := &execReplier{cfg: AutoReplyConfig{Backend: "exec", Agent: "claude", WorkDir: filepath.Join(layout.Root, "proj")},
-		layout: layout, dataDir: layout.Root, aid: "Eaid"}
+		dataDir: layout.Root, aid: "Eaid"}
 	if _, err := r.Reply(context.Background(), replyContext{Role: "inbound", InteractionID: "ix"}, []chatTurn{{Role: "user", Text: "hi"}}); err == nil {
 		t.Fatal("work_dir inside the data dir accepted")
 	}
@@ -210,8 +213,8 @@ func TestFailureDetailIsLoggedLocallyOnly(t *testing.T) {
 	defer log.SetOutput(prev)
 	detail := errors.New("claude: /home/u/.anet/work/secret-path: permission denied; prompt=You are an AgentNetwork autopilot")
 	d := newBareDaemon(t)
-	th := Thread{InteractionID: "ix-fail", Role: string(interactions.RoleOutbound)}
-	if err := d.backendFailed(context.Background(), th, detail); err != nil {
+	th := module.Turn{Ix: "ix-fail", Role: string(interactions.RoleOutbound)}
+	if err := d.ar().backendFailed(context.Background(), th, detail); err != nil {
 		t.Fatal(err) // an outbound turn has nobody to tell: nothing is sent
 	}
 	if !strings.Contains(buf.String(), "secret-path") {
