@@ -599,7 +599,7 @@ MUTS += [
   edits=[('internal/daemon/relay.go', 'row.hub == hub && row.id > r.from && (row.id <= last || !r.more) && !onPage[row.id]', 'row.hub == hub && row.id > r.from && !onPage[row.id]')],
   tests=[(FS4_D, '^TestHeldRowsFollowTheMailbox$')], full=[FS4_D]),
  dict(id='fs4-r3', group='FS-K9', repo='ANet', desc='drainMark 取应答到达时刻而不是发出请求时刻',
-  edits=[('internal/daemon/relay.go', '\taskedAt := d.nowMS()\n\tresp, err := d.relayPollPage(ctx, from)\n', '\tresp, err := d.relayPollPage(ctx, from)\n\taskedAt := d.nowMS()\n')],
+  edits=[('internal/daemon/relay.go', '\taskedAt := d.nowMS()\n\tresp, err := d.relayPollPageAt(ctx, hub, from, own)\n', '\tresp, err := d.relayPollPageAt(ctx, hub, from, own)\n\taskedAt := d.nowMS()\n')],
   tests=[(FS4_D, '^TestDrainMarkNeedsAck$')], full=[FS4_D]),
  dict(id='fs4-r4', group='FS-K15', repo='ANet', desc='启动时的清扫不受时钟门',
   edits=[('internal/daemon/receive.go', '\td.sweepHardBound(d.startLevel)', '\td.sweepHardBound(clockFull)')],
