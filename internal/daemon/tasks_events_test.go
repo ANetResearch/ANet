@@ -94,6 +94,9 @@ func nextEvent(t *testing.T, ch <-chan sseEvent, name string) sseEvent {
 }
 
 func TestTasksEventsStreamsTaskPreviewAndDelivery(t *testing.T) {
+	if !haveAutoreply {
+		t.Skip("a module of this test is not in this build (-tags)")
+	}
 	needPreviewModule(t)
 	_, req, prov := quietPair(t)
 	clk := frozenClock(req)
