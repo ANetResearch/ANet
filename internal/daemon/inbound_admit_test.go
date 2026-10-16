@@ -381,6 +381,10 @@ func TestAllowOnlyIndistinguishable(t *testing.T) {
 						t.Fatalf("a denied peer %+v, a stranger %+v", deniedAns, absent)
 					}
 				}
+				// The listed caller's earlier call (the other policy, the other path) may still be running,
+				// and holds the caller's one in-flight slot until it ends; the answer under test is the
+				// admission's, not that race's.
+				waitNoCallerInflight(t, prov)
 				if got := path.call(listed, "face.compare"); got.outcome != seal.OutcomeProcessed {
 					t.Fatalf("a listed caller's call of the allow_only capability: %+v, want taken", got)
 				}
@@ -961,5 +965,27 @@ func TestAdmissionRefusalsSayOneSentence(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// waitNoCallerInflight waits for every admitted call of d to end (its per-caller in-flight slots are
+// free again).
+func waitNoCallerInflight(t *testing.T, d *Daemon) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		d.admission.mu.Lock()
+		busy := 0
+		for _, n := range d.admission.callerInflight {
+			busy += n
+		}
+		d.admission.mu.Unlock()
+		if busy == 0 {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("%d admitted calls still running after 10 s", busy)
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 }
