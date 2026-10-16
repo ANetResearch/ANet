@@ -13,7 +13,7 @@
 # units are (an internal note N1); the group is shared by every official
 # identity, and each backend still answers only its own daemon's token.
 #
-# The binary is the anet-standard build (docs/DISTRIBUTIONS-zh.md: service,
+# The binary is the anet-standard build (docs/topics/modules.rst: service,
 # no x402, no MCP, no public listener). anet-paid-demo needs anet-paid (x402
 # compiled in; it opens no public port): add a
 # drop-in /etc/systemd/system/anet-official-daemon@anet-paid-demo.service.d/paid.conf

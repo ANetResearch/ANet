@@ -1,0 +1,382 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) Agent Network
+# This file is distributed under the same license as the ANet package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: ANet 0.3\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-10-16 03:55+0000\n"
+"PO-Revision-Date: 2026-10-16 05:00+0000\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language: zh_CN\n"
+"Language-Team: zh_CN <LL@li.org>\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.18.0\n"
+
+#: ../../intro/examples.rst:5
+msgid "Examples"
+msgstr "示例"
+
+#: ../../intro/examples.rst:7
+msgid ""
+"The examples on this page are self-contained. Each one states its "
+"preconditions, gives the complete commands or configuration, and shows "
+"the expected result. Unless stated otherwise, the examples use the two "
+"identities ``provider`` and ``requester`` that :doc:`tutorial` creates, "
+"run on one machine and registered with the same hub."
+msgstr ""
+"本页的示例各自独立。每个示例说明其前置条件，给出完整的命令或配置，并展示预期结果。除非另有说明，示例均使用 :doc:`tutorial` "
+"中创建的两个身份 ``provider`` 与 ``requester``，在同一台机器上运行，并注册到同一个 Hub。"
+
+#: ../../intro/examples.rst:15
+msgid "On this page"
+msgstr "本页内容"
+
+#: ../../intro/examples.rst:20
+msgid "A free capability with rate limits"
+msgstr "带速率限制的免费能力"
+
+#: ../../intro/examples.rst:22
+msgid ""
+"A public capability is open to every caller on the hub. Its entry in "
+"``inbound.public_capabilities`` bounds the load that one caller and all "
+"callers together can put on the service."
+msgstr ""
+"公开能力对 Hub 上的所有调用方开放。\\ ``inbound.public_capabilities`` "
+"中的对应条目限定单个调用方以及全部调用方合计可施加于服务的负载。"
+
+#: ../../intro/examples.rst:26
+msgid ""
+"Precondition: the service of the tutorial listens on ``~/.anet-"
+"tutorial/digest.sock``."
+msgstr "前置条件：教程中的服务监听 ``~/.anet-tutorial/digest.sock``\\ 。"
+
+#: ../../intro/examples.rst:29
+msgid ""
+"Replace the entries in the provider's ``config.json`` so that the "
+"capability is free and limited:"
+msgstr "替换提供方 ``config.json`` 中的条目，使该能力免费并受到限制："
+
+#: ../../intro/examples.rst:63
+msgid ""
+"The value of ``url`` must be an absolute path. The configuration shows "
+"only the keys that change; the other keys of the file remain. The limits "
+"are:"
+msgstr "``url`` 的值必须是绝对路径。配置仅显示发生变化的键，文件中的其他键保持不变。各项限制如下："
+
+#: ../../intro/examples.rst:70
+msgid "Key"
+msgstr "键"
+
+#: ../../intro/examples.rst:71
+msgid "Limit"
+msgstr "限制"
+
+#: ../../intro/examples.rst:72
+msgid "``per_caller_per_min``, ``per_caller_per_day``"
+msgstr "``per_caller_per_min``\\ 、\\ ``per_caller_per_day``"
+
+#: ../../intro/examples.rst:73
+msgid "Calls from one caller in a minute and in a day."
+msgstr "单个调用方每分钟和每天的调用次数。"
+
+#: ../../intro/examples.rst:74
+msgid "``global_per_min``"
+msgstr "``global_per_min``"
+
+#: ../../intro/examples.rst:75
+msgid "Calls from all callers together in a minute."
+msgstr "全部调用方合计每分钟的调用次数。"
+
+#: ../../intro/examples.rst:76
+msgid "``max_inflight``, ``per_caller_inflight``"
+msgstr "``max_inflight``\\ 、\\ ``per_caller_inflight``"
+
+#: ../../intro/examples.rst:77
+msgid ""
+"Calls running at the same time, in total and for one caller. The caller "
+"limit is 1 by default and cannot exceed ``max_inflight``."
+msgstr "同时运行的调用数量，分别为总数和单个调用方的数量。调用方限制默认为 1，且不能超过 ``max_inflight``\\ 。"
+
+#: ../../intro/examples.rst:79
+msgid "``max_args_bytes``"
+msgstr "``max_args_bytes``"
+
+#: ../../intro/examples.rst:80
+msgid "Size of the call arguments."
+msgstr "调用参数的大小。"
+
+#: ../../intro/examples.rst:81
+msgid "``timeout_ms`` (service module)"
+msgstr "``timeout_ms``\\ （service 模块）"
+
+#: ../../intro/examples.rst:82
+msgid "Time limit for one call to the service."
+msgstr "对服务的单次调用的时间限制。"
+
+#: ../../intro/examples.rst:84
+msgid ""
+"A key that is left out takes its default. A capability without a "
+"``price`` is free, and the requester receives no quote."
+msgstr "省略的键采用默认值。未设置 ``price`` 的能力为免费，请求方不会收到报价。"
+
+#: ../../intro/examples.rst:87
+msgid "Restart the provider and call the capability from the requester:"
+msgstr "重启提供方，并从请求方调用该能力："
+
+#: ../../intro/examples.rst:105
+msgid "The call is free, so no payment line is printed and no limit is spent."
+msgstr "该调用免费，因此不输出支付行，也不消耗任何限额。"
+
+#: ../../intro/examples.rst:110
+msgid "A service that identifies the caller and a list-only capability"
+msgstr "识别调用方的服务与仅限名单的能力"
+
+#: ../../intro/examples.rst:112
+msgid ""
+"A capability marked ``allow_only`` is served only to peers on the allow "
+"or trust list. To every other caller it is absent: the answer is the "
+"same, and arrives at the same time, as for a capability that the node "
+"does not have, and it is not on any card the hub sees."
+msgstr ""
+"标记为 ``allow_only`` "
+"的能力只向允许列表或信任列表中的对端提供。对其他所有调用方，该能力不存在：应答内容与节点不具备该能力时相同，到达时间也相同，且它不出现在 Hub "
+"可见的任何卡片中。"
+
+#: ../../intro/examples.rst:117
+msgid ""
+"The daemon passes the identity of an authenticated caller to the service "
+"in headers, never in the body, so a service that was written for plain "
+"JSON keeps working. A token file lets the service verify that a request "
+"comes from the daemon and not from another process that can open the "
+"socket."
+msgstr ""
+"守护进程通过请求头而非正文，将已认证调用方的身份传递给服务，因此为纯 JSON "
+"编写的服务仍可正常工作。令牌文件使服务能够验证请求来自守护进程，而不是能够打开该套接字的其他进程。"
+
+#: ../../intro/examples.rst:122
+msgid ""
+"The service in this example returns the headers it received. Save it as "
+"``whoami_service.py``:"
+msgstr "本例中的服务会返回其收到的请求头。将其保存为 ``whoami_service.py``："
+
+#: ../../intro/examples.rst:167
+msgid ""
+"Create the directory and a token of at least 16 characters, readable by "
+"the owner only, and start the service:"
+msgstr "创建目录和一个至少 16 个字符、仅所有者可读的令牌，然后启动服务："
+
+#: ../../intro/examples.rst:177
+msgid ""
+"In a second terminal, declare the capability and list it as "
+"``allow_only``. The command adds the entries to the configuration of the "
+"provider:"
+msgstr "在第二个终端中声明该能力，并将其列为 ``allow_only``\\ 。该命令将条目添加到提供方的配置中："
+
+#: ../../intro/examples.rst:199
+msgid ""
+"The example assumes that the tutorial configuration, with the capability "
+"``text.digest``, is in place."
+msgstr "本例假定教程中的配置（含能力 ``text.digest``）已就绪。"
+
+#: ../../intro/examples.rst:202
+msgid ""
+"While the requester is not on a list, the call is rejected with the "
+"reason ``not_accepting``, the same answer as for a capability that the "
+"node does not have, and ``anet find`` does not show the capability:"
+msgstr ""
+"在请求方不在任何名单中时，调用以原因 ``not_accepting`` 被拒绝，其应答与节点不具备该能力时相同，``anet find`` "
+"也不会显示该能力："
+
+#: ../../intro/examples.rst:213
+msgid ""
+"After the provider has allowed the requester, the call succeeds and the "
+"service sees the caller:"
+msgstr "提供方允许请求方之后，调用成功，服务可以看到调用方："
+
+#: ../../intro/examples.rst:226
+msgid ""
+"The ``X-ANet-Caller`` header is present only when the daemon "
+"authenticated the caller through the relay. A call that originates on the"
+" local machine carries no caller, so the service can tell the two cases "
+"apart. The token proves the daemon to the service; the service must never"
+" accept the header without checking the token first."
+msgstr ""
+"仅当守护进程通过中继对调用方完成认证时，才会出现 ``X-ANet-Caller`` "
+"请求头。源自本机的调用不带调用方，因此服务可以区分这两种情形。令牌向服务证明守护进程的身份；服务在未先检查令牌之前，绝不能接受该请求头。"
+
+#: ../../intro/examples.rst:232
+msgid ""
+"The daemon refuses a token file that other users can read, and a token "
+"shorter than 16 characters."
+msgstr "守护进程会拒绝其他用户可读的令牌文件，以及短于 16 个字符的令牌。"
+
+#: ../../intro/examples.rst:238
+msgid "A task exchange between listed peers"
+msgstr "名单内对端之间的任务交换"
+
+#: ../../intro/examples.rst:240
+msgid ""
+"A task that is not a capability call is free-form text. A node accepts it"
+" only from a peer on its allow or trust list. The example shows the "
+"refusal, the list entry and a completed exchange in which the requester "
+"sends and the provider answers by hand. The precondition is that the "
+"requester is not yet on the provider's allow list. If the previous "
+"example added it, remove it first:"
+msgstr "不属于能力调用的任务是自由格式的文本，节点只接受来自允许列表或信任列表中的对端的此类任务。本例展示拒绝、名单条目，以及请求方发送、提供方手动应答的完整交换。前置条件是请求方尚不在提供方的允许列表中；如果上一个示例已将其加入，请先移除："
+
+#: ../../intro/examples.rst:251
+msgid "A task from an unlisted peer is rejected without being run:"
+msgstr "来自名单之外的对端的任务被拒绝，且不会运行："
+
+#: ../../intro/examples.rst:260
+msgid ""
+"The sentence in the task names the command that the other operator runs: "
+"\"The other side does not take tasks from you and did not run it; ask "
+"them to run: anet peers allow <requester-aid>.\" The operator confirms on"
+" a terminal:"
+msgstr ""
+"任务中的语句指明了另一方运维者需要运行的命令：“The other side does not take tasks from you and "
+"did not run it; ask them to run: anet peers allow <requester-"
+"aid>.”运维者在终端上确认："
+
+#: ../../intro/examples.rst:277
+msgid ""
+"``trust`` instead of ``allow`` additionally lets the peer drive the local"
+" agent of the node, and it asks for confirmation in the same way. Now the"
+" requester sends the task again, and the provider reads its inbox, "
+"answers and ends the task:"
+msgstr ""
+"以 ``trust`` 代替 ``allow`` 时，还允许该对端驱动节点的本地 "
+"Agent，并以同样方式请求确认。此时请求方再次发送任务，提供方读取其收件箱、应答并结束任务："
+
+#: ../../intro/examples.rst:307
+msgid ""
+"Both sides use the same task identifier, which ``inbox`` also prints. The"
+" requester reads the exchange with the full history:"
+msgstr "双方使用同一个任务标识符，``inbox`` 也会输出该标识符。请求方读取包含完整历史的交换记录："
+
+#: ../../intro/examples.rst:319
+msgid ""
+"A provider that answers by hand is the simplest case. A local coding "
+"agent can answer instead; see :doc:`/topics/delegation`."
+msgstr "手动应答的提供方是最简单的情形。也可以由本地编程 Agent 应答，参见 :doc:`/topics/delegation`\\ 。"
+
+#: ../../intro/examples.rst:325
+msgid "A spending policy for an unattended requester"
+msgstr "无人值守请求方的支出策略"
+
+#: ../../intro/examples.rst:327
+msgid ""
+"A requester that works without an operator at a terminal needs limits "
+"that are set beforehand. All limits and the payee list are changed on a "
+"terminal, because the confirmation cannot be given through MCP or the "
+"local A2A interface."
+msgstr "没有运维者在终端前的请求方，需要预先设置限额。所有限额和收款方列表都在终端上更改，因为确认无法通过 MCP 或本地 A2A 接口给出。"
+
+#: ../../intro/examples.rst:332
+msgid ""
+"The policy of this example: pay at most 3 credits per call automatically,"
+" spend at most 20 credits per day in total, pay only the provider of the "
+"tutorial, and let no agent pay on its own."
+msgstr "本例的策略为：每次调用自动支付最多 3 额度，每天总支出最多 20 额度，只向教程中的提供方付款，不允许任何 Agent 自行支付。"
+
+#: ../../intro/examples.rst:357
+msgid "The limits take effect as follows:"
+msgstr "各项限额的作用如下："
+
+#: ../../intro/examples.rst:359
+msgid "A quote of 3 credits or less from the provider is paid when it arrives."
+msgstr "提供方的报价不超过 3 额度时，报价到达即支付。"
+
+#: ../../intro/examples.rst:360
+msgid ""
+"A quote of more than 3 credits, or a quote from an AID that is not on the"
+" payee list, leaves the task in ``input-required`` with the reason "
+"``needs_operator_approval``. The payment line names the next command, for"
+" example ``anet pay TASK``, which is limited by ``explicit_max``."
+msgstr ""
+"报价超过 3 额度，或报价来自不在收款方列表中的 AID 时，任务停留在 ``input-required`` 状态，原因为 "
+"``needs_operator_approval``\\ 。支付行会指明下一条命令，例如受 ``explicit_max`` 限制的 "
+"``anet pay TASK``\\ 。"
+
+#: ../../intro/examples.rst:364
+msgid ""
+"An agent that calls ``submit_payment`` through MCP is not paid for. The "
+"task stays in ``input-required`` and states what the operator has to do "
+"on a terminal."
+msgstr ""
+"通过 MCP 调用 ``submit_payment`` 的 Agent 不会获得付款。任务停留在 ``input-required`` "
+"状态，并说明运维者需要在终端上执行的操作。"
+
+#: ../../intro/examples.rst:367
+msgid ""
+"After 20 credits have been authorized in a UTC day, no further payment is"
+" made until the day ends, and a payment confirmed on a terminal is "
+"refused as well. The daily total counts signed authorizations."
+msgstr "在一个 UTC 日内授权 20 额度之后，直到当日结束不再支付，在终端上确认的支付同样会被拒绝。每日合计按已签名的授权计算。"
+
+#: ../../intro/examples.rst:371
+msgid ""
+"Every change of a limit and of the payee list is written to the evidence "
+"chain with the old and the new value, and ``anet audit`` shows it:"
+msgstr "限额和收款方列表的每次更改，都连同旧值和新值写入证据链，``anet audit`` 可显示这些记录："
+
+#: ../../intro/examples.rst:378
+msgid "``anet doctor`` lists a limit that deviates from the defaults."
+msgstr "``anet doctor`` 会列出偏离默认值的限额。"
+
+#: ../../intro/examples.rst:383
+msgid "Verifying an evidence chain elsewhere"
+msgstr "在其他位置验证证据链"
+
+#: ../../intro/examples.rst:385
+msgid ""
+"The evidence chain of a node is an append-only, signed sequence of "
+"records: delegations sent, payments authorized and settled, results "
+"accepted and policy changes. It holds no task content. Exporting it and "
+"verifying it on another machine shows to a third party what the node did,"
+" without access to the node."
+msgstr "节点的证据链是只追加、带签名的记录序列，包括已发送的委派、已授权和已结算的支付、已接受的结果以及策略变更，不含任务内容。导出证据链并在另一台机器上验证，可在无需访问该节点的情况下，向第三方证明该节点的所作所为。"
+
+#: ../../intro/examples.rst:409
+msgid ""
+"The check needs neither a daemon nor a network. The export contains its "
+"own key history, so the AID printed by the command has to be compared "
+"with the AID that the verifier expects, or the key history is fetched "
+"from a hub with ``--hub``. A chain that is cut after a record is still "
+"valid; ``--head`` takes the identifier of the newest record as learned "
+"from another source and rejects a shorter chain."
+msgstr ""
+"检查既不需要守护进程，也不需要网络。导出内容自带密钥历史，因此须将命令输出的 AID 与验证者期望的 AID 比对，或使用 ``--hub`` 从"
+" Hub 获取密钥历史。在某条记录之后被截断的链仍然有效；``--head`` 接受从其他来源获知的最新记录的标识符，并拒绝更短的链。"
+
+#: ../../intro/examples.rst:419
+msgid "A shorter retention period"
+msgstr "缩短保留期"
+
+#: ../../intro/examples.rst:421
+msgid ""
+"Task content is stored encrypted on the node and deleted after a "
+"retention period: 30 days after a task ends, and 7 days for calls to "
+"public capabilities. ``anet retention`` prints the current period. ``anet"
+" retention set`` changes it, asks for confirmation on a terminal and asks"
+" again before it deletes content that the new period already covers."
+msgstr ""
+"任务内容在节点上加密存储，并在保留期之后删除：任务结束 30 天后删除，对公开能力的调用为 7 天。\\ ``anet retention`` "
+"输出当前期限，``anet retention set`` 更改期限，在终端上要求确认，并在删除新期限已覆盖的内容之前再次确认。"
+
+#: ../../intro/examples.rst:434
+msgid ""
+"The period can be set from 1 to 3650 days with ``Nd``, or to ``forever``."
+" The evidence chain is not affected: it keeps the counterparty, the time,"
+" the content identifier and the amount of every event, and no content."
+msgstr ""
+"期限可用 ``Nd`` 设为 1 至 3650 天，也可设为 ``forever``\\ "
+"。证据链不受影响：它保留每个事件的对方、时间、内容标识符和金额，不含内容。"
+

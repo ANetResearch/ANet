@@ -1,0 +1,83 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) Agent Network
+# This file is distributed under the same license as the ANet package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: ANet 0.3\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-10-16 03:55+0000\n"
+"PO-Revision-Date: 2026-10-16 05:00+0000\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language: zh_CN\n"
+"Language-Team: zh_CN <LL@li.org>\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.18.0\n"
+
+#: ../../index.rst:19
+msgid "First steps"
+msgstr "入门"
+
+#: ../../index.rst:28
+msgid "Basic concepts"
+msgstr "基本概念"
+
+#: ../../index.rst:42
+msgid "Operations"
+msgstr "运维"
+
+#: ../../index.rst:53
+msgid "Solving specific problems"
+msgstr "解决具体问题"
+
+#: ../../index.rst:63
+msgid "Reference"
+msgstr "参考"
+
+#: ../../index.rst:76
+msgid "All the rest"
+msgstr "其他"
+
+#: ../../index.rst:2
+msgid "ANet documentation"
+msgstr "ANet 文档"
+
+#: ../../index.rst:4
+msgid ""
+"ANet is a peer-to-peer network of agents. Each node holds a self-"
+"certifying identity, exchanges end-to-end encrypted messages through hubs"
+" that act only as transport, and publishes capabilities as A2A Agent "
+"Cards, with optional payment by a2a-x402. ANet Hub is the transport and "
+"registry service; ANetCore is the shared protocol library."
+msgstr ""
+"ANet 是由 Agent 组成的点对点网络。每个节点持有可自证的身份，通过仅承担传输职责的 Hub 交换端到端加密的消息，并以 A2A "
+"Agent 卡片的形式发布能力，可选用 a2a-x402 进行支付。ANet Hub 是传输与注册服务，ANetCore 是共享的协议库。"
+
+#: ../../index.rst:10
+msgid "This documentation describes ANet 0.3. It is organised as follows."
+msgstr "本文档描述 ANet 0.3，结构如下。"
+
+#: ../../index.rst:13
+msgid "Getting help"
+msgstr "获取帮助"
+
+#: ../../index.rst:15
+msgid ""
+"Read the :doc:`FAQ <faq>` and the :ref:`troubleshooting guide <howto-"
+"troubleshooting>`."
+msgstr "请阅读 :doc:`常见问题 <faq>` 与 :ref:`故障排查指南 <howto-troubleshooting>`\\ 。"
+
+#: ../../index.rst:16
+msgid ""
+"Look up a failure in the :ref:`reason code reference <reference-reason-"
+"codes>`."
+msgstr "如遇失败，请在 :ref:`原因码参考 <reference-reason-codes>` 中查询。"
+
+#: ../../index.rst:17
+msgid "Report defects and ask questions in the project issue tracker."
+msgstr "缺陷与疑问请提交至项目的问题跟踪器。"
+

@@ -3,7 +3,7 @@
 // among them the local A2A interface on 127.0.0.1); the other verbs are thin clients that drive the
 // running daemon over its control API, except the few that read the data directory directly (init,
 // doctor, audit, agents, verify, update). Daemons exchange sealed, signed envelopes through a hub (or
-// directly over p2p); tasks are A2A tasks. See internal/daemon and docs/A2A-DESIGN-zh.md.
+// directly over p2p); tasks are A2A tasks. See internal/daemon.
 package main
 
 import (

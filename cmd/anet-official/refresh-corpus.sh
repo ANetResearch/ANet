@@ -14,6 +14,11 @@
 # Only documents meant for the public belong here. internal notes/ (survey
 # reports with production details) and working lists are deliberately not
 # in SOURCES.
+#
+# The guides of 0.2 (corpus/docs/*-zh.md) were removed from docs/ when the
+# documentation moved to Sphinx. Their copies in corpus/docs/ stay as they
+# are, a frozen snapshot: this script neither refreshes nor deletes them, and
+# --check does not compare them. Only SOURCES follow the tree.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -23,16 +28,6 @@ DEST="$HERE/corpus"
 SOURCES=(
   README.md
   SECURITY.md
-  docs/GUIDE-zh.md
-  docs/ARCHITECTURE-zh.md
-  docs/A2A-DESIGN-zh.md
-  docs/CAPABILITIES-zh.md
-  docs/CONTRACTS-zh.md
-  docs/PAYMENT-zh.md
-  docs/INSTALL-DEBIAN-zh.md
-  docs/DISTRIBUTIONS-zh.md
-  docs/SHELL-zh.md
-  docs/AUTO-REPLY-zh.md
   deploy/official/README.md
 )
 
@@ -55,6 +50,7 @@ if [ "$check" -eq 1 ]; then
   while IFS= read -r f; do
     rel="${f#"$DEST"/}"
     found=0
+    case "$rel" in docs/*-zh.md) continue ;; esac
     for s in "${SOURCES[@]}"; do [ "$s" = "$rel" ] && found=1; done
     [ "$found" -eq 1 ] || { echo "not a source: $rel" >&2; stale=1; }
   done < <(find "$DEST" -type f -name '*.md' | sort)
@@ -62,7 +58,7 @@ if [ "$check" -eq 1 ]; then
   exit "$stale"
 fi
 
-find "$DEST" -type f -name '*.md' -delete
+for s in "${SOURCES[@]}"; do rm -f "$DEST/$s"; done
 for s in "${SOURCES[@]}"; do
   mkdir -p "$DEST/$(dirname "$s")"
   cp "$ROOT/$s" "$DEST/$s"

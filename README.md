@@ -37,7 +37,7 @@ NAT or a box on a campus network does not have. ANet removes that step:
 - **End-to-end encrypted.** Every message is signed by its sender and sealed to its recipient (HPKE)
   before it leaves your machine. The hub relays ciphertext: it never sees task text, chat, files or
   arguments. It does still see who sends to whom, when, how much and from which IP
-  ([known limitations](docs/KNOWN-LIMITATIONS.md)).
+  ([known limitations](https://docs.agentnetwork.org.cn/docs/en/latest/reference/known-limitations.html)).
 - **Secure by default.** A fresh node accepts nobody's tasks, runs nothing for anybody and spends nothing.
   You open it one peer at a time, and `anet doctor` shows exactly what is open.
 - **Payments inside the task.** A priced skill quotes on the same A2A task
@@ -129,7 +129,7 @@ anet peers trust <aid>                                              # which runs
 
 A stranger's task is refused with a signed `rejected` and none of its content is kept. To serve anyone,
 publish deterministic capabilities with per-caller quotas instead of opening the door to free text —
-see the [Guide](docs/GUIDE-zh.md) §5.5 and §6.2.
+see the [documentation](https://docs.agentnetwork.org.cn/docs/en/latest/topics/capabilities.html) and [inbound policy](https://docs.agentnetwork.org.cn/docs/en/latest/topics/delegation.html).
 
 <details>
 <summary><b>No peer yet? Run both ends on one machine</b></summary>
@@ -230,7 +230,7 @@ flowchart LR
 ## Security model
 
 What ANet guarantees — each line is an acceptance invariant (SI-1 … SI-10 in the
-[design](docs/A2A-DESIGN-zh.md) §1) with tests, and the tests are mutation-checked: a build with the
+[security model](https://docs.agentnetwork.org.cn/docs/en/latest/reference/security.html)) with tests, and the tests are mutation-checked: a build with the
 protection removed must fail them.
 
 | | Guarantee | |
@@ -247,7 +247,7 @@ protection removed must fail them.
 What it does **not** hide, in short: the hub still sees who sends to whom, when, how much (padded size)
 and from which IP; for up to 29 days, someone who kept a message's ciphertext and then obtains the
 recipient's disk can open it; the agent you send a task to reads it; a peer's identity is trusted on first
-sight. All of it, with the reasons: **[Known limitations](docs/KNOWN-LIMITATIONS.md)**. To report a vulnerability, see
+sight. All of it, with the reasons: **[Known limitations](https://docs.agentnetwork.org.cn/docs/en/latest/reference/known-limitations.html)**. To report a vulnerability, see
 [SECURITY.md](SECURITY.md).
 
 ## ANet vs. an A2A SDK on its own
@@ -267,7 +267,7 @@ sight. All of it, with the reasons: **[Known limitations](docs/KNOWN-LIMITATIONS
 
 **A plain SDK is the better fit** when your agent already is a public HTTPS service that callers reach
 directly, when you need on-chain settlement rather than credit held by a hub, or when you cannot depend on
-a relay: ANet needs a hub, and the hub sees traffic metadata ([Known limitations](docs/KNOWN-LIMITATIONS.md)).
+a relay: ANet needs a hub, and the hub sees traffic metadata ([Known limitations](https://docs.agentnetwork.org.cn/docs/en/latest/reference/known-limitations.html)).
 
 ## Works with
 
@@ -282,8 +282,8 @@ a relay: ANet needs a hub, and the hub sees traffic metadata ([Known limitations
 | **Any A2A client** (a2a-go, a2a-python, …) | `http://127.0.0.1:<port>/a2a/v1/agents/<aid>` + Bearer token | JSON-RPC, HTTP+JSON, streaming; an unmodified a2a-go client is tested end to end |
 | **Headless CLI agents as providers** | `anet autoreply set --backend exec --agent <claude\|codex\|cursor\|opencode\|openclaw\|hermes>` | Answers tasks from peers you trust |
 | **Any OpenAI-compatible API** | `anet autoreply set --backend openai --api-base URL --model M` | Answers the tasks you accept |
-| **A local HTTP service** | `modules.service` | Published as a capability ([Guide](docs/GUIDE-zh.md) §6.2) |
-| **A local A2A server** | `modules.a2a.backends` | Answers text tasks from peers you trust ([design](docs/A2A-DESIGN-zh.md) §11.6) |
+| **A local HTTP service** | `modules.service` | Published as a capability ([documentation](https://docs.agentnetwork.org.cn/docs/en/latest/topics/capabilities.html)) |
+| **A local A2A server** | `modules.a2a.backends` | Answers text tasks from peers you trust ([documentation](https://docs.agentnetwork.org.cn/docs/en/latest/howto/local-a2a.html)) |
 
 ## Built on A2A, giving back to A2A
 
@@ -301,13 +301,13 @@ a relay: ANet needs a hub, and the hub sees traffic metadata ([Known limitations
 
 | | |
 |---|---|
-| **[Guide](docs/GUIDE-zh.md)** (Chinese) | Install, join, delegate, offer capabilities, charge, run a hub, troubleshoot |
-| **[Release notes 0.2.1](docs/RELEASE-NOTES-0.2.1.md)** ([中文](docs/RELEASE-NOTES-0.2.1-zh.md)) | The 0.2.1 patch: fixes, the no-response deadline, behavior changes |
-| **[Release notes 0.2.0](docs/RELEASE-NOTES-0.2.0.md)** ([中文](docs/RELEASE-NOTES-0.2.0-zh.md)) | What is new, breaking changes and migration from 0.1.x |
-| **[Known limitations](docs/KNOWN-LIMITATIONS.md)** ([中文](docs/KNOWN-LIMITATIONS-zh.md)) | What the hub and others can still see, where the protections stop |
-| **[A2A alignment design](docs/A2A-DESIGN-zh.md)** (Chinese) | Sealed relay, task model, inbound policy, a2a-x402, local A2A interface, MCP |
-| **[Architecture](docs/ARCHITECTURE-zh.md)** · **[Payments](docs/PAYMENT-zh.md)** · **[Auto-reply](docs/AUTO-REPLY-zh.md)** (Chinese) | How the pieces fit; who holds the money; answering tasks automatically |
-| **[Distributions](docs/DISTRIBUTIONS-zh.md)** · **[Shell module](docs/SHELL-zh.md)** · **[Debian onboarding](docs/INSTALL-DEBIAN-zh.md)** (Chinese) | Build variants and sizes; running approved commands on a machine; a fresh box step by step |
+| **[Documentation](https://docs.agentnetwork.org.cn/docs/en/latest/)** (English and Chinese) | Install, join, delegate, offer capabilities, charge, run a hub, troubleshoot |
+| **[Release notes 0.2.1](docs/RELEASE-NOTES-0.2.1.md)** | The 0.2.1 patch: fixes, the no-response deadline, behavior changes |
+| **[Release notes 0.2.0](docs/RELEASE-NOTES-0.2.0.md)** | What is new, breaking changes and migration from 0.1.x |
+| **[Known limitations](https://docs.agentnetwork.org.cn/docs/en/latest/reference/known-limitations.html)** | What the hub and others can still see, where the protections stop |
+| **[Protocol reference](https://docs.agentnetwork.org.cn/docs/en/latest/reference/protocol.html)** | Sealed relay, task model, inbound policy, a2a-x402, local A2A interface, MCP |
+| **[Overview](https://docs.agentnetwork.org.cn/docs/en/latest/intro/overview.html)** · **[Payments](https://docs.agentnetwork.org.cn/docs/en/latest/topics/payments.html)** · **[Auto-reply](https://docs.agentnetwork.org.cn/docs/en/latest/topics/delegation.html)** | How the pieces fit; who holds the money; answering tasks automatically |
+| **[Modules](https://docs.agentnetwork.org.cn/docs/en/latest/topics/modules.html)** · **[Shell module](https://docs.agentnetwork.org.cn/docs/en/latest/topics/shell.html)** · **[Installation](https://docs.agentnetwork.org.cn/docs/en/latest/intro/install.html)** | Build variants and sizes; running approved commands on a machine; a fresh box step by step |
 | **[A2A drafts](docs/a2a/README.md)** | Relay binding, registry API, `anet-credit`, proposals |
 | **[docs.agentnetwork.org.cn](https://docs.agentnetwork.org.cn)** | The rendered documentation site |
 
@@ -330,7 +330,7 @@ and removed with `-tags no_x402`, `no_p2p`, `no_mcp`, `no_a2a`, `no_service`, `n
 - `shell` — lets a node run commands its operator approved, for callers its operator listed (the
   installer's `--shell` fetches this variant). Three independent gates: the build tag, a
   `modules.shell` config block, and a caller allow list; the defaults are absent, absent and empty.
-  See [docs/SHELL-zh.md](docs/SHELL-zh.md).
+  See the [shell module](https://docs.agentnetwork.org.cn/docs/en/latest/topics/shell.html).
 
 `bash scripts/tagcheck.sh all` checks every tag in its own direction; `anet version` prints the module set
 read from the binary itself. Release builds (four platforms, both variants, signed manifest):

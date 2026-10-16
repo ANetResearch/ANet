@@ -1,0 +1,647 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) Agent Network
+# This file is distributed under the same license as the ANet package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: ANet 0.3\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-10-16 03:55+0000\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language: zh_CN\n"
+"Language-Team: zh_CN <LL@li.org>\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.18.0\n"
+
+#: ../../ops/facilitator.rst:4
+msgid "Facilitator"
+msgstr "Facilitator"
+
+#: ../../ops/facilitator.rst:6
+msgid ""
+"Every hub is an `x402 <https://x402.org/>`_ facilitator for its own "
+"credit ledger. A merchant that has asked for payment in credit sends the "
+"buyer's signed authorization to the hub, which verifies it, moves the "
+"credit between two accounts and returns a signed receipt. This page "
+"describes what the facilitator does, which requests it answers, how it "
+"fails, and the operator's tasks around the ledger. The payer's and "
+"payee's side of a payment is described in :ref:`topics-payments`."
+msgstr ""
+"每个 hub 都是其自身额度账本的 `x402 <https://x402.org/>`_ "
+"facilitator。要求以额度付款的商家,会把买方签名的授权发送给 hub;hub "
+"验证授权,在两个账户之间转移额度,并返回带签名的收据。本页说明 facilitator "
+"的职责、它应答的请求、失败的方式,以及运维人员围绕账本的各项工作。付款方与收款方一侧的流程见 :ref:`topics-payments`\\ 。"
+
+#: ../../ops/facilitator.rst:20
+msgid "What the facilitator does"
+msgstr "facilitator 的职责"
+
+#: ../../ops/facilitator.rst:22
+msgid ""
+"The x402 specification permits a resource server to host its own "
+"facilitator endpoints. For a ledger rail there is nothing to separate: "
+"the balances are in the hub's database. A hub therefore serves the three "
+"facilitator endpoints itself."
+msgstr ""
+"x402 规范允许资源服务器自行托管 facilitator 端点。对于账本这种支付通道,没有需要分离的部分:余额就在 hub 的数据库中。因此 "
+"hub 自己提供三个 facilitator 端点。"
+
+#: ../../ops/facilitator.rst:27
+msgid "Scheme and network"
+msgstr "方案与网络"
+
+#: ../../ops/facilitator.rst:28
+msgid ""
+"The scheme is ``anet-credit`` and the asset is ``credit``. The network is"
+" ``hub:<AID of the hub>``, so two hubs are two networks. An authorization"
+" signed for one hub's network cannot be settled on another."
+msgstr ""
+"方案为 ``anet-credit``,资产为 ``credit``\\ 。网络为 ``hub:<hub 的 AID>``,所以两个 hub "
+"即是两个网络。为某个 hub 的网络签名的授权,不能在另一个 hub 上结算。"
+
+#: ../../ops/facilitator.rst:32
+msgid "Amounts"
+msgstr "金额"
+
+#: ../../ops/facilitator.rst:33
+msgid ""
+"Credits are whole numbers. An amount must be between 1 and 2\\ "
+":sup:`63`\\ −1; zero and larger values are refused."
+msgstr "额度以整数计。金额必须在 1 到 2\\ :sup:`63`\\ −1 之间;零和更大的值均会被拒绝。"
+
+#: ../../ops/facilitator.rst:36
+msgid "Custody"
+msgstr "托管"
+
+#: ../../ops/facilitator.rst:37
+msgid ""
+"On a blockchain a facilitator holds no funds. This one does: the hub "
+"keeps the balances and is therefore their custodian, and a node that "
+"registers with a hub chooses to trust it with them. What the hub cannot "
+"do is rewrite what happened. The payer signs the authorization, the hub "
+"signs the receipt, and each party keeps both on its own evidence chain. "
+"The balance is the hub's record; the proof of the payment is the "
+"parties'."
+msgstr ""
+"在区块链上,facilitator 不持有资金。这里的 facilitator 则持有:余额由 hub 保管,hub 因此是余额的托管方,向 "
+"hub 注册的节点即选择了将余额托付给它。hub 无法做到的是改写已发生的事实。授权由付款方签名,收据由 hub "
+"签名,双方各自在自己的证据链上保存两者。余额是 hub 的记录;付款的证明则属于双方。"
+
+#: ../../ops/facilitator.rst:44
+msgid "Visibility"
+msgstr "可见范围"
+
+#: ../../ops/facilitator.rst:45
+msgid ""
+"At the moment of settlement the hub sees the payer, the payee, the amount"
+" and the time. It sees no task content. The ledger detail is kept for 14 "
+"days (see :ref:`ops-facilitator-window`)."
+msgstr ""
+"结算时,hub 能看到付款方、收款方、金额和时间,看不到任务内容。账本明细保留 14 天(参见 :ref:`ops-facilitator-"
+"window`)。"
+
+#: ../../ops/facilitator.rst:51
+msgid "Endpoints"
+msgstr "端点"
+
+#: ../../ops/facilitator.rst:57 ../../ops/facilitator.rst:301
+msgid "Route"
+msgstr "路由"
+
+#: ../../ops/facilitator.rst:58
+msgid "Purpose"
+msgstr "用途"
+
+#: ../../ops/facilitator.rst:59
+msgid "``GET /x402/supported``"
+msgstr "``GET /x402/supported``"
+
+#: ../../ops/facilitator.rst:60
+msgid ""
+"The scheme and network pairs the hub settles, the extensions it "
+"implements, and where each signer's key history is served."
+msgstr "hub 结算的方案与网络组合、已实现的扩展,以及各签名者密钥历史的提供位置。"
+
+#: ../../ops/facilitator.rst:62
+msgid "``POST /x402/verify``"
+msgstr "``POST /x402/verify``"
+
+#: ../../ops/facilitator.rst:63
+msgid "Check whether an authorization would settle, without moving credit."
+msgstr "检查某份授权能否结算,不转移额度。"
+
+#: ../../ops/facilitator.rst:64
+msgid "``POST /x402/settle``"
+msgstr "``POST /x402/settle``"
+
+#: ../../ops/facilitator.rst:65
+msgid "Settle an authorization and return the receipt."
+msgstr "结算授权并返回收据。"
+
+#: ../../ops/facilitator.rst:66
+msgid "``POST /x402/redeem``"
+msgstr "``POST /x402/redeem``"
+
+#: ../../ops/facilitator.rst:67
+msgid "Take credit out of circulation (see :ref:`ops-facilitator-redeem`)."
+msgstr "将额度退出流通(参见 :ref:`ops-facilitator-redeem`)。"
+
+#: ../../ops/facilitator.rst:68
+msgid "``POST /fed/v3/settle``"
+msgstr "``POST /fed/v3/settle``"
+
+#: ../../ops/facilitator.rst:69
+msgid ""
+"The same settlement, requested by a peer hub on behalf of its merchant; "
+"signed by that peer (see :ref:`ops-federation`)."
+msgstr "同样的结算,由对等 hub 代表其商家发起,并由该对等方签名(参见 :ref:`ops-federation`)。"
+
+#: ../../ops/facilitator.rst:71
+#, python-brace-format
+msgid ""
+"``GET /agents/{aid}/balance``, ``GET /agents/{aid}/ledger``, ``GET "
+"/agents/{aid}/redemptions``"
+msgstr ""
+"``GET /agents/{aid}/balance``\\ 、\\ ``GET /agents/{aid}/ledger``\\ 、\\ "
+"``GET /agents/{aid}/redemptions``"
+
+#: ../../ops/facilitator.rst:73
+msgid ""
+"An account's own balance, entries and redemptions. The request must be "
+"signed by the AID in the path; any other caller receives ``401``."
+msgstr "账户自身的余额、条目和兑付记录。请求必须由路径中的 AID 签名;其他任何调用方均收到 ``401``\\ 。"
+
+#: ../../ops/facilitator.rst:76
+msgid ""
+"The former resource gateway at ``/x402/resource/`` is removed and answers"
+" ``410 gateway_removed``. Payment takes place inside a task, between "
+"nodes, through the a2a-x402 extension; there is no longer a hub endpoint "
+"that fronts an HTTP resource."
+msgstr ""
+"原先位于 ``/x402/resource/`` 的资源网关已移除,现返回 ``410 gateway_removed``\\ "
+"。付款在任务之内、节点之间,通过 a2a-x402 扩展完成;hub 上不再有代理 HTTP 资源的端点。"
+
+#: ../../ops/facilitator.rst:82
+msgid "Supported networks"
+msgstr "支持的网络"
+
+#: ../../ops/facilitator.rst:103
+msgid ""
+"The first entry is always the hub's own network. Each further entry is a "
+"federation peer whose ledger this hub will clear against, so that a "
+"seller priced on this hub can be paid by a buyer whose credit lives on "
+"the peer. ``anet.signer_kel`` tells a reader where to obtain the key "
+"history that a receipt is verified against."
+msgstr ""
+"第一项始终是 hub 自身的网络。其后每一项是一个联邦对等方,本 hub 会与其账本清算,使得以本 hub "
+"定价的卖方可以收到额度存放在该对等方上的买方的付款。\\ ``anet.signer_kel`` 告知读取方到哪里获取用于验证收据的密钥历史。"
+
+#: ../../ops/facilitator.rst:110
+msgid "Verify and settle"
+msgstr "验证与结算"
+
+#: ../../ops/facilitator.rst:112
+msgid ""
+"Both routes take the x402 version 2 body. ``paymentRequirements`` is "
+"required: without it the hub could not compare the authorization with the"
+" terms the merchant quoted, and it would settle whatever the payer "
+"signed."
+msgstr ""
+"两个路由都接受 x402 第 2 版的请求体。\\ ``paymentRequirements`` 为必填:缺少它时,hub "
+"无法将授权与商家报出的条款比对,只能对付款方签名的任何内容照单结算。"
+
+#: ../../ops/facilitator.rst:140
+msgid ""
+"The signed authorization is produced by the payer's node; it holds the "
+"payer, payee, amount, network, a nonce, the validity window and the "
+"binding to the task. Operators do not normally construct one."
+msgstr "已签名的授权由付款方的节点生成,其中包含付款方、收款方、金额、网络、随机数、有效期窗口,以及与任务的绑定。运维人员通常不需要自行构造。"
+
+#: ../../ops/facilitator.rst:144
+#, python-brace-format
+msgid ""
+"``/x402/verify`` answers ``200`` with ``{\"isValid\": true, \"payer\": "
+"\"...\"}`` or ``{\"isValid\": false, \"invalidReason\": \"<reason>\"}``. "
+"A body that cannot be read answers ``400`` with the same shape."
+msgstr ""
+"``/x402/verify`` 返回 ``200``,正文为 ``{\"isValid\": true, \"payer\": "
+"\"...\"}`` 或 ``{\"isValid\": false, \"invalidReason\": \"<reason>\"}``\\ "
+"。无法读取的请求体返回 ``400``,正文形式相同。"
+
+#: ../../ops/facilitator.rst:148
+msgid ""
+"``/x402/settle`` answers ``200`` with a settlement response, also when "
+"the settlement is refused:"
+msgstr "``/x402/settle`` 返回 ``200`` 和一份结算响应,结算被拒绝时亦然:"
+
+#: ../../ops/facilitator.rst:164
+msgid ""
+"A refusal has ``\"success\": false`` and an ``errorReason`` from the "
+"table below. Prose detail, where there is any, is placed under the "
+"extension ``anet.error_detail``. Callers branch on the reason, not on the"
+" prose."
+msgstr ""
+"拒绝的响应带有 ``\"success\": false`` 和取自下表的 ``errorReason``\\ 。如有文字说明,则置于扩展 "
+"``anet.error_detail`` 之下。调用方应依据原因码分支处理,而不是依据文字说明。"
+
+#: ../../ops/facilitator.rst:168
+msgid ""
+"Settling is idempotent on the authorization. Presenting an authorization "
+"that has already been settled returns the original receipt with the "
+"extension ``anet.replayed`` set to ``true``; nothing moves a second time."
+msgstr ""
+"结算对同一授权是幂等的。重复提交已结算的授权,会返回原收据,并将扩展 ``anet.replayed`` 设为 "
+"``true``;不会再次转移任何额度。"
+
+#: ../../ops/facilitator.rst:173
+msgid "Receipts"
+msgstr "收据"
+
+#: ../../ops/facilitator.rst:175
+msgid ""
+"Every successful settlement carries a receipt signed by the hub whose "
+"ledger the network names: the authorization id, payer, payee, amount, "
+"network and settlement time. A node verifies it against the key history "
+"served at the URL in ``anet.signer_kel``, and the receipt stays valid "
+"without asking the hub. A hub signs receipts only for its own network."
+msgstr ""
+"每次成功的结算都附有一份收据,由网络所指定的账本所属 hub 签名,内容包括授权 ID、付款方、收款方、金额、网络和结算时间。节点依据 "
+"``anet.signer_kel`` 中 URL 提供的密钥历史验证收据,此后收据无需再询问 hub 即保持有效。hub "
+"只为自身的网络签发收据。"
+
+#: ../../ops/facilitator.rst:183
+msgid "Reasons"
+msgstr "原因码"
+
+#: ../../ops/facilitator.rst:189
+msgid "Reason"
+msgstr "原因码"
+
+#: ../../ops/facilitator.rst:190
+msgid "Meaning"
+msgstr "含义"
+
+#: ../../ops/facilitator.rst:191
+msgid "``insufficient_funds``"
+msgstr "``insufficient_funds``"
+
+#: ../../ops/facilitator.rst:192
+msgid "The payer's balance does not cover the amount."
+msgstr "付款方的余额不足以支付该金额。"
+
+#: ../../ops/facilitator.rst:193
+msgid "``invalid_signature``"
+msgstr "``invalid_signature``"
+
+#: ../../ops/facilitator.rst:194
+msgid ""
+"The authorization does not verify against the payer's key history, or it "
+"was signed over different terms."
+msgstr "授权无法通过付款方密钥历史的验证,或其签名所针对的条款不同。"
+
+#: ../../ops/facilitator.rst:196
+msgid "``expired_payment``"
+msgstr "``expired_payment``"
+
+#: ../../ops/facilitator.rst:197
+msgid ""
+"The authorization is presented outside its validity window, or it has no "
+"valid window. A tolerance of two minutes applies to the clock difference "
+"between payer and hub."
+msgstr "授权在有效期窗口之外提交,或没有有效的窗口。付款方与 hub 之间的时钟差允许两分钟的容差。"
+
+#: ../../ops/facilitator.rst:200
+msgid "``auth_window_too_long``"
+msgstr "``auth_window_too_long``"
+
+#: ../../ops/facilitator.rst:201
+msgid ""
+"The window between issue and expiry is longer than 24 hours. A long-lived"
+" authorization is a standing bearer instrument, and the hub does not "
+"honour one. Nodes sign authorizations valid for five minutes."
+msgstr "签发到过期之间的窗口超过 24 小时。长期有效的授权相当于一直有效的持票凭证,hub 不予承兑。节点签发的授权有效期为五分钟。"
+
+#: ../../ops/facilitator.rst:204
+msgid "``unknown_payer``"
+msgstr "``unknown_payer``"
+
+#: ../../ops/facilitator.rst:205
+msgid "The hub holds no account for the payer."
+msgstr "hub 没有该付款方的账户。"
+
+#: ../../ops/facilitator.rst:206
+msgid "``network_mismatch``"
+msgstr "``network_mismatch``"
+
+#: ../../ops/facilitator.rst:207
+msgid ""
+"The authorization is signed for another ledger, or is offered on a "
+"network other than the one the requirements name."
+msgstr "授权是为另一个账本签名的,或提交所用的网络与要求中指明的网络不一致。"
+
+#: ../../ops/facilitator.rst:209
+msgid "``malformed_payment``"
+msgstr "``malformed_payment``"
+
+#: ../../ops/facilitator.rst:210
+msgid "The payload cannot be read as an authorization."
+msgstr "载荷无法解析为授权。"
+
+#: ../../ops/facilitator.rst:211
+msgid "``unsupported_scheme``"
+msgstr "``unsupported_scheme``"
+
+#: ../../ops/facilitator.rst:212
+msgid ""
+"The payload or the requirements name a scheme other than ``anet-credit``,"
+" or name two different schemes."
+msgstr "载荷或要求中指明了 ``anet-credit`` 之外的方案,或指明了两种不同的方案。"
+
+#: ../../ops/facilitator.rst:214
+msgid "``invalid_amount``"
+msgstr "``invalid_amount``"
+
+#: ../../ops/facilitator.rst:215
+msgid ""
+"The authorized amount is below the required amount, differs from the "
+"amount the payload accepted, or is not a whole number of units."
+msgstr "授权金额低于要求的金额,与载荷所接受的金额不一致,或不是整数个单位。"
+
+#: ../../ops/facilitator.rst:217
+msgid "``payee_mismatch``"
+msgstr "``payee_mismatch``"
+
+#: ../../ops/facilitator.rst:218
+msgid "The authorization pays someone other than the required payee."
+msgstr "授权支付给了要求的收款方之外的人。"
+
+#: ../../ops/facilitator.rst:219
+msgid "``invalid_payment_requirements``"
+msgstr "``invalid_payment_requirements``"
+
+#: ../../ops/facilitator.rst:220
+msgid "The request carried no ``paymentRequirements``, or they cannot be read."
+msgstr "请求未带 ``paymentRequirements``,或其无法解析。"
+
+#: ../../ops/facilitator.rst:222
+msgid "``duplicate_nonce``"
+msgstr "``duplicate_nonce``"
+
+#: ../../ops/facilitator.rst:223
+msgid ""
+"The exact authorization was already settled (returned by "
+"``/x402/verify``; ``/x402/settle`` returns the original receipt)."
+msgstr "完全相同的授权已被结算(由 ``/x402/verify`` 返回;\\ ``/x402/settle`` 返回原收据)。"
+
+#: ../../ops/facilitator.rst:225
+msgid "``duplicate_binding``"
+msgstr "``duplicate_binding``"
+
+#: ../../ops/facilitator.rst:226
+msgid ""
+"A different authorization from the same payer was already settled for the"
+" same task. Nothing moved; the original transaction is named in the "
+"extension ``anet.original_transaction``."
+msgstr "同一付款方针对同一任务的另一份授权已被结算。未发生任何转移;原交易在扩展 ``anet.original_transaction`` 中给出。"
+
+#: ../../ops/facilitator.rst:229
+msgid "``payee_not_local``"
+msgstr "``payee_not_local``"
+
+#: ../../ops/facilitator.rst:230
+msgid ""
+"The payee is neither an account of this hub nor the hub itself. "
+"Settlements for a payee on another hub go through that hub (see below)."
+msgstr "收款方既不是本 hub 的账户,也不是 hub 本身。向其他 hub 上收款方的结算,须经由该 hub 办理(见下文)。"
+
+#: ../../ops/facilitator.rst:233
+msgid "``settlement_pending``"
+msgstr "``settlement_pending``"
+
+#: ../../ops/facilitator.rst:234
+msgid "The outcome is not known yet. Not final: retry with the same payload."
+msgstr "结果尚未确定。这不是最终状态:请以相同的载荷重试。"
+
+#: ../../ops/facilitator.rst:235
+msgid "``settlement_failed``"
+msgstr "``settlement_failed``"
+
+#: ../../ops/facilitator.rst:236
+msgid ""
+"The hub could not complete the settlement for a reason not listed above, "
+"such as a storage error."
+msgstr "hub 因上述未列出的原因(例如存储错误)无法完成结算。"
+
+#: ../../ops/facilitator.rst:240
+msgid "Settlement for accounts on another hub"
+msgstr "向其他 hub 上账户的结算"
+
+#: ../../ops/facilitator.rst:242
+msgid ""
+"An authorization names the ledger it spends. A merchant whose account is "
+"on hub A, but whose buyer holds credit on hub B, sends the settlement to "
+"hub A. Hub A first compares the payment with the requirements and checks "
+"that the payee is one of its accounts. It then forwards the request, "
+"signed with its own identity, to hub B's ``POST /fed/v3/settle``. Hub B "
+"verifies the signature and compares the terms again, settles on its "
+"ledger and returns a receipt. Hub A checks that the receipt states the "
+"required payee and amount, credits the payee, and records what hub B now "
+"owes it. Hub A does not forward a settlement unless hub B is in its peer "
+"table."
+msgstr ""
+"授权会指明它所动用的账本。商家的账户在 hub A 上、买方的额度在 hub B 上时,商家把结算请求发给 hub A。hub A "
+"首先将付款与要求比对,并确认收款方是自己的账户;然后把请求以自身身份签名,转发到 hub B 的 ``POST "
+"/fed/v3/settle``\\ 。hub B 验证签名并再次比对条款,在其账本上结算并返回收据。hub A "
+"核对收据中载明的收款方和金额符合要求,为收款方入账,并记录 hub B 此时欠自己的数额。hub B 不在 hub A 的对等方表中时,hub A"
+" 不会转发结算。"
+
+#: ../../ops/facilitator.rst:252
+msgid ""
+"The outcome can be unknown to hub A: the peer may not have answered, or "
+"may have settled without hub A learning of it. Hub A then answers "
+"``settlement_pending``. The merchant retries with the same payload; hub B"
+" returns its original receipt for an authorization it has settled, so the"
+" retry completes the clearing and the payee is credited once. A refusal "
+"the peer gives before its ledger saw the request (the peer does not list "
+"hub A, the signature was not accepted, or the request was stale) is known"
+" not to have settled and is reported as ``settlement_failed`` with what "
+"the peer said. A network that belongs to no listed peer is refused with "
+"``network_mismatch``."
+msgstr ""
+"hub A 可能无法得知结果:对等方可能没有应答,或已完成结算而 hub A 未获知。此时 hub A 返回 "
+"``settlement_pending``\\ 。商家以相同的载荷重试;对于已结算的授权,hub B "
+"会返回其原收据,因此重试可完成清算,且收款方只入账一次。对等方在其账本见到请求之前给出的拒绝(对等方未列出 hub "
+"A、签名未被接受,或请求已过期),可确知并未结算,以 ``settlement_failed`` "
+"上报,并附上对等方所说明的内容。不属于任何已列对等方的网络,以 ``network_mismatch`` 拒绝。"
+
+#: ../../ops/facilitator.rst:266
+msgid "The ledger"
+msgstr "账本"
+
+#: ../../ops/facilitator.rst:268
+msgid ""
+"Credit exists only because the hub issues it. Each issuance debits the "
+"hub's own account by the same amount, so the entries of the whole ledger "
+"sum to zero and the amount the hub owes its users is the negative of the "
+"hub's own balance. Credit is created in three ways only:"
+msgstr ""
+"额度之所以存在,仅因为 hub 发行了它。每次发行都会以相同金额借记 hub 自身的账户,因此整个账本的条目之和为零,hub 欠用户的数额等于 "
+"hub 自身余额的相反数。额度只有三种产生方式:"
+
+#: ../../ops/facilitator.rst:273
+msgid "an operator grant (``anet-hub grant``);"
+msgstr "运维人员发放(``anet-hub grant``);"
+
+#: ../../ops/facilitator.rst:274
+msgid ""
+"the grant that can accompany an admission (``anet-hub admit --grant``), "
+"paid when the AID first registers;"
+msgstr "随准入附带的发放(``anet-hub admit --grant``),在该 AID 首次注册时支付;"
+
+#: ../../ops/facilitator.rst:276
+msgid ""
+"the 20 trial credits paid when an account on probation completes its 72 "
+"hours (see :ref:`ops-hub-admission`)."
+msgstr "处于试用期的账户满 72 小时后支付的 20 个试用额度(参见 :ref:`ops-hub-admission`)。"
+
+#: ../../ops/facilitator.rst:279
+msgid ""
+"Registration pays nothing. An issuance is refused when it would take the "
+"total issued beyond what the supply can add up to."
+msgstr "注册本身不支付任何额度。发行会使累计发行总额超出供给所能累加的范围时,将被拒绝。"
+
+#: ../../ops/facilitator.rst:282
+msgid ""
+"The hub keeps account entries, settlements and redemptions for 14 days. "
+"Older entries are deleted by an hourly job; only the balance remains. The"
+" payer's and the payee's lasting record is the receipt on their own "
+"evidence chains."
+msgstr "hub 保留账户条目、结算和兑付记录 14 天。更早的条目由每小时运行的任务删除,仅余额保留。付款方与收款方长期保存的记录,是各自证据链上的收据。"
+
+#: ../../ops/facilitator.rst:289
+msgid "Supply and audit"
+msgstr "供给与审计"
+
+#: ../../ops/facilitator.rst:291
+msgid ""
+"The hub publishes what it owes at most once per supply epoch (a UTC day),"
+" as a signed chain. Each epoch states the epoch number, a Merkle root "
+"over every account's balance, and the total outstanding. It does not list"
+" the accounts. An account holder obtains a proof that its own balance is "
+"counted, and a third party can verify the chain."
+msgstr ""
+"hub 在每个供给纪元(一个 UTC 日)内至多发布一次其负债,形式为一条已签名的链。每个纪元载明纪元编号、覆盖所有账户余额的 Merkle "
+"根以及未清偿总额,但不列出各账户。账户持有人可获得一份证明,表明自己的余额已被计入;第三方则可验证整条链。"
+
+#: ../../ops/facilitator.rst:302
+msgid "Content"
+msgstr "内容"
+
+#: ../../ops/facilitator.rst:303
+msgid "``GET /x402/supply``"
+msgstr "``GET /x402/supply``"
+
+#: ../../ops/facilitator.rst:304
+msgid ""
+"The latest epoch, the signed chain, its head, and the witnesses that have"
+" pinned it."
+msgstr "最新的纪元、已签名的链、链头,以及已固定该链的见证。"
+
+#: ../../ops/facilitator.rst:306
+msgid "``GET /x402/issuance``"
+msgstr "``GET /x402/issuance``"
+
+#: ../../ops/facilitator.rst:307
+msgid "The issuance chain."
+msgstr "发行链。"
+
+#: ../../ops/facilitator.rst:308
+msgid "``GET /x402/issuance/head``"
+msgstr "``GET /x402/issuance/head``"
+
+#: ../../ops/facilitator.rst:309
+msgid "The current head of the chain."
+msgstr "链的当前链头。"
+
+#: ../../ops/facilitator.rst:310
+msgid "``GET /x402/witnesses``, ``POST /x402/witness``"
+msgstr "``GET /x402/witnesses``\\ 、\\ ``POST /x402/witness``"
+
+#: ../../ops/facilitator.rst:311
+msgid ""
+"The statements peers and others have made about the head, and the route "
+"to submit one."
+msgstr "对等方及其他方就链头作出的声明,以及提交声明的路由。"
+
+#: ../../ops/facilitator.rst:313
+#, python-brace-format
+msgid "``GET /agents/{aid}/liability-proof``"
+msgstr "``GET /agents/{aid}/liability-proof``"
+
+#: ../../ops/facilitator.rst:314
+msgid "The proof that an account's balance is part of an epoch's total."
+msgstr "证明某账户余额包含在某纪元总额之内的证明。"
+
+#: ../../ops/facilitator.rst:316
+msgid ""
+"On a node, ``anet audit-hub`` checks the chain and the node's own proof; "
+"see :ref:`reference-cli`."
+msgstr "在节点上,\\ ``anet audit-hub`` 检查该链以及节点自身的证明;参见 :ref:`reference-cli`\\ 。"
+
+#: ../../ops/facilitator.rst:319
+msgid "The operator reads the same figures with ``anet-hub supply``:"
+msgstr "运维人员可用 ``anet-hub supply`` 读取相同的数据:"
+
+#: ../../ops/facilitator.rst:332
+msgid ""
+"``latest_epoch`` lists the sequence number, the first and last day, the "
+"outstanding amount and the Merkle root of the latest published epoch, or "
+"the word ``none``. ``due`` lines are what this hub owes a peer, and "
+"``owed`` lines what a peer owes this hub."
+msgstr ""
+"``latest_epoch`` 列出最新已发布纪元的序号、起止日期、未清偿金额和 Merkle 根,若无则为 ``none``\\ 。\\ "
+"``due`` 行表示本 hub 欠对等方的数额,\\ ``owed`` 行表示对等方欠本 hub 的数额。"
+
+#: ../../ops/facilitator.rst:341
+msgid "Redemption"
+msgstr "兑付"
+
+#: ../../ops/facilitator.rst:343
+msgid ""
+"An account holder returns credit to the hub with ``anet redeem``. The "
+"credit leaves circulation and the hub signs a receipt. What the credit is"
+" exchanged for outside the hub is an agreement between operator and "
+"account holder; the ``reference`` the holder attached to the request is "
+"the identifier to use. The operator lists the redemptions to be handled:"
+msgstr ""
+"账户持有人通过 ``anet redeem`` 将额度退还给 hub。额度退出流通,hub 签发收据。额度在 hub "
+"之外兑换为何物,由运维人员与账户持有人约定;持有人附在请求中的 ``reference`` 即为处理时使用的标识。运维人员列出待处理的兑付记录:"
+
+#: ../../ops/facilitator.rst:355
+msgid ""
+"Each line holds the time, the AID, the amount, the quoted reference and "
+"the authorization id. With ``--json`` the same list is printed with the "
+"count, the sum and ``window_days``."
+msgstr ""
+"每行包含时间、AID、金额、所引用的 reference 和授权 ID。加上 ``--json`` 时,输出相同的列表,并附有条数、合计和 "
+"``window_days``\\ 。"
+
+#: ../../ops/facilitator.rst:361
+msgid "Between hubs"
+msgstr "hub 之间"
+
+#: ../../ops/facilitator.rst:363
+msgid ""
+"Settlements for a payee on another hub make this hub owe the ledger hub "
+"and the other way round. ``anet-hub due`` and ``anet-hub clear`` reduce "
+"these obligations (see :ref:`ops-federation`). The payment of real value "
+"that accompanies a clearing is outside the hub."
+msgstr ""
+"向其他 hub 上收款方的结算,使本 hub 欠账本所在的 hub,反之亦然。\\ ``anet-hub due`` 与 ``anet-hub "
+"clear`` 用于减少这些债务(参见 :ref:`ops-federation`)。清算所附带的实际价值支付不在 hub 的范围之内。"
+

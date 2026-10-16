@@ -1,0 +1,176 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) Agent Network
+# This file is distributed under the same license as the ANet package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: ANet 0.3\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-10-16 03:55+0000\n"
+"PO-Revision-Date: 2026-10-16 05:00+0000\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language: zh_CN\n"
+"Language-Team: zh_CN <LL@li.org>\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.18.0\n"
+
+#: ../../license.rst:4
+msgid "License"
+msgstr "许可证"
+
+#: ../../license.rst:6
+msgid ""
+"ANet, ANetCore and ANetHub are released under the **ANet Open Source "
+"License**, which is the Apache License 2.0 with additional conditions. "
+"The software and the documentation that are published in the three "
+"repositories are covered. The text of the file ``LICENSE`` in each "
+"repository is the license; this page is a summary and does not replace "
+"it."
+msgstr ""
+"ANet、ANetCore 和 ANetHub 依据 **ANet 开源许可证** 发布，该许可证是附加了额外条件的 Apache License"
+" 2.0，适用于三个仓库中发布的软件和文档。各仓库中 ``LICENSE`` 文件的文本即为许可证本身，本页仅为摘要，不能替代该文本。"
+
+#: ../../license.rst:17
+msgid "What the license permits"
+msgstr "许可证允许的使用"
+
+#: ../../license.rst:19
+msgid ""
+"The Apache License 2.0 applies in full, including the grant of the "
+"copyright license (section 2) and of the patent license (section 3). The "
+"following uses are expressly permitted:"
+msgstr "Apache License 2.0 完整适用，包括版权许可的授予（第 2 节）和专利许可的授予（第 3 节）。以下使用方式被明确允许："
+
+#: ../../license.rst:22
+msgid ""
+"Commercial use, including as a back end of other applications. This "
+"covers embedding the ``anet`` daemon, the ``anet`` command line or the "
+"ANetCore packages in a product."
+msgstr "商业使用，包括作为其他应用的后端。这包括将 ``anet`` 守护进程、\\ ``anet`` 命令行或 ANetCore 软件包嵌入产品。"
+
+#: ../../license.rst:24
+msgid ""
+"Running daemons and hubs on one's own infrastructure, without a limit on "
+"the number of nodes."
+msgstr "在自有基础设施上运行守护进程和 Hub，节点数量不受限制。"
+
+#: ../../license.rst:25
+msgid ""
+"Modification and redistribution under the terms of the Apache License 2.0"
+" and the conditions below. A copy of the license that is given to "
+"recipients is the entire document, additional conditions included."
+msgstr "依据 Apache License 2.0 及下列条件进行修改和再分发。提供给接收方的许可证副本须为完整文档，包括附加条件。"
+
+#: ../../license.rst:30
+msgid "Additional conditions"
+msgstr "附加条件"
+
+#: ../../license.rst:32
+msgid "Condition 1a: multi-tenant hosted hub"
+msgstr "条件 1a：多租户托管 Hub"
+
+#: ../../license.rst:33
+msgid ""
+"Without written authorization of the producer, the source code must not "
+"be used to operate a *multi-tenant hosted hub*: a hub that is offered as "
+"a service, publicly or commercially, to several unrelated organizations "
+"or individuals for registering their agents and relaying their messages. "
+"Two parties are unrelated when neither controls the other and they are "
+"not under common control. Two cases do not need authorization:"
+msgstr ""
+"未经出品方书面授权，不得使用源代码运营\\ *多租户托管 Hub*，即以服务形式向多个互不关联的组织或个人公开或商业性地提供、用于注册其 "
+"Agent 并中继其消息的 Hub。双方互不控制且不处于共同控制之下时，即为互不关联。以下两种情形无需授权："
+
+#: ../../license.rst:38
+msgid ""
+"a hub used by one individual, or only within one organization, including "
+"the entities that control it, that it controls or that are under common "
+"control with it, and their employees and contractors acting for them;"
+msgstr "由单个个人使用，或仅在一个组织内部使用的 Hub，包括控制该组织的实体、受其控制的实体或与其处于共同控制之下的实体，及为它们行事的员工和承包方；"
+
+#: ../../license.rst:40
+msgid ""
+"a non-commercial federated hub: a hub that peers, through the federation "
+"protocol, with at least one hub operated by the producer, charges no fee "
+"for registration, relay, discovery or settlement, and is not offered as "
+"part of, or to promote, a paid product or service."
+msgstr ""
+"非商业联邦 Hub：通过联邦协议至少与一个由出品方运营的 Hub "
+"建立对等关系，不就注册、中继、发现或结算收取费用，且不作为付费产品或服务的组成部分或为其推广而提供的 Hub。"
+
+#: ../../license.rst:44
+msgid "Condition 1b: logo and copyright information"
+msgstr "条件 1b：标识与版权信息"
+
+#: ../../license.rst:45
+msgid ""
+"In the user interfaces of ANet, the ANet logo and the copyright "
+"information must not be removed or changed. Names or marks of the "
+"redistributor may be added alongside. The user interfaces are the web "
+"page of a hub, the operator console of a hub, the local console of the "
+"daemon and the output of the command line programs (for example the "
+"version, help and banner lines). The condition does not apply to uses "
+"that involve none of these interfaces, such as the use of ANetCore as a "
+"library or the operation of the daemon behind another application."
+msgstr ""
+"在 ANet 的用户界面中，不得移除或更改 ANet 标识和版权信息。再分发者的名称或标记可以并列添加。用户界面指 Hub 的网页、Hub "
+"的运维控制台、守护进程的本地控制台，以及命令行程序的输出（例如版本、帮助和横幅行）。不涉及上述任何界面的使用不适用本条件，例如将 ANetCore"
+" 用作库，或在其他应用之后运行守护进程。"
+
+#: ../../license.rst:52
+msgid "Condition 2: contributors"
+msgstr "条件 2：贡献者"
+
+#: ../../license.rst:53
+msgid ""
+"A contributor agrees that the producer can adjust the license to be "
+"stricter or more relaxed, that the contribution may be used commercially,"
+" including in the hosted hub and the cloud operations of the producer, "
+"and that the producer may submit it to an A2A upstream project under the "
+"Apache License 2.0 alone."
+msgstr ""
+"贡献者同意：出品方可以将许可证调整得更严格或更宽松；贡献可以用于商业用途，包括出品方的托管 Hub 和云运营；出品方可以仅依据 Apache "
+"License 2.0 将其提交给 A2A 上游项目。"
+
+#: ../../license.rst:57
+msgid "Condition 3: contributions to the A2A protocol"
+msgstr "条件 3：对 A2A 协议的贡献"
+
+#: ../../license.rst:58
+msgid ""
+"The specification material in ``docs/a2a/`` of the ANet repository, and "
+"the parts of ANet that the producer submits to an A2A upstream project "
+"(in the form submitted), are licensed under the Apache License 2.0 alone,"
+" and the additional conditions do not apply to them. Nothing in the "
+"license restricts the implementation of the A2A protocol, or of those "
+"specifications, in software that is not derived from the source code of "
+"ANet, or the use of the identifiers that the specifications define."
+msgstr ""
+"ANet 仓库 ``docs/a2a/`` 中的规范材料，以及出品方提交给 A2A 上游项目的 ANet 部分（以提交时的形式），仅依据 "
+"Apache License 2.0 许可，附加条件不适用于它们。许可证中没有任何内容限制在不源自 ANet 源代码的软件中实现 A2A "
+"协议或这些规范，也不限制使用这些规范所定义的标识符。"
+
+#: ../../license.rst:66
+msgid "Third-party components"
+msgstr "第三方组件"
+
+#: ../../license.rst:68
+msgid ""
+"The programs link third-party libraries under their own licenses. The "
+"notices that those licenses require are part of the source repositories."
+msgstr "程序链接的第三方库适用其各自的许可证。这些许可证所要求的声明包含在源代码仓库中。"
+
+#: ../../license.rst:73
+msgid "Commercial license and questions"
+msgstr "商业许可与咨询"
+
+#: ../../license.rst:75
+msgid ""
+"For a commercial license, or for any question about the license, write to"
+" ``hi@anet0.com``."
+msgstr "如需商业许可，或对许可证有任何疑问，请写信至 ``hi@anet0.com``\\ 。"
+

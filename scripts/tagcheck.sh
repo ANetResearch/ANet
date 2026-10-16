@@ -53,7 +53,7 @@ PENDING="console"
 # the derived pattern would not see the SDK, and an a2a-go that stays
 # linked after module/a2a is gone is the half of the claim that matters.
 # The MCP SDK is named for the same reason: it is 85% of what no_mcp saves
-# (docs/DISTRIBUTIONS-zh.md), and a no_mcp build that still linked it
+# (docs/topics/modules.rst), and a no_mcp build that still linked it
 # through some other import would pass a check that looked only at ours.
 # Only the in-tree parts are required in the full build (see intree).
 pattern() {
@@ -84,7 +84,7 @@ intree() {
 # once it has a tag) is removed by every recipe that does not
 # name it. min keeps nothing, full keeps everything (an empty tag set). They
 # are examples for `build.sh --without`, not release variants.
-# docs/DISTRIBUTIONS-zh.md, scripts/onboard.sh and the pluggable job of
+# docs/topics/modules.rst, scripts/onboard.sh and the pluggable job of
 # .github/workflows/ci.yml are generated from this output or compared with it
 # (TestRecipesMatchCI).
 RECIPES="min: standard:a2a,service paid:a2a,service,x402 agent:a2a,service,mcp p2p:a2a,service,p2p full:*"

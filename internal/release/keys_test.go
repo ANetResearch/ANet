@@ -8,7 +8,7 @@ import (
 
 // The release key as this commit ships it. Replacing the key means changing
 // this constant together with allowed_signers, NextKeyFingerprint,
-// install.sh, SECURITY.md, README.md and docs/GUIDE-zh.md, and re-signing
+// install.sh, SECURITY.md, README.md and docs/intro/install.rst, and re-signing
 // the official manifest (build-release.sh --official).
 const shippedKeyFP = "SHA256:/4FMm/jgZcBII3z3O3r81Y8SxFfugdLRu3zj2gnclD4"
 
@@ -62,14 +62,14 @@ func TestTheReleaseKeyIsTheSameEverywhere(t *testing.T) {
 		}
 	}
 
-	// The user guide repeats the key line and its fingerprint in its
+	// The installation guide repeats the key line and its fingerprint in its
 	// manual-verification block; a stale copy there is a user checking the
 	// installer against a key no release is signed with.
-	guide := repoFile(t, "docs/GUIDE-zh.md")
+	guide := repoFile(t, "docs/intro/install.rst")
 	for _, want := range []string{"echo '" + line + "' > allowed_signers", shippedKeyFP,
 		"ssh-keygen -Y verify -f allowed_signers -I " + Identity} {
 		if !strings.Contains(guide, want) {
-			t.Errorf("docs/GUIDE-zh.md does not contain %q", want)
+			t.Errorf("docs/intro/install.rst does not contain %q", want)
 		}
 	}
 
