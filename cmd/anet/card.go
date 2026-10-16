@@ -30,11 +30,12 @@ import (
 	"github.com/ANetResearch/ANetCore/identity"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
+	"github.com/ANetResearch/ANet/module"
 )
 
 // previewExtURI is the extension a card declares when its agent sends
 // previews while it writes (CUX-P30).
-const previewExtURI = "https://agentnetwork.org.cn/a2a/ext/anet-preview/v1"
+const previewExtURI = module.ExtPreviewURI
 
 // cardAnswer is what `anet card` reads of /agents/card.
 type cardAnswer struct {

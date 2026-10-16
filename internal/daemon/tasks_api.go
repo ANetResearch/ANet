@@ -6,6 +6,7 @@ package daemon
 //	POST /tasks/get     GetTask
 //	POST /tasks/list    ListTasks, with role and peer filters
 //	POST /tasks/cancel  CancelTask
+//	POST /tasks/events  one task as server-sent events: task, preview and delivery (tasks_events.go)
 //	POST /tasks/wait    wait until the task is terminal or waits for this node (newer than after_seq)
 //	POST /tasks/reply   the provider's answer on a task delegated to this node
 //	POST /agents/list   discovery: verified network cards, skill, tag and free text matched here
@@ -56,6 +57,7 @@ func (d *Daemon) registerTaskRoutes(api *routeMux) {
 	api.HandleFunc("POST /tasks/list", d.hTasksList)
 	api.HandleFunc("POST /tasks/cancel", d.hTasksCancel)
 	api.HandleFunc("POST /tasks/wait", d.hTasksWait)
+	api.HandleFunc("POST /tasks/events", d.hTasksEvents)
 	api.HandleFunc("POST /tasks/reply", d.hTasksReply)
 	api.HandleFunc("POST /agents/list", d.hAgentsList)
 	api.HandleFunc("POST /agents/card", d.hAgentsCard)
@@ -146,6 +148,9 @@ type tasksSendReq struct {
 	TimeoutMS     int64 `json:"timeout_ms"`
 	// MaxTaskBytes bounds the task returned (maxTaskBytes).
 	MaxTaskBytes int `json:"max_task_bytes"`
+	// Preview asks the provider for previews of the round this message
+	// opens (CUX-P10): "off" (the default), "on" or "with_reasoning".
+	Preview string `json:"preview"`
 }
 
 // readJSONNumbers is readJSON keeping the numbers of the message, its
@@ -244,11 +249,19 @@ func (d *Daemon) hTasksSend(w http.ResponseWriter, r *http.Request) {
 	if err == nil {
 		err = maxTaskBytes(req.MaxTaskBytes)
 	}
+	switch req.Preview {
+	case "", "off", previewModeOn, previewModeWithReasoning:
+	default:
+		if err == nil {
+			err = a2ashape.Errorf(a2ashape.ErrInvalidParams, "preview must be off, on or with_reasoning")
+		}
+	}
 	if err != nil {
 		writeTaskError(w, err)
 		return
 	}
-	ts := module.TaskSend{Message: req.message(), ReturnImmediately: req.ReturnImmediately, HistoryLength: req.HistoryLength}
+	ts := module.TaskSend{Message: req.message(), ReturnImmediately: req.ReturnImmediately, HistoryLength: req.HistoryLength,
+		Preview: req.Preview}
 	if c := req.Configuration; c != nil {
 		ts.ReturnImmediately = ts.ReturnImmediately || c.ReturnImmediately
 		if ts.HistoryLength == nil {

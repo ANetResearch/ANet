@@ -183,11 +183,25 @@ func (b cardBuilder) buildFrom(ra module.RemoteAgent, ext []byte) (map[string]an
 		copyVerified(card, remote)
 		// A public card carries no price (0.3.0): nothing of a remote
 		// card's extensions is passed on but whether it takes payment.
-		x402 := false
+		x402, preview := false, false
 		for _, e := range remote.Capabilities.Extensions {
-			if e.URI == a2ashape.X402ExtensionURI {
+			switch e.URI {
+			case a2ashape.X402ExtensionURI:
 				x402 = true
+			case module.ExtPreviewURI:
+				preview = true
 			}
+		}
+		if preview {
+			// The verified remote card says the agent sends previews
+			// (CUX-P30): the same declaration, not required. A card that is
+			// not verified, or does not say so, leaves it out; a client may
+			// activate the extension all the same.
+			exts = append(exts, map[string]any{
+				"uri":         module.ExtPreviewURI,
+				"description": "This agent sends a preview of its reply while it is written; activate the extension to receive it as updates of the anet.reply artifact.",
+			})
+			uris = append(uris, module.ExtPreviewURI)
 		}
 		if x402 {
 			// This node is the signing service (a2a-x402 §5.1, A2A-DESIGN

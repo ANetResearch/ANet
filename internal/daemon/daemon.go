@@ -149,6 +149,10 @@ type Daemon struct {
 	// (preview.go, set with setPreviewer); none leaves previews
 	// unavailable (previewsUnavailable).
 	previewer atomic.Pointer[previewCoalescer]
+	// streamPreviewFn is this node's stream_preview setting ("off", "on"
+	// or "with_reasoning"); nil reads as "off" (preview_card.go).
+	// v030-todo(UX-9): the config key reads through here.
+	streamPreviewFn func() string
 	// sbRefused remembers outbound auto-reply turns that failed closed
 	// because the sandbox was unavailable (autoreply.go).
 	sbRefused sandboxRefused

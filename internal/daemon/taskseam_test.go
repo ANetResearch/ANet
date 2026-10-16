@@ -77,7 +77,7 @@ func TestTheTaskSeamIsScopedToOneAgent(t *testing.T) {
 	notFound("get another agent's task", err)
 	_, err = seam.Cancel(ctx, other.AID(), task.ID)
 	notFound("cancel another agent's task", err)
-	_, _, err = seam.Watch(ctx, other.AID(), task.ID)
+	_, _, err = seam.Watch(ctx, other.AID(), task.ID, module.WatchOpts{})
 	notFound("watch another agent's task", err)
 	_, err = seam.Send(ctx, other.AID(), module.TaskSend{Message: followUp(task.ID, "more", "m-2"), ReturnImmediately: true})
 	notFound("follow up another agent's task", err)
@@ -437,7 +437,7 @@ func TestWatchStreamsStatusThenArtifactsThenTheEnd(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	snap, events, err := seam.Watch(ctx, prov.AID(), task.ID)
+	snap, events, err := seam.Watch(ctx, prov.AID(), task.ID, module.WatchOpts{})
 	if err != nil || snap.Status.State != a2ashape.TaskStateSubmitted {
 		t.Fatalf("snapshot %+v %v", snap.Status, err)
 	}

@@ -313,6 +313,11 @@ func (d *Daemon) cardInput(hubURL, name string) (netcard.Input, error) {
 // the card cc describes, each put in publish form or dropped with a log
 // line.
 func (d *Daemon) cardContributions(cc module.CardContext) (exts, ifaces []map[string]any) {
+	for _, e := range d.kernelCardExtensions() {
+		if ext, err := netcard.Extension(e); err == nil {
+			exts = append(exts, ext)
+		}
+	}
 	for _, m := range d.cardContributors() {
 		for _, e := range m.CardExtensions(cc) {
 			ext, err := netcard.Extension(e)

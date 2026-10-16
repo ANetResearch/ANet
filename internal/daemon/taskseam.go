@@ -129,12 +129,12 @@ func (s *DaemonTaskSeam) Cancel(ctx context.Context, peerAID, taskID string) (a2
 // SendStreamingMessage). The snapshot and the subscription are taken
 // atomically; the channel closes after the event of a terminal state, or
 // when ctx ends.
-func (s *DaemonTaskSeam) Watch(ctx context.Context, peerAID, taskID string) (a2ashape.Task, <-chan a2ashape.TaskEvent, error) {
+func (s *DaemonTaskSeam) Watch(ctx context.Context, peerAID, taskID string, opts module.WatchOpts) (a2ashape.Task, <-chan a2ashape.TaskEvent, error) {
 	sc, err := peerScope(peerAID)
 	if err != nil {
 		return a2ashape.Task{}, nil, err
 	}
-	return s.d.watchTask(ctx, sc, taskID)
+	return s.d.watchTask(ctx, sc, taskID, opts)
 }
 
 // Agents lists agents of the network (A2A-DESIGN §10.5).
@@ -389,6 +389,9 @@ func (d *Daemon) sendTask(ctx context.Context, sc taskScope, to string, req modu
 		return a2ashape.Task{}, err
 	}
 	meta := clientMeta(req)
+	if in.capID != "" {
+		delete(meta, metaPreviewMode) // previews are for text tasks (CUX-P4)
+	}
 	sctx, cancel := context.WithTimeout(ctx, relayCallTimeout)
 	defer cancel()
 	if in.capID != "" {
@@ -613,6 +616,11 @@ func clientMeta(req module.TaskSend) map[string]any {
 	}
 	if m.ID != "" {
 		out[a2ashape.KeyMessageID] = m.ID
+	}
+	if mode := normalPreviewMode(req.Preview); mode != "" {
+		// What the round asks of the provider (CUX-P10); the provider reads
+		// it with the message, before anet.* is stripped for storage.
+		out[metaPreviewMode] = mode
 	}
 	if len(req.Extensions) > 0 {
 		out[a2ashape.KeyServiceParameters] = map[string]any{"A2A-Extensions": req.Extensions, "A2A-Version": "1.0"}
@@ -1001,9 +1009,12 @@ func stateName(cur, fallback *interactions.Interaction) interactions.State {
 // watchTask is SubscribeToTask: the task now, then its changes. It reads
 // the row again on every event rather than trusting the event's content,
 // so events that arrive out of order or coalesced still produce each new
-// state once, in order. Before the status event of a terminal state it
-// sends the task's artifacts (anet.reply first, §11.5).
-func (d *Daemon) watchTask(ctx context.Context, sc taskScope, id string) (a2ashape.Task, <-chan a2ashape.TaskEvent, error) {
+// state once, in order. A new provider message sends the anet.reply
+// artifact before the status update that announces it, and the status
+// event of a terminal state is preceded by all the task's artifacts
+// (CUX-A2, §11.5). A subscriber that opted in (opts.Preview) also receives
+// the task's preview frames as artifact updates (CUX-A3).
+func (d *Daemon) watchTask(ctx context.Context, sc taskScope, id string, opts module.WatchOpts) (a2ashape.Task, <-chan a2ashape.TaskEvent, error) {
 	ix, err := d.scopedTask(sc, id)
 	if err != nil {
 		return a2ashape.Task{}, nil, err
@@ -1031,14 +1042,44 @@ func (d *Daemon) watchTask(ctx context.Context, sc taskScope, id string) (a2asha
 		close(out)
 		return first, out, nil
 	}
-	go d.pumpTaskEvents(ctx, snap, lastMsg, events, cancel, out)
+	go d.pumpTaskEvents(ctx, snap, lastMsg, first.Artifacts, events, cancel, out, opts)
 	return first, out, nil
 }
 
-func (d *Daemon) pumpTaskEvents(ctx context.Context, snap *interactions.Interaction, lastMsg int64, events <-chan Event,
-	cancel func(), out chan<- a2ashape.TaskEvent) {
+// metaPreviewFlag marks the artifact update of a preview frame (CUX-A3).
+const metaPreviewFlag = "anet.preview"
+
+// previewUpdate is the artifact update of one preview frame: anet.reply
+// replaced whole, not final. A frame that omitted its head starts with an
+// ellipsis. Reasoning is never part of it (CUX-P17).
+func previewUpdate(ix *interactions.Interaction, contextID string, f previewFrame) a2ashape.TaskArtifactUpdateEvent {
+	text := f.Text
+	if f.Omitted > 0 {
+		text = "…" + text
+	}
+	meta := map[string]any{metaPreviewFlag: true}
+	return a2ashape.TaskArtifactUpdateEvent{
+		Artifact: a2ashape.Artifact{ID: a2ashape.ArtifactReply, Name: a2ashape.ArtifactReply,
+			Parts: []a2ashape.Part{a2ashape.TextPart(text)}, Metadata: map[string]any{metaPreviewFlag: true}},
+		ContextID: contextID, TaskID: ix.ID, Metadata: meta,
+	}
+}
+
+// artifactKey identifies an artifact's content, to send it again only when
+// it changed.
+func artifactKey(a a2ashape.Artifact) string {
+	b, _ := json.Marshal(a)
+	return string(b)
+}
+
+func (d *Daemon) pumpTaskEvents(ctx context.Context, snap *interactions.Interaction, lastMsg int64, sentArtifacts []a2ashape.Artifact,
+	events <-chan Event, cancel func(), out chan<- a2ashape.TaskEvent, opts module.WatchOpts) {
 	defer func() { cancel(); close(out) }()
 	lastSeq := snap.StateSeq
+	sent := map[string]string{}
+	for _, a := range sentArtifacts {
+		sent[a.ID] = artifactKey(a)
+	}
 	send := func(e a2ashape.TaskEvent) bool {
 		select {
 		case out <- e:
@@ -1047,11 +1088,22 @@ func (d *Daemon) pumpTaskEvents(ctx context.Context, snap *interactions.Interact
 			return false
 		}
 	}
+	sendPreview := func(f previewFrame) bool {
+		u := previewUpdate(snap, snap.ContextID, f)
+		return send(a2ashape.TaskEvent{ArtifactUpdate: &u})
+	}
+	if opts.Preview {
+		// A subscriber that comes in the middle of a round is shown the
+		// preview the task has now (always replacing, never appending).
+		if f, ok := d.previews().Current(snap.ID); ok && !sendPreview(f) {
+			return
+		}
+	}
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case _, ok := <-events:
+		case ev, ok := <-events:
 			if !ok {
 				// Dropped for falling behind; resubscribe. The new snapshot
 				// is compared below like any event.
@@ -1060,6 +1112,13 @@ func (d *Daemon) pumpTaskEvents(ctx context.Context, snap *interactions.Interact
 				if _, events, cancel, err = d.Watch(snap.ID); err != nil {
 					return
 				}
+			} else if ev.Kind == EventPreview {
+				if opts.Preview && ev.preview != nil && !sendPreview(*ev.preview) {
+					return
+				}
+				continue
+			} else if ev.Kind == EventDelivery {
+				continue // the control plane's stream only (UX-C8)
 			}
 		}
 		cur, err := d.ix.Get(snap.ID)
@@ -1070,15 +1129,21 @@ func (d *Daemon) pumpTaskEvents(ctx context.Context, snap *interactions.Interact
 		if cur.StateSeq <= lastSeq && msg <= lastMsg {
 			continue
 		}
-		t, err := d.taskView(cur, viewOpts{historyLen: new(int), artifacts: cur.IsTerminal()})
+		t, err := d.taskView(cur, viewOpts{historyLen: new(int), artifacts: true})
 		if err != nil {
 			return
 		}
-		if cur.IsTerminal() {
-			for _, a := range a2ashape.ArtifactUpdates(t) {
-				if !send(a2ashape.TaskEvent{ArtifactUpdate: &a}) {
-					return
-				}
+		for _, a := range a2ashape.ArtifactUpdates(t) {
+			// Every artifact before a terminal status; before any other
+			// only what is new, so a progress note does not repeat the
+			// reply (CUX-A2).
+			k := artifactKey(a.Artifact)
+			if !cur.IsTerminal() && sent[a.Artifact.ID] == k {
+				continue
+			}
+			sent[a.Artifact.ID] = k
+			if !send(a2ashape.TaskEvent{ArtifactUpdate: &a}) {
+				return
 			}
 		}
 		su := a2ashape.StatusUpdate(t)

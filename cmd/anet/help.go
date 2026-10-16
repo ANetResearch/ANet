@@ -61,10 +61,11 @@ func helpSections() []helpSection {
 		{"找 agent 与发任务", "Finding agents and sending tasks", []helpEntry{
 			{"find [query] [--cap id] [--json]", "列出 hub 上的 agent；查询词只在本机匹配，不发给 hub", "list the agents on your hub; the query is matched here and never sent to the hub", true},
 			{"card <aid> [--json]", "一个 agent 的卡片与对方签名的价格；只在对方收费或你在对方名单里时才向对方取价", "one agent's card and the prices it signed; the agent is asked only when it charges or you are on its list", true},
-			{"delegate <aid> <goal> [--attach P …]", "给对方发一个任务，立即返回任务", "send a task, and get the task back at once", true},
+			{"delegate <aid> <goal> [--attach P …] [--watch]", "给对方发一个任务，立即返回任务；--watch 接着看到状态、送达与答复预览，直到任务结束", "send a task, and get the task back at once; --watch goes on to show its state, delivery and a preview of the reply until it ends", true},
 			{"delegate <aid> --capability <id> [--args J] [--attach P …]", "调用对方的公开能力；收费的能力先报价，额度内自动付款", "call a public capability; a priced one is quoted first and paid within your limits", false},
 			{"message <id> <text …>|--file P [--attach P …]", "在任务里再发一条消息（双方都可以发）", "send another message on a task (either side)", true},
 			{"task get <id> [--full] [--history N]", "一个任务的现状", "one task as it is now", true},
+			{"task watch <id> [--reasoning]", "看一个任务直到结束：状态、送达与答复预览；退出码 0 完成，1 失败，3 等你付款或回答", "follow a task until it ends: state, delivery and a preview of the reply; exit 0 completed, 1 failed, 3 waiting for your payment or answer", false},
 			{"task list [--role requester|provider] [--state S] [--peer AID]", "列出任务", "list tasks", false},
 			{"task cancel <id>", "取消一个任务", "cancel a task", false},
 			{"inbox [--pending]", "别人发给你的任务（--pending 只看未结束的）", "tasks others sent you (--pending: only open ones)", false},

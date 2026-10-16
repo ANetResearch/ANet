@@ -27,6 +27,8 @@ const (
 	EventState   = "state"   // the interaction's state changed
 	EventMessage = "message" // a message was stored
 	EventResult  = "result"  // a result or receipt was stored
+	// EventDelivery (tasks_events.go) is a change of what a task says of
+	// the delivery of its latest message; it moves no state.
 	// EventPreview (preview.go) is a preview frame taken in memory; it
 	// changes nothing stored.
 )
@@ -41,9 +43,12 @@ type Event struct {
 	MsgSeq  int64  `json:"msg_seq,omitempty"`
 	MsgKind string `json:"msg_kind,omitempty"`
 	At      uint64 `json:"at"`
-	// preview is the frame of an EventPreview: never serialized, and only
-	// for the control plane's event stream (CUX-P17, P18).
+	// preview is the frame of an EventPreview: never serialized (CUX-P17,
+	// P18).
 	preview *previewFrame
+	// delivery is the data of an EventDelivery: never serialized, and only
+	// for the control plane's event stream (UX-C8).
+	delivery *DeliveryEvent
 }
 
 // eventBufferSize bounds the events one subscriber may have undelivered.

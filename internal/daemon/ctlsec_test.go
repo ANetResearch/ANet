@@ -226,7 +226,7 @@ func TestEveryRouteIsAllowlistedOrRefusedForASession(t *testing.T) {
 	for _, pat := range []string{"POST /pull", "POST /autoreply", "POST /shutdown",
 		"POST /redeem", "POST /reconcile", "POST /hub-leave", "POST /visibility",
 		"POST /console/ticket", "POST /tasks/send", "POST /tasks/get", "POST /tasks/list", "POST /tasks/cancel",
-		"POST /tasks/wait", "POST /tasks/reply", "POST /agents/kel"} {
+		"POST /tasks/wait", "POST /tasks/events", "POST /tasks/reply", "POST /agents/kel"} {
 		if !registered[pat] {
 			t.Errorf("%s is not a registered route", pat)
 		}

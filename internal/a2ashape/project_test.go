@@ -284,6 +284,7 @@ func TestUnverifiedReceiptStaysCompleted(t *testing.T) {
 		const ix = "ix_unv"
 		must(t, st.Create(interactions.New{ID: ix, Role: interactions.RoleOutbound, PeerAID: peer, Goal: "g", ContextID: "c"}))
 		msg(t, st, ix, self, interactions.MsgText, "g", "m1", nil)
+		msg(t, st, ix, peer, interactions.MsgText, "ok", "m2", nil)
 		tr, _ := transcript.EncodeV2("n", []transcript.Message{{From: "requester", Body: "g"}, {From: "provider", Body: "ok"}})
 		must(t, st.Finish(ix, interactions.Finish{State: interactions.StateCompleted, Result: tr, ResultCID: "bafyr",
 			Receipt: receipt(t, ix, self, peer, "bafyr"), Verified: v}, interactions.CausePeerEnded))

@@ -28,6 +28,8 @@ type fakeSeam struct {
 	agents   []module.RemoteAgent
 
 	sends []module.TaskSend
+	// watches are the options of each Watch, in order.
+	watches []module.WatchOpts
 	// pays are the payment decisions made: through Pay, or through Send
 	// with a payment message, as the kernel routes one (§8.7).
 	pays []module.PayDecision
@@ -306,9 +308,10 @@ func (f *fakeSeam) Cancel(_ context.Context, peer, id string) (module.Task, erro
 	return copyTask(ft.t), nil
 }
 
-func (f *fakeSeam) Watch(ctx context.Context, peer, id string) (module.Task, <-chan module.TaskEvent, error) {
+func (f *fakeSeam) Watch(ctx context.Context, peer, id string, opts module.WatchOpts) (module.Task, <-chan module.TaskEvent, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.watches = append(f.watches, opts)
 	ft, err := f.find(peer, id)
 	if err != nil {
 		return module.Task{}, nil, err
