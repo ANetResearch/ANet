@@ -231,7 +231,15 @@ func (x *identityCLI) rotate() error {
 	if x.flags["new-recovery"] == "true" {
 		return x.replaceSeed(t, st, u, mode, "rotate")
 	}
-	if err := x.step(stepSpec{st: st, rsOld: u.rs, rsNew: u.rs, mode: mode}); err != nil {
+	// The recovery file is written again with the same seed and passphrase: its commitment
+	// names the key after this rotation, which is how `identity recover` knows the history it
+	// is given is not a stale one (T-1 RT-F8).
+	path, err := x.recoveryPath(st.AID)
+	if err != nil {
+		return err
+	}
+	if err := x.step(stepSpec{st: st, rsOld: u.rs, rsNew: u.rs, mode: mode,
+		newPath: path, newPass: u.pass, fileHub: hubOf(st)}); err != nil {
 		return err
 	}
 	fin, ok, err := x.settle(st.KeySeq + 1)
@@ -396,7 +404,13 @@ func (x *identityCLI) protectResume(t *ttySession, st daemon.IdentityStatus, pat
 	if st.LastRotation != nil && st.LastRotation.Mode == "emergency" {
 		mode = "emergency"
 	}
-	if err := x.step(stepSpec{st: st, rsOld: u.rs, rsNew: u.rs, mode: mode}); err != nil {
+	if path == "" {
+		if path, err = x.recoveryPath(st.AID); err != nil {
+			return err
+		}
+	}
+	if err := x.step(stepSpec{st: st, rsOld: u.rs, rsNew: u.rs, mode: mode,
+		newPath: path, newPass: u.pass, fileHub: hubOf(st)}); err != nil {
 		return err
 	}
 	fin, ok, err := x.settle(st.KeySeq + 1)

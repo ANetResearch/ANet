@@ -96,7 +96,7 @@ func (x *identityCLI) recover() error {
 	if err := x.passphraseIsUTF8(pass); err != nil {
 		return err
 	}
-	rs, aid, _, _, err := identity.OpenRecoveryFile(b, pass)
+	rs, aid, _, commits, err := identity.OpenRecoveryFile(b, pass)
 	defer clear(rs[:])
 	switch {
 	case err == nil:
@@ -137,6 +137,17 @@ func (x *identityCLI) recover() error {
 		return x.refuse("recover_not_witness", a2ashape.Args{"hub": hub})
 	}
 	j := uint64(len(kel))
+	// The file says how long the history was when it was written (its commitment is for key
+	// commits.Seq), and every rotation writes it again. A hub that serves fewer events than that
+	// is behind the file; one that serves more is ahead of it, or the file is an older copy. In
+	// both cases the key this seed derives for position j may be one the real history has used
+	// already, and a rotation signed with it would fork the identity for good (T-1 RT-F8).
+	switch {
+	case j < commits.Seq:
+		return x.refuse("recover_not_witness", a2ashape.Args{"hub": hub})
+	case j > commits.Seq:
+		return x.refuse("recovery_mismatch", nil)
+	}
 	commit := lastCommitment(kel)
 	seed, err := seedAt(rs, aid, j, commit)
 	if errors.Is(err, errMismatch) {
