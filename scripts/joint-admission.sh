@@ -107,8 +107,8 @@ join(){
   OUT=$(ANET_DATA_DIR=$J/run/$n setsid -w "$J/anet" hub-register "http://$HUB" --name "$name" "$@" </dev/null 2>&1)
   CODE=$?
 }
-aidof(){ ANET_DATA_DIR=$J/run/$1 "$J/anet" status 2>/dev/null | grep -o '"aid": *"bafyrei[a-z0-9]*"' | head -1 | grep -o 'bafyrei[a-z0-9]*'; }
-hubstate(){ ANET_DATA_DIR=$J/run/$1 "$J/anet" status 2>/dev/null | tr -d '\n' | grep -o '"hub": *{[^}]*"state": *"[a-z_]*"' | grep -o '"state": *"[a-z_]*"' | tail -1 | grep -o '[a-z_]*"$' | tr -d '"'; }
+aidof(){ ANET_DATA_DIR=$J/run/$1 "$J/anet" status --json 2>/dev/null | grep -o '"aid": *"bafyrei[a-z0-9]*"' | head -1 | grep -o 'bafyrei[a-z0-9]*'; }
+hubstate(){ ANET_DATA_DIR=$J/run/$1 "$J/anet" status --json 2>/dev/null | tr -d '\n' | grep -o '"hub": *{[^}]*"state": *"[a-z_]*"' | grep -o '"state": *"[a-z_]*"' | tail -1 | grep -o '[a-z_]*"$' | tr -d '"'; }
 waitstate(){ # waitstate <n> <state> <seconds>
   for _ in $(seq 1 "$3"); do [ "$(hubstate "$1")" = "$2" ] && return 0; sleep 1; done; return 1
 }
@@ -126,7 +126,8 @@ case "$FIRSTLINE" in *"anet identity protect"*) ok "first, the identity has no r
 [ "$(hubstate first)" = pending_admission ] && ok "hub.state pending_admission" || no "hub.state $(hubstate first)"
 
 hd "2/7  sending while waiting fails at once with the same sentence, nothing queued"
-SOUT=$(ANET_DATA_DIR=$J/run/first "$J/anet" delegate "$FIRST" "hello" 2>&1); SCODE=$?
+OTHER=bafyreibpaki5kknsoz7hnadmrkaczos4zyz3qyceeee7e7mandmrv7ljpe
+SOUT=$(ANET_DATA_DIR=$J/run/first "$J/anet" delegate "$OTHER" "hello" 2>&1); SCODE=$?
 [ "$SCODE" != 0 ] && echo "$SOUT" | grep -q "anet-hub admit $FIRST" && ok "refused with the admit line" || no "send while pending ($SCODE): $SOUT"
 
 hd "3/7  the operator admits the AID; the node finishes on its own"
