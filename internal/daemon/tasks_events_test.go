@@ -187,6 +187,14 @@ func TestTasksEventsUnknownTask(t *testing.T) {
 	if resp.StatusCode != http.StatusNotFound || !strings.Contains(string(body), "no_local_task") {
 		t.Fatalf("%d %s", resp.StatusCode, body)
 	}
+	// The same sentence as /tasks/get: the retention is told, not a dash.
+	_, getBody := p.req(t, "POST", "/tasks/get", `{"task_id":"ix_nope"}`, p.bearer)
+	var a, b struct {
+		Error string `json:"error"`
+	}
+	if json.Unmarshal(body, &a) != nil || json.Unmarshal(getBody, &b) != nil || a.Error == "" || a.Error != b.Error {
+		t.Errorf("/tasks/events says %q, /tasks/get says %q", a.Error, b.Error)
+	}
 	resp, body = p.req(t, "POST", "/tasks/events", `{}`, p.bearer)
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("no task id: %d %s", resp.StatusCode, body)

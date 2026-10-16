@@ -86,7 +86,7 @@ func (d *Daemon) hTasksEvents(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		cancel()
 		if _, nf := d.ix.Get(req.TaskID); nf != nil {
-			writeRefusal(w, http.StatusNotFound, a2ashape.Refuse("no_local_task", a2ashape.Args{"task": req.TaskID}))
+			writeRefusal(w, http.StatusNotFound, a2ashape.Refuse("no_local_task", a2ashape.Args{"task": req.TaskID, "retention": d.ContentRetention().String()}))
 			return
 		}
 		writeTaskError(w, err)
