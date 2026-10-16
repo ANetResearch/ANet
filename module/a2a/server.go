@@ -102,7 +102,7 @@ func newServer(seam module.TaskSeam, cfg serverConfig) *server {
 	if cfg.tokenFile != "" {
 		s.tokens = &tokenSource{path: cfg.tokenFile}
 	}
-	s.cards = newCardCache(seam, cardBuilder{host: cfg.host, port: cfg.port}, cfg.signer)
+	s.cards = newCardCache(seam, cardBuilder{host: cfg.host, port: cfg.port, preview: seam.PreviewAvailable()}, cfg.signer)
 	h := &handler{seam: seam, extended: s.extendedAgentCard}
 	s.h = h
 	opts := []a2asrv.TransportOption{
@@ -288,7 +288,7 @@ func (s *server) binding(next http.Handler, jsonrpc bool) http.Handler {
 		if len(info.requested) > 0 {
 			// Answered before the handler runs: a stream's headers go out
 			// before its first event.
-			info.active = activate(info.requested, s.cards.extensions(r.Context(), aid))
+			info.active = activate(info.requested, s.cards.extensions(r.Context(), aid), s.seam.PreviewAvailable())
 			if len(info.active) > 0 {
 				w.Header().Set(a2a.SvcParamExtensions, strings.Join(info.active, ", "))
 			}
@@ -499,16 +499,22 @@ var versionRe = regexp.MustCompile(`^1(\.[0-9]+){0,2}$`)
 // (x402_a2a) sends (an internal note item) — and is active as the v0.2 URI: that is
 // what the kernel is told and what the response echoes. The v0.1 URI is
 // only recognised, never declared or echoed.
-func activate(requested, supported []string) []string {
+func activate(requested, supported []string, preview bool) []string {
 	var out []string
 	for _, u := range requested {
 		switch {
 		case u == module.ExtPreviewURI:
-			// The preview extension is a capability of this node's kernel,
-			// not of the remote agent: the client may activate it whatever
-			// the remote card says, because the card may be older than the
+			// The preview extension is a capability of this node, not of
+			// the remote agent: the client may activate it whatever the
+			// remote card says, because the card may be older than the
 			// agent's settings, and a provider that does not preview
-			// answers as if none was asked (CUX-P30).
+			// answers as if none was asked (CUX-P30). It is active only
+			// when this node has previews (TaskSeam.PreviewAvailable): a
+			// node without them never activates it, never echoes it and
+			// never asks a provider for one (SI-79).
+			if !preview {
+				continue
+			}
 		case slices.Contains(supported, u):
 		case x402a2a.Activated([]string{u}) && slices.Contains(supported, x402a2a.ExtensionURI):
 			u = x402a2a.ExtensionURI

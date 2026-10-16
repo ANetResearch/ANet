@@ -43,6 +43,11 @@ type (
 		moduleHost
 		sensitivePart
 	}
+	// hostPreview: the seam that sends a stream_preview frame (preview).
+	hostPreview struct {
+		moduleHost
+		previewPart
+	}
 )
 
 // sensitivePart is the SensitivePathsHost grant.
@@ -54,6 +59,7 @@ var (
 	_ module.ProxyCardSigner    = hostA2A{}
 	_ module.TransportHost      = hostTransport{}
 	_ module.SensitivePathsHost = hostSensitive{}
+	_ module.PreviewHost        = hostPreview{}
 )
 
 // newModuleHost is the Host of the module called name, with the state that
@@ -62,16 +68,18 @@ func newModuleHost(d *Daemon, name string) (module.Host, *hostState) {
 	st := &hostState{}
 	b := moduleHost{d: d, name: name, st: st}
 	has := func(g module.Grant) bool { return grantedTo(name, g) }
-	inbound, signer, transport, sensitive := has(module.GrantInboundTaskHost), has(module.GrantProxyCardSigner),
-		has(module.GrantTransportHost), has(module.GrantSensitivePaths)
+	inbound, signer, transport, sensitive, preview := has(module.GrantInboundTaskHost), has(module.GrantProxyCardSigner),
+		has(module.GrantTransportHost), has(module.GrantSensitivePaths), has(module.GrantPreviewHost)
 	switch {
-	case inbound && signer && !transport && !sensitive:
+	case inbound && signer && !transport && !sensitive && !preview:
 		return hostA2A{b, inboundTaskPart{d}, proxySignerPart{d}}, st
-	case transport && !inbound && !signer && !sensitive:
+	case transport && !inbound && !signer && !sensitive && !preview:
 		return hostTransport{b, transportPart{d}}, st
-	case sensitive && !inbound && !signer && !transport:
+	case sensitive && !inbound && !signer && !transport && !preview:
 		return hostSensitive{b, sensitivePart{d}}, st
-	case !inbound && !signer && !transport && !sensitive:
+	case preview && !inbound && !signer && !transport && !sensitive:
+		return hostPreview{b, previewPart{d}}, st
+	case !inbound && !signer && !transport && !sensitive && !preview:
 		return hostBase{b}, st
 	}
 	// A row the combinations above do not cover is a bug in this file;

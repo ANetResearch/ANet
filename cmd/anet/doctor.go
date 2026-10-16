@@ -575,7 +575,9 @@ func collectDoctor(layout daemon.Layout, env doctorEnv) (*doctorReport, error) {
 	}
 	paymentsCheck(say, st, spend)
 	capabilitiesChecks(say, st)
-	previewCheck(say, cfg)
+	if avail.Available("preview") { // no preview row without the module (MOD-5)
+		previewCheck(say, cfg)
+	}
 	paymentsCardCheck(say, add, rep, env, layout) // doctor_payments.go
 	paymentsAuditCheck(say, add, rep, env, layout)
 	haveProbation := false // hubCheck already told it from the join record

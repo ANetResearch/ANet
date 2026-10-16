@@ -677,9 +677,12 @@ func (d *Daemon) hStatus(w http.ResponseWriter, r *http.Request) {
 	// How often the hub found this node's signing time behind its floor in
 	// the last hour (doctor clock.ts_retries; HPP PAY-R11).
 	out["clock"] = map[string]any{"ts_retries": d.TSRetries()}
-	// The preview setting: the member is there when this build can preview
-	// (ux §4.7: the summary's preview line asks for nothing else).
-	out["preview"] = map[string]any{"mode": cfg.streamPreview()}
+	// The preview setting: the member is there only while previews are
+	// available (11-modularity K-4, MOD-5), and the summary's preview line
+	// asks for nothing else (ux §4.7).
+	if d.previewAvailable() {
+		out["preview"] = map[string]any{"mode": cfg.streamPreview()}
+	}
 	// What may still be paid today, for doctor's payments line.
 	out["payments"] = d.SpendStatus()
 	// The status summary, last: it reads the members above (ux UX-C6).

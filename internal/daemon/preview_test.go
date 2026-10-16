@@ -82,9 +82,16 @@ func flushPreviews(co *memPreviews, now uint64) (int, uint64) {
 }
 
 // manualPreviews gives d a coalescer on clk whose frames go only when the
-// test flushes them.
+// test flushes them. The node's stream_preview is with_reasoning, so that
+// what a round asked for is all that limits a frame; the kernel reads the
+// setting when it sends (previewSeam.SendFrame).
 func manualPreviews(d *Daemon, clk *previewClock) *memPreviews {
 	co := newMemPreviews(clk.now, d.sendPreviewFrame, d.count)
+	seam := previewSeam{d}
+	co.mode, co.published = seam.Mode, seam.Published
+	if _, err := d.SetStreamPreview(streamPreviewWR); err != nil {
+		panic(err)
+	}
 	d.setPreviewer(co)
 	return co
 }
@@ -239,13 +246,13 @@ func TestCoalescerCadence(t *testing.T) {
 	tick := func() int { n, _ := flushPreviews(co, clk.now()); return n }
 	co.Requested("ix1", "m1", previewModeOn)
 
-	if !co.Offer("ix1", "a", "", previewModeOn) || tick() != 1 {
+	if !co.offer("ix1", "a", "", previewModeOn) || tick() != 1 {
 		t.Fatal("the first change of a round did not go at once")
 	}
 	first := clk.now()
 	for i := 1; i <= 4; i++ {
 		clk.add(1000)
-		co.Offer("ix1", strings.Repeat("a", i+1), "", previewModeOn)
+		co.offer("ix1", strings.Repeat("a", i+1), "", previewModeOn)
 		if n := tick(); n != 0 {
 			t.Fatalf("a frame %d ms after the last", clk.sinceMS(first))
 		}
@@ -258,7 +265,7 @@ func TestCoalescerCadence(t *testing.T) {
 		t.Fatalf("five seconds on: %d frames, the last %+v", sent.n(), sent.out[len(sent.out)-1].previewContent)
 	}
 	// Nothing changed: nothing goes, however long.
-	co.Offer("ix1", "aaaaa", "", previewModeOn)
+	co.offer("ix1", "aaaaa", "", previewModeOn)
 	for i := 0; i < 4; i++ {
 		clk.add(5000)
 		if tick() != 0 {
@@ -266,7 +273,7 @@ func TestCoalescerCadence(t *testing.T) {
 		}
 	}
 	// After a quiet spell a change goes at once.
-	co.Offer("ix1", "aaaaab", "", previewModeOn)
+	co.offer("ix1", "aaaaab", "", previewModeOn)
 	if tick() != 1 {
 		t.Fatal("a change after a quiet spell waited")
 	}
@@ -285,7 +292,7 @@ func TestCoalescerCadence(t *testing.T) {
 	for i := 0; i < 25; i++ {
 		ix := fmt.Sprintf("node-%d", i)
 		co.Requested(ix, "m", previewModeOn)
-		co.Offer(ix, "x", "", previewModeOn)
+		co.offer(ix, "x", "", previewModeOn)
 	}
 	before := sent.n()
 	if n := tick(); n != previewNodePerSecond || counts[cntPreviewDropped] != 5 {
@@ -329,7 +336,7 @@ func TestCoalescerCadenceProperty(t *testing.T) {
 			if r.IntN(3) > 0 {
 				text += "w"
 			}
-			co.Offer("ix", text, "", previewModeOn)
+			co.offer("ix", text, "", previewModeOn)
 			lastOffer = clk.now()
 			wake()
 		}
@@ -383,18 +390,18 @@ func TestPreviewRoundsAndModes(t *testing.T) {
 	co.Requested("on", "m1", previewModeOn)
 	co.Requested("wr", "m1", previewModeWithReasoning)
 	for _, ix := range []string{"none", "future"} {
-		if _, ok := co.Wanted(ix); ok || co.Offer(ix, "t", "", previewModeOn) {
+		if _, ok := co.Wanted(ix); ok || co.offer(ix, "t", "", previewModeOn) {
 			t.Fatalf("%s: a round that asked for no preview takes an offer", ix)
 		}
 	}
-	if co.Offer("on", "t", "", "off") || co.Offer("on", "t", "", "") {
+	if co.offer("on", "t", "", "off") || co.offer("on", "t", "", "") {
 		t.Fatal("an offer under stream_preview off was taken")
 	}
-	co.Offer("on", "t", "thinking", previewModeWithReasoning)
-	co.Offer("wr", "t", "thinking", previewModeOn)
+	co.offer("on", "t", "thinking", previewModeWithReasoning)
+	co.offer("wr", "t", "thinking", previewModeOn)
 	flushPreviews(co, clk.now())
 	clk.add(previewGapMS)
-	co.Offer("wr", "t2", "thinking more", previewModeWithReasoning)
+	co.offer("wr", "t2", "thinking more", previewModeWithReasoning)
 	flushPreviews(co, clk.now())
 	if sent.n() != 3 {
 		t.Fatalf("%d frames, want 3", sent.n())
@@ -409,15 +416,15 @@ func TestPreviewRoundsAndModes(t *testing.T) {
 	// changes nothing, and the next message opens the next round.
 	co.CancelRound("on")
 	co.Requested("on", "m1", previewModeOn)
-	if co.Offer("on", "more", "", previewModeOn) {
+	if co.offer("on", "more", "", previewModeOn) {
 		t.Fatal("a copy of the round's message reopened it")
 	}
 	co.Requested("on", "m2", "")
-	if co.Offer("on", "more", "", previewModeOn) {
+	if co.offer("on", "more", "", previewModeOn) {
 		t.Fatal("a round that asked for no preview takes an offer")
 	}
 	co.Requested("on", "m3", previewModeOn)
-	if !co.Offer("on", "more", "", previewModeOn) {
+	if !co.offer("on", "more", "", previewModeOn) {
 		t.Fatal("the next round asking for previews takes no offer")
 	}
 }
@@ -444,7 +451,7 @@ func TestPreviewFramesPassValidatePreview(t *testing.T) {
 		if i%7 == 0 {
 			b.Reset()
 		}
-		co.Offer("ix", b.String(), rb.String(), previewModeWithReasoning)
+		co.offer("ix", b.String(), rb.String(), previewModeWithReasoning)
 		clk.add(previewGapMS)
 		frames, _ := co.due(clk.now())
 		for _, o := range frames {
@@ -708,8 +715,10 @@ func TestPreviewNoDBWrites(t *testing.T) {
 			if e.Kind != EventPreview {
 				continue
 			}
-			if e.preview == nil || e.preview.Text != fmt.Sprintf("draft %d", got) || e.preview.Reasoning != "thinking" {
-				t.Fatalf("event %d: %+v", got, e.preview)
+			// The event carries no text (Published): a subscriber reads the
+			// preview with Current, which is the latest frame.
+			if e.IX != id {
+				t.Fatalf("event %d: %+v", got, e)
 			}
 			got++
 		case <-time.After(5 * time.Second):
@@ -757,8 +766,9 @@ func TestPreviewNeedsPeerRK(t *testing.T) {
 	}
 	putIXKey(t, prov, k)
 	co.Requested(ix, "m-1", previewModeOn)
+	prov.previewRounds.requested(ix, "m-1", previewModeOn) // the kernel's table, as notePreviewRound writes it
 	before := counter(prov, cntPreviewNoRK)
-	if !co.Offer(ix, "so far", "", previewModeOn) {
+	if !co.offer(ix, "so far", "", previewModeOn) {
 		t.Fatal("the round takes no offer")
 	}
 	if n, _ := flushPreviews(co, clk.now()); n != 1 {
@@ -793,7 +803,7 @@ func TestPreviewEndToEnd(t *testing.T) {
 	if mode, ok := co.Wanted(id); !ok || mode != previewModeOn {
 		t.Fatalf("the provider did not record the round: %q %v", mode, ok)
 	}
-	co.Offer(id, "the first words", "and some thoughts", previewModeWithReasoning)
+	co.offer(id, "the first words", "and some thoughts", previewModeWithReasoning)
 	if n, _ := flushPreviews(co, clk.now()); n != 1 || log.count() != 1 {
 		t.Fatalf("%d frames, %d sent", n, log.count())
 	}
@@ -812,7 +822,7 @@ func TestPreviewEndToEnd(t *testing.T) {
 func TestPreviewCanceledByReply(t *testing.T) {
 	req, prov, co, clk, id, log := previewPair(t, previewModeOn)
 	ctx := context.Background()
-	co.Offer(id, "first", "", previewModeOn)
+	co.offer(id, "first", "", previewModeOn)
 	flushPreviews(co, clk.now())
 	if err := req.pollOnce(ctx); err != nil {
 		t.Fatal(err)
@@ -821,7 +831,7 @@ func TestPreviewCanceledByReply(t *testing.T) {
 		t.Fatal("the first frame is not shown")
 	}
 	clk.add(1000)
-	co.Offer(id, "first and second", "", previewModeOn) // held for the gap
+	co.offer(id, "first and second", "", previewModeOn) // held for the gap
 	sent := log.count()
 	if err := prov.SendMessage(ctx, id, "the answer", nil); err != nil {
 		t.Fatal(err)
@@ -833,7 +843,7 @@ func TestPreviewCanceledByReply(t *testing.T) {
 	if n, _ := flushPreviews(co, clk.now()); n != 0 {
 		t.Fatalf("%d frames after the answer", n)
 	}
-	if co.Offer(id, "more", "", previewModeOn) {
+	if co.offer(id, "more", "", previewModeOn) {
 		t.Fatal("the answered round takes an offer")
 	}
 	if n, _ := flushPreviews(co, clk.now()+previewGapMS); n != 0 || log.count() != sent+1 {
@@ -855,7 +865,7 @@ func TestPreviewNotRetried(t *testing.T) {
 		return fakeSendAnswer{kind: fakeSendRefuse, status: 503, code: "unavailable"}
 	}
 	rows, vers := outboxCounts(t, prov)
-	co.Offer(id, "words", "", previewModeOn)
+	co.offer(id, "words", "", previewModeOn)
 	if n, _ := flushPreviews(co, clk.now()); n != 1 || log.count() != 1 {
 		t.Fatalf("%d frames, %d sends", n, log.count())
 	}
@@ -891,7 +901,7 @@ func TestPreviewEarnsNoToken(t *testing.T) {
 	rclk := frozenClock(req)
 	before := tokens()
 	for i := 0; i < 3; i++ {
-		co.Offer(id, strings.Repeat("words ", i+1), "", previewModeOn)
+		co.offer(id, strings.Repeat("words ", i+1), "", previewModeOn)
 		flushPreviews(co, clk.now())
 		clk.add(previewGapMS)
 		rclk.add(previewRxTaskGapMS)
@@ -990,7 +1000,7 @@ func restartWithPreviews(t *testing.T, prov *Daemon, clk *previewClock) (*Daemon
 func TestPreviewRoundAfterRestartSendsNoFrames(t *testing.T) {
 	req, prov, co, clk, id, log := previewPair(t, previewModeOn)
 	ctx := context.Background()
-	co.Offer(id, "before the restart", "", previewModeOn)
+	co.offer(id, "before the restart", "", previewModeOn)
 	flushPreviews(co, clk.now())
 	if err := req.pollOnce(ctx); err != nil {
 		t.Fatal(err)
@@ -1004,7 +1014,7 @@ func TestPreviewRoundAfterRestartSendsNoFrames(t *testing.T) {
 	if _, ok := co.Wanted(id); ok {
 		t.Fatal("the restarted provider still holds the round")
 	}
-	if co.Offer(id, "after the restart", "", previewModeOn) {
+	if co.offer(id, "after the restart", "", previewModeOn) {
 		t.Fatal("the round takes an offer after the restart")
 	}
 	if n, _ := flushPreviews(co, clk.now()); n != 0 {
@@ -1036,7 +1046,7 @@ func TestPreviewNextRoundAfterRestart(t *testing.T) {
 	req, prov, co, clk, id, _ := previewPair(t, previewModeOn)
 	ctx := context.Background()
 	rclk := frozenClock(req)
-	co.Offer(id, "before the restart", "", previewModeOn)
+	co.offer(id, "before the restart", "", previewModeOn)
 	flushPreviews(co, clk.now())
 	if err := req.pollOnce(ctx); err != nil {
 		t.Fatal(err)
@@ -1059,7 +1069,7 @@ func TestPreviewNextRoundAfterRestart(t *testing.T) {
 	}
 	clk.add(1)
 	rclk.add(previewRxTaskGapMS)
-	if !co.Offer(id, "round two so far", "", previewModeOn) {
+	if !co.offer(id, "round two so far", "", previewModeOn) {
 		t.Fatal("the next round takes no offer")
 	}
 	if n, _ := flushPreviews(co, clk.now()); n != 1 {
@@ -1136,8 +1146,8 @@ func TestPreviewCacheClears(t *testing.T) {
 	clk := newPreviewClock()
 	co, _, _ := unitPreviews(clk)
 	in := func(ix string, seq uint64, epoch uint64) previewIn {
-		return previewIn{IX: ix, From: "peer", Epoch: epoch, previewFrame: previewFrame{Answers: "m", Seq: seq, At: clk.now(),
-			previewContent: previewContent{Text: "t"}}}
+		return previewIn{IX: ix, From: "peer", Epoch: epoch, PreviewSnapshot: previewFrame{Answers: "m", Seq: seq, At: clk.now(),
+			PreviewContent: previewContent{Text: "t"}}}
 	}
 	if !co.Arrived(in("a", 10, co.Epoch())) {
 		t.Fatal("a first frame refused")
@@ -1181,7 +1191,7 @@ func TestPreviewCacheClears(t *testing.T) {
 	for i := 0; i < previewCacheTasks+10; i++ {
 		clk.add(1000)
 		co.Arrived(previewIn{IX: fmt.Sprintf("t%d", i), From: fmt.Sprintf("p%d", i), Epoch: co.Epoch(),
-			previewFrame: previewFrame{Seq: 1, At: clk.now()}})
+			PreviewSnapshot: previewFrame{Seq: 1, At: clk.now()}})
 	}
 	co.mu.Lock()
 	n, l := len(co.seen), co.seenLRU.Len()
@@ -1271,7 +1281,7 @@ func FuzzPreviewTail(f *testing.F) {
 func TestPreviewClearedByAResultWithoutReply(t *testing.T) {
 	req, prov, co, clk, id, _ := previewPair(t, previewModeOn)
 	ctx := context.Background()
-	co.Offer(id, "almost there", "", previewModeOn)
+	co.offer(id, "almost there", "", previewModeOn)
 	flushPreviews(co, clk.now())
 	if err := req.pollOnce(ctx); err != nil {
 		t.Fatal(err)
@@ -1298,7 +1308,7 @@ func TestPreviewClearedByAResultWithoutReply(t *testing.T) {
 // stops it here: the store still shows the round open.
 func TestPreviewFrameMadeBeforeCancelNotSent(t *testing.T) {
 	_, _, co, clk, id, log := previewPair(t, previewModeOn)
-	co.Offer(id, "words", "", previewModeOn)
+	co.offer(id, "words", "", previewModeOn)
 	frames, _ := co.due(clk.now())
 	if len(frames) != 1 {
 		t.Fatalf("%d frames due", len(frames))
@@ -1316,7 +1326,7 @@ func TestPreviewNoFrameForEndedTask(t *testing.T) {
 	for _, name := range []string{"terminal", "result"} {
 		t.Run(name, func(t *testing.T) {
 			_, prov, co, clk, id, log := previewPair(t, previewModeOn)
-			co.Offer(id, "words", "", previewModeOn)
+			co.offer(id, "words", "", previewModeOn)
 			frames, _ := co.due(clk.now())
 			if len(frames) != 1 {
 				t.Fatalf("%d frames due", len(frames))

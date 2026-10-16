@@ -259,12 +259,12 @@ func TestWithoutIsValidated(t *testing.T) {
 	}
 }
 
-// TestWithoutNamesOnlyReadyModules: the three modules whose absent path has
-// not landed are refused in `without`, and every other name is accepted.
-// MOD-3, MOD-5 and MOD-8 each flip their module in the same commit that
-// lands the path, and change the list here.
+// TestWithoutNamesOnlyReadyModules: the modules whose absent path has not
+// landed are refused in `without`, and every other name is accepted. MOD-3
+// and MOD-8 each flip their module in the same commit that lands the path,
+// and change the list here (MOD-5 flipped preview).
 func TestWithoutNamesOnlyReadyModules(t *testing.T) {
-	notReady := []string{"autoreply", "console", "preview"}
+	notReady := []string{"autoreply", "console"}
 	for _, info := range module.Known() {
 		_, err := module.NewAvailability([]string{info.Name})
 		if want := slices.Contains(notReady, info.Name); (err != nil) != want {

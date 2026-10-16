@@ -75,7 +75,7 @@ func (d *Daemon) queueSendAs(ctx context.Context, s wireSend, write func(tx *int
 		// The round's real answer or result: no preview frame of the
 		// round goes after it (ENG-K20, CUX-P8). Canceled before the row
 		// exists, so none can be handed over while it is queued.
-		d.previews().CancelRound(s.ix)
+		d.cancelPreviewRound(s.ix)
 	}
 	var id int64
 	var fresh bool

@@ -32,13 +32,13 @@ const maxPreviewPostText = 1 << 20
 // requester's message that opened the round asked for it and has not been
 // answered. mode is what the round asked for.
 func (d *Daemon) previewWanted(ix string) (mode string, ok bool) {
-	if d.config().streamPreview() == streamPreviewOff {
+	if !d.previewAvailable() || d.config().streamPreview() == streamPreviewOff {
 		return "", false
 	}
 	if _, open := d.openPreviewTask(ix); !open {
 		return "", false
 	}
-	return d.previews().Wanted(ix)
+	return d.previewRounds.wanted(ix)
 }
 
 // previewOffer gives the coalescer what the provider has written so far in
@@ -47,11 +47,13 @@ func (d *Daemon) previewWanted(ix string) (mode string, ok bool) {
 // node or the round is not one that asked for them (CUX-P4). The coalescer
 // decides when a frame goes.
 func (d *Daemon) previewOffer(ix, text, reasoning string) bool {
-	node := d.config().streamPreview()
-	if node == streamPreviewOff {
+	if !d.previewAvailable() || d.config().streamPreview() == streamPreviewOff {
 		return false
 	}
-	return d.previews().Offer(ix, text, reasoning, node)
+	if _, ok := d.previewRounds.wanted(ix); !ok {
+		return false
+	}
+	return d.previews().Offer(ix, text, reasoning).Taken
 }
 
 // openPreviewTask is the task ix as a preview may be made for it: an

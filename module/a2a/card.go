@@ -82,6 +82,10 @@ func originKeyState(ra module.RemoteAgent) string {
 // cardBuilder builds proxy cards for one listener.
 type cardBuilder struct {
 	host, port string
+	// preview is whether this node has previews (TaskSeam.PreviewAvailable):
+	// the proxy card declares the preview extension only for a remote
+	// agent that declares it and only when it is true.
+	preview bool
 }
 
 // build makes the proxy card for a remote agent, and lists the extension
@@ -192,7 +196,7 @@ func (b cardBuilder) buildFrom(ra module.RemoteAgent, ext []byte) (map[string]an
 				preview = true
 			}
 		}
-		if preview {
+		if preview && b.preview {
 			// The verified remote card says the agent sends previews
 			// (CUX-P30): the same declaration, not required. A card that is
 			// not verified, or does not say so, leaves it out; a client may

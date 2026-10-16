@@ -149,7 +149,7 @@ func (d *Daemon) hTasksEvents(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 			case ev.Kind == EventPreview:
-				if ev.preview != nil && !emit("preview", previewEventData(*ev.preview)) {
+				if f, ok := d.previews().Current(snap.ID); ok && !emit("preview", previewEventData(f)) {
 					return
 				}
 				continue

@@ -59,6 +59,7 @@ import (
 	"errors"
 	"fmt"
 	"mime"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -87,6 +88,11 @@ func (s *DaemonTaskSeam) Send(ctx context.Context, peerAID string, req module.Ta
 	}
 	return s.d.sendTask(ctx, sc, peerAID, req, 0)
 }
+
+// PreviewAvailable implements module.TaskSeam (K-10): the local A2A
+// interface activates and declares the preview extension only when this
+// node has previews.
+func (s *DaemonTaskSeam) PreviewAvailable() bool { return s.d.previewAvailable() }
 
 // SendGate is nil when this node may send now, otherwise the refusal Send
 // would give (*a2ashape.Refusal; LEC AD-6): the local A2A interface answers
@@ -289,6 +295,16 @@ func lockSend(scope, contextID, messageID string) func() {
 // client's request context ends the wait.
 const taskWaitMax = 60 * time.Second
 
+// withoutPreview is req with the request for previews taken out: the
+// anet.preview_mode it would set, and the extension in the activated list.
+func withoutPreview(req module.TaskSend) module.TaskSend {
+	req.Preview = ""
+	if slices.Contains(req.Extensions, module.ExtPreviewURI) {
+		req.Extensions = slices.DeleteFunc(slices.Clone(req.Extensions), func(u string) bool { return u == module.ExtPreviewURI })
+	}
+	return req
+}
+
 // sendTask is SendMessage. to names the remote agent of a new task (for a
 // scoped caller it is the scope's peer). wait bounds a blocking call; ≤ 0
 // waits until ctx ends. When the bound elapses the task is returned as it
@@ -296,6 +312,12 @@ const taskWaitMax = 60 * time.Second
 func (d *Daemon) sendTask(ctx context.Context, sc taskScope, to string, req module.TaskSend, wait time.Duration) (a2ashape.Task, error) {
 	if err := checkHistoryLen(req.HistoryLength); err != nil {
 		return a2ashape.Task{}, err
+	}
+	if !d.previewAvailable() {
+		// No preview module: a message never asks for one, and the
+		// extension is not echoed in the stored service parameters
+		// (11-modularity §5.4, MOD-F4).
+		req = withoutPreview(req)
 	}
 	msg := req.Message
 	if msg.TaskID != "" {
@@ -1131,7 +1153,7 @@ func (d *Daemon) pumpTaskEvents(ctx context.Context, snap *interactions.Interact
 					return
 				}
 			} else if ev.Kind == EventPreview {
-				if opts.Preview && ev.preview != nil && !sendPreview(*ev.preview) {
+				if f, ok := d.previews().Current(snap.ID); opts.Preview && ok && !sendPreview(f) {
 					return
 				}
 				continue

@@ -330,6 +330,9 @@ func (f *fakeSeam) Watch(ctx context.Context, peer, id string, opts module.Watch
 	return copyTask(ft.t), ch, nil
 }
 
+// PreviewAvailable: the fake node has previews.
+func (f *fakeSeam) PreviewAvailable() bool { return true }
+
 func (f *fakeSeam) Agents(context.Context, module.AgentQuery) ([]module.RemoteAgent, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

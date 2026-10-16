@@ -293,7 +293,7 @@ func TestWatchPreviewIsForOptedInWatchersOnly(t *testing.T) {
 
 // A frame that omitted its head starts with an ellipsis.
 func TestPreviewUpdateOmittedHead(t *testing.T) {
-	u := previewUpdate(&interactions.Interaction{ID: "ix"}, "c", previewFrame{previewContent: previewContent{Text: "tail", Omitted: 9}})
+	u := previewUpdate(&interactions.Interaction{ID: "ix"}, "c", previewFrame{PreviewContent: previewContent{Text: "tail", Omitted: 9}})
 	if u.Artifact.Parts[0].Text != "…tail" {
 		t.Fatalf("%q", u.Artifact.Parts[0].Text)
 	}

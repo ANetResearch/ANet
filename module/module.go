@@ -269,6 +269,11 @@ type TaskSeam interface {
 	// when the watcher falls too far behind (it may Watch again). Only a
 	// watcher that opts in receives preview events (CUX-A3).
 	Watch(ctx context.Context, peerAID, taskID string, opts WatchOpts) (Task, <-chan TaskEvent, error)
+	// PreviewAvailable reports whether this node can preview (K-10): the
+	// preview module is available. The local A2A interface activates the
+	// preview extension, and so declares it on a proxy card, only when this
+	// is true (CUX-P30, SI-79).
+	PreviewAvailable() bool
 	// Agents lists the remote agents a client may address.
 	Agents(ctx context.Context, q AgentQuery) ([]RemoteAgent, error)
 	// Card is one remote agent, with its verified network card if it has
