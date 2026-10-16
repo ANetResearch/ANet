@@ -3,7 +3,6 @@
 # This file is distributed under the same license as the ANet package.
 # FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
 #
-#, fuzzy
 msgid ""
 msgstr ""
 "Project-Id-Version: ANet 0.3\n"
@@ -21,7 +20,7 @@ msgstr ""
 
 #: ../../topics/identity.rst:5
 msgid "Identity and KEL"
-msgstr ""
+msgstr "身份与 KEL"
 
 #: ../../topics/identity.rst:7
 msgid ""
@@ -32,24 +31,29 @@ msgid ""
 "identity`` and ``anet hub-register``) and the states an identity can be "
 "in."
 msgstr ""
+"每个 ANet 节点都以一个身份运行。本页说明该身份是什么、如何创建并绑定到 "
+"Hub、其密钥如何随时间更换，以及哪些操作依赖恢复口令。内容涵盖作用于身份的命令（``anet identity`` 与 ``anet hub-"
+"register``）以及身份可能处于的状态。"
 
 #: ../../topics/identity.rst:15
 msgid "On this page"
-msgstr ""
+msgstr "本页内容"
 
 #: ../../topics/identity.rst:20
 msgid "What an identity is"
-msgstr ""
+msgstr "身份是什么"
 
 #: ../../topics/identity.rst:22
 msgid ""
 "An identity consists of an *Agent identifier* (AID), a *key event log* "
 "(KEL) and the private keys that the log currently names."
 msgstr ""
+"身份由\\ *身份标识*\\ （Agent identifier，AID）、\\ *密钥事件日志*\\ （key event "
+"log，KEL）以及该日志当前指明的私钥组成。"
 
 #: ../../topics/identity.rst:25
 msgid "AID"
-msgstr ""
+msgstr "AID"
 
 #: ../../topics/identity.rst:26
 msgid ""
@@ -59,42 +63,44 @@ msgid ""
 "from the first event, it can be checked against the log without asking "
 "any third party, and it does not change when keys change."
 msgstr ""
+"其他节点称呼该 Agent 所用的名称。AID 是 KEL 第一个事件的内容标识（CID），为 59 个字符的字符串，以 ``b`` "
+"开头，采用小写 base32。AID 由第一个事件导出，因此无需询问任何第三方即可对照日志核验，且密钥变更时它不会改变。"
 
 #: ../../topics/identity.rst:32
 msgid "KEL"
-msgstr ""
+msgstr "KEL"
 
 #: ../../topics/identity.rst:33
 msgid ""
 "The ordered list of key events that belong to an AID. Three event types "
 "exist:"
-msgstr ""
+msgstr "属于某个 AID 的有序密钥事件列表。事件类型有三种："
 
 #: ../../topics/identity.rst:36
 msgid "``icp`` (inception)"
-msgstr ""
+msgstr "``icp``\\ （inception，起始）"
 
 #: ../../topics/identity.rst:37
 msgid "Creates the identity and names the first signing key."
-msgstr ""
+msgstr "创建身份并指明第一个签名密钥。"
 
 #: ../../topics/identity.rst:39
 msgid "``rot`` (rotation)"
-msgstr ""
+msgstr "``rot``\\ （rotation，轮换）"
 
 #: ../../topics/identity.rst:40
 msgid ""
 "Replaces the signing key. The event is signed by the key that the "
 "preceding event committed to in advance, not by the key it replaces."
-msgstr ""
+msgstr "更换签名密钥。该事件由前一个事件预先承诺的密钥签名，而不是由被替换的密钥签名。"
 
 #: ../../topics/identity.rst:43
 msgid "``dip`` (deactivation)"
-msgstr ""
+msgstr "``dip``\\ （deactivation，停用）"
 
 #: ../../topics/identity.rst:44
 msgid "Ends the identity permanently. No further event is accepted."
-msgstr ""
+msgstr "永久终止身份，此后不再接受任何事件。"
 
 #: ../../topics/identity.rst:46
 msgid ""
@@ -103,10 +109,12 @@ msgid ""
 "signatures, commitments, timestamps and the canonical encoding must all "
 "be valid. A log holds at most 256 events and 64 KiB."
 msgstr ""
+"每个事件都带有时间戳，且大于前一事件的时间戳。日志只有在无误重放时才被接受：事件类型、签名、承诺、时间戳和规范编码都必须有效。一份日志最多包含 "
+"256 个事件和 64 KiB。"
 
 #: ../../topics/identity.rst:51
 msgid "Private keys"
-msgstr ""
+msgstr "私钥"
 
 #: ../../topics/identity.rst:52
 msgid ""
@@ -116,21 +124,23 @@ msgid ""
 "not kept there; it is derived from the recovery seed (see :ref:`topics-"
 "identity-recovery`)."
 msgstr ""
+"最新事件所指明的签名密钥，以及 :ref:`topics-messaging` 中所述的加密密钥。签名密钥保存在节点的数据目录中。*下一次*\\ "
+"轮换将要公开的密钥不保存在该处，而是由恢复种子导出（参见 :ref:`topics-identity-recovery`）。"
 
 #: ../../topics/identity.rst:58
 msgid "The example AID used throughout the documentation is a placeholder:"
-msgstr ""
+msgstr "本文档通篇使用的示例 AID 为占位值："
 
 #: ../../topics/identity.rst:64
 msgid ""
 "Commands that print an AID in a table shorten it, for example "
 "``…7hq2abcd``. Commands that take an AID as an argument require the full "
 "string."
-msgstr ""
+msgstr "在表格中输出 AID 的命令会将其缩短，例如 ``…7hq2abcd``\\ 。以 AID 为参数的命令则要求完整的字符串。"
 
 #: ../../topics/identity.rst:69
 msgid "Where the identity is stored"
-msgstr ""
+msgstr "身份的存放位置"
 
 #: ../../topics/identity.rst:71
 msgid ""
@@ -143,6 +153,10 @@ msgid ""
 "and reports ``identity_v02``. Identities are not migrated and must be "
 "created again."
 msgstr ""
+"默认节点的身份存放在 ``~/.anet`` 中。环境变量 ``ANET_DATA_DIR`` 可选择其他目录。同一台机器上的其他身份通过 "
+"``anet id new <name>`` 创建，存放在 ``~/.anet/ids/<name>`` 中。KEL 是数据目录中的 "
+"``identity.kel`` 文件。由 ANet 0.2 写入的数据目录不会被 0.3.0 读取；守护进程拒绝以其启动并报告 "
+"``identity_v02``\\ 。身份不做迁移，须重新创建。"
 
 #: ../../topics/identity.rst:85
 msgid ""
@@ -150,10 +164,12 @@ msgid ""
 "machine. Other nodes cannot verify it, and the node cannot send or "
 "receive until it has joined a hub (see :ref:`topics-identity-witness`)."
 msgstr ""
+"尚未加入 Hub 的节点，其身份仅存在于该机器上。其他节点无法验证它，节点在加入 Hub 之前也无法收发消息（参见 :ref:`topics-"
+"identity-witness`）。"
 
 #: ../../topics/identity.rst:92
 msgid "Witness and key confirmation"
-msgstr ""
+msgstr "见证与密钥确认"
 
 #: ../../topics/identity.rst:94
 msgid ""
@@ -162,6 +178,8 @@ msgid ""
 "the log that was current when it was in use. ANet addresses this with a "
 "*witness*."
 msgstr ""
+"仅凭 KEL 本身，收件方无法判断其最新事件是否仍是最新的。已被轮换掉的密钥，对照该密钥使用期间有效的那一段日志，仍能通过验证。ANet 通过\\"
+" *见证*\\ （witness）解决这一问题。"
 
 #: ../../topics/identity.rst:99
 msgid ""
@@ -172,16 +190,19 @@ msgid ""
 " a *key state notice*, abbreviated KSN, and appears in user-facing text "
 "as *key confirmation*."
 msgstr ""
+"Agent 注册所在的 Hub 成为其 KEL 的见证。这一点记录在日志本身中：第一个 ``rot`` 事件将该 Hub 的 AID "
+"指明为见证。见证 Hub 随后签发一份短期有效的签名声明，指明日志中的最新事件。该声明称为\\ *密钥状态通知*\\ （key state "
+"notice，缩写 KSN），在面向用户的文字中称为\\ *密钥确认*。"
 
 #: ../../topics/identity.rst:106
 msgid "A KSN has these properties:"
-msgstr ""
+msgstr "KSN 具有以下性质："
 
 #: ../../topics/identity.rst:108
 msgid ""
 "It states the AID, the sequence number and the identifier of the newest "
 "event, the witness hub and the time at which the hub observed this state."
-msgstr ""
+msgstr "它声明 AID、最新事件的序号和标识、见证 Hub，以及 Hub 观察到该状态的时间。"
 
 #: ../../topics/identity.rst:110
 msgid ""
@@ -190,18 +211,20 @@ msgid ""
 "message only if the KSN matches the newest event of the KEL in the "
 "envelope and was observed no more than six hours earlier."
 msgstr ""
+"发送方将其当前 KSN 连同 KEL 放入每个密封信封内，只有收件方可以读取。只有当 KSN 与信封中 KEL "
+"的最新事件一致，并且观察时间距今不超过六小时，收件方才接受该消息。"
 
 #: ../../topics/identity.rst:114
 msgid ""
 "The notice is public information. It is refreshed regularly and is also "
 "available from the hub's registry."
-msgstr ""
+msgstr "该通知是公开信息，定期刷新，也可从 Hub 的注册表获取。"
 
 #: ../../topics/identity.rst:116
 msgid ""
 "The one exception is a preview frame, which carries no notice (see :ref"
 ":`topics-preview`)."
-msgstr ""
+msgstr "唯一的例外是预览帧，它不携带通知（参见 :ref:`topics-preview`）。"
 
 #: ../../topics/identity.rst:119
 msgid ""
@@ -212,6 +235,8 @@ msgid ""
 "hour. After an emergency rotation or a deactivation, it refuses the old "
 "key at once. :ref:`topics-identity-limits` lists these bounds."
 msgstr ""
+"对于已轮换掉的密钥的持有者，其后果是有界的。在通知可接受的时效内，该持有者仍可向尚未得知轮换的节点发送消息。计划轮换之后，已知新密钥历史的节点再接受旧密钥一小时。紧急轮换或停用之后，该节点立即拒绝旧密钥。这些界限列于"
+" :ref:`topics-identity-limits`\\ 。"
 
 #: ../../topics/identity.rst:126
 msgid ""
@@ -221,6 +246,8 @@ msgid ""
 "50 minutes the node stops handing out messages and queues them until a "
 "new notice arrives."
 msgstr ""
+"节点无需运营人员操作即可保持自身通知的有效。通知的时效决定 :ref:`topics-identity-states` "
+"所述的身份状态。到三小时时，状态会附带警告；到 5 小时 50 分钟时，节点停止发出消息，并将其排队，直至新通知到达。"
 
 #: ../../topics/identity.rst:132
 msgid ""
@@ -229,10 +256,12 @@ msgid ""
 "with a different hub performs (see :ref:`topics-identity-switch`). A KEL "
 "names exactly one witness. Multiple witnesses are not supported in 0.3.0."
 msgstr ""
+"见证在注册时选定，并固定在身份中。它只能通过密钥轮换更改，即以另一个 Hub 执行 ``anet hub-register`` 所完成的操作（参见"
+" :ref:`topics-identity-switch`）。一份 KEL 恰好指明一个见证，0.3.0 不支持多个见证。"
 
 #: ../../topics/identity.rst:140
 msgid "Recovery seed and passphrase"
-msgstr ""
+msgstr "恢复种子与口令"
 
 #: ../../topics/identity.rst:142
 msgid ""
@@ -241,34 +270,36 @@ msgid ""
 " a 32-byte *recovery seed* and stores the seed encrypted, outside the "
 "data directory, under a *recovery passphrase*."
 msgstr ""
+"下一次轮换的签名密钥不得被读取数据目录的人获得。因此，ANet 由一个 32 字节的\\ *恢复种子*\\ "
+"导出此后的每一个密钥，并将种子加密后存放在数据目录之外，由\\ *恢复口令*\\ 保护。"
 
 #: ../../topics/identity.rst:148
 msgid "Creation"
-msgstr ""
+msgstr "创建"
 
 #: ../../topics/identity.rst:150
 msgid ""
 "The recovery seed is created the first time a node joins a hub. In a "
 "terminal, ``anet hub-register`` asks for the passphrase at this point:"
-msgstr ""
+msgstr "恢复种子在节点首次加入 Hub 时创建。在终端中，``anet hub-register`` 此时会询问口令："
 
 #: ../../topics/identity.rst:163
 msgid "The following rules apply to the passphrase and the file:"
-msgstr ""
+msgstr "口令与文件适用以下规则："
 
 #: ../../topics/identity.rst:165
 msgid ""
 "The passphrase must be valid UTF-8 and contain at least 12 characters "
 "after Unicode normalization (NFC). The prompt is repeated if the two "
 "entries differ."
-msgstr ""
+msgstr "口令必须是有效的 UTF-8，且经 Unicode 规范化（NFC）后至少包含 12 个字符。两次输入不一致时，提示会重复出现。"
 
 #: ../../topics/identity.rst:168
 msgid ""
 "The passphrase is read only from the controlling terminal. It is never "
 "accepted as a command-line argument or from an environment variable, and "
 "the daemon never reads it."
-msgstr ""
+msgstr "口令只从控制终端读取。它从不接受命令行参数或环境变量传入，守护进程也从不读取它。"
 
 #: ../../topics/identity.rst:171
 msgid ""
@@ -278,13 +309,16 @@ msgid ""
 "directory with mode 0700. ``--recovery-file F`` selects another path when"
 " the file is first created."
 msgstr ""
+"种子使用 XChaCha20-Poly1305 加密，密钥由口令经 Argon2id 导出。文件以 0600 权限写入 ``~/.anet-"
+"recovery/<last 12 characters of the AID>.anetrec``，所在目录权限为 0700。首次创建文件时"
+"，``--recovery-file F`` 可选择其他路径。"
 
 #: ../../topics/identity.rst:176
 msgid ""
 "The file on its own is of no use to anyone. Together with the passphrase "
 "it can rotate, recover or deactivate the identity. A copy should be kept "
 "on a different machine or medium."
-msgstr ""
+msgstr "该文件单独对任何人都没有用处；与口令一起，则可以轮换、恢复或停用该身份。应在另一台机器或另一种介质上保存一份副本。"
 
 #: ../../topics/identity.rst:180
 msgid ""
@@ -296,10 +330,13 @@ msgid ""
 "reviews and any listing as an official agent are tied to the old AID and "
 "do not carry over."
 msgstr ""
+"只有四类操作需要口令：轮换、更换 "
+"Hub、在另一台机器上恢复，以及停用。没有口令，这些操作都无法执行，但身份仍可正常收发。口令丢失后，唯一的办法是创建新身份（``anet id "
+"new``）并通知联系人。allow 名单、评价以及作为官方 Agent 的任何列示都绑定在旧 AID 上，不会延续。"
 
 #: ../../topics/identity.rst:191
 msgid "Joining without a terminal"
-msgstr ""
+msgstr "无终端加入"
 
 #: ../../topics/identity.rst:193
 msgid ""
@@ -310,6 +347,9 @@ msgid ""
 "directory, in the files ``recovery_local.key`` and "
 "``recovery_local.anetrec``. The identity is then *unprotected*:"
 msgstr ""
+"没有终端运行的 Agent，例如由编码工具启动的 Agent，同样可以加入 Hub。此时 ``anet hub-register`` "
+"不询问口令即完成加入。种子使用在本机生成并存放在数据目录中的密钥加密，保存在 ``recovery_local.key`` 和 "
+"``recovery_local.anetrec`` 两个文件中。此时的身份为\\ *未保护*\\ 状态："
 
 #: ../../topics/identity.rst:209
 msgid ""
@@ -318,6 +358,8 @@ msgid ""
 "and in the metadata of every task on the local A2A interface, until the "
 "passphrase has been set. There is no setting that suppresses it."
 msgstr ""
+"未保护的身份可以正常收发。在口令设置之前，``anet status``\\ 、\\ ``anet doctor``\\ 、MCP 工具 "
+"``node_status`` 以及本地 A2A 接口上每个任务的元数据都会显示提醒，且没有可以关闭该提醒的设置。"
 
 #: ../../topics/identity.rst:214
 msgid ""
@@ -328,10 +370,12 @@ msgid ""
 "same as in ANet 0.2. It ends when the passphrase is set; see :ref"
 ":`topics-identity-protect`."
 msgstr ""
+"在设置口令之前，种子及解密种子的密钥都在数据目录中。任何获得该目录副本的人，包括以同一操作系统用户运行的程序，都可以抢先轮换该身份并永久接管。这一风险与"
+" ANet 0.2 相同，设置口令后即告消除；参见 :ref:`topics-identity-protect`\\ 。"
 
 #: ../../topics/identity.rst:222
 msgid "Commands"
-msgstr ""
+msgstr "命令"
 
 #: ../../topics/identity.rst:224
 msgid ""
@@ -343,92 +387,96 @@ msgid ""
 "offer no operation that changes an identity; they report the same status "
 "and the same sentences."
 msgstr ""
+"``anet identity`` 与 ``anet id`` 是同一组命令。更改身份的子命令（``protect``\\ 、\\ "
+"``rotate``\\ 、\\ ``recover``\\ 、\\ ``deactivate``）从终端读取口令，没有终端时报告 "
+"``tty_required``，此时不向守护进程发送任何请求。MCP 接口和本地 A2A "
+"接口不提供更改身份的操作，它们报告相同的状态和相同的说明语句。"
 
 #: ../../topics/identity.rst:236
 msgid "Command"
-msgstr ""
+msgstr "命令"
 
 #: ../../topics/identity.rst:237
 msgid "Purpose"
-msgstr ""
+msgstr "用途"
 
 #: ../../topics/identity.rst:238
 msgid "``anet id ls``, ``new <name>``, ``use <name>``"
-msgstr ""
+msgstr "``anet id ls``\\ 、\\ ``new <name>``\\ 、\\ ``use <name>``"
 
 #: ../../topics/identity.rst:239
 msgid "List, create and select identities on this machine."
-msgstr ""
+msgstr "列出、创建和选择本机上的身份。"
 
 #: ../../topics/identity.rst:240
 msgid "``anet id rm <name> --purge``"
-msgstr ""
+msgstr "``anet id rm <name> --purge``"
 
 #: ../../topics/identity.rst:241
 msgid ""
 "Delete the data of an identity on this machine. This does not deactivate "
 "the identity."
-msgstr ""
+msgstr "删除本机上某个身份的数据。这不会停用该身份。"
 
 #: ../../topics/identity.rst:243
 msgid "``anet identity status [--json]``"
-msgstr ""
+msgstr "``anet identity status [--json]``"
 
 #: ../../topics/identity.rst:244
 msgid "Show the key, the witness and the recovery file."
-msgstr ""
+msgstr "显示密钥、见证和恢复文件。"
 
 #: ../../topics/identity.rst:245
 msgid "``anet identity protect``"
-msgstr ""
+msgstr "``anet identity protect``"
 
 #: ../../topics/identity.rst:246
 msgid "Set the recovery passphrase of an unprotected identity."
-msgstr ""
+msgstr "为未保护的身份设置恢复口令。"
 
 #: ../../topics/identity.rst:247
 msgid "``anet identity rotate [--new-recovery]``"
-msgstr ""
+msgstr "``anet identity rotate [--new-recovery]``"
 
 #: ../../topics/identity.rst:248
 msgid "Replace the signing key (planned rotation)."
-msgstr ""
+msgstr "更换签名密钥（计划轮换）。"
 
 #: ../../topics/identity.rst:249
 msgid "``anet identity rotate --emergency``"
-msgstr ""
+msgstr "``anet identity rotate --emergency``"
 
 #: ../../topics/identity.rst:250
 msgid "Replace the signing key after a possible leak."
-msgstr ""
+msgstr "在可能发生泄露后更换签名密钥。"
 
 #: ../../topics/identity.rst:251
 msgid "``anet hub-register <url>``"
-msgstr ""
+msgstr "``anet hub-register <url>``"
 
 #: ../../topics/identity.rst:252
 msgid "Join a hub; with a different hub than the current witness, switch hubs."
-msgstr ""
+msgstr "加入 Hub；若 Hub 不同于当前见证，则为更换 Hub。"
 
 #: ../../topics/identity.rst:254
 msgid "``anet identity recover <file> [--hub URL] [--name N]``"
-msgstr ""
+msgstr "``anet identity recover <file> [--hub URL] [--name N]``"
 
 #: ../../topics/identity.rst:255
 msgid "Restore an identity on another machine."
-msgstr ""
+msgstr "在另一台机器上恢复身份。"
 
 #: ../../topics/identity.rst:256
 msgid "``anet identity deactivate``"
-msgstr ""
+msgstr "``anet identity deactivate``"
 
 #: ../../topics/identity.rst:257
 msgid "End the identity permanently."
-msgstr ""
+msgstr "永久终止身份。"
 
 #: ../../topics/identity.rst:262
 msgid "Status"
-msgstr ""
+msgstr "状态"
 
 #: ../../topics/identity.rst:264
 msgid ""
@@ -438,6 +486,10 @@ msgid ""
 "and related members) together with a ``recovery_file`` member that is "
 "computed by the command."
 msgstr ""
+"``anet identity status`` 读取守护进程；守护进程未运行时读取数据目录。加上 ``--json`` "
+"时，它输出守护进程的应答（``key_seq``\\ 、\\ ``state``\\ 、\\ ``witness``\\ 、\\ "
+"``last_rotation``\\ 、\\ ``recovery`` 及相关成员），以及由命令自行计算的 ``recovery_file`` "
+"成员。"
 
 #: ../../topics/identity.rst:281
 msgid ""
@@ -445,17 +497,19 @@ msgid ""
 "passphrase, kept with the data directory)`` and the reminder is printed "
 "below the state line."
 msgstr ""
+"对于未保护的身份，恢复文件一行显示为 ``(no passphrase, kept with the data "
+"directory)``，提醒则输出在状态行下方。"
 
 #: ../../topics/identity.rst:288
 msgid "Setting the passphrase of an unprotected identity"
-msgstr ""
+msgstr "为未保护的身份设置口令"
 
 #: ../../topics/identity.rst:290
 msgid ""
 "``anet identity protect`` runs in a terminal. It asks for a new "
 "passphrase twice, writes a passphrase-encrypted recovery file, and then "
 "performs two planned rotations:"
-msgstr ""
+msgstr "``anet identity protect`` 在终端中运行。它两次询问新口令，写入由口令加密的恢复文件，然后执行两次计划轮换："
 
 #: ../../topics/identity.rst:305
 msgid ""
@@ -467,7 +521,7 @@ msgid ""
 "rotation remains valid for the one-hour grace period of a planned "
 "rotation, and for up to six hours at nodes that have not yet learned of "
 "the rotation."
-msgstr ""
+msgstr "需要两次轮换，是因为第一次轮换公开的密钥由旧种子导出，而数据目录的副本同样包含旧种子。只有第二次轮换公开的密钥才由新种子导出。此后，无论是当前密钥还是下一个密钥，都无法从更早的副本所含的任何内容算出。第一次轮换的密钥在计划轮换的一小时宽限期内仍然有效，在尚未得知轮换的节点处最长可有效六小时。"
 
 #: ../../topics/identity.rst:313
 msgid ""
@@ -478,6 +532,9 @@ msgid ""
 "passphrase was set before the hub had admitted the identity, no rotation "
 "takes place; the new seed is used when the join completes."
 msgstr ""
+"若命令在第一次轮换之后被中断，身份仍为未保护状态，提醒变为 ``Setting the recovery passphrase is one "
+"step short``\\ 。再次运行命令会询问已设置的口令并完成第二次轮换。如果口令是在 Hub "
+"准入该身份之前设置的，则不发生轮换；新种子在加入完成时使用。"
 
 #: ../../topics/identity.rst:320
 msgid ""
@@ -486,17 +543,19 @@ msgid ""
 "``anet identity rotate --emergency`` instead; it also sets the "
 "passphrase."
 msgstr ""
+"protect 不会更换加密密钥或信箱密钥。如果数据目录可能在口令设置之前已被复制，应改用 ``anet identity rotate "
+"--emergency``，它同时会设置口令。"
 
 #: ../../topics/identity.rst:325
 msgid "Planned rotation"
-msgstr ""
+msgstr "计划轮换"
 
 #: ../../topics/identity.rst:327
 msgid ""
 "A planned rotation replaces the signing key without any other change. "
 "Open tasks continue. Other nodes update when they receive the next "
 "message."
-msgstr ""
+msgstr "计划轮换只更换签名密钥，不作其他更改。进行中的任务继续执行，其他节点在收到下一条消息时更新。"
 
 #: ../../topics/identity.rst:339
 msgid ""
@@ -506,6 +565,8 @@ msgid ""
 " the hub to accept the event. The planned rotation requires the witness "
 "to be reachable and reports ``witness_unreachable`` otherwise."
 msgstr ""
+"命令解密恢复文件，检查导出的密钥与日志中记录的承诺一致，然后请守护进程在见证 Hub 发布 ``rot`` 事件，并最多等待 60 秒让 Hub "
+"接受该事件。计划轮换要求见证可达，否则报告 ``witness_unreachable``\\ 。"
 
 #: ../../topics/identity.rst:345
 msgid ""
@@ -517,10 +578,13 @@ msgid ""
 "the hub has accepted the event; a command that finds an unfinished "
 "temporary file completes or removes it."
 msgstr ""
+"``--new-recovery`` "
+"另外更换恢复种子和口令。口令可能已被他人知晓时使用。命令会轮换两次密钥，使旧种子无法再导出当前密钥或下一个密钥。新的恢复文件先以临时名称写入，待 "
+"Hub 接受该事件后才替换旧文件；发现未完成临时文件的命令会将其完成或删除。"
 
 #: ../../topics/identity.rst:354
 msgid "Grace period"
-msgstr ""
+msgstr "宽限期"
 
 #: ../../topics/identity.rst:356
 msgid ""
@@ -530,20 +594,22 @@ msgid ""
 " are accepted whenever the recipient processes them. The encryption keys "
 "and mailbox signing key are not replaced."
 msgstr ""
+"计划轮换之后，旧密钥在收件方处仍可接受一小时，自收件方的 Hub "
+"接受该消息的时间起算。在轮换之前已到达信箱的消息，无论收件方何时处理都被接受。加密密钥和信箱签名密钥不被更换。"
 
 #: ../../topics/identity.rst:363
 msgid "Emergency rotation"
-msgstr ""
+msgstr "紧急轮换"
 
 #: ../../topics/identity.rst:365
 msgid ""
 "An emergency rotation is for the case that a private key or the whole "
 "data directory may have been disclosed."
-msgstr ""
+msgstr "紧急轮换适用于私钥或整个数据目录可能已被泄露的情形。"
 
 #: ../../topics/identity.rst:386
 msgid "An emergency rotation differs from a planned one as follows:"
-msgstr ""
+msgstr "紧急轮换与计划轮换的区别如下："
 
 #: ../../topics/identity.rst:388
 msgid ""
@@ -551,14 +617,14 @@ msgid ""
 "refuses the old key immediately, regardless of when the message reached "
 "its hub. Other nodes refuse it at the latest after the notice age limit "
 "of six hours."
-msgstr ""
+msgstr "宽限期为零。已经看到新密钥历史的节点立即拒绝旧密钥，与消息何时到达其 Hub 无关。其他节点最迟在六小时的通知时效上限后拒绝。"
 
 #: ../../topics/identity.rst:392
 msgid ""
 "All encryption keys and the mailbox signing key are replaced, and every "
 "delivery credential the node has issued becomes invalid (see :ref"
 ":`topics-messaging`)."
-msgstr ""
+msgstr "所有加密密钥和信箱签名密钥均被更换，节点已签发的每一份投递凭据随之失效（参见 :ref:`topics-messaging`）。"
 
 #: ../../topics/identity.rst:395
 msgid ""
@@ -566,19 +632,21 @@ msgid ""
 "other side sees the reason ``key_compromise`` with the note that its peer"
 " rotated keys in an emergency."
 msgstr ""
+"所有进行中的任务以原因 ``key_compromise`` 结束。对方看到原因 "
+"``key_compromise``，并附有说明其对端已进行紧急轮换。"
 
 #: ../../topics/identity.rst:398
 msgid ""
 "The local control token and the A2A token are replaced, and the recovery "
 "passphrase is replaced."
-msgstr ""
+msgstr "本地控制令牌和 A2A 令牌被更换，恢复口令也被更换。"
 
 #: ../../topics/identity.rst:400
 msgid ""
 "Messages that were sent before the rotation but processed by the "
 "recipient after it learned of the rotation are refused. They cannot be "
 "told apart from messages written with the leaked key."
-msgstr ""
+msgstr "在轮换之前发送、但由收件方在得知轮换之后处理的消息会被拒绝，因为它们无法与使用已泄露密钥写成的消息区分。"
 
 #: ../../topics/identity.rst:404
 msgid ""
@@ -590,6 +658,8 @@ msgid ""
 "emergency rotation. The two steps are separated by at most the one-hour "
 "planned grace period."
 msgstr ""
+"如果见证 Hub 不可达，命令会先输出当前情况，并允许运营人员按 Ctrl-C 中止。继续执行时，本节点立即停止使用旧密钥，收发暂停，轮换在 "
+"Hub 恢复后发布。如果见证 Hub 已永久关闭，应先更换 Hub，再执行紧急轮换，两步之间最多相隔一小时的计划轮换宽限期。"
 
 #: ../../topics/identity.rst:412
 msgid ""
@@ -598,10 +668,12 @@ msgid ""
 "providers, and wire coding tools again, as the final sentence of the "
 "command says."
 msgstr ""
+"紧急轮换之后，运营人员还应检查对端名单和 ``config.json`` 是否被改动，在模型服务商处更换模型 API "
+"密钥，并重新接入编码工具，命令的最后一句说明也提示了这些事项。"
 
 #: ../../topics/identity.rst:420
 msgid "Switching hubs"
-msgstr ""
+msgstr "更换 Hub"
 
 #: ../../topics/identity.rst:422
 msgid ""
@@ -609,6 +681,8 @@ msgid ""
 "switches hubs. The change is one key rotation and requires the recovery "
 "passphrase and a terminal. No additional option exists."
 msgstr ""
+"对当前见证以外的 Hub 执行 ``anet hub-register``，即更换 "
+"Hub。该变更是一次密钥轮换，需要恢复口令和终端，没有其他可用的选项。"
 
 #: ../../topics/identity.rst:436
 msgid ""
@@ -621,16 +695,20 @@ msgid ""
 " in the background. A node cannot leave its witness hub with ``anet hub-"
 "leave``; the command refuses and refers to ``anet hub-register``."
 msgstr ""
+"轮换之前，命令检查新 Hub 是否可达并已准入该 AID。旧 Hub "
+"在收到轮换之前，继续为旧状态签发通知；节点向其推送新的密钥历史，直至其确认，并继续从旧信箱收取邮件 15 天。如果旧 Hub "
+"在十秒内未确认，命令会报告这一情况并以状态 0 退出，推送在后台继续。节点无法用 ``anet hub-leave`` 离开其见证 "
+"Hub，该命令会拒绝并提示使用 ``anet hub-register``\\ 。"
 
 #: ../../topics/identity.rst:446
 msgid "Recovery on another machine"
-msgstr ""
+msgstr "在另一台机器上恢复"
 
 #: ../../topics/identity.rst:448
 msgid ""
 "``anet identity recover`` restores an identity from its recovery file and"
 " passphrase, for example after the loss of the machine."
-msgstr ""
+msgstr "``anet identity recover`` 依据恢复文件和口令恢复身份，例如在机器丢失之后。"
 
 #: ../../topics/identity.rst:464
 msgid ""
@@ -648,16 +726,22 @@ msgid ""
 "which defaults to ``recovered-`` followed by the last eight characters of"
 " the AID."
 msgstr ""
+"恢复会执行一次轮换，因此旧机器如果仍在运行，将停止收发并报告 ``identity_stopped``\\ 。如果旧副本属于同一运营人员，可以用 "
+"``anet identity rm <name> --purge`` "
+"将其删除；否则恢复口令已经泄露，唯一的办法是使用新身份。任务记录和对端名单是本地数据，不会恢复。属于未保护身份的恢复文件不能在另一台机器上使用，它只能与存放"
+" ``recovery_local.key`` 的数据目录一起使用。此时应将整个数据目录复制到新机器，然后运行 ``anet identity "
+"protect``\\ 。文件未指明见证 Hub 时，``--hub`` 用于选择见证 Hub；``--name`` "
+"指定恢复后身份的本地名称，默认为 ``recovered-`` 加 AID 的最后八个字符。"
 
 #: ../../topics/identity.rst:478
 msgid "Deactivation"
-msgstr ""
+msgstr "停用"
 
 #: ../../topics/identity.rst:480
 msgid ""
 "``anet identity deactivate`` writes a ``dip`` event. The identity ends "
 "permanently and nobody accepts its signatures afterwards."
-msgstr ""
+msgstr "``anet identity deactivate`` 写入一个 ``dip`` 事件。身份就此永久终止，此后任何人都不再接受其签名。"
 
 #: ../../topics/identity.rst:494
 msgid ""
@@ -665,10 +749,12 @@ msgid ""
 "Removing the local data with ``anet id rm`` does not deactivate the "
 "identity, and the command says so while the identity is still active."
 msgstr ""
+"确认时需输入 AID 的最后八个字符，而不是 ``yes``\\ 。用 ``anet id rm`` "
+"删除本地数据不会停用身份，身份仍处于活动状态时，该命令会说明这一点。"
 
 #: ../../topics/identity.rst:501
 msgid "Identity states"
-msgstr ""
+msgstr "身份状态"
 
 #: ../../topics/identity.rst:503
 msgid ""
@@ -677,42 +763,45 @@ msgid ""
 "doctor``, the MCP tool ``node_status`` and the local A2A interface report"
 " the same state and the same sentence."
 msgstr ""
+"守护进程根据身份文件及其当前通知得出身份状态。\\ ``anet status``\\ 、\\ ``anet identity "
+"status``\\ 、\\ ``anet doctor``\\ 、MCP 工具 ``node_status`` 和本地 A2A "
+"接口报告相同的状态和相同的说明语句。"
 
 #: ../../topics/identity.rst:512
 msgid "State"
-msgstr ""
+msgstr "状态"
 
 #: ../../topics/identity.rst:513
 msgid "Outbound messages"
-msgstr ""
+msgstr "出站消息"
 
 #: ../../topics/identity.rst:514
 msgid "Meaning and reason"
-msgstr ""
+msgstr "含义与原因"
 
 #: ../../topics/identity.rst:515
 msgid "``ok``"
-msgstr ""
+msgstr "``ok``"
 
 #: ../../topics/identity.rst:516
 msgid "handed out"
-msgstr ""
+msgstr "发出"
 
 #: ../../topics/identity.rst:517
 msgid ""
 "A notice younger than five hours and fifty minutes confirms the newest "
 "event. After three hours a warning reports that the hub has not confirmed"
 " the key for some time."
-msgstr ""
+msgstr "不足五小时五十分钟的通知确认了最新事件。三小时之后会有警告，说明 Hub 有一段时间未确认该密钥。"
 
 #: ../../topics/identity.rst:520
 msgid "``no_hub``"
-msgstr ""
+msgstr "``no_hub``"
 
 #: ../../topics/identity.rst:521 ../../topics/identity.rst:526
 #: ../../topics/identity.rst:531
 msgid "queued"
-msgstr ""
+msgstr "排队"
 
 #: ../../topics/identity.rst:522
 msgid ""
@@ -720,50 +809,52 @@ msgid ""
 "``no_hub_yet``, ``hub_pending_admission``, ``hub_retrying``, "
 "``hub_refused``."
 msgstr ""
+"节点尚未加入 Hub，或其准入尚待处理。原因：``no_hub_yet``\\ 、\\ ``hub_pending_admission``\\ "
+"、\\ ``hub_retrying``\\ 、\\ ``hub_refused``\\ 。"
 
 #: ../../topics/identity.rst:525
 msgid "``publishing``"
-msgstr ""
+msgstr "``publishing``"
 
 #: ../../topics/identity.rst:527
 msgid ""
 "A key event has been written and is being published; reason "
 "``rotation_pending``. Sending and receiving resume when the witness has "
 "accepted the event."
-msgstr ""
+msgstr "密钥事件已写入并正在发布；原因 ``rotation_pending``\\ 。见证接受该事件后，收发恢复。"
 
 #: ../../topics/identity.rst:530
 msgid "``notice_stale``"
-msgstr ""
+msgstr "``notice_stale``"
 
 #: ../../topics/identity.rst:532
 msgid ""
 "No current notice exists. Reason ``notice_stale``: the hub has not "
 "confirmed the key for the stated time. The node continues to poll its "
 "mailbox so that a new notice can arrive."
-msgstr ""
+msgstr "不存在当前有效的通知。原因 ``notice_stale``：Hub 在所述时间内未确认该密钥。节点继续轮询其信箱，以便新通知到达。"
 
 #: ../../topics/identity.rst:535
 msgid "``stopped``"
-msgstr ""
+msgstr "``stopped``"
 
 #: ../../topics/identity.rst:536 ../../topics/identity.rst:541
 msgid "refused"
-msgstr ""
+msgstr "拒绝"
 
 #: ../../topics/identity.rst:537
 msgid ""
 "The identity was recovered or rotated elsewhere. Reason "
 "``identity_stopped``. The node stops listening for direct connections."
-msgstr ""
+msgstr "身份已在别处恢复或轮换。原因 ``identity_stopped``\\ 。节点停止监听直接连接。"
 
 #: ../../topics/identity.rst:540
 msgid "``deactivated``"
-msgstr ""
+msgstr "``deactivated``"
 
 #: ../../topics/identity.rst:542
 msgid "The identity was deactivated. Reason ``identity_deactivated``."
-msgstr ""
+msgstr "身份已停用。原因 ``identity_deactivated``\\ 。"
 
 #: ../../topics/identity.rst:544
 msgid ""
@@ -774,20 +865,23 @@ msgid ""
 "identity (``none``, ``unprotected`` or ``protected``) is independent of "
 "the state; it does not close any gate."
 msgstr ""
+"闸门关闭期间不会丢失任何内容。此期间写下的消息保留在本地发件箱中，状态恢复为 ``ok`` 后发出。在 ``stopped`` 和 "
+"``deactivated`` 状态下，发送命令立即失败并报告原因。身份的\\ *恢复*\\ 属性（``none``\\ 、\\ "
+"``unprotected`` 或 ``protected``）与状态无关，不会关闭任何闸门。"
 
 #: ../../topics/identity.rst:551
 msgid "The sentences of all reasons are listed in :ref:`reference-reason-codes`."
-msgstr ""
+msgstr "所有原因的说明语句列于 :ref:`reference-reason-codes`\\ 。"
 
 #: ../../topics/identity.rst:556
 msgid "Limits of the protection"
-msgstr ""
+msgstr "保护的局限"
 
 #: ../../topics/identity.rst:558
 msgid ""
 "The following statements describe what key rotation and the witness do "
 "not protect against."
-msgstr ""
+msgstr "以下各条说明密钥轮换和见证无法防范的情形。"
 
 #: ../../topics/identity.rst:561
 msgid ""
@@ -796,6 +890,8 @@ msgid ""
 " first time a truncated key history. A single witness does not prevent "
 "this. Multiple witnesses are future work."
 msgstr ""
+"与攻击者合谋的见证 Hub 可以为过时的状态签发新的通知，也可以向首次联系某 Agent "
+"的节点提供被截断的密钥历史。单个见证无法防止这一点，多见证属于后续工作。"
 
 #: ../../topics/identity.rst:565
 msgid ""
@@ -805,6 +901,8 @@ msgid ""
 " is one hour after a planned rotation and zero after an emergency "
 "rotation or a deactivation."
 msgstr ""
+"已轮换掉的密钥的持有者，在轮换后最长六小时内，仍可向尚未得知轮换的节点冒充该 "
+"Agent。对于已知新密钥历史的节点，这一窗口在计划轮换之后为一小时，在紧急轮换或停用之后为零。"
 
 #: ../../topics/identity.rst:570
 msgid ""
@@ -812,7 +910,7 @@ msgid ""
 "come from the signer. The holder of an old key can produce objects with a"
 " time before the key was retired. The key history shows only that the key"
 " was valid up to some time, not when an object was signed."
-msgstr ""
+msgstr "回执、评价和证据记录等对象的时间戳来自签名方。旧密钥的持有者可以生成时间早于该密钥退役时间的对象。密钥历史只表明该密钥在某一时间之前有效，并不表明对象是何时签名的。"
 
 #: ../../topics/identity.rst:574
 msgid ""
@@ -823,13 +921,15 @@ msgid ""
 "key for up to 15 days, the longest lifetime of an envelope. Emergency "
 "rotation is the remedy once a leak is suspected."
 msgstr ""
+"接收消息的 Hub 声明接受时间，收件方无法核实。与泄露密钥持有者合谋的 Hub 可以将其倒填时间。尚未得知紧急轮换或停用的节点，随后最长可在 "
+"15 天（信封的最长生存期）内接受以旧密钥签名的消息。一旦怀疑发生泄露，补救办法是紧急轮换。"
 
 #: ../../topics/identity.rst:580
 msgid ""
 "Authorizations for payment that were signed with a key before it was "
 "rotated, and that the ledger hub had already verified, are still settled "
 "after the rotation. A rotation protects what follows, not what precedes."
-msgstr ""
+msgstr "在密钥轮换之前以该密钥签名、且账本 Hub 已经验证的付款授权，在轮换之后仍会结算。轮换保护的是此后的操作，而非此前的操作。"
 
 #: ../../topics/identity.rst:583
 msgid ""
@@ -839,6 +939,8 @@ msgid ""
 " other party has already rotated, the local node stops "
 "(``identity_stopped``) and a new identity is required."
 msgstr ""
+"如果恢复文件和口令同时泄露，持有者可以抢先轮换该身份并永久接管。怀疑发生泄露后，应运行 ``anet identity rotate --new-"
+"recovery``\\ 。如果对方已经完成轮换，本地节点将停止（``identity_stopped``），须使用新身份。"
 
 #: ../../topics/identity.rst:588
 msgid ""
@@ -847,12 +949,14 @@ msgid ""
 "the directory at that stage can join a hub first. At this stage there are"
 " no contacts to inform; a new identity is sufficient."
 msgstr ""
+"首次加入之前，身份仅存在于本机，第一次轮换的密钥位于数据目录中。在此阶段获得该目录的人可以抢先加入 "
+"Hub。此阶段尚无需要通知的联系人，使用新身份即可。"
 
 #: ../../topics/identity.rst:592
 msgid ""
 "While an identity is unprotected, the same applies after the join; see "
 ":ref:`topics-identity-unprotected`."
-msgstr ""
+msgstr "身份处于未保护状态时，加入之后同样如此；参见 :ref:`topics-identity-unprotected`\\ 。"
 
 #: ../../topics/identity.rst:594
 msgid ""
@@ -861,36 +965,38 @@ msgid ""
 "message to a node whose own witness is unreachable, because the sender "
 "needs a fresh notice for that recipient."
 msgstr ""
+"见证 Hub "
+"不可达达六小时时，节点无法发送，其消息保留在本地发件箱中。向自身见证不可达的节点发送首条消息时同样如此，因为发送方需要该收件方的最新通知。"
 
 #: ../../topics/identity.rst:598
 msgid ""
 "A task that is in progress at deactivation ends on the local node. The "
 "other side is not notified."
-msgstr ""
+msgstr "停用时进行中的任务在本地节点结束，不会通知对方。"
 
 #: ../../topics/identity.rst:602
 msgid "See also"
-msgstr ""
+msgstr "另请参阅"
 
 #: ../../topics/identity.rst:604
 msgid ":ref:`topics-hubs` for admission and registration at a hub."
-msgstr ""
+msgstr ":ref:`topics-hubs`：在 Hub 的准入与注册。"
 
 #: ../../topics/identity.rst:605
 msgid ""
 ":ref:`topics-messaging` for sealed envelopes, delivery confirmation and "
 "local retention."
-msgstr ""
+msgstr ":ref:`topics-messaging`：密封信封、送达确认与本地保存期。"
 
 #: ../../topics/identity.rst:607
 msgid ":ref:`reference-cli` for the command reference."
-msgstr ""
+msgstr ":ref:`reference-cli`：命令参考。"
 
 #: ../../topics/identity.rst:608
 msgid ":ref:`reference-security` for the security model."
-msgstr ""
+msgstr ":ref:`reference-security`：安全模型。"
 
 #: ../../topics/identity.rst:609
 msgid ":ref:`ops-backup` for backing up a data directory and the recovery file."
-msgstr ""
+msgstr ":ref:`ops-backup`：备份数据目录与恢复文件。"
 

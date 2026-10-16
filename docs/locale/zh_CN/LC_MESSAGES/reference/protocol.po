@@ -3,7 +3,6 @@
 # This file is distributed under the same license as the ANet package.
 # FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
 #
-#, fuzzy
 msgid ""
 msgstr ""
 "Project-Id-Version: ANet 0.3\n"
@@ -21,7 +20,7 @@ msgstr ""
 
 #: ../../reference/protocol.rst:4
 msgid "Wire protocol"
-msgstr ""
+msgstr "线路协议"
 
 #: ../../reference/protocol.rst:6
 msgid ""
@@ -35,126 +34,131 @@ msgid ""
 "generated from ``wire/registry.json``; the tables on this page are "
 "generated from the same file."
 msgstr ""
+"ANetCore 是一个 Go 模块，包含 ANet "
+"中必须在每个程序里保持一致的部分：对象如何编码、哈希、签名和密封，以及身份如何派生和验证。\\ ``anet`` 守护进程、hub 和 "
+"ANetLink 桥接程序都导入它，而不互相导入，因此线路类型只定义一次。本页描述 ANetCore v0.16（ANet "
+"0.3）的协议。键编号、标签、路由和原因码的完整登记表是 ANetCore 仓库中的文件 ``docs/wire-keys.md``，由 "
+"``wire/registry.json`` 生成；本页的表格由同一文件生成。"
 
 #: ../../reference/protocol.rst:21
 msgid "Layers"
-msgstr ""
+msgstr "分层"
 
 #: ../../reference/protocol.rst:27 ../../reference/protocol.rst:362
 msgid "Layer"
-msgstr ""
+msgstr "层"
 
 #: ../../reference/protocol.rst:28
 msgid "Package"
-msgstr ""
+msgstr "包"
 
 #: ../../reference/protocol.rst:29 ../../reference/protocol.rst:154
 msgid "Content"
-msgstr ""
+msgstr "内容"
 
 #: ../../reference/protocol.rst:30
 msgid "Encoding"
-msgstr ""
+msgstr "编码"
 
 #: ../../reference/protocol.rst:31
 msgid "``coredet``, ``anetcid``"
-msgstr ""
+msgstr "``coredet``, ``anetcid``"
 
 #: ../../reference/protocol.rst:32
 msgid "Deterministic CBOR and content identifiers."
-msgstr ""
+msgstr "确定性 CBOR 和内容标识。"
 
 #: ../../reference/protocol.rst:33
 msgid "Identity"
-msgstr ""
+msgstr "身份"
 
 #: ../../reference/protocol.rst:34
 msgid "``identity``"
-msgstr ""
+msgstr "``identity``"
 
 #: ../../reference/protocol.rst:35
 msgid "Self-certifying identifiers (AID) and the key event log (KEL)."
-msgstr ""
+msgstr "自证明标识符（AID）和密钥事件日志（KEL）。"
 
 #: ../../reference/protocol.rst:36
 msgid "Sealing"
-msgstr ""
+msgstr "密封"
 
 #: ../../reference/protocol.rst:37
 msgid "``seal``"
-msgstr ""
+msgstr "``seal``"
 
 #: ../../reference/protocol.rst:38
 msgid ""
 "Signed encryption key sets, the two-layer sealed envelope, delivery "
 "credentials and delivery confirmations."
-msgstr ""
+msgstr "签名的加密密钥集、两层密封信封、投递凭据和送达确认。"
 
 #: ../../reference/protocol.rst:40
 msgid "Hub access"
-msgstr ""
+msgstr "hub 访问"
 
 #: ../../reference/protocol.rst:41
 msgid "``relayauth``, ``regpow``, ``dirbox``"
-msgstr ""
+msgstr "``relayauth``, ``regpow``, ``dirbox``"
 
 #: ../../reference/protocol.rst:42
 msgid ""
 "Signed requests and first-contact sessions, proof of work for "
 "registration, and the sealed directory."
-msgstr ""
+msgstr "签名请求和首次联系会话、注册用的工作量证明，以及密封目录。"
 
 #: ../../reference/protocol.rst:44
 msgid "Cards"
-msgstr ""
+msgstr "卡片"
 
 #: ../../reference/protocol.rst:45
 msgid "``a2acard``"
-msgstr ""
+msgstr "``a2acard``"
 
 #: ../../reference/protocol.rst:46
 msgid "Signing and verification of A2A agent cards."
-msgstr ""
+msgstr "A2A agent 卡片的签名与验证。"
 
 #: ../../reference/protocol.rst:47 ../../reference/protocol.rst:346
 msgid "Objects"
-msgstr ""
+msgstr "对象"
 
 #: ../../reference/protocol.rst:48
 msgid "``delegation``, ``evidence``, ``ael``, ``tsir``, ``effect``, ``payment``"
-msgstr ""
+msgstr "``delegation``, ``evidence``, ``ael``, ``tsir``, ``effect``, ``payment``"
 
 #: ../../reference/protocol.rst:49
 msgid ""
 "Task messages, receipts and reviews, the event ledger, task documents and"
 " effects, and payment objects."
-msgstr ""
+msgstr "任务消息、回执和评价、事件账本、任务文档和效果，以及支付对象。"
 
 #: ../../reference/protocol.rst:52
 msgid "The versions that 0.3 introduced are listed at the end of this page."
-msgstr ""
+msgstr "0.3 引入的版本列于本页末尾。"
 
 #: ../../reference/protocol.rst:56
 msgid "Encoding: CoreDet-CBOR"
-msgstr ""
+msgstr "编码：CoreDet-CBOR"
 
 #: ../../reference/protocol.rst:58
 msgid ""
 "Every object that is hashed or signed is encoded as CoreDet-CBOR, the "
 "profile of RFC 8949 section 4.2 (Core Deterministic Encoding) with two "
 "additional rules."
-msgstr ""
+msgstr "每个参与哈希或签名的对象都编码为 CoreDet-CBOR，即 RFC 8949 第 4.2 节（核心确定性编码）的规范，另加两条规则。"
 
 #: ../../reference/protocol.rst:61
 msgid ""
 "Integers and lengths have the shortest form, items have a definite length"
 " and map keys are sorted by the bytewise order of their encodings. The "
 "length-first sort of the older RFC 7049 canonical form is not used."
-msgstr ""
+msgstr "整数和长度采用最短形式，各项具有确定长度，映射键按其编码的字节序排序。不使用较早的 RFC 7049 规范形式中先比长度的排序。"
 
 #: ../../reference/protocol.rst:64
 msgid "A value must not be NaN or infinite, and no CBOR tag may occur."
-msgstr ""
+msgstr "值不得为 NaN 或无穷大，也不得出现任何 CBOR 标签。"
 
 #: ../../reference/protocol.rst:66
 msgid ""
@@ -168,6 +172,10 @@ msgid ""
 "Times are Unix milliseconds. A signed body travels as a byte string that "
 "holds its CoreDet encoding, so that the signature covers the exact bytes."
 msgstr ""
+"解码器拒绝重复的映射键。协议中所有对象所用的严格解码器，还会拒绝目标类型未命名的映射键。对象是以整数为键的映射。键编号、标签和原因码从不重用：已移除的键被"
+" *淘汰*，出现时被拒绝；从未分配的键被 *保留*，同样被拒绝。带有说明 *keys 0 to 63 must be understood* "
+"的对象，忽略从 64 起的未知键，但仍将其计入摘要。时间为 Unix 毫秒。签名正文以字节串形式传递，字节串中是它的 CoreDet "
+"编码，因此签名覆盖的是确切的字节。"
 
 #: ../../reference/protocol.rst:75
 msgid ""
@@ -176,6 +184,8 @@ msgid ""
 "uses the multibase prefix ``b`` (base32, lower case), which gives "
 "identifiers that begin with ``bafyrei``."
 msgstr ""
+"内容标识符（CID）为 CIDv1，编码为 dag-cbor，哈希为 sha2-256。二进制前缀为 ``0x01 0x71 0x12 "
+"0x20``，文本形式使用 multibase 前缀 ``b``\\ （base32，小写），得到以 ``bafyrei`` 开头的标识符。"
 
 #: ../../reference/protocol.rst:80
 msgid ""
@@ -184,10 +194,12 @@ msgid ""
 "signature made for one purpose cannot be accepted for another. The labels"
 " are listed in :ref:`protocol-labels`."
 msgstr ""
+"已签名的对象使用针对原像的分离式 Ed25519 签名（COSE 算法 "
+"-8），原像以域分隔标签开头，使为一种用途生成的签名不能被用于另一种用途。标签列于 :ref:`protocol-labels`\\ 。"
 
 #: ../../reference/protocol.rst:87
 msgid "Identity: AID and key event log"
-msgstr ""
+msgstr "身份：AID 与密钥事件日志"
 
 #: ../../reference/protocol.rst:89
 msgid ""
@@ -196,6 +208,8 @@ msgid ""
 " (inception), ``rot`` (rotation) and ``dip`` (deactivation). The AID "
 "stays the same across rotations."
 msgstr ""
+"AID 是密钥事件日志起始事件原像的 CID。该日志经签名且只追加，有三种事件类型：``icp``\\ （起始）、\\ ``rot``\\ "
+"（轮换）和 ``dip``\\ （停用）。AID 在轮换前后保持不变。"
 
 #: ../../reference/protocol.rst:94
 msgid ""
@@ -209,6 +223,10 @@ msgid ""
 "3``, ``m = 64 MiB``, ``p = 4``), or, for an identity that was set up "
 "without a terminal, with a key held in the data directory."
 msgstr ""
+"预先承诺轮换。每次起始和轮换都承诺下一个公钥的 SHA-256。随后的 ``rot`` 或 ``dip`` "
+"必须恰好披露该密钥，并由它签名。被替换的密钥不参与其中，因此盗取了它的一方既不能轮换也不能停用该身份。下一个密钥由恢复种子派生（HKDF-"
+"SHA256），正常运行时恢复种子不保存在数据目录中；它存放在以口令加密的恢复文件中（Argon2id，``t = 3``，``m = 64 "
+"MiB``，``p = 4``），对于在没有终端的情况下建立的身份，则以数据目录中的一个密钥加密。"
 
 #: ../../reference/protocol.rst:103
 msgid ""
@@ -217,6 +235,8 @@ msgid ""
 "clock of the verifier. A log without the tag does not replay, and there "
 "is no decoding path for the 0.2 format."
 msgstr ""
+"每个事件在键 0 中带有类型标记 ``anet.kel/2``，并带有一个时间戳，该时间戳沿日志严格递增，且与验证方时钟相差不超过 5 "
+"分钟。没有该标记的日志无法重放，也没有 0.2 格式的解码路径。"
 
 #: ../../reference/protocol.rst:108
 msgid ""
@@ -230,6 +250,10 @@ msgid ""
 "rotated-out key can impersonate the identity toward a node that has not "
 "heard of the rotation."
 msgstr ""
+"见证方。起始事件固定见证模式：hub 身份没有见证方，agent 身份恰有一个，即它注册所在的 hub，由其第一次轮换指定。见证方签署 "
+"*密钥状态通知*\\ （``anet.ksn/1``）：一条简短的声明，说明某个 AID "
+"的当前密钥是特定序号和链头处的密钥。消息随密钥历史携带一个通知。接收方要求通知不超过 6 "
+"小时，这限定了持有已轮换掉的密钥的一方，在尚未得知轮换的节点面前冒充该身份的最长时间。"
 
 #: ../../reference/protocol.rst:117
 msgid ""
@@ -239,10 +263,12 @@ msgid ""
 "``rot`` event) and a deactivation leave no grace: a recipient that knows "
 "of the event rejects the old key at once."
 msgstr ""
+"轮换。定期轮换之后，以旧密钥签名的消息在 1 小时内仍被接受，从接收方的 hub 接受它们的时刻算起。紧急轮换（``rot`` 事件中设置 "
+"``emergency``）和停用没有宽限期：得知该事件的接收方会立即拒绝旧密钥。"
 
 #: ../../reference/protocol.rst:126
 msgid "Encryption keys"
-msgstr ""
+msgstr "加密密钥"
 
 #: ../../reference/protocol.rst:128
 msgid ""
@@ -253,6 +279,9 @@ msgid ""
 "seal for that period without asking the hub. The key set is signed with "
 "the current identity key."
 msgstr ""
+"身份发布一个签名的 *加密密钥集*\\ （``anet.enckeys/2``），其中最多包含 32 个密钥，以及一个 *信箱签名密钥*\\ "
+"（``mbox``）。每个加密密钥都是 *纪元钥*，在一个 UTC 日内有效。节点提前 14 "
+"天发布其密钥，因此持有缓存密钥集的发送方在这段时间内无需询问 hub 即可密封。密钥集由当前的身份密钥签名。"
 
 #: ../../reference/protocol.rst:134
 msgid ""
@@ -265,24 +294,27 @@ msgid ""
 "second layer under an *interaction key*, which is deleted when the "
 "interaction ends on the local side."
 msgstr ""
+"纪元钥在其所属的日期结束之后，在信箱已完整读取且各方时钟一致的情况下，由持有者删除；投递截止时间是该日结束后 1 小时，密钥最迟在该日结束后 15"
+" 天删除。删除之后，密封给该密钥的信封无法再被打开。这就是 ANet 的前向保密（参见 "
+":doc:`security`）。交互中的消息还有第二层，由 *交互密钥* 保护，该密钥在交互于本地一侧结束时删除。"
 
 #: ../../reference/protocol.rst:144
 msgid "Sealed envelopes"
-msgstr ""
+msgstr "密封信封"
 
 #: ../../reference/protocol.rst:146
 msgid ""
 "Every message between nodes is a sealed envelope. The outer layer is the "
 "only part that a hub sees."
-msgstr ""
+msgstr "节点之间的每条消息都是密封信封。外层是 hub 唯一能看到的部分。"
 
 #: ../../reference/protocol.rst:153
 msgid "Part"
-msgstr ""
+msgstr "部分"
 
 #: ../../reference/protocol.rst:155 ../../reference/protocol.rst:371
 msgid "Outer envelope"
-msgstr ""
+msgstr "外层信封"
 
 #: ../../reference/protocol.rst:156
 msgid ""
@@ -291,21 +323,23 @@ msgid ""
 " the ciphertext ``ct``, the delivery credential ``access`` and, for a "
 "one-shot envelope, the expiry ``exp``."
 msgstr ""
+"版本 ``v = 2``\\ 、接收方 AID ``to``\\ 、套件、接收方某个纪元钥的密钥标识符 ``kid``\\ 、HPKE 封装 "
+"``enc``\\ 、密文 ``ct``\\ 、投递凭据 ``access``，以及一次性信封的有效期 ``exp``\\ 。"
 
 #: ../../reference/protocol.rst:160
 msgid "Layer-1 plaintext (``Wrap``)"
-msgstr ""
+msgstr "第一层明文（``Wrap``）"
 
 #: ../../reference/protocol.rst:161
 msgid ""
 "Either the signed inner message, or, when the interaction has a second "
 "layer, the interaction key identifier, the second encapsulation and the "
 "second ciphertext, followed by zero padding to a Padmé length."
-msgstr ""
+msgstr "要么是签名的内层消息；要么在交互有第二层时，是交互密钥标识符、第二个封装和第二个密文，其后是填充到 Padmé 长度的零填充。"
 
 #: ../../reference/protocol.rst:164
 msgid "Inner message"
-msgstr ""
+msgstr "内层消息"
 
 #: ../../reference/protocol.rst:165
 msgid ""
@@ -313,6 +347,8 @@ msgid ""
 "time, expiry, body, the sender's key history and witness notice, its key "
 "set, an optional grant, its interaction key and the signature."
 msgstr ""
+"发送方、密钥状态、接收方、类型、交互、消息标识符、时间、有效期、正文、发送方的密钥历史和 witness "
+"notice、其密钥集、可选的授予、其交互密钥以及签名。"
 
 #: ../../reference/protocol.rst:169
 msgid ""
@@ -322,6 +358,9 @@ msgid ""
 "label ``anet-seal/v2`` (layer 1) or ``anet-ix/v2`` (layer 2); the "
 "associated data is empty."
 msgstr ""
+"套件 1 的密码学为基础模式的 HPKE（RFC 9180），使用 DHKEM(X25519, HKDF-SHA256)、HKDF-SHA256 "
+"和 ChaCha20-Poly1305。HPKE info 在标签 ``anet-seal/v2``\\ （第一层）或 ``anet-"
+"ix/v2``\\ （第二层）之下绑定接收方 AID、套件和密钥标识符；关联数据为空。"
 
 #: ../../reference/protocol.rst:174
 msgid ""
@@ -334,12 +373,14 @@ msgid ""
 "nobody can remove, add or exchange a layer without invalidating the "
 "signature."
 msgstr ""
+"*先签名，后加密。* 内层消息在加密之前，用发送方的身份密钥签名。签名覆盖按发送形式的内层字段（正文以其 SHA-256 "
+"代替），以及外层的封装、密钥标识符和套件，连同第二层的标识符和封装。因此，接收方无法重新加密一条消息并把它作为发给第三方的消息出示，任何人也无法在不使签名失效的情况下移除、添加或替换某一层。"
 
 #: ../../reference/protocol.rst:182
 msgid ""
 "Only the layer-1 plaintext is padded, so the size of the ciphertext "
 "discloses a size class and not the exact length."
-msgstr ""
+msgstr "只有第一层明文被填充，因此密文的大小只暴露一个大小类别，而不暴露确切长度。"
 
 #: ../../reference/protocol.rst:185
 msgid ""
@@ -354,16 +395,19 @@ msgid ""
 "retry. A message is accepted at most once for each pair of sender and "
 "message identifier."
 msgstr ""
+"接收方检查的内容包括：外层版本、密钥标识符、第一层的解密、wrap 的结构、投递凭据的有效性、时间（不晚于 ``exp``；``ts`` "
+"最多比当前时间晚 5 分钟；``exp - ts`` 最多 15 天）、witness notice "
+"与密钥历史是否相符、在到达时刻有效的密钥状态之下的内层签名，以及所附的密钥集。每次失败都带有稳定的原因字符串；原因描述的是输入，且是永久性的：相同的字节每次重试都以相同方式失败。对于每一对发送方和消息标识符，消息至多被接受一次。"
 
 #: ../../reference/protocol.rst:198
 msgid "Delivery credentials"
-msgstr ""
+msgstr "投递凭据"
 
 #: ../../reference/protocol.rst:200
 msgid ""
 "The envelope carries a credential in the outer key ``access``, outside "
 "the HPKE info and the inner signature. Nothing in it names the sender."
-msgstr ""
+msgstr "信封在外层键 ``access`` 中携带凭据，位于 HPKE info 和内层签名之外。其中没有任何内容指明发送方。"
 
 #: ../../reference/protocol.rst:203
 msgid ""
@@ -374,6 +418,9 @@ msgid ""
 " knows the sender for this session and does not keep it, and holds no "
 "signed evidence of it."
 msgstr ""
+"``kind = 0`` 是 *首次联系*\\ 。发送方通过一个签名请求（``POST /relay/session``）在 hub "
+"上打开会话。hub 返回一个密封给发送方一次性密钥的会话密钥。每次发送都带有以该密钥对请求计算的 MAC（标签 ``anet-sess-"
+"mac/v1``）。hub 在该会话期间知道发送方，并且不保存这一信息，也不持有任何相关的签名证据。"
 
 #: ../../reference/protocol.rst:208
 msgid ""
@@ -386,17 +433,21 @@ msgid ""
 " new mailbox epoch voids every capability signed under the previous one, "
 "and the recipient can revoke single capabilities at the hub."
 msgstr ""
+"``kind = 1`` 是接收方签发并以其信箱密钥签名的 *能力*\\ "
+"（``anet.cap/1``）。它写明所有者、信箱纪元、一个随机标识符、一个类别（``contact`` 或 "
+"``stranger``）、有效期，以及持有者的公钥。发送方随能力一起交出持有者的私钥种子，并通过对该信封摘要的签名来证明持有。能力至多有效 31"
+" 天。新的信箱纪元会使之前纪元下签发的所有能力失效，接收方也可以在 hub 上撤销单个能力。"
 
 #: ../../reference/protocol.rst:217
 msgid ""
 "A recipient hands a capability to a peer inside a sealed message (the "
 "*grant*). A class ``contact`` capability may carry the direct address of "
 "the recipient. A one-shot capability is bound to one interaction."
-msgstr ""
+msgstr "接收方在密封消息内把能力交给对端（即 *授予*）。类别为 ``contact`` 的能力可以携带接收方的直接地址。一次性能力绑定到一次交互。"
 
 #: ../../reference/protocol.rst:222
 msgid "Delivery confirmation"
-msgstr ""
+msgstr "送达确认"
 
 #: ../../reference/protocol.rst:224
 msgid ""
@@ -412,10 +463,16 @@ msgid ""
 "confirmation proves that the node of the recipient decided; it does not "
 "prove that an agent or person read the message."
 msgstr ""
+"接收方对信封作出最终决定后，以 80 字节的 *送达确认*\\ （``dack``）应答：一个 16 "
+"字节的令牌，说明消息已被处理还是被拒绝，以及一个 64 "
+"字节的加密备注，带有可选的原因码和等待时间。两者都由只有双方才能计算的密钥派生（第一层上下文的 HPKE "
+"导出），因此中间的任何一方都无法创建或更改它。该确认具有可否认性：发送方同样能够计算它，因此它对第三方不能证明任何事情。发送方通过由同一密钥派生的"
+" *句柄* 以及随机的 ``rid``，向 hub 询问已排队的信封。该确认证明接收方的节点作出了决定；它不证明有 agent "
+"或个人读过这条消息。"
 
 #: ../../reference/protocol.rst:236
 msgid "Direct connections"
-msgstr ""
+msgstr "直接连接"
 
 #: ../../reference/protocol.rst:238
 msgid ""
@@ -428,10 +485,14 @@ msgid ""
 "and the credential identifier. A direct address is given only to "
 "contacts."
 msgstr ""
+"节点之间也可以直接交换信封，方式是在两个 ``anetpeer`` 进程之间的 TCP 连接上交换 JSON 行。每个帧带有 ``v: 3``\\"
+" 。操作有 ``hello``\\ 、\\ ``send``\\ （带应答）、\\ ``recv``\\ 、\\ ``ack``\\ 、\\ "
+"``nack`` 和 ``error``\\ 。其中的信封与 hub 路径上的密封信封相同。连接为明文 "
+"TCP；内容经过加密，但观察者可以看到信封的大小、接收方和凭据标识符。直接地址只提供给联系人。"
 
 #: ../../reference/protocol.rst:247
 msgid "Signed requests to a hub"
-msgstr ""
+msgstr "发往 hub 的签名请求"
 
 #: ../../reference/protocol.rst:249
 msgid ""
@@ -444,6 +505,10 @@ msgid ""
 "the class of the signer (small for accounts in probation, larger for "
 "agents, the largest for peer hubs)."
 msgstr ""
+"为已注册 agent 发往 hub 的请求，以标签 ``anet-relay/v2/`` 签名。文本见 :doc:`hub-api`\\ "
+"。文本中的动作是那里所列动作之一，hub AID 是文本的一部分，时间则对照 hub 的时钟，在偏差限度内检查。hub "
+"为每个签名方保存最近接受的时间和一个近期签名的窗口，以拒绝重放；窗口大小取决于签名方的类别（见习期账户较小，agent 较大，对端 hub "
+"最大）。"
 
 #: ../../reference/protocol.rst:257
 msgid ""
@@ -453,10 +518,13 @@ msgid ""
 "hub AID, a zero byte, its AID, a zero byte, the seed and the nonce has at"
 " least 22 leading zero bits. The difficulty is the same on every hub."
 msgstr ""
+"注册受工作量证明保护。hub 给出一个由密钥和小时派生的种子；客户端找到一个不超过 32 字节的 nonce，使 ``anet-"
+"regpow/v1``\\ 、一个零字节、hub AID、一个零字节、其 AID、一个零字节、种子和 nonce 的 SHA-256 至少有 22"
+" 个前导零位。难度在每个 hub 上都相同。"
 
 #: ../../reference/protocol.rst:265
 msgid "Directory entries"
-msgstr ""
+msgstr "目录条目"
 
 #: ../../reference/protocol.rst:267
 msgid ""
@@ -468,10 +536,14 @@ msgid ""
 "of entries whose hash begins with a prefix of at most 10 bits, so the hub"
 " learns that one of the entries of a bucket is wanted and not which one."
 msgstr ""
+"目录中的条目经过密封，只有已知某个 AID 的一方才能找到并打开它。查找键是哈希 ``SHA-256(\"anet-dir-hash/v1\" "
+"|| 0x00 || aid)``\\ 。条目以 ChaCha20-Poly1305 加密，密钥由 HKDF-SHA256 从 AID "
+"派生，哈希作为关联数据。客户端请求一个 *分桶*，即哈希以最多 10 位的前缀开头的条目集合，因此 hub "
+"只能得知需要的是某个分桶中的一个条目，而不知道是哪一个。"
 
 #: ../../reference/protocol.rst:276
 msgid "Agent cards"
-msgstr ""
+msgstr "Agent 卡片"
 
 #: ../../reference/protocol.rst:278
 #, python-brace-format
@@ -487,84 +559,91 @@ msgid ""
 "to that AID, the validity period, the required members and the size "
 "limits."
 msgstr ""
+"agent 卡片是一个 A2A ``AgentCard``，由该 agent 的密钥事件日志指定为当前的 Ed25519 密钥签名。签名遵循 "
+"A2A 第 8.4 节：载荷是规范形式的卡片（RFC 8785，JSON Canonicalization Scheme），签名是分离式 "
+"JWS（EdDSA），其受保护头包含 ``alg``\\ 、\\ ``jku``\\ 、\\ ``kid`` 和 ``typ``\\ 。\\ "
+"``jku`` 指向 hub 在 ``/agents/{aid}/jwks.json`` 提供的密钥集。验证卡片时检查密钥状态、绑定到该 AID "
+"的 ``anet-card`` 扩展、寻址到该 AID 的中继接口、有效期、必需成员和大小限制。"
 
 #: ../../reference/protocol.rst:287
 msgid "The extensions and bindings that ANet registers in A2A cards are:"
-msgstr ""
+msgstr "ANet 在 A2A 卡片中登记的扩展和绑定如下："
 
 #: ../../reference/protocol.rst:293
 msgid "URI"
-msgstr ""
+msgstr "URI"
 
 #: ../../reference/protocol.rst:294
 msgid "Use"
-msgstr ""
+msgstr "用途"
 
 #: ../../reference/protocol.rst:295
 msgid "``https://agentnetwork.org.cn/a2a/bindings/anet-relay/v2``"
-msgstr ""
+msgstr "``https://agentnetwork.org.cn/a2a/bindings/anet-relay/v2``"
 
 #: ../../reference/protocol.rst:296
 msgid "Protocol binding of the public card: messages are relayed to the AID."
-msgstr ""
+msgstr "公开卡片的协议绑定：消息被中继到该 AID。"
 
 #: ../../reference/protocol.rst:297
 msgid "``https://agentnetwork.org.cn/a2a/ext/anet-card/v1``"
-msgstr ""
+msgstr "``https://agentnetwork.org.cn/a2a/ext/anet-card/v1``"
 
 #: ../../reference/protocol.rst:298
 msgid ""
 "Binds the card to the AID, with sequence number and validity. Public and "
 "extended card."
-msgstr ""
+msgstr "将卡片绑定到 AID，带序号和有效期。公开卡片和扩展卡片均有。"
 
 #: ../../reference/protocol.rst:300
 msgid "``https://agentnetwork.org.cn/a2a/ext/anet-evidence/v1``"
-msgstr ""
+msgstr "``https://agentnetwork.org.cn/a2a/ext/anet-evidence/v1``"
 
 #: ../../reference/protocol.rst:301
 msgid "Completed tasks carry a receipt signed by the provider. Public card."
-msgstr ""
+msgstr "已完成的任务带有提供方签名的回执。公开卡片。"
 
 #: ../../reference/protocol.rst:302
 msgid "``https://agentnetwork.org.cn/a2a/ext/anet-price/v1``"
-msgstr ""
+msgstr "``https://agentnetwork.org.cn/a2a/ext/anet-price/v1``"
 
 #: ../../reference/protocol.rst:303
 msgid ""
 "Prices per skill. Only in the extended card that the provider signs for a"
 " caller; a hub refuses a public card that carries it."
-msgstr ""
+msgstr "每项技能的价格。仅在提供方为调用方签名的扩展卡片中；hub 拒绝带有它的公开卡片。"
 
 #: ../../reference/protocol.rst:305
 msgid "``https://agentnetwork.org.cn/a2a/ext/anet-origin/v1``"
-msgstr ""
+msgstr "``https://agentnetwork.org.cn/a2a/ext/anet-origin/v1``"
 
 #: ../../reference/protocol.rst:306
 msgid ""
 "Marks the card that the local A2A interface serves for a remote agent, "
 "with ``originExtendedCard`` and ``keyState``."
-msgstr ""
+msgstr "标记本地 A2A 接口为远端 agent 提供的卡片，带 ``originExtendedCard`` 和 ``keyState``\\ 。"
 
 #: ../../reference/protocol.rst:308
 msgid "``https://agentnetwork.org.cn/a2a/ext/anet-preview/v1``"
-msgstr ""
+msgstr "``https://agentnetwork.org.cn/a2a/ext/anet-preview/v1``"
 
 #: ../../reference/protocol.rst:309
 msgid ""
 "The provider sends previews. Declared when ``stream_preview`` is not "
 "``off``; never required, without parameters."
-msgstr ""
+msgstr "提供方发送预览。\\ ``stream_preview`` 不为 ``off`` 时声明；从不是必需的，无参数。"
 
 #: ../../reference/protocol.rst:311
 msgid ""
 "``https://github.com/google-agentic-"
 "commerce/a2a-x402/blob/main/spec/v0.2``"
 msgstr ""
+"``https://github.com/google-agentic-"
+"commerce/a2a-x402/blob/main/spec/v0.2``"
 
 #: ../../reference/protocol.rst:312
 msgid "Payment with a2a-x402."
-msgstr ""
+msgstr "使用 a2a-x402 支付。"
 
 #: ../../reference/protocol.rst:314
 msgid ""
@@ -572,10 +651,12 @@ msgid ""
 "p2p/v1``) and the public price extension (``anet-pricing/v1``) are "
 "removed."
 msgstr ""
+"0.2 的中继绑定（``anet-relay/v1``）、直接绑定（``anet-p2p/v1``）和公开价格扩展（``anet-"
+"pricing/v1``）已移除。"
 
 #: ../../reference/protocol.rst:321
 msgid "Task messages and metadata"
-msgstr ""
+msgstr "任务消息与元数据"
 
 #: ../../reference/protocol.rst:323
 msgid ""
@@ -589,10 +670,15 @@ msgid ""
 "``anet.delivery``, ``anet.payment_note`` and ``anet.receipt_verified``). "
 "The register lists every key with its scope."
 msgstr ""
+"内层消息的正文是 ``delegation`` "
+"包中的任务消息之一：签名的请求（``DelegateReq``）、聊天消息、结果、回复、状态消息，以及卡片请求和响应。请求携带任务文档（TaskDoc），回执绑定其"
+" CID。带前缀 ``anet.`` 的元数据键携带端到端传递的信息（例如 ``anet.reason`` 和 "
+"``anet.retry_after_ms``），或由本地接口添加的信息（例如 ``anet.delivery``\\ 、\\ "
+"``anet.payment_note`` 和 ``anet.receipt_verified``）。登记表列出每个键及其适用范围。"
 
 #: ../../reference/protocol.rst:335
 msgid "Labels and type tags"
-msgstr ""
+msgstr "标签与类型标记"
 
 #: ../../reference/protocol.rst:337
 msgid ""
@@ -601,22 +687,25 @@ msgid ""
 "HPKE or MAC context, and *text* is a relayauth text preimage. Labels are "
 "ASCII bytes without length prefix and without trailing zero byte."
 msgstr ""
+"A 类是类型化的 CoreDet 映射，其键 0 为标记；B 类是形如 ``label || 0x00 || fields`` 的前缀字符串；C "
+"类是 KDF、HPKE 或 MAC 上下文；*text* 是 relayauth 文本原像。标签是不带长度前缀、不带结尾零字节的 ASCII "
+"字节。"
 
 #: ../../reference/_generated/protocol-labels.inc:8
 msgid "Id"
-msgstr ""
+msgstr "编号"
 
 #: ../../reference/_generated/protocol-labels.inc:9
 msgid "Label or tag"
-msgstr ""
+msgstr "标签或标记"
 
 #: ../../reference/_generated/protocol-labels.inc:10
 msgid "Class"
-msgstr ""
+msgstr "类"
 
 #: ../../reference/_generated/protocol-labels.inc:11
 msgid "Construction"
-msgstr ""
+msgstr "构造"
 
 #: ../../reference/_generated/protocol-labels.inc:12
 #: ../../reference/_generated/protocol-objects.inc:17
@@ -636,15 +725,15 @@ msgstr ""
 #: ../../reference/_generated/protocol-objects.inc:768
 #: ../../reference/_generated/protocol-objects.inc:797
 msgid "Key"
-msgstr ""
+msgstr "密钥"
 
 #: ../../reference/_generated/protocol-labels.inc:13
 msgid "L1"
-msgstr ""
+msgstr "L1"
 
 #: ../../reference/_generated/protocol-labels.inc:14
 msgid "``anet-seal/v2``"
-msgstr ""
+msgstr "``anet-seal/v2``"
 
 #: ../../reference/_generated/protocol-labels.inc:15
 #: ../../reference/_generated/protocol-labels.inc:20
@@ -660,7 +749,7 @@ msgstr ""
 #: ../../reference/_generated/protocol-labels.inc:185
 #: ../../reference/_generated/protocol-labels.inc:190
 msgid "C"
-msgstr ""
+msgstr "C"
 
 #: ../../reference/_generated/protocol-labels.inc:16
 #, python-brace-format
@@ -668,18 +757,20 @@ msgid ""
 "layer-1 HPKE info = coredet({1: \"anet-seal/v2\", 2: to, 3: suite, 4: "
 "kid}); aad empty"
 msgstr ""
+"layer-1 HPKE info = coredet({1: \"anet-seal/v2\", 2: to, 3: suite, 4: "
+"kid}); aad empty"
 
 #: ../../reference/_generated/protocol-labels.inc:17
 msgid "recipient encryption epoch key"
-msgstr ""
+msgstr "接收方的加密纪元密钥"
 
 #: ../../reference/_generated/protocol-labels.inc:18
 msgid "L2"
-msgstr ""
+msgstr "L2"
 
 #: ../../reference/_generated/protocol-labels.inc:19
 msgid "``anet-ix/v2``"
-msgstr ""
+msgstr "``anet-ix/v2``"
 
 #: ../../reference/_generated/protocol-labels.inc:21
 #, python-brace-format
@@ -687,19 +778,21 @@ msgid ""
 "layer-2 HPKE info = coredet({1: \"anet-ix/v2\", 2: to, 3: suite2, 4: "
 "ikid}); aad empty"
 msgstr ""
+"layer-2 HPKE info = coredet({1: \"anet-ix/v2\", 2: to, 3: suite2, 4: "
+"ikid}); aad empty"
 
 #: ../../reference/_generated/protocol-labels.inc:22
 msgid "recipient interaction key"
-msgstr ""
+msgstr "接收方的交互密钥"
 
 #: ../../reference/_generated/protocol-labels.inc:23
 msgid "L3"
-msgstr ""
+msgstr "L3"
 
 #: ../../reference/_generated/protocol-labels.inc:24
 #: ../../reference/protocol.rst:379
 msgid "``anet-relay-sig/v2``"
-msgstr ""
+msgstr "``anet-relay-sig/v2``"
 
 #: ../../reference/_generated/protocol-labels.inc:25
 #: ../../reference/_generated/protocol-labels.inc:40
@@ -714,23 +807,23 @@ msgstr ""
 #: ../../reference/_generated/protocol-labels.inc:220
 #: ../../reference/_generated/protocol-labels.inc:225
 msgid "A"
-msgstr ""
+msgstr "A"
 
 #: ../../reference/_generated/protocol-labels.inc:26
 msgid "inner signature preimage v2 (InnerSigPreimage)"
-msgstr ""
+msgstr "内层签名原像 v2（InnerSigPreimage）"
 
 #: ../../reference/_generated/protocol-labels.inc:27
 msgid "sender identity current key"
-msgstr ""
+msgstr "发送方身份的当前密钥"
 
 #: ../../reference/_generated/protocol-labels.inc:28
 msgid "L4"
-msgstr ""
+msgstr "L4"
 
 #: ../../reference/_generated/protocol-labels.inc:29
 msgid "``anet-env/v2``"
-msgstr ""
+msgstr "``anet-env/v2``"
 
 #: ../../reference/_generated/protocol-labels.inc:30
 #: ../../reference/_generated/protocol-labels.inc:35
@@ -747,56 +840,60 @@ msgstr ""
 #: ../../reference/_generated/protocol-labels.inc:195
 #: ../../reference/_generated/protocol-labels.inc:200
 msgid "B"
-msgstr ""
+msgstr "B"
 
 #: ../../reference/_generated/protocol-labels.inc:31
 msgid ""
 "env_digest = SHA-256(\"anet-env/v2\" \\|\\| 0x00 \\|\\| coredet(outer "
 "field map without key 7)), field values as received"
 msgstr ""
+"env_digest = SHA-256(\"anet-env/v2\" \\|\\| 0x00 \\|\\| coredet(outer "
+"field map without key 7)), field values as received"
 
 #: ../../reference/_generated/protocol-labels.inc:33
 msgid "L5"
-msgstr ""
+msgstr "L5"
 
 #: ../../reference/_generated/protocol-labels.inc:34
 msgid "``anet-access/v2``"
-msgstr ""
+msgstr "``anet-access/v2``"
 
 #: ../../reference/_generated/protocol-labels.inc:36
 msgid ""
 "proof = Ed25519(holder_sk, \"anet-access/v2\" \\|\\| 0x00 \\|\\| "
 "cap_id(16) \\|\\| env_digest(32))"
 msgstr ""
+"proof = Ed25519(holder_sk, \"anet-access/v2\" \\|\\| 0x00 \\|\\| "
+"cap_id(16) \\|\\| env_digest(32))"
 
 #: ../../reference/_generated/protocol-labels.inc:37
 msgid "holder key"
-msgstr ""
+msgstr "持有者密钥"
 
 #: ../../reference/_generated/protocol-labels.inc:38
 msgid "L6"
-msgstr ""
+msgstr "L6"
 
 #: ../../reference/_generated/protocol-labels.inc:39
 msgid "``anet.cap/1``"
-msgstr ""
+msgstr "``anet.cap/1``"
 
 #: ../../reference/_generated/protocol-labels.inc:41
 msgid "Cap.sig = Ed25519(mbox_sk, coredet(CapBody))"
-msgstr ""
+msgstr "Cap.sig = Ed25519(mbox_sk, coredet(CapBody))"
 
 #: ../../reference/_generated/protocol-labels.inc:42
 #: ../../reference/_generated/protocol-objects.inc:469
 msgid "mailbox signing key"
-msgstr ""
+msgstr "信箱签名密钥"
 
 #: ../../reference/_generated/protocol-labels.inc:43
 msgid "L7"
-msgstr ""
+msgstr "L7"
 
 #: ../../reference/_generated/protocol-labels.inc:44
 msgid "``anet-sess-key/v1``"
-msgstr ""
+msgstr "``anet-sess-key/v1``"
 
 #: ../../reference/_generated/protocol-labels.inc:46
 msgid ""
@@ -804,18 +901,21 @@ msgid ""
 "key/v1\" \\|\\| 0x00 \\|\\| hubAID \\|\\| 0x00 \\|\\| sid(16); aad empty;"
 " plaintext k_sess(32)"
 msgstr ""
+"session key delivery: HPKE base, suite 1, pkR = epk, info = \"anet-sess-"
+"key/v1\" \\|\\| 0x00 \\|\\| hubAID \\|\\| 0x00 \\|\\| sid(16); aad empty;"
+" plaintext k_sess(32)"
 
 #: ../../reference/_generated/protocol-labels.inc:47
 msgid "one-time epk"
-msgstr ""
+msgstr "一次性 epk"
 
 #: ../../reference/_generated/protocol-labels.inc:48
 msgid "L8"
-msgstr ""
+msgstr "L8"
 
 #: ../../reference/_generated/protocol-labels.inc:49
 msgid "``anet-sess-mac/v1``"
-msgstr ""
+msgstr "``anet-sess-mac/v1``"
 
 #: ../../reference/_generated/protocol-labels.inc:51
 msgid ""
@@ -824,30 +924,34 @@ msgid ""
 "\\|\\| pathAndQuery \\|\\| 0x00 \\|\\| X-ANet-Home or empty \\|\\| 0x00 "
 "\\|\\| SHA-256(body))"
 msgstr ""
+"MAC = HMAC-SHA256(k_sess, \"anet-sess-mac/v1\" \\|\\| 0x00 \\|\\| sid(16)"
+" \\|\\| 0x00 \\|\\| ts(decimal) \\|\\| 0x00 \\|\\| method \\|\\| 0x00 "
+"\\|\\| pathAndQuery \\|\\| 0x00 \\|\\| X-ANet-Home or empty \\|\\| 0x00 "
+"\\|\\| SHA-256(body))"
 
 #: ../../reference/_generated/protocol-labels.inc:52
 msgid "k_sess"
-msgstr ""
+msgstr "k_sess"
 
 #: ../../reference/_generated/protocol-labels.inc:53
 msgid "L9"
-msgstr ""
+msgstr "L9"
 
 #: ../../reference/_generated/protocol-labels.inc:54
 msgid "``anet-dir-hash/v1``"
-msgstr ""
+msgstr "``anet-dir-hash/v1``"
 
 #: ../../reference/_generated/protocol-labels.inc:56
 msgid "h = SHA-256(\"anet-dir-hash/v1\" \\|\\| 0x00 \\|\\| UTF-8(aid))"
-msgstr ""
+msgstr "h = SHA-256(\"anet-dir-hash/v1\" \\|\\| 0x00 \\|\\| UTF-8(aid))"
 
 #: ../../reference/_generated/protocol-labels.inc:58
 msgid "L10"
-msgstr ""
+msgstr "L10"
 
 #: ../../reference/_generated/protocol-labels.inc:59
 msgid "``anet-dir-box/v1``"
-msgstr ""
+msgstr "``anet-dir-box/v1``"
 
 #: ../../reference/_generated/protocol-labels.inc:61
 msgid ""
@@ -855,162 +959,175 @@ msgid ""
 "box/v1\", L = 32); box = nonce(12) \\|\\| ChaCha20-Poly1305(K, nonce, aad"
 " = h, pt = coredet(DirEntry))"
 msgstr ""
+"K = HKDF-SHA256(ikm = UTF-8(aid), salt = empty, info = \"anet-dir-"
+"box/v1\", L = 32); box = nonce(12) \\|\\| ChaCha20-Poly1305(K, nonce, aad"
+" = h, pt = coredet(DirEntry))"
 
 #: ../../reference/_generated/protocol-labels.inc:62
 msgid "derived from the AID"
-msgstr ""
+msgstr "由 AID 派生"
 
 #: ../../reference/_generated/protocol-labels.inc:63
 msgid "L11"
-msgstr ""
+msgstr "L11"
 
 #: ../../reference/_generated/protocol-labels.inc:64
 msgid "``anet-dack/v1``"
-msgstr ""
+msgstr "``anet-dack/v1``"
 
 #: ../../reference/_generated/protocol-labels.inc:66
 msgid ""
 "ack_key = HPKE.Export(layer-1 context, exporter_context = \"anet-"
 "dack/v1\", L = 32)"
 msgstr ""
+"ack_key = HPKE.Export(layer-1 context, exporter_context = \"anet-"
+"dack/v1\", L = 32)"
 
 #: ../../reference/_generated/protocol-labels.inc:67
 msgid "layer-1 HPKE"
-msgstr ""
+msgstr "第一层 HPKE"
 
 #: ../../reference/_generated/protocol-labels.inc:68
 msgid "L12"
-msgstr ""
+msgstr "L12"
 
 #: ../../reference/_generated/protocol-labels.inc:69
 msgid "``anet-dack-handle/v1``"
-msgstr ""
+msgstr "``anet-dack-handle/v1``"
 
 #: ../../reference/_generated/protocol-labels.inc:71
 msgid "handle = HMAC-SHA256(ack_key, \"anet-dack-handle/v1\")[0:16]"
-msgstr ""
+msgstr "handle = HMAC-SHA256(ack_key, \"anet-dack-handle/v1\")[0:16]"
 
 #: ../../reference/_generated/protocol-labels.inc:72
 #: ../../reference/_generated/protocol-labels.inc:77
 #: ../../reference/_generated/protocol-labels.inc:82
 msgid "ack_key"
-msgstr ""
+msgstr "ack_key"
 
 #: ../../reference/_generated/protocol-labels.inc:73
 msgid "L13"
-msgstr ""
+msgstr "L13"
 
 #: ../../reference/_generated/protocol-labels.inc:74
 msgid "``anet-dack-tok/v1``"
-msgstr ""
+msgstr "``anet-dack-tok/v1``"
 
 #: ../../reference/_generated/protocol-labels.inc:76
 msgid "tok(o) = HMAC-SHA256(ack_key, \"anet-dack-tok/v1\" \\|\\| u8(o))[0:16]"
-msgstr ""
+msgstr "tok(o) = HMAC-SHA256(ack_key, \"anet-dack-tok/v1\" \\|\\| u8(o))[0:16]"
 
 #: ../../reference/_generated/protocol-labels.inc:78
 msgid "L14"
-msgstr ""
+msgstr "L14"
 
 #: ../../reference/_generated/protocol-labels.inc:79
 msgid "``anet-dack-note/v1``"
-msgstr ""
+msgstr "``anet-dack-note/v1``"
 
 #: ../../reference/_generated/protocol-labels.inc:81
 msgid ""
 "note_key = HMAC-SHA256(ack_key, \"anet-dack-note/v1\"); the note AEAD aad"
 " is tok(o)"
 msgstr ""
+"note_key = HMAC-SHA256(ack_key, \"anet-dack-note/v1\"); the note AEAD aad"
+" is tok(o)"
 
 #: ../../reference/_generated/protocol-labels.inc:83
 msgid "L15"
-msgstr ""
+msgstr "L15"
 
 #: ../../reference/_generated/protocol-labels.inc:84
 msgid "``anet-enc-kid/v1``"
-msgstr ""
+msgstr "``anet-enc-kid/v1``"
 
 #: ../../reference/_generated/protocol-labels.inc:86
 msgid ""
 "KID = SHA-256(\"anet-enc-kid/v1\" \\|\\| u8(suite) \\|\\| pub)[0:16] (no "
 "0x00; epoch and interaction keys alike)"
 msgstr ""
+"KID = SHA-256(\"anet-enc-kid/v1\" \\|\\| u8(suite) \\|\\| pub)[0:16] (no "
+"0x00; epoch and interaction keys alike)"
 
 #: ../../reference/_generated/protocol-labels.inc:88
 msgid "L16"
-msgstr ""
+msgstr "L16"
 
 #: ../../reference/_generated/protocol-labels.inc:89
 msgid "``anet.enckeys/2``"
-msgstr ""
+msgstr "``anet.enckeys/2``"
 
 #: ../../reference/_generated/protocol-labels.inc:91
 msgid "SignedEncKeySet.sig = Ed25519(identity key, coredet(EncKeySet))"
-msgstr ""
+msgstr "SignedEncKeySet.sig = Ed25519(identity key, coredet(EncKeySet))"
 
 #: ../../reference/_generated/protocol-labels.inc:92
 msgid "identity current key"
-msgstr ""
+msgstr "身份当前密钥"
 
 #: ../../reference/_generated/protocol-labels.inc:93
 msgid "L17"
-msgstr ""
+msgstr "L17"
 
 #: ../../reference/_generated/protocol-labels.inc:94
 msgid "``anet.kel/2``"
-msgstr ""
+msgstr "``anet.kel/2``"
 
 #: ../../reference/_generated/protocol-labels.inc:96
 msgid ""
 "SignedEvent.sig = Ed25519(k, coredet(KeyEvent)); icp by k0, rot and dip "
 "by the key the event reveals"
 msgstr ""
+"SignedEvent.sig = Ed25519(k, coredet(KeyEvent)); icp by k0, rot and dip "
+"by the key the event reveals"
 
 #: ../../reference/_generated/protocol-labels.inc:97
 msgid "identity key"
-msgstr ""
+msgstr "身份密钥"
 
 #: ../../reference/_generated/protocol-labels.inc:98
 msgid "L18"
-msgstr ""
+msgstr "L18"
 
 #: ../../reference/_generated/protocol-labels.inc:99
 msgid "``anet.ksn/1``"
-msgstr ""
+msgstr "``anet.ksn/1``"
 
 #: ../../reference/_generated/protocol-labels.inc:101
 msgid "aobj envelope signature over coredet(NoticeBody)"
-msgstr ""
+msgstr "aobj envelope signature over coredet(NoticeBody)"
 
 #: ../../reference/_generated/protocol-labels.inc:102
 msgid "witness hub identity key"
-msgstr ""
+msgstr "见证 hub 身份密钥"
 
 #: ../../reference/_generated/protocol-labels.inc:103
 msgid "L19"
-msgstr ""
+msgstr "L19"
 
 #: ../../reference/_generated/protocol-labels.inc:104
 msgid "``anet-kel-next/v1``"
-msgstr ""
+msgstr "``anet-kel-next/v1``"
 
 #: ../../reference/_generated/protocol-labels.inc:106
 msgid ""
 "seed(aid, seq) = HKDF-SHA256(ikm = RS, salt = \"anet-kel-next/v1\", info "
 "= UTF-8(aid) \\|\\| 0x00 \\|\\| u64be(seq), L = 32)"
 msgstr ""
+"seed(aid, seq) = HKDF-SHA256(ikm = RS, salt = \"anet-kel-next/v1\", info "
+"= UTF-8(aid) \\|\\| 0x00 \\|\\| u64be(seq), L = 32)"
 
 #: ../../reference/_generated/protocol-labels.inc:107
 msgid "recovery seed RS"
-msgstr ""
+msgstr "恢复种子 RS"
 
 #: ../../reference/_generated/protocol-labels.inc:108
 msgid "L20"
-msgstr ""
+msgstr "L20"
 
 #: ../../reference/_generated/protocol-labels.inc:109
 msgid "``anet.recovery/1``"
-msgstr ""
+msgstr "``anet.recovery/1``"
 
 #: ../../reference/_generated/protocol-labels.inc:111
 #, python-brace-format
@@ -1021,38 +1138,42 @@ msgid ""
 "when kdf = {1: \"local\"}; kdf is inside the aad, so neither mode passes "
 "for the other"
 msgstr ""
+"ct = XChaCha20-Poly1305(key, nonce, RS, aad = coredet(RecoveryBlob "
+"without key 7))；kdf = argon2id 时，key = argon2id(NFC(passphrase), salt, t "
+"= 3, m = 64 MiB, p = 4, 32)；kdf = {1: \"local\"} 时，key 为 "
+"recovery_local.key 的 32 个字节；kdf 位于 aad 之内，因此两种模式不能互相冒充"
 
 #: ../../reference/_generated/protocol-labels.inc:112
 msgid "passphrase-derived key; local recovery key"
-msgstr ""
+msgstr "由口令派生的密钥；本地恢复密钥"
 
 #: ../../reference/_generated/protocol-labels.inc:113
 msgid "L21"
-msgstr ""
+msgstr "L21"
 
 #: ../../reference/_generated/protocol-labels.inc:114
 msgid "``anet.identity/2``; ``anet.mbox/1``"
-msgstr ""
+msgstr "``anet.identity/2``; ``anet.mbox/1``"
 
 #: ../../reference/_generated/protocol-labels.inc:115
 msgid "file"
-msgstr ""
+msgstr "文件"
 
 #: ../../reference/_generated/protocol-labels.inc:116
 msgid "local file type tags; not signed"
-msgstr ""
+msgstr "本地文件类型标记；不签名"
 
 #: ../../reference/_generated/protocol-labels.inc:118
 msgid "L22"
-msgstr ""
+msgstr "L22"
 
 #: ../../reference/_generated/protocol-labels.inc:119
 msgid "``anet-relay/v2/``"
-msgstr ""
+msgstr "``anet-relay/v2/``"
 
 #: ../../reference/_generated/protocol-labels.inc:120
 msgid "text"
-msgstr ""
+msgstr "文本"
 
 #: ../../reference/_generated/protocol-labels.inc:121
 msgid ""
@@ -1060,18 +1181,21 @@ msgid ""
 "decimal(ts) + \"/\" + base64url(SHA-256(method \\|\\| 0x00 \\|\\| "
 "pathAndQuery \\|\\| 0x00 \\|\\| body)); agents and peer hubs alike"
 msgstr ""
+"\"anet-relay/v2/\" + action + \"/\" + aid + \"/\" + hubAID + \"/\" + "
+"decimal(ts) + \"/\" + base64url(SHA-256(method \\|\\| 0x00 \\|\\| "
+"pathAndQuery \\|\\| 0x00 \\|\\| body))；agent 和对端 hub 相同"
 
 #: ../../reference/_generated/protocol-labels.inc:122
 msgid "signer identity current key"
-msgstr ""
+msgstr "签名方身份的当前密钥"
 
 #: ../../reference/_generated/protocol-labels.inc:123
 msgid "L23"
-msgstr ""
+msgstr "L23"
 
 #: ../../reference/_generated/protocol-labels.inc:124
 msgid "``anet-regpow/v1``"
-msgstr ""
+msgstr "``anet-regpow/v1``"
 
 #: ../../reference/_generated/protocol-labels.inc:126
 msgid ""
@@ -1079,182 +1203,201 @@ msgid ""
 "0x00 \\|\\| aid \\|\\| 0x00 \\|\\| seed(32) \\|\\| nonce(<= 32)); >= 22 "
 "leading zero bits"
 msgstr ""
+"pow_hash = SHA-256(\"anet-regpow/v1\" \\|\\| 0x00 \\|\\| hub_aid \\|\\| "
+"0x00 \\|\\| aid \\|\\| 0x00 \\|\\| seed(32) \\|\\| nonce(<= 32)); >= 22 "
+"leading zero bits"
 
 #: ../../reference/_generated/protocol-labels.inc:128
 msgid "L24"
-msgstr ""
+msgstr "L24"
 
 #: ../../reference/_generated/protocol-labels.inc:129
 msgid "``anet-regpow-seed/v1``"
-msgstr ""
+msgstr "``anet-regpow-seed/v1``"
 
 #: ../../reference/_generated/protocol-labels.inc:131
 msgid ""
 "seed = HMAC-SHA256(pow_key, \"anet-regpow-seed/v1\" \\|\\| u64be(floor(ms"
 " / 3 600 000)))"
 msgstr ""
+"seed = HMAC-SHA256(pow_key, \"anet-regpow-seed/v1\" \\|\\| u64be(floor(ms"
+" / 3 600 000)))"
 
 #: ../../reference/_generated/protocol-labels.inc:132
 msgid "pow_key (hub process memory only)"
-msgstr ""
+msgstr "pow_key（仅存在于 hub 进程内存中）"
 
 #: ../../reference/_generated/protocol-labels.inc:133
 msgid "L25"
-msgstr ""
+msgstr "L25"
 
 #: ../../reference/_generated/protocol-labels.inc:134
 msgid "``anet-liab-leaf/v1``"
-msgstr ""
+msgstr "``anet-liab-leaf/v1``"
 
 #: ../../reference/_generated/protocol-labels.inc:136
 msgid ""
 "leaf = SHA-256(\"anet-liab-leaf/v1\" \\|\\| 0x00 \\|\\| salt(32) \\|\\| "
 "coredet(LiabLeafContent))"
 msgstr ""
+"leaf = SHA-256(\"anet-liab-leaf/v1\" \\|\\| 0x00 \\|\\| salt(32) \\|\\| "
+"coredet(LiabLeafContent))"
 
 #: ../../reference/_generated/protocol-labels.inc:138
 msgid "L26"
-msgstr ""
+msgstr "L26"
 
 #: ../../reference/_generated/protocol-labels.inc:139
 msgid "``anet-liab-node/v1``"
-msgstr ""
+msgstr "``anet-liab-node/v1``"
 
 #: ../../reference/_generated/protocol-labels.inc:141
 msgid ""
 "node = SHA-256(\"anet-liab-node/v1\" \\|\\| 0x00 \\|\\| L.h \\|\\| "
 "u64be(L.sum) \\|\\| R.h \\|\\| u64be(R.sum))"
 msgstr ""
+"node = SHA-256(\"anet-liab-node/v1\" \\|\\| 0x00 \\|\\| L.h \\|\\| "
+"u64be(L.sum) \\|\\| R.h \\|\\| u64be(R.sum))"
 
 #: ../../reference/_generated/protocol-labels.inc:143
 msgid "L27"
-msgstr ""
+msgstr "L27"
 
 #: ../../reference/_generated/protocol-labels.inc:144
 msgid "``anet-receipt-ix/v2``"
-msgstr ""
+msgstr "``anet-receipt-ix/v2``"
 
 #: ../../reference/_generated/protocol-labels.inc:146
 msgid ""
 "ix_commit = SHA-256(\"anet-receipt-ix/v2\" \\|\\| 0x00 \\|\\| ix \\|\\| "
 "0x00 \\|\\| anet.nonce); neither holds U+0000"
 msgstr ""
+"ix_commit = SHA-256(\"anet-receipt-ix/v2\" \\|\\| 0x00 \\|\\| ix \\|\\| "
+"0x00 \\|\\| anet.nonce)；二者均不含 U+0000"
 
 #: ../../reference/_generated/protocol-labels.inc:148
 msgid "L28"
-msgstr ""
+msgstr "L28"
 
 #: ../../reference/_generated/protocol-labels.inc:149
 msgid "``anet-receipt-requester/v2``"
-msgstr ""
+msgstr "``anet-receipt-requester/v2``"
 
 #: ../../reference/_generated/protocol-labels.inc:151
 msgid ""
 "requester_commit = SHA-256(\"anet-receipt-requester/v2\" \\|\\| 0x00 "
 "\\|\\| requester_aid \\|\\| 0x00 \\|\\| rsalt(32))"
 msgstr ""
+"requester_commit = SHA-256(\"anet-receipt-requester/v2\" \\|\\| 0x00 "
+"\\|\\| requester_aid \\|\\| 0x00 \\|\\| rsalt(32))"
 
 #: ../../reference/_generated/protocol-labels.inc:153
 msgid "L29"
-msgstr ""
+msgstr "L29"
 
 #: ../../reference/_generated/protocol-labels.inc:154
 msgid "``anet.receipt/2``"
-msgstr ""
+msgstr "``anet.receipt/2``"
 
 #: ../../reference/_generated/protocol-labels.inc:156
 msgid "provider aobj envelope signature over coredet(ReceiptBody)"
-msgstr ""
+msgstr "提供方对 coredet(ReceiptBody) 的 aobj 信封签名"
 
 #: ../../reference/_generated/protocol-labels.inc:157
 msgid "provider identity current key"
-msgstr ""
+msgstr "提供方身份的当前密钥"
 
 #: ../../reference/_generated/protocol-labels.inc:158
 msgid "L30"
-msgstr ""
+msgstr "L30"
 
 #: ../../reference/_generated/protocol-labels.inc:159
 msgid "``anet.review/2``"
-msgstr ""
+msgstr "``anet.review/2``"
 
 #: ../../reference/_generated/protocol-labels.inc:161
 msgid "ReviewWire.sig = Ed25519(review_sk, coredet(ReviewBody))"
-msgstr ""
+msgstr "ReviewWire.sig = Ed25519(review_sk, coredet(ReviewBody))"
 
 #: ../../reference/_generated/protocol-labels.inc:162
 msgid "one-time review key"
-msgstr ""
+msgstr "一次性评价密钥"
 
 #: ../../reference/_generated/protocol-labels.inc:163
 msgid "L31"
-msgstr ""
+msgstr "L31"
 
 #: ../../reference/_generated/protocol-labels.inc:164
 msgid "``anet-review-tag/v1``"
-msgstr ""
+msgstr "``anet-review-tag/v1``"
 
 #: ../../reference/_generated/protocol-labels.inc:166
 msgid ""
 "tag = HMAC-SHA256(hub_tag_key, \"anet-review-tag/v1\" \\|\\| 0x00 \\|\\| "
 "reviewer_aid \\|\\| 0x00 \\|\\| subject_aid)[0:16]"
 msgstr ""
+"tag = HMAC-SHA256(hub_tag_key, \"anet-review-tag/v1\" \\|\\| 0x00 \\|\\| "
+"reviewer_aid \\|\\| 0x00 \\|\\| subject_aid)[0:16]"
 
 #: ../../reference/_generated/protocol-labels.inc:167
 msgid "hub_tag_key"
-msgstr ""
+msgstr "hub_tag_key"
 
 #: ../../reference/_generated/protocol-labels.inc:168
 msgid "L32"
-msgstr ""
+msgstr "L32"
 
 #: ../../reference/_generated/protocol-labels.inc:169
 msgid "``anet.review-att/1``"
-msgstr ""
+msgstr "``anet.review-att/1``"
 
 #: ../../reference/_generated/protocol-labels.inc:171
 msgid "hub aobj envelope signature over coredet(ReviewAttBody)"
-msgstr ""
+msgstr "hub 对 coredet(ReviewAttBody) 的 aobj 信封签名"
 
 #: ../../reference/_generated/protocol-labels.inc:172
 msgid "hub identity key"
-msgstr ""
+msgstr "hub 身份密钥"
 
 #: ../../reference/_generated/protocol-labels.inc:173
 msgid "L33"
-msgstr ""
+msgstr "L33"
 
 #: ../../reference/_generated/protocol-labels.inc:174
 msgid "``anet-settle-guard/v1``"
-msgstr ""
+msgstr "``anet-settle-guard/v1``"
 
 #: ../../reference/_generated/protocol-labels.inc:176
 msgid ""
 "h = SHA-256(\"anet-settle-guard/v1\" \\|\\| 0x00 \\|\\| payer \\|\\| 0x00"
 " \\|\\| pay_bind) (hub local)"
 msgstr ""
+"h = SHA-256(\"anet-settle-guard/v1\" \\|\\| 0x00 \\|\\| payer \\|\\| 0x00"
+" \\|\\| pay_bind) (hub local)"
 
 #: ../../reference/_generated/protocol-labels.inc:178
 msgid "L34"
-msgstr ""
+msgstr "L34"
 
 #: ../../reference/_generated/protocol-labels.inc:179
 msgid "``anet/x402-bind/v1``"
-msgstr ""
+msgstr "``anet/x402-bind/v1``"
 
 #: ../../reference/_generated/protocol-labels.inc:181
 msgid ""
 "PayBind = hex(SHA-256(\"anet/x402-bind/v1\" \\|\\| 0x00 \\|\\| ix \\|\\| "
 "0x00 \\|\\| taskNonce)); an ix or taskNonce holding 0x00 is an error"
 msgstr ""
+"PayBind = hex(SHA-256(\"anet/x402-bind/v1\" \\|\\| 0x00 \\|\\| ix \\|\\| "
+"0x00 \\|\\| taskNonce))；含有 0x00 的 ix 或 taskNonce 属于错误"
 
 #: ../../reference/_generated/protocol-labels.inc:183
 msgid "L35"
-msgstr ""
+msgstr "L35"
 
 #: ../../reference/_generated/protocol-labels.inc:184
 msgid "``anet-local/v1``"
-msgstr ""
+msgstr "``anet-local/v1``"
 
 #: ../../reference/_generated/protocol-labels.inc:186
 #, python-brace-format
@@ -1263,18 +1406,21 @@ msgid ""
 " nonce, plaintext, aad = coredet({1: \"anet-local/v1\", 2: ix, 3: "
 "\"<table>.<column>\"}))"
 msgstr ""
+"本地加密字段：0x01 \\|\\| nonce(12) \\|\\| AES-256-GCM(aead_key, nonce, "
+"plaintext, aad = coredet({1: \"anet-local/v1\", 2: ix, 3: "
+"\"<table>.<column>\"}))"
 
 #: ../../reference/_generated/protocol-labels.inc:187
 msgid "aead_key derived from ix_dek (L36)"
-msgstr ""
+msgstr "由 ix_dek 派生的 aead_key（L36）"
 
 #: ../../reference/_generated/protocol-labels.inc:188
 msgid "L36"
-msgstr ""
+msgstr "L36"
 
 #: ../../reference/_generated/protocol-labels.inc:189
 msgid "``anet-local-aead/v1``; ``anet-local-mac/v1``"
-msgstr ""
+msgstr "``anet-local-aead/v1``; ``anet-local-mac/v1``"
 
 #: ../../reference/_generated/protocol-labels.inc:191
 msgid ""
@@ -1282,30 +1428,33 @@ msgid ""
 "aead/v1\", L = 32); mac_key = HKDF-SHA256(ikm = ix_dek, salt = empty, "
 "info = \"anet-local-mac/v1\", L = 32)"
 msgstr ""
+"aead_key = HKDF-SHA256(ikm = ix_dek, salt = empty, info = \"anet-local-"
+"aead/v1\", L = 32); mac_key = HKDF-SHA256(ikm = ix_dek, salt = empty, "
+"info = \"anet-local-mac/v1\", L = 32)"
 
 #: ../../reference/_generated/protocol-labels.inc:192
 msgid "ix_dek"
-msgstr ""
+msgstr "ix_dek"
 
 #: ../../reference/_generated/protocol-labels.inc:193
 msgid "L37"
-msgstr ""
+msgstr "L37"
 
 #: ../../reference/_generated/protocol-labels.inc:194
 msgid "``anet-client-key/v1``"
-msgstr ""
+msgstr "``anet-client-key/v1``"
 
 #: ../../reference/_generated/protocol-labels.inc:196
 msgid "client_key = SHA-256(\"anet-client-key/v1\" \\|\\| 0x00 \\|\\| messageId)"
-msgstr ""
+msgstr "client_key = SHA-256(\"anet-client-key/v1\" \\|\\| 0x00 \\|\\| messageId)"
 
 #: ../../reference/_generated/protocol-labels.inc:198
 msgid "L38"
-msgstr ""
+msgstr "L38"
 
 #: ../../reference/_generated/protocol-labels.inc:199
 msgid "``anet-client-msg/v1``"
-msgstr ""
+msgstr "``anet-client-msg/v1``"
 
 #: ../../reference/_generated/protocol-labels.inc:201
 msgid ""
@@ -1314,32 +1463,37 @@ msgid ""
 "3.2.3), strings escaped (3.2.2.2), no whitespace, numbers kept as the "
 "client wrote them"
 msgstr ""
+"client_digest = HMAC-SHA256(mac_key, \"anet-client-msg/v1\" \\|\\| 0x00 "
+"\\|\\| canon(normalized content))；canon：成员排序（RFC 8785 "
+"3.2.3），字符串转义（3.2.2.2），无空白，数字保持客户端所写的形式"
 
 #: ../../reference/_generated/protocol-labels.inc:202
 msgid "mac_key derived from ix_dek"
-msgstr ""
+msgstr "由 ix_dek 派生的 mac_key"
 
 #: ../../reference/_generated/protocol-labels.inc:203
 msgid "L39"
-msgstr ""
+msgstr "L39"
 
 #: ../../reference/_generated/protocol-labels.inc:204
 msgid ""
 "``anet.delegate/1``; ``anet.message/1``; ``anet.status/1``; "
 "``anet.result/1``; ``anet.card.get/1``; ``anet.card/1``"
 msgstr ""
+"``anet.delegate/1``; ``anet.message/1``; ``anet.status/1``; "
+"``anet.result/1``; ``anet.card.get/1``; ``anet.card/1``"
 
 #: ../../reference/_generated/protocol-labels.inc:205
 msgid "type"
-msgstr ""
+msgstr "类型"
 
 #: ../../reference/_generated/protocol-labels.inc:206
 msgid "inner type (key 4); not a signing label; inside the signature preimage"
-msgstr ""
+msgstr "内层类型（键 4）；不是签名标签；位于签名原像之内"
 
 #: ../../reference/_generated/protocol-labels.inc:208
 msgid "L40"
-msgstr ""
+msgstr "L40"
 
 #: ../../reference/_generated/protocol-labels.inc:209
 msgid ""
@@ -1347,58 +1501,61 @@ msgid ""
 "``anet-official/1``; ``anet-suite-identity-v1/cur``; ``anet-suite-"
 "identity-v1/nxt``; ``anet-suite-test-key-v1``"
 msgstr ""
+"``anet/localpeer-key/v1``; ``anet-release/1``; ``anet-release/2``; "
+"``anet-official/1``; ``anet-suite-identity-v1/cur``; ``anet-suite-"
+"identity-v1/nxt``; ``anet-suite-test-key-v1``"
 
 #: ../../reference/_generated/protocol-labels.inc:210
 msgid "carried"
-msgstr ""
+msgstr "已携带"
 
 #: ../../reference/_generated/protocol-labels.inc:211
 msgid "unchanged"
-msgstr ""
+msgstr "不变"
 
 #: ../../reference/_generated/protocol-labels.inc:213
 msgid "L41"
-msgstr ""
+msgstr "L41"
 
 #: ../../reference/_generated/protocol-labels.inc:214
 msgid "``anet.org-genesis/1``"
-msgstr ""
+msgstr "``anet.org-genesis/1``"
 
 #: ../../reference/_generated/protocol-labels.inc:216
 msgid "org_id = CID(coredet(OrgGenesis)); not signed"
-msgstr ""
+msgstr "org_id = CID(coredet(OrgGenesis))；不签名"
 
 #: ../../reference/_generated/protocol-labels.inc:218
 msgid "L42"
-msgstr ""
+msgstr "L42"
 
 #: ../../reference/_generated/protocol-labels.inc:219
 msgid "``anet.org-cred/1``"
-msgstr ""
+msgstr "``anet.org-cred/1``"
 
 #: ../../reference/_generated/protocol-labels.inc:221
 msgid "SignedCredential.env signs coredet(OrgCredBody)"
-msgstr ""
+msgstr "SignedCredential.env 对 coredet(OrgCredBody) 签名"
 
 #: ../../reference/_generated/protocol-labels.inc:222
 msgid "issuer identity current key"
-msgstr ""
+msgstr "签发方身份的当前密钥"
 
 #: ../../reference/_generated/protocol-labels.inc:223
 msgid "L43"
-msgstr ""
+msgstr "L43"
 
 #: ../../reference/_generated/protocol-labels.inc:224
 msgid "``anet.cogunit/1``"
-msgstr ""
+msgstr "``anet.cogunit/1``"
 
 #: ../../reference/_generated/protocol-labels.inc:226
 msgid "CogUnitWire.env signs coredet(CogUnitBody)"
-msgstr ""
+msgstr "CogUnitWire.env 对 coredet(CogUnitBody) 签名"
 
 #: ../../reference/_generated/protocol-labels.inc:227
 msgid "author identity current key"
-msgstr ""
+msgstr "作者身份的当前密钥"
 
 #: ../../reference/protocol.rst:348
 msgid ""
@@ -1407,16 +1564,19 @@ msgid ""
 "Rows marked *reserved* have never been assigned; *retired* rows were used"
 " by an earlier release and are refused."
 msgstr ""
+"主要对象的键表。\\ *Presence* 取 *required*\\ （必需）、\\ *optional*\\ （可选）或 "
+"*conditional*\\ （有条件）；有条件成员的说明写明其条件。标为 *reserved* 的行从未分配；*retired* "
+"行曾被早先版本使用，现被拒绝。"
 
 #: ../../reference/_generated/protocol-objects.inc:7
 msgid "SealedEnvelope"
-msgstr ""
+msgstr "SealedEnvelope"
 
 #: ../../reference/_generated/protocol-objects.inc:9
 msgid ""
 "Outer sealed envelope v2, the only part a hub sees. Keys 0-63 must be "
 "understood; >= 64 are kept and digested."
-msgstr ""
+msgstr "外层密封信封 v2，hub 唯一能看到的部分。键 0-63 必须理解；>= 64 的键予以保留并计入摘要。"
 
 #: ../../reference/_generated/protocol-objects.inc:11
 #: ../../reference/_generated/protocol-objects.inc:197
@@ -1424,7 +1584,7 @@ msgstr ""
 msgid ""
 "Key space: keys 0 to 63 must be understood, keys from 64 are kept and "
 "covered by digests."
-msgstr ""
+msgstr "键空间：键 0 至 63 必须理解，从 64 起的键予以保留并计入摘要。"
 
 #: ../../reference/_generated/protocol-objects.inc:18
 #: ../../reference/_generated/protocol-objects.inc:87
@@ -1443,7 +1603,7 @@ msgstr ""
 #: ../../reference/_generated/protocol-objects.inc:769
 #: ../../reference/_generated/protocol-objects.inc:798
 msgid "Name"
-msgstr ""
+msgstr "名称"
 
 #: ../../reference/_generated/protocol-objects.inc:19
 #: ../../reference/_generated/protocol-objects.inc:88
@@ -1462,7 +1622,7 @@ msgstr ""
 #: ../../reference/_generated/protocol-objects.inc:770
 #: ../../reference/_generated/protocol-objects.inc:799
 msgid "Type"
-msgstr ""
+msgstr "类型"
 
 #: ../../reference/_generated/protocol-objects.inc:20
 #: ../../reference/_generated/protocol-objects.inc:89
@@ -1481,7 +1641,7 @@ msgstr ""
 #: ../../reference/_generated/protocol-objects.inc:771
 #: ../../reference/_generated/protocol-objects.inc:800
 msgid "Presence"
-msgstr ""
+msgstr "是否出现"
 
 #: ../../reference/_generated/protocol-objects.inc:21
 #: ../../reference/_generated/protocol-objects.inc:90
@@ -1500,7 +1660,7 @@ msgstr ""
 #: ../../reference/_generated/protocol-objects.inc:772
 #: ../../reference/_generated/protocol-objects.inc:801
 msgid "Notes"
-msgstr ""
+msgstr "说明"
 
 #: ../../reference/_generated/protocol-objects.inc:22
 #: ../../reference/_generated/protocol-objects.inc:154
@@ -1510,7 +1670,7 @@ msgstr ""
 #: ../../reference/_generated/protocol-objects.inc:596
 #: ../../reference/_generated/protocol-objects.inc:724
 msgid "0"
-msgstr ""
+msgstr "0"
 
 #: ../../reference/_generated/protocol-objects.inc:25
 #: ../../reference/_generated/protocol-objects.inc:70
@@ -1524,7 +1684,7 @@ msgstr ""
 #: ../../reference/_generated/protocol-objects.inc:664
 #: ../../reference/_generated/protocol-objects.inc:703
 msgid "reserved"
-msgstr ""
+msgstr "reserved"
 
 #: ../../reference/_generated/protocol-objects.inc:27
 #: ../../reference/_generated/protocol-objects.inc:91
@@ -1543,15 +1703,15 @@ msgstr ""
 #: ../../reference/_generated/protocol-objects.inc:773
 #: ../../reference/_generated/protocol-objects.inc:802
 msgid "1"
-msgstr ""
+msgstr "1"
 
 #: ../../reference/_generated/protocol-objects.inc:28
 msgid "``v``"
-msgstr ""
+msgstr "``v``"
 
 #: ../../reference/_generated/protocol-objects.inc:29
 msgid "uint = 2"
-msgstr ""
+msgstr "uint = 2"
 
 #: ../../reference/_generated/protocol-objects.inc:30
 #: ../../reference/_generated/protocol-objects.inc:35
@@ -1623,11 +1783,11 @@ msgstr ""
 #: ../../reference/_generated/protocol-objects.inc:815
 #: ../../reference/_generated/protocol-objects.inc:820
 msgid "required"
-msgstr ""
+msgstr "required"
 
 #: ../../reference/_generated/protocol-objects.inc:31
 msgid "outer version; anything but 2 is bad-version"
-msgstr ""
+msgstr "外层版本；除 2 以外一律为 bad-version"
 
 #: ../../reference/_generated/protocol-objects.inc:32
 #: ../../reference/_generated/protocol-objects.inc:96
@@ -1646,12 +1806,12 @@ msgstr ""
 #: ../../reference/_generated/protocol-objects.inc:778
 #: ../../reference/_generated/protocol-objects.inc:807
 msgid "2"
-msgstr ""
+msgstr "2"
 
 #: ../../reference/_generated/protocol-objects.inc:33
 #: ../../reference/_generated/protocol-objects.inc:278
 msgid "``to``"
-msgstr ""
+msgstr "``to``"
 
 #: ../../reference/_generated/protocol-objects.inc:34
 #: ../../reference/_generated/protocol-objects.inc:161
@@ -1673,11 +1833,11 @@ msgstr ""
 #: ../../reference/_generated/protocol-objects.inc:804
 #: ../../reference/_generated/protocol-objects.inc:809
 msgid "tstr"
-msgstr ""
+msgstr "tstr"
 
 #: ../../reference/_generated/protocol-objects.inc:36
 msgid "recipient AID"
-msgstr ""
+msgstr "接收方 AID"
 
 #: ../../reference/_generated/protocol-objects.inc:37
 #: ../../reference/_generated/protocol-objects.inc:101
@@ -1693,12 +1853,12 @@ msgstr ""
 #: ../../reference/_generated/protocol-objects.inc:739
 #: ../../reference/_generated/protocol-objects.inc:812
 msgid "3"
-msgstr ""
+msgstr "3"
 
 #: ../../reference/_generated/protocol-objects.inc:38
 #: ../../reference/_generated/protocol-objects.inc:495
 msgid "``suite``"
-msgstr ""
+msgstr "``suite``"
 
 #: ../../reference/_generated/protocol-objects.inc:39
 #: ../../reference/_generated/protocol-objects.inc:64
@@ -1722,13 +1882,13 @@ msgstr ""
 #: ../../reference/_generated/protocol-objects.inc:736
 #: ../../reference/_generated/protocol-objects.inc:746
 msgid "uint"
-msgstr ""
+msgstr "uint"
 
 #: ../../reference/_generated/protocol-objects.inc:41
 msgid ""
 "1 = DHKEM-X25519 / HKDF-SHA256 / ChaCha20-Poly1305; 2 reserved for a "
 "post-quantum suite"
-msgstr ""
+msgstr "1 = DHKEM-X25519 / HKDF-SHA256 / ChaCha20-Poly1305；2 保留给后量子套件"
 
 #: ../../reference/_generated/protocol-objects.inc:42
 #: ../../reference/_generated/protocol-objects.inc:174
@@ -1741,12 +1901,12 @@ msgstr ""
 #: ../../reference/_generated/protocol-objects.inc:744
 #: ../../reference/_generated/protocol-objects.inc:817
 msgid "4"
-msgstr ""
+msgstr "4"
 
 #: ../../reference/_generated/protocol-objects.inc:43
 #: ../../reference/_generated/protocol-objects.inc:490
 msgid "``kid``"
-msgstr ""
+msgstr "``kid``"
 
 #: ../../reference/_generated/protocol-objects.inc:44
 #: ../../reference/_generated/protocol-objects.inc:171
@@ -1754,13 +1914,13 @@ msgstr ""
 #: ../../reference/_generated/protocol-objects.inc:294
 #: ../../reference/_generated/protocol-objects.inc:491
 msgid "bstr (16 bytes)"
-msgstr ""
+msgstr "bstr (16 bytes)"
 
 #: ../../reference/_generated/protocol-objects.inc:46
 msgid ""
 "kid of one of the recipient's encryption epoch keys; never an interaction"
 " key"
-msgstr ""
+msgstr "接收方某个加密纪元密钥的 kid；从不是交互密钥"
 
 #: ../../reference/_generated/protocol-objects.inc:47
 #: ../../reference/_generated/protocol-objects.inc:179
@@ -1772,11 +1932,11 @@ msgstr ""
 #: ../../reference/_generated/protocol-objects.inc:749
 #: ../../reference/_generated/protocol-objects.inc:822
 msgid "5"
-msgstr ""
+msgstr "5"
 
 #: ../../reference/_generated/protocol-objects.inc:48
 msgid "``enc``"
-msgstr ""
+msgstr "``enc``"
 
 #: ../../reference/_generated/protocol-objects.inc:49
 #: ../../reference/_generated/protocol-objects.inc:54
@@ -1789,11 +1949,11 @@ msgstr ""
 #: ../../reference/_generated/protocol-objects.inc:814
 #: ../../reference/_generated/protocol-objects.inc:824
 msgid "bstr"
-msgstr ""
+msgstr "bstr"
 
 #: ../../reference/_generated/protocol-objects.inc:51
 msgid "layer-1 HPKE enc, Nenc bytes"
-msgstr ""
+msgstr "第一层 HPKE enc，Nenc 字节"
 
 #: ../../reference/_generated/protocol-objects.inc:52
 #: ../../reference/_generated/protocol-objects.inc:184
@@ -1802,46 +1962,46 @@ msgstr ""
 #: ../../reference/_generated/protocol-objects.inc:626
 #: ../../reference/_generated/protocol-objects.inc:827
 msgid "6"
-msgstr ""
+msgstr "6"
 
 #: ../../reference/_generated/protocol-objects.inc:53
 msgid "``ct``"
-msgstr ""
+msgstr "``ct``"
 
 #: ../../reference/_generated/protocol-objects.inc:56
 msgid "layer-1 ciphertext; the plaintext is Wrap"
-msgstr ""
+msgstr "第一层密文；明文为 Wrap"
 
 #: ../../reference/_generated/protocol-objects.inc:57
 #: ../../reference/_generated/protocol-objects.inc:297
 #: ../../reference/_generated/protocol-objects.inc:631
 msgid "7"
-msgstr ""
+msgstr "7"
 
 #: ../../reference/_generated/protocol-objects.inc:58
 msgid "``access``"
-msgstr ""
+msgstr "``access``"
 
 #: ../../reference/_generated/protocol-objects.inc:59
 msgid "<Access>"
-msgstr ""
+msgstr "<Access>"
 
 #: ../../reference/_generated/protocol-objects.inc:61
 msgid ""
 "delivery credential; outside the HPKE info, the inner signature and "
 "env_digest"
-msgstr ""
+msgstr "投递凭据；位于 HPKE info、内层签名和 env_digest 之外"
 
 #: ../../reference/_generated/protocol-objects.inc:62
 #: ../../reference/_generated/protocol-objects.inc:302
 #: ../../reference/_generated/protocol-objects.inc:636
 msgid "8"
-msgstr ""
+msgstr "8"
 
 #: ../../reference/_generated/protocol-objects.inc:63
 #: ../../reference/_generated/protocol-objects.inc:303
 msgid "``exp``"
-msgstr ""
+msgstr "``exp``"
 
 #: ../../reference/_generated/protocol-objects.inc:65
 #: ../../reference/_generated/protocol-objects.inc:335
@@ -1851,29 +2011,29 @@ msgstr ""
 #: ../../reference/_generated/protocol-objects.inc:825
 #: ../../reference/_generated/protocol-objects.inc:830
 msgid "optional"
-msgstr ""
+msgstr "optional"
 
 #: ../../reference/_generated/protocol-objects.inc:66
 msgid ""
 "expiry of a one-shot envelope; when present it equals inner key 8 (else "
 "exp-mismatch); queued envelopes never carry it"
-msgstr ""
+msgstr "一次性信封的有效期；存在时等于内层键 8（否则为 exp-mismatch）；排队的信封从不携带它"
 
 #: ../../reference/_generated/protocol-objects.inc:67
 msgid "9 to 63"
-msgstr ""
+msgstr "9 to 63"
 
 #: ../../reference/_generated/protocol-objects.inc:71
 msgid "unknown-critical-field; the hub answers 400 bad_envelope"
-msgstr ""
+msgstr "unknown-critical-field；hub 以 400 bad_envelope 应答"
 
 #: ../../reference/_generated/protocol-objects.inc:76
 msgid "Access"
-msgstr ""
+msgstr "Access"
 
 #: ../../reference/_generated/protocol-objects.inc:78
 msgid "Delivery credential in outer key 7."
-msgstr ""
+msgstr "外层键 7 中的投递凭据。"
 
 #: ../../reference/_generated/protocol-objects.inc:80
 #: ../../reference/_generated/protocol-objects.inc:114
@@ -1885,27 +2045,27 @@ msgstr ""
 #: ../../reference/_generated/protocol-objects.inc:762
 #: ../../reference/_generated/protocol-objects.inc:791
 msgid "Key space: closed, every unregistered key is refused."
-msgstr ""
+msgstr "键空间：封闭，所有未登记的键均被拒绝。"
 
 #: ../../reference/_generated/protocol-objects.inc:92
 msgid "``kind``"
-msgstr ""
+msgstr "``kind``"
 
 #: ../../reference/_generated/protocol-objects.inc:95
 msgid ""
 "0 = first-contact session; 1 = capability; 2 reserved for an anonymous "
 "first-contact token (refused in 0.3.0)"
-msgstr ""
+msgstr "0 = 首次联系会话；1 = 能力；2 保留给匿名首次联系令牌（0.3.0 中被拒绝）"
 
 #: ../../reference/_generated/protocol-objects.inc:97
 #: ../../reference/_generated/protocol-objects.inc:392
 msgid "``cap``"
-msgstr ""
+msgstr "``cap``"
 
 #: ../../reference/_generated/protocol-objects.inc:98
 #: ../../reference/_generated/protocol-objects.inc:393
 msgid "<Cap>"
-msgstr ""
+msgstr "<Cap>"
 
 #: ../../reference/_generated/protocol-objects.inc:99
 #: ../../reference/_generated/protocol-objects.inc:104
@@ -1922,15 +2082,15 @@ msgstr ""
 #: ../../reference/_generated/protocol-objects.inc:654
 #: ../../reference/_generated/protocol-objects.inc:659
 msgid "conditional"
-msgstr ""
+msgstr "conditional"
 
 #: ../../reference/_generated/protocol-objects.inc:100
 msgid "kind = 1; forbidden when kind = 0."
-msgstr ""
+msgstr "kind = 1；kind = 0 时禁止。"
 
 #: ../../reference/_generated/protocol-objects.inc:102
 msgid "``proof``"
-msgstr ""
+msgstr "``proof``"
 
 #: ../../reference/_generated/protocol-objects.inc:103
 #: ../../reference/_generated/protocol-objects.inc:132
@@ -1938,972 +2098,972 @@ msgstr ""
 #: ../../reference/_generated/protocol-objects.inc:574
 #: ../../reference/_generated/protocol-objects.inc:692
 msgid "bstr (64 bytes)"
-msgstr ""
+msgstr "bstr (64 bytes)"
 
 #: ../../reference/_generated/protocol-objects.inc:105
 msgid ""
 "kind = 1; forbidden when kind = 0. proof of possession, Ed25519 by the "
 "holder key (L5)"
-msgstr ""
+msgstr "kind = 1；kind = 0 时禁止。持有证明，由持有者密钥作 Ed25519 签名（L5）"
 
 #: ../../reference/_generated/protocol-objects.inc:110
 msgid "Cap"
-msgstr ""
+msgstr "Cap"
 
 #: ../../reference/_generated/protocol-objects.inc:112
 msgid "Capability as carried on the wire."
-msgstr ""
+msgstr "线路上携带的能力。"
 
 #: ../../reference/_generated/protocol-objects.inc:126
 #: ../../reference/_generated/protocol-objects.inc:224
 #: ../../reference/_generated/protocol-objects.inc:308
 #: ../../reference/_generated/protocol-objects.inc:774
 msgid "``body``"
-msgstr ""
+msgstr "``body``"
 
 #: ../../reference/_generated/protocol-objects.inc:127
 msgid "bstr<CapBody>"
-msgstr ""
+msgstr "bstr<CapBody>"
 
 #: ../../reference/_generated/protocol-objects.inc:129
 msgid "coredet(CapBody)"
-msgstr ""
+msgstr "coredet(CapBody)"
 
 #: ../../reference/_generated/protocol-objects.inc:131
 #: ../../reference/_generated/protocol-objects.inc:348
 #: ../../reference/_generated/protocol-objects.inc:573
 #: ../../reference/_generated/protocol-objects.inc:691
 msgid "``sig``"
-msgstr ""
+msgstr "``sig``"
 
 #: ../../reference/_generated/protocol-objects.inc:134
 msgid "Ed25519 over body by the mailbox signing key"
-msgstr ""
+msgstr "信箱签名密钥对正文的 Ed25519 签名"
 
 #: ../../reference/_generated/protocol-objects.inc:139
 msgid "CapBody"
-msgstr ""
+msgstr "CapBody"
 
 #: ../../reference/_generated/protocol-objects.inc:141
 msgid "Signed body of a capability issued by the recipient."
-msgstr ""
+msgstr "接收方签发的能力的签名正文。"
 
 #: ../../reference/_generated/protocol-objects.inc:143
 msgid ""
 "Type tag ``anet.cap/1``. Key space: closed, every unregistered key is "
 "refused."
-msgstr ""
+msgstr "类型标记 ``anet.cap/1``\\ 。键空间：封闭，所有未登记的键均被拒绝。"
 
 #: ../../reference/_generated/protocol-objects.inc:155
 #: ../../reference/_generated/protocol-objects.inc:441
 #: ../../reference/_generated/protocol-objects.inc:617
 #: ../../reference/_generated/protocol-objects.inc:725
 msgid "``t``"
-msgstr ""
+msgstr "``t``"
 
 #: ../../reference/_generated/protocol-objects.inc:156
 msgid "tstr = anet.cap/1"
-msgstr ""
+msgstr "tstr = anet.cap/1"
 
 #: ../../reference/_generated/protocol-objects.inc:158
 #: ../../reference/_generated/protocol-objects.inc:444
 #: ../../reference/_generated/protocol-objects.inc:728
 msgid "type tag"
-msgstr ""
+msgstr "类型标记"
 
 #: ../../reference/_generated/protocol-objects.inc:160
 msgid "``owner``"
-msgstr ""
+msgstr "``owner``"
 
 #: ../../reference/_generated/protocol-objects.inc:163
 msgid "issuer AID; must equal outer to"
-msgstr ""
+msgstr "签发方 AID；必须等于外层 to"
 
 #: ../../reference/_generated/protocol-objects.inc:165
 #: ../../reference/_generated/protocol-objects.inc:534
 msgid "``epoch``"
-msgstr ""
+msgstr "``epoch``"
 
 #: ../../reference/_generated/protocol-objects.inc:168
 msgid "must equal the owner's current mbox.epoch (>= 1)"
-msgstr ""
+msgstr "必须等于所有者当前的 mbox.epoch（>= 1）"
 
 #: ../../reference/_generated/protocol-objects.inc:170
 msgid "``cap_id``"
-msgstr ""
+msgstr "``cap_id``"
 
 #: ../../reference/_generated/protocol-objects.inc:173
 msgid "random"
-msgstr ""
+msgstr "随机"
 
 #: ../../reference/_generated/protocol-objects.inc:175
 msgid "``class``"
-msgstr ""
+msgstr "``class``"
 
 #: ../../reference/_generated/protocol-objects.inc:178
 msgid "1 = contact; 2 = stranger"
-msgstr ""
+msgstr "1 = contact；2 = stranger"
 
 #: ../../reference/_generated/protocol-objects.inc:180
 msgid "``cap_exp``"
-msgstr ""
+msgstr "``cap_exp``"
 
 #: ../../reference/_generated/protocol-objects.inc:183
 msgid "expiry; accepted window now - 5 min <= cap_exp <= now + 31 days"
-msgstr ""
+msgstr "有效期；接受窗口 now - 5 min <= cap_exp <= now + 31 days"
 
 #: ../../reference/_generated/protocol-objects.inc:185
 msgid "``holder``"
-msgstr ""
+msgstr "``holder``"
 
 #: ../../reference/_generated/protocol-objects.inc:186
 #: ../../reference/_generated/protocol-objects.inc:398
 #: ../../reference/_generated/protocol-objects.inc:540
 #: ../../reference/_generated/protocol-objects.inc:628
 msgid "bstr (32 bytes)"
-msgstr ""
+msgstr "bstr (32 bytes)"
 
 #: ../../reference/_generated/protocol-objects.inc:188
 msgid "holder Ed25519 public key, new for every capability"
-msgstr ""
+msgstr "持有者 Ed25519 公钥，每个能力各用新的"
 
 #: ../../reference/_generated/protocol-objects.inc:193
 msgid "Wrap"
-msgstr ""
+msgstr "Wrap"
 
 #: ../../reference/_generated/protocol-objects.inc:195
 msgid "Layer-1 plaintext. Unknown keys 0-63 are bad-wrap; >= 64 are ignored."
-msgstr ""
+msgstr "第一层明文。键 0-63 中的未知键为 bad-wrap；>= 64 的键被忽略。"
 
 #: ../../reference/_generated/protocol-objects.inc:214
 msgid "``ikid``"
-msgstr ""
+msgstr "``ikid``"
 
 #: ../../reference/_generated/protocol-objects.inc:217
 msgid ""
 "present exactly when there is a second layer, together with key 2. "
 "KID(suite2, rk.pub)"
-msgstr ""
+msgstr "恰好在存在第二层时出现，与键 2 一起。KID(suite2, rk.pub)"
 
 #: ../../reference/_generated/protocol-objects.inc:219
 msgid "``enc2``"
-msgstr ""
+msgstr "``enc2``"
 
 #: ../../reference/_generated/protocol-objects.inc:222
 msgid "with key 1. layer-2 HPKE enc"
-msgstr ""
+msgstr "与键 1 一起。第二层 HPKE enc"
 
 #: ../../reference/_generated/protocol-objects.inc:227
 msgid "layer-2 ciphertext, or coredet(SealedInner) when there is no second layer"
-msgstr ""
+msgstr "第二层密文；无第二层时为 coredet(SealedInner)"
 
 #: ../../reference/_generated/protocol-objects.inc:228
 msgid "4 to 20"
-msgstr ""
+msgstr "4 to 20"
 
 #: ../../reference/_generated/protocol-objects.inc:233
 #: ../../reference/_generated/protocol-objects.inc:352
 msgid "21"
-msgstr ""
+msgstr "21"
 
 #: ../../reference/_generated/protocol-objects.inc:234
 msgid "``pad``"
-msgstr ""
+msgstr "``pad``"
 
 #: ../../reference/_generated/protocol-objects.inc:237
 msgid "all-zero Padme padding: len(coredet(Wrap)) falls on a Padme step"
-msgstr ""
+msgstr "全零 Padme 填充：len(coredet(Wrap)) 落在 Padme 的某一步长上"
 
 #: ../../reference/_generated/protocol-objects.inc:238
 msgid "22 to 63"
-msgstr ""
+msgstr "22 to 63"
 
 #: ../../reference/_generated/protocol-objects.inc:247
 msgid "SealedInner"
-msgstr ""
+msgstr "SealedInner"
 
 #: ../../reference/_generated/protocol-objects.inc:249
 msgid ""
 "Inner signed message v2 (no version field; it takes effect with outer v ="
 " 2)."
-msgstr ""
+msgstr "内层签名消息 v2（无版本字段；随外层 v = 2 生效）。"
 
 #: ../../reference/_generated/protocol-objects.inc:265
 #: ../../reference/_generated/protocol-objects.inc:365
 msgid "forbidden"
-msgstr ""
+msgstr "forbidden"
 
 #: ../../reference/_generated/protocol-objects.inc:266
 msgid "preimage only (label)"
-msgstr ""
+msgstr "仅用于原像（标签）"
 
 #: ../../reference/_generated/protocol-objects.inc:268
 msgid "``from``"
-msgstr ""
+msgstr "``from``"
 
 #: ../../reference/_generated/protocol-objects.inc:271
 msgid "sender AID; no U+0000"
-msgstr ""
+msgstr "发送方 AID；不含 U+0000"
 
 #: ../../reference/_generated/protocol-objects.inc:273
 #: ../../reference/_generated/protocol-objects.inc:568
 msgid "``key_state_seq``"
-msgstr ""
+msgstr "``key_state_seq``"
 
 #: ../../reference/_generated/protocol-objects.inc:276
 msgid "key state the signature uses"
-msgstr ""
+msgstr "签名所用的密钥状态"
 
 #: ../../reference/_generated/protocol-objects.inc:281
 msgid "must equal outer to; no U+0000"
-msgstr ""
+msgstr "必须等于外层 to；不含 U+0000"
 
 #: ../../reference/_generated/protocol-objects.inc:283
 msgid "``type``"
-msgstr ""
+msgstr "``type``"
 
 #: ../../reference/_generated/protocol-objects.inc:286
 msgid "inner type (L39)"
-msgstr ""
+msgstr "内层类型（L39）"
 
 #: ../../reference/_generated/protocol-objects.inc:288
 #: ../../reference/_generated/protocol-objects.inc:407
 msgid "``ix``"
-msgstr ""
+msgstr "``ix``"
 
 #: ../../reference/_generated/protocol-objects.inc:291
 msgid "interaction id; no U+0000"
-msgstr ""
+msgstr "交互标识符；不含 U+0000"
 
 #: ../../reference/_generated/protocol-objects.inc:293
 msgid "``mid``"
-msgstr ""
+msgstr "``mid``"
 
 #: ../../reference/_generated/protocol-objects.inc:296
 msgid "message id; (from, mid) is the replay key"
-msgstr ""
+msgstr "消息标识符；(from, mid) 是重放键"
 
 #: ../../reference/_generated/protocol-objects.inc:298
 #: ../../reference/_generated/protocol-objects.inc:637
 msgid "``ts``"
-msgstr ""
+msgstr "``ts``"
 
 #: ../../reference/_generated/protocol-objects.inc:301
 msgid "send time"
-msgstr ""
+msgstr "发送时间"
 
 #: ../../reference/_generated/protocol-objects.inc:306
 msgid "exp - ts <= 15 days"
-msgstr ""
+msgstr "exp - ts <= 15 days"
 
 #: ../../reference/_generated/protocol-objects.inc:307
 #: ../../reference/_generated/protocol-objects.inc:641
 msgid "9"
-msgstr ""
+msgstr "9"
 
 #: ../../reference/_generated/protocol-objects.inc:311
 msgid "body; the signature preimage holds its SHA-256"
-msgstr ""
+msgstr "正文；签名原像包含其 SHA-256"
 
 #: ../../reference/_generated/protocol-objects.inc:312
 #: ../../reference/_generated/protocol-objects.inc:646
 msgid "10"
-msgstr ""
+msgstr "10"
 
 #: ../../reference/_generated/protocol-objects.inc:313
 #: ../../reference/_generated/protocol-objects.inc:813
 msgid "``kel``"
-msgstr ""
+msgstr "``kel``"
 
 #: ../../reference/_generated/protocol-objects.inc:316
 msgid ""
 "forbidden in preview frames, required in every other type. sender KEL v2,"
 " <= 256 events, <= 64 KiB"
-msgstr ""
+msgstr "预览帧中禁止，其他每种类型中必需。发送方 KEL v2，<= 256 个事件，<= 64 KiB"
 
 #: ../../reference/_generated/protocol-objects.inc:317
 #: ../../reference/_generated/protocol-objects.inc:651
 msgid "11"
-msgstr ""
+msgstr "11"
 
 #: ../../reference/_generated/protocol-objects.inc:318
 #: ../../reference/_generated/protocol-objects.inc:828
 msgid "``notice``"
-msgstr ""
+msgstr "``notice``"
 
 #: ../../reference/_generated/protocol-objects.inc:319
 msgid "[bstr<NoticeWire>]"
-msgstr ""
+msgstr "[bstr<NoticeWire>]"
 
 #: ../../reference/_generated/protocol-objects.inc:321
 msgid ""
 "present exactly when key 10 is. witness notices; exactly one in 0.3.0; "
 "each <= 1024 bytes"
-msgstr ""
+msgstr "恰好在键 10 存在时出现。witness notice；0.3.0 中恰好一个；每个 <= 1024 字节"
 
 #: ../../reference/_generated/protocol-objects.inc:322
 #: ../../reference/_generated/protocol-objects.inc:656
 msgid "12"
-msgstr ""
+msgstr "12"
 
 #: ../../reference/_generated/protocol-objects.inc:323
 #: ../../reference/_generated/protocol-objects.inc:456
 #: ../../reference/_generated/protocol-objects.inc:622
 #: ../../reference/_generated/protocol-objects.inc:818
 msgid "``keys``"
-msgstr ""
+msgstr "``keys``"
 
 #: ../../reference/_generated/protocol-objects.inc:324
 #: ../../reference/_generated/protocol-objects.inc:819
 msgid "bstr<SignedEncKeySet>"
-msgstr ""
+msgstr "bstr<SignedEncKeySet>"
 
 #: ../../reference/_generated/protocol-objects.inc:326
 msgid "forbidden in preview frames, required in every other type."
-msgstr ""
+msgstr "预览帧中禁止，其他每种类型中必需。"
 
 #: ../../reference/_generated/protocol-objects.inc:327
 msgid "13"
-msgstr ""
+msgstr "13"
 
 #: ../../reference/_generated/protocol-objects.inc:331
 msgid "proposed once for a witness KEL; not adopted"
-msgstr ""
+msgstr "为见证 KEL 提出过一次；未采用"
 
 #: ../../reference/_generated/protocol-objects.inc:332
 msgid "14"
-msgstr ""
+msgstr "14"
 
 #: ../../reference/_generated/protocol-objects.inc:333
 msgid "``grant``"
-msgstr ""
+msgstr "``grant``"
 
 #: ../../reference/_generated/protocol-objects.inc:334
 msgid "<Grant>"
-msgstr ""
+msgstr "<Grant>"
 
 #: ../../reference/_generated/protocol-objects.inc:336
 msgid ""
 "forbidden in preview frames, after-the-fact refusal notices and "
 "anet.card/1"
-msgstr ""
+msgstr "预览帧、事后拒绝通知和 anet.card/1 中禁止"
 
 #: ../../reference/_generated/protocol-objects.inc:337
 msgid "15"
-msgstr ""
+msgstr "15"
 
 #: ../../reference/_generated/protocol-objects.inc:338
 msgid "``rk``"
-msgstr ""
+msgstr "``rk``"
 
 #: ../../reference/_generated/protocol-objects.inc:339
 msgid "<RK>"
-msgstr ""
+msgstr "<RK>"
 
 #: ../../reference/_generated/protocol-objects.inc:341
 msgid ""
 "while the sender still holds its interaction key for this interaction. "
 "sender's interaction public key"
-msgstr ""
+msgstr "当发送方仍持有该交互的交互密钥时。发送方的交互公钥"
 
 #: ../../reference/_generated/protocol-objects.inc:342
 msgid "16 to 19"
-msgstr ""
+msgstr "16 to 19"
 
 #: ../../reference/_generated/protocol-objects.inc:347
 msgid "20"
-msgstr ""
+msgstr "20"
 
 #: ../../reference/_generated/protocol-objects.inc:351
 msgid "Ed25519 over the v2 signature preimage (L3)"
-msgstr ""
+msgstr "对 v2 签名原像的 Ed25519 签名（L3）"
 
 #: ../../reference/_generated/protocol-objects.inc:355
 #: ../../reference/_generated/protocol-objects.inc:649
 msgid "retired"
-msgstr ""
+msgstr "retired"
 
 #: ../../reference/_generated/protocol-objects.inc:356
 msgid "was ``pad``. unknown-critical-field"
-msgstr ""
+msgstr "原为 ``pad``\\ 。unknown-critical-field"
 
 #: ../../reference/_generated/protocol-objects.inc:357
 msgid "22 to 29"
-msgstr ""
+msgstr "22 to 29"
 
 #: ../../reference/_generated/protocol-objects.inc:362
 msgid "30 to 34"
-msgstr ""
+msgstr "30 to 34"
 
 #: ../../reference/_generated/protocol-objects.inc:366
 msgid "preimage only (enc1, kid, suite, ikid, enc2)"
-msgstr ""
+msgstr "仅用于原像（enc1, kid, suite, ikid, enc2）"
 
 #: ../../reference/_generated/protocol-objects.inc:367
 msgid "35 to 63"
-msgstr ""
+msgstr "35 to 63"
 
 #: ../../reference/_generated/protocol-objects.inc:376
 msgid "Grant"
-msgstr ""
+msgstr "Grant"
 
 #: ../../reference/_generated/protocol-objects.inc:378
 msgid ""
 "Capability handed to the recipient inside the sealed message (inner key "
 "14)."
-msgstr ""
+msgstr "在密封消息内交给接收方的能力（内层键 14）。"
 
 #: ../../reference/_generated/protocol-objects.inc:397
 msgid "``holder_seed``"
-msgstr ""
+msgstr "``holder_seed``"
 
 #: ../../reference/_generated/protocol-objects.inc:400
 msgid "holder Ed25519 private seed"
-msgstr ""
+msgstr "持有者 Ed25519 私钥种子"
 
 #: ../../reference/_generated/protocol-objects.inc:402
 #: ../../reference/_generated/protocol-objects.inc:808
 msgid "``home``"
-msgstr ""
+msgstr "``home``"
 
 #: ../../reference/_generated/protocol-objects.inc:405
 msgid "issuer's hub AID (a routing hint, not a URL)"
-msgstr ""
+msgstr "签发方的 hub AID（路由提示，不是 URL）"
 
 #: ../../reference/_generated/protocol-objects.inc:410
 msgid ""
 "present: a one-shot capability for this interaction only; must equal "
 "inner ix"
-msgstr ""
+msgstr "存在：仅用于此交互的一次性能力；必须等于内层 ix"
 
 #: ../../reference/_generated/protocol-objects.inc:412
 msgid "``p2p``"
-msgstr ""
+msgstr "``p2p``"
 
 #: ../../reference/_generated/protocol-objects.inc:415
 msgid "issuer's direct address host:port; only with class = 1 and no key 4"
-msgstr ""
+msgstr "签发方的直接地址 host:port；仅与 class = 1 且无键 4 同时使用"
 
 #: ../../reference/_generated/protocol-objects.inc:417
 msgid "``pay``"
-msgstr ""
+msgstr "``pay``"
 
 #: ../../reference/_generated/protocol-objects.inc:418
 #: ../../reference/_generated/protocol-objects.inc:658
 msgid "bool"
-msgstr ""
+msgstr "bool"
 
 #: ../../reference/_generated/protocol-objects.inc:420
 msgid "true: the issuer prices a capability; only without key 4"
-msgstr ""
+msgstr "true：签发方对能力定价；仅在无键 4 时"
 
 #: ../../reference/_generated/protocol-objects.inc:425
 msgid "EncKeySet"
-msgstr ""
+msgstr "EncKeySet"
 
 #: ../../reference/_generated/protocol-objects.inc:427
 msgid "Encryption key set anet.enckeys/2."
-msgstr ""
+msgstr "加密密钥集 anet.enckeys/2。"
 
 #: ../../reference/_generated/protocol-objects.inc:429
 msgid ""
 "Type tag ``anet.enckeys/2``. Key space: closed, every unregistered key is"
 " refused."
-msgstr ""
+msgstr "类型标记 ``anet.enckeys/2``\\ 。键空间：封闭，所有未登记的键均被拒绝。"
 
 #: ../../reference/_generated/protocol-objects.inc:442
 msgid "tstr = anet.enckeys/2"
-msgstr ""
+msgstr "tstr = anet.enckeys/2"
 
 #: ../../reference/_generated/protocol-objects.inc:446
 #: ../../reference/_generated/protocol-objects.inc:602
 #: ../../reference/_generated/protocol-objects.inc:730
 #: ../../reference/_generated/protocol-objects.inc:803
 msgid "``aid``"
-msgstr ""
+msgstr "``aid``"
 
 #: ../../reference/_generated/protocol-objects.inc:451
 #: ../../reference/_generated/protocol-objects.inc:607
 #: ../../reference/_generated/protocol-objects.inc:735
 msgid "``seq``"
-msgstr ""
+msgstr "``seq``"
 
 #: ../../reference/_generated/protocol-objects.inc:454
 msgid ""
 "publication sequence, unix-ms scale; the hub's prev_seq compare-and-swap "
 "uses it"
-msgstr ""
+msgstr "发布序号，Unix 毫秒量级；hub 的 prev_seq 比较并交换使用它"
 
 #: ../../reference/_generated/protocol-objects.inc:457
 msgid "[<EncKey>]"
-msgstr ""
+msgstr "[<EncKey>]"
 
 #: ../../reference/_generated/protocol-objects.inc:459
 msgid "1..32 keys, ascending not_before"
-msgstr ""
+msgstr "1..32 个密钥，not_before 升序"
 
 #: ../../reference/_generated/protocol-objects.inc:461
 msgid "``issued_at``"
-msgstr ""
+msgstr "``issued_at``"
 
 #: ../../reference/_generated/protocol-objects.inc:466
 msgid "``mbox``"
-msgstr ""
+msgstr "``mbox``"
 
 #: ../../reference/_generated/protocol-objects.inc:467
 msgid "<Mbox>"
-msgstr ""
+msgstr "<Mbox>"
 
 #: ../../reference/_generated/protocol-objects.inc:474
 msgid "EncKey"
-msgstr ""
+msgstr "EncKey"
 
 #: ../../reference/_generated/protocol-objects.inc:476
 msgid "One encryption key; not_after - not_before <= 2 days."
-msgstr ""
+msgstr "一个加密密钥；not_after - not_before <= 2 天。"
 
 #: ../../reference/_generated/protocol-objects.inc:500
 #: ../../reference/_generated/protocol-objects.inc:539
 msgid "``pub``"
-msgstr ""
+msgstr "``pub``"
 
 #: ../../reference/_generated/protocol-objects.inc:505
 msgid "``not_before``"
-msgstr ""
+msgstr "``not_before``"
 
 #: ../../reference/_generated/protocol-objects.inc:510
 msgid "``not_after``"
-msgstr ""
+msgstr "``not_after``"
 
 #: ../../reference/_generated/protocol-objects.inc:518
 msgid "Mbox"
-msgstr ""
+msgstr "Mbox"
 
 #: ../../reference/_generated/protocol-objects.inc:520
 msgid "Mailbox signing key in a key set."
-msgstr ""
+msgstr "密钥集中的信箱签名密钥。"
 
 #: ../../reference/_generated/protocol-objects.inc:537
 msgid ">= 1; +1 only when the key changes"
-msgstr ""
+msgstr ">= 1；仅在密钥改变时 +1"
 
 #: ../../reference/_generated/protocol-objects.inc:542
 msgid "Ed25519 public key"
-msgstr ""
+msgstr "Ed25519 公钥"
 
 #: ../../reference/_generated/protocol-objects.inc:547
 msgid "SignedEncKeySet"
-msgstr ""
+msgstr "SignedEncKeySet"
 
 #: ../../reference/_generated/protocol-objects.inc:549
 msgid "A key set and the identity signature over it."
-msgstr ""
+msgstr "一个密钥集及身份对它的签名。"
 
 #: ../../reference/_generated/protocol-objects.inc:563
 msgid "``set``"
-msgstr ""
+msgstr "``set``"
 
 #: ../../reference/_generated/protocol-objects.inc:564
 msgid "bstr<EncKeySet>"
-msgstr ""
+msgstr "bstr<EncKeySet>"
 
 #: ../../reference/_generated/protocol-objects.inc:571
 msgid "must be the active tip of the KEL"
-msgstr ""
+msgstr "必须是 KEL 的活动尖端"
 
 #: ../../reference/_generated/protocol-objects.inc:581
 msgid "KeyEvent"
-msgstr ""
+msgstr "KeyEvent"
 
 #: ../../reference/_generated/protocol-objects.inc:583
 msgid ""
 "KEL v2 event. AID = CID(icp preimage); the icp preimage and stored form "
 "carry no key 1."
-msgstr ""
+msgstr "KEL v2 事件。AID = CID(icp 原像)；icp 原像和存储形式不含键 1。"
 
 #: ../../reference/_generated/protocol-objects.inc:585
 msgid ""
 "Type tag ``anet.kel/2``. Key space: closed, every unregistered key is "
 "refused."
-msgstr ""
+msgstr "类型标记 ``anet.kel/2``\\ 。键空间：封闭，所有未登记的键均被拒绝。"
 
 #: ../../reference/_generated/protocol-objects.inc:597
 msgid "``t_obj``"
-msgstr ""
+msgstr "``t_obj``"
 
 #: ../../reference/_generated/protocol-objects.inc:598
 msgid "tstr = anet.kel/2"
-msgstr ""
+msgstr "tstr = anet.kel/2"
 
 #: ../../reference/_generated/protocol-objects.inc:600
 msgid ""
 "v2 marker and domain separation; a missing or wrong key 0 makes the KEL "
 "unreplayable"
-msgstr ""
+msgstr "v2 标记和域分隔；缺失或错误的键 0 会使 KEL 无法重放"
 
 #: ../../reference/_generated/protocol-objects.inc:605
 msgid "absent in the icp preimage, required otherwise."
-msgstr ""
+msgstr "icp 原像中不存在，其余情况必需。"
 
 #: ../../reference/_generated/protocol-objects.inc:612
 msgid "``prev``"
-msgstr ""
+msgstr "``prev``"
 
 #: ../../reference/_generated/protocol-objects.inc:615
 msgid "absent in icp, required otherwise. previous event id"
-msgstr ""
+msgstr "icp 中不存在，其余情况必需。前一事件标识符"
 
 #: ../../reference/_generated/protocol-objects.inc:620
 msgid "icp, rot or dip"
-msgstr ""
+msgstr "icp, rot or dip"
 
 #: ../../reference/_generated/protocol-objects.inc:623
 msgid "[bstr]"
-msgstr ""
+msgstr "[bstr]"
 
 #: ../../reference/_generated/protocol-objects.inc:625
 msgid "exactly one 32-byte key: k0 for icp, the revealed key for rot and dip"
-msgstr ""
+msgstr "恰好一个 32 字节的密钥：icp 为 k0，rot 和 dip 为所披露的密钥"
 
 #: ../../reference/_generated/protocol-objects.inc:627
 msgid "``next``"
-msgstr ""
+msgstr "``next``"
 
 #: ../../reference/_generated/protocol-objects.inc:630
 msgid "icp and rot; forbidden in dip. SHA-256 of the next public key"
-msgstr ""
+msgstr "icp 和 rot；dip 中禁止。下一个公钥的 SHA-256"
 
 #: ../../reference/_generated/protocol-objects.inc:632
 msgid "``kt``"
-msgstr ""
+msgstr "``kt``"
 
 #: ../../reference/_generated/protocol-objects.inc:633
 msgid "uint = 1"
-msgstr ""
+msgstr "uint = 1"
 
 #: ../../reference/_generated/protocol-objects.inc:640
 msgid "> 0"
-msgstr ""
+msgstr "> 0"
 
 #: ../../reference/_generated/protocol-objects.inc:642
 msgid "``witnesses``"
-msgstr ""
+msgstr "``witnesses``"
 
 #: ../../reference/_generated/protocol-objects.inc:643
 msgid "[tstr]"
-msgstr ""
+msgstr "[tstr]"
 
 #: ../../reference/_generated/protocol-objects.inc:645
 msgid "icp and rot may carry it; forbidden in dip. 0 or 1 witness hub AID"
-msgstr ""
+msgstr "icp 和 rot 可以携带；dip 中禁止。0 或 1 个见证 hub AID"
 
 #: ../../reference/_generated/protocol-objects.inc:650
 msgid "was ``revoked_since``. never used"
-msgstr ""
+msgstr "原为 ``revoked_since``\\ 。从未使用"
 
 #: ../../reference/_generated/protocol-objects.inc:652
 msgid "``toad``"
-msgstr ""
+msgstr "``toad``"
 
 #: ../../reference/_generated/protocol-objects.inc:655
 msgid ""
 "icp and rot, written even when 0; forbidden in dip. 0 for a hub, 1 for an"
 " agent"
-msgstr ""
+msgstr "icp 和 rot，即使为 0 也写入；dip 中禁止。hub 为 0，agent 为 1"
 
 #: ../../reference/_generated/protocol-objects.inc:657
 msgid "``emergency``"
-msgstr ""
+msgstr "``emergency``"
 
 #: ../../reference/_generated/protocol-objects.inc:660
 msgid "rot only, and only true. emergency rotation: zero grace"
-msgstr ""
+msgstr "仅 rot，且仅为 true。紧急轮换：无宽限期"
 
 #: ../../reference/_generated/protocol-objects.inc:661
 msgid "13 to 63"
-msgstr ""
+msgstr "13 to 63"
 
 #: ../../reference/_generated/protocol-objects.inc:670
 msgid "SignedEvent"
-msgstr ""
+msgstr "SignedEvent"
 
 #: ../../reference/_generated/protocol-objects.inc:672
 msgid ""
 "A KEL event with its signature. The raw event bytes must equal "
 "coredet(decoded event)."
-msgstr ""
+msgstr "带签名的 KEL 事件。原始事件字节必须等于 coredet(解码后的事件)。"
 
 #: ../../reference/_generated/protocol-objects.inc:686
 msgid "``event``"
-msgstr ""
+msgstr "``event``"
 
 #: ../../reference/_generated/protocol-objects.inc:687
 msgid "<KeyEvent>"
-msgstr ""
+msgstr "<KeyEvent>"
 
 #: ../../reference/_generated/protocol-objects.inc:696
 msgid "``event_id``"
-msgstr ""
+msgstr "``event_id``"
 
 #: ../../reference/_generated/protocol-objects.inc:699
 msgid "CID of the preimage"
-msgstr ""
+msgstr "原像的 CID"
 
 #: ../../reference/_generated/protocol-objects.inc:704
 msgid "kept for multi-witness receipts"
-msgstr ""
+msgstr "为多见证回执保留"
 
 #: ../../reference/_generated/protocol-objects.inc:709
 msgid "NoticeBody"
-msgstr ""
+msgstr "NoticeBody"
 
 #: ../../reference/_generated/protocol-objects.inc:711
 msgid "Witness notice (key state notice) body."
-msgstr ""
+msgstr "Witness notice（密钥状态通知）正文。"
 
 #: ../../reference/_generated/protocol-objects.inc:713
 msgid ""
 "Type tag ``anet.ksn/1``. Key space: closed, every unregistered key is "
 "refused."
-msgstr ""
+msgstr "类型标记 ``anet.ksn/1``\\ 。键空间：封闭，所有未登记的键均被拒绝。"
 
 #: ../../reference/_generated/protocol-objects.inc:726
 msgid "tstr = anet.ksn/1"
-msgstr ""
+msgstr "tstr = anet.ksn/1"
 
 #: ../../reference/_generated/protocol-objects.inc:733
 msgid "the AID the notice is about"
-msgstr ""
+msgstr "通知所涉及的 AID"
 
 #: ../../reference/_generated/protocol-objects.inc:738
 msgid "tip seq of the KEL the witness holds"
-msgstr ""
+msgstr "见证方所持 KEL 的尖端序号"
 
 #: ../../reference/_generated/protocol-objects.inc:740
 msgid "``head``"
-msgstr ""
+msgstr "``head``"
 
 #: ../../reference/_generated/protocol-objects.inc:743
 msgid "tip event id"
-msgstr ""
+msgstr "尖端事件标识符"
 
 #: ../../reference/_generated/protocol-objects.inc:745
 msgid "``observed_at``"
-msgstr ""
+msgstr "``observed_at``"
 
 #: ../../reference/_generated/protocol-objects.inc:748
 msgid "the witness hub's clock"
-msgstr ""
+msgstr "见证 hub 的时钟"
 
 #: ../../reference/_generated/protocol-objects.inc:750
 msgid "``witness``"
-msgstr ""
+msgstr "``witness``"
 
 #: ../../reference/_generated/protocol-objects.inc:753
 msgid "the signing witness hub AID"
-msgstr ""
+msgstr "签名的见证 hub AID"
 
 #: ../../reference/_generated/protocol-objects.inc:758
 msgid "NoticeWire"
-msgstr ""
+msgstr "NoticeWire"
 
 #: ../../reference/_generated/protocol-objects.inc:760
 msgid "Witness notice on the wire."
-msgstr ""
+msgstr "线路上的 witness notice。"
 
 #: ../../reference/_generated/protocol-objects.inc:775
 msgid "bstr<NoticeBody>"
-msgstr ""
+msgstr "bstr<NoticeBody>"
 
 #: ../../reference/_generated/protocol-objects.inc:779
 msgid "``env``"
-msgstr ""
+msgstr "``env``"
 
 #: ../../reference/_generated/protocol-objects.inc:780
 msgid "<aobj.Envelope>"
-msgstr ""
+msgstr "<aobj.Envelope>"
 
 #: ../../reference/_generated/protocol-objects.inc:782
 msgid "signer_aid must equal witness"
-msgstr ""
+msgstr "signer_aid 必须等于 witness"
 
 #: ../../reference/_generated/protocol-objects.inc:787
 msgid "DirEntry"
-msgstr ""
+msgstr "DirEntry"
 
 #: ../../reference/_generated/protocol-objects.inc:789
 msgid ""
 "Plaintext of a directory box. An entry with an unknown key, or one that "
 "does not open, is skipped."
-msgstr ""
+msgstr "目录盒的明文。含未知键或无法打开的条目会被跳过。"
 
 #: ../../reference/_generated/protocol-objects.inc:811
 msgid "hub AID"
-msgstr ""
+msgstr "hub AID"
 
 #: ../../reference/_generated/protocol-objects.inc:823
 msgid "``card``"
-msgstr ""
+msgstr "``card``"
 
 #: ../../reference/_generated/protocol-objects.inc:826
 msgid "A2A card bytes"
-msgstr ""
+msgstr "A2A 卡片字节"
 
 #: ../../reference/_generated/protocol-objects.inc:829
 msgid "bstr<NoticeWire>"
-msgstr ""
+msgstr "bstr<NoticeWire>"
 
 #: ../../reference/protocol.rst:356
 msgid "Versions"
-msgstr ""
+msgstr "版本"
 
 #: ../../reference/protocol.rst:363
 msgid "0.2"
-msgstr ""
+msgstr "0.2"
 
 #: ../../reference/protocol.rst:364
 msgid "0.3"
-msgstr ""
+msgstr "0.3"
 
 #: ../../reference/protocol.rst:365
 msgid "Release"
-msgstr ""
+msgstr "发布版本"
 
 #: ../../reference/protocol.rst:366
 msgid "ANetCore 0.15, anet 0.2.1"
-msgstr ""
+msgstr "ANetCore 0.15, anet 0.2.1"
 
 #: ../../reference/protocol.rst:367
 msgid "ANetCore 0.16, anet 0.3.0, ANetHub 0.3.0, ANetLink 0.2.0"
-msgstr ""
+msgstr "ANetCore 0.16, anet 0.3.0, ANetHub 0.3.0, ANetLink 0.2.0"
 
 #: ../../reference/protocol.rst:368
 msgid "Hub wire"
-msgstr ""
+msgstr "Hub 线路"
 
 #: ../../reference/protocol.rst:369
 msgid "``X-ANet-Wire: 2``"
-msgstr ""
+msgstr "``X-ANet-Wire: 2``"
 
 #: ../../reference/protocol.rst:370
 msgid "``X-ANet-Wire: 3``"
-msgstr ""
+msgstr "``X-ANet-Wire: 3``"
 
 #: ../../reference/protocol.rst:372
 msgid "``v = 1``"
-msgstr ""
+msgstr "``v = 1``"
 
 #: ../../reference/protocol.rst:373
 msgid "``v = 2``; the credential ``access`` is required and ``exp`` optional"
-msgstr ""
+msgstr "``v = 2``；凭据 ``access`` 必需，``exp`` 可选"
 
 #: ../../reference/protocol.rst:374
 msgid "HPKE label"
-msgstr ""
+msgstr "HPKE 标签"
 
 #: ../../reference/protocol.rst:375
 msgid "``anet-relay/v1``"
-msgstr ""
+msgstr "``anet-relay/v1``"
 
 #: ../../reference/protocol.rst:376
 msgid "``anet-seal/v2``, with ``anet-ix/v2`` for the second layer"
-msgstr ""
+msgstr "``anet-seal/v2``，第二层为 ``anet-ix/v2``"
 
 #: ../../reference/protocol.rst:377
 msgid "Inner signature"
-msgstr ""
+msgstr "内层签名"
 
 #: ../../reference/protocol.rst:378
 msgid "``anet-relay-sig/v1``"
-msgstr ""
+msgstr "``anet-relay-sig/v1``"
 
 #: ../../reference/protocol.rst:380
 msgid "Encryption key set"
-msgstr ""
+msgstr "加密密钥集"
 
 #: ../../reference/protocol.rst:381
 msgid "``anet.enckeys/1``, at most 4 keys of 30 days"
-msgstr ""
+msgstr "``anet.enckeys/1``，最多 4 个密钥，每个 30 天"
 
 #: ../../reference/protocol.rst:382
 msgid "``anet.enckeys/2``, at most 32 keys of 2 days, with the mailbox key"
-msgstr ""
+msgstr "``anet.enckeys/2``，最多 32 个密钥，每个 2 天，带信箱密钥"
 
 #: ../../reference/protocol.rst:383
 msgid "Key event log"
-msgstr ""
+msgstr "密钥事件日志"
 
 #: ../../reference/protocol.rst:384
 msgid "icp, rot, dip, ixn, drt"
-msgstr ""
+msgstr "icp, rot, dip, ixn, drt"
 
 #: ../../reference/protocol.rst:385
 msgid "``anet.kel/2``; icp, rot, dip only"
-msgstr ""
+msgstr "``anet.kel/2``；仅 icp、rot、dip"
 
 #: ../../reference/protocol.rst:386
 msgid "Identity file"
-msgstr ""
+msgstr "身份文件"
 
 #: ../../reference/protocol.rst:387
 msgid "``identity.kel``"
-msgstr ""
+msgstr "``identity.kel``"
 
 #: ../../reference/protocol.rst:388
 msgid "``anet.identity/2``"
-msgstr ""
+msgstr "``anet.identity/2``"
 
 #: ../../reference/protocol.rst:389
 msgid "Direct frames"
-msgstr ""
+msgstr "直接帧"
 
 #: ../../reference/protocol.rst:390
 msgid "``v: 2``"
-msgstr ""
+msgstr "``v: 2``"
 
 #: ../../reference/protocol.rst:391
 msgid "``v: 3``; adds ``dack`` and ``addr``"
-msgstr ""
+msgstr "``v: 3``；增加 ``dack`` 和 ``addr``"
 
 #: ../../reference/protocol.rst:392
 msgid "C1 (ANet to ANetLink)"
-msgstr ""
+msgstr "C1（ANet 到 ANetLink）"
 
 #: ../../reference/protocol.rst:393
 msgid "JSON, ``/v0``"
-msgstr ""
+msgstr "JSON, ``/v0``"
 
 #: ../../reference/protocol.rst:394
 msgid "CBOR only, ``/v1``"
-msgstr ""
+msgstr "仅 CBOR，``/v1``"
 
 #: ../../reference/protocol.rst:395
 msgid "Evidence and payment"
-msgstr ""
+msgstr "证据与支付"
 
 #: ../../reference/protocol.rst:396
 msgid "Receipt and review v1, vouchers"
-msgstr ""
+msgstr "回执和评价 v1、凭证"
 
 #: ../../reference/protocol.rst:397
 msgid "``anet.receipt/2``, ``anet.review/2``, supply epochs; vouchers removed"
-msgstr ""
+msgstr "``anet.receipt/2``\\ 、\\ ``anet.review/2``\\ 、供应纪元；凭证已移除"
 
 #: ../../reference/protocol.rst:398
 msgid "Local data"
-msgstr ""
+msgstr "本地数据"
 
 #: ../../reference/protocol.rst:399
 msgid "no schema version"
-msgstr ""
+msgstr "无模式版本"
 
 #: ../../reference/protocol.rst:400
 msgid "``user_version = 3``; ``enc_keys.cbor`` ``v = 2``"
-msgstr ""
+msgstr "``user_version = 3``; ``enc_keys.cbor`` ``v = 2``"
 
 #: ../../reference/protocol.rst:402
 msgid ""
 "A 0.3 program refuses data and messages of the earlier versions with a "
 "stable reason; there is no migration path (see :doc:`../upgrading`)."
-msgstr ""
+msgstr "0.3 程序会以稳定的原因拒绝早先版本的数据和消息；没有迁移路径（参见 :doc:`../upgrading`）。"
 

@@ -3,7 +3,6 @@
 # This file is distributed under the same license as the ANet package.
 # FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
 #
-#, fuzzy
 msgid ""
 msgstr ""
 "Project-Id-Version: ANet 0.3\n"
@@ -21,7 +20,7 @@ msgstr ""
 
 #: ../../ops/monitoring.rst:4
 msgid "Monitoring"
-msgstr ""
+msgstr "监控"
 
 #: ../../ops/monitoring.rst:6
 msgid ""
@@ -32,14 +31,16 @@ msgid ""
 "page lists the commands, the shape of their output, and the signals that "
 "call for action."
 msgstr ""
+"部署从三个层面进行监控:各节点的状态,由 ``anet status`` 和 ``anet doctor`` 报告;hub 的进程级健康状况,由其"
+" HTTP 端点和日志报告;hub 账本与联邦的状态,由运维子命令报告。本页列出这些命令、输出的形式,以及需要采取行动的信号。"
 
 #: ../../ops/monitoring.rst:18
 msgid "Node"
-msgstr ""
+msgstr "节点"
 
 #: ../../ops/monitoring.rst:21
 msgid "``anet status``"
-msgstr ""
+msgstr "``anet status``"
 
 #: ../../ops/monitoring.rst:23
 msgid ""
@@ -48,102 +49,104 @@ msgid ""
 "arrow. The sentences are the same as those returned by the MCP tool "
 "``node_status`` and the local A2A interface."
 msgstr ""
+"``anet status`` 每个主题输出一行,包含标签、一句话说明,以及(存在下一步操作时)一行以箭头开头的缩进文字。这些语句与 MCP 工具"
+" ``node_status`` 和本地 A2A 接口返回的相同。"
 
 #: ../../ops/monitoring.rst:37
 msgid ""
 "The lines appear in this order, and a line appears only when its "
 "condition holds:"
-msgstr ""
+msgstr "各行按下列顺序出现,且仅在其条件成立时出现:"
 
 #: ../../ops/monitoring.rst:44
 msgid "Topic"
-msgstr ""
+msgstr "主题"
 
 #: ../../ops/monitoring.rst:45
 msgid "Condition and content"
-msgstr ""
+msgstr "条件与内容"
 
 #: ../../ops/monitoring.rst:46
 msgid "``identity``"
-msgstr ""
+msgstr "``identity``"
 
 #: ../../ops/monitoring.rst:47
 msgid ""
 "Unless the node has not joined a hub. The state of the identity: key "
 "confirmed, confirmation ageing, stopped, deactivated."
-msgstr ""
+msgstr "节点已加入 hub 时出现。身份的状态:密钥已确认、确认已过时、已停止、已停用。"
 
 #: ../../ops/monitoring.rst:49
 msgid "``recovery``"
-msgstr ""
+msgstr "``recovery``"
 
 #: ../../ops/monitoring.rst:50
 msgid ""
 "When the identity has no recovery passphrase. Followed by ``→ anet "
 "identity protect``."
-msgstr ""
+msgstr "身份没有恢复口令时出现。后接 ``→ anet identity protect``\\ 。"
 
 #: ../../ops/monitoring.rst:52
 msgid "``hub``"
-msgstr ""
+msgstr "``hub``"
 
 #: ../../ops/monitoring.rst:53
 msgid ""
 "Always. Registered, waiting for admission, retrying, refused, or a wire "
 "version that does not match."
-msgstr ""
+msgstr "始终出现。已注册、等待准入、重试中、被拒绝,或线路协议版本不匹配。"
 
 #: ../../ops/monitoring.rst:55
 msgid "``delivery``"
-msgstr ""
+msgstr "``delivery``"
 
 #: ../../ops/monitoring.rst:56
 msgid "When outbound messages are waiting for confirmation or are stuck."
-msgstr ""
+msgstr "有外发消息在等待确认或已卡住时出现。"
 
 #: ../../ops/monitoring.rst:57
 msgid "``inbound``"
-msgstr ""
+msgstr "``inbound``"
 
 #: ../../ops/monitoring.rst:58
 msgid ""
 "Always. Policy, the number of allowed peers and public capabilities, and "
 "whether auto-reply is on."
-msgstr ""
+msgstr "始终出现。策略、允许的对等方数量和公开能力数量,以及自动回复是否开启。"
 
 #: ../../ops/monitoring.rst:60
 msgid "``sandbox``"
-msgstr ""
+msgstr "``sandbox``"
 
 #: ../../ops/monitoring.rst:61
 msgid "When untrusted or trusted callers are served by a sandbox."
-msgstr ""
+msgstr "不受信任或受信任的调用方由沙箱提供服务时出现。"
 
 #: ../../ops/monitoring.rst:62
 msgid "``payments``"
-msgstr ""
+msgstr "``payments``"
 
 #: ../../ops/monitoring.rst:63
 msgid "Always. Limits and what has been paid today."
-msgstr ""
+msgstr "始终出现。限额以及当日已支付的金额。"
 
 #: ../../ops/monitoring.rst:64
 msgid "``privacy``"
-msgstr ""
+msgstr "``privacy``"
 
 #: ../../ops/monitoring.rst:65
 msgid ""
 "Always. The retention period, or a clock warning, or a detected rollback "
 "of the node's data."
-msgstr ""
+msgstr "始终出现。保留期、时钟警告,或检测到的节点数据回滚。"
 
 #: ../../ops/monitoring.rst:67 ../../ops/monitoring.rst:190
 msgid "``preview``"
-msgstr ""
+msgstr "``preview``"
 
 #: ../../ops/monitoring.rst:68
 msgid "When preview streaming is on."
-msgstr ""
+msgstr "开启预览流式传输时出现。"
 
 #: ../../ops/monitoring.rst:70
 msgid ""
@@ -151,10 +154,12 @@ msgid ""
 "sentences in its ``summary`` member. A node whose daemon is not running "
 "prints a single sentence and the next step, ``anet up``."
 msgstr ""
+"``anet status --json`` 输出完整的状态对象,其 ``summary`` "
+"成员中包含相同的语句。守护进程未运行的节点只输出一句话和下一步操作 ``anet up``\\ 。"
 
 #: ../../ops/monitoring.rst:77
 msgid "``anet doctor``"
-msgstr ""
+msgstr "``anet doctor``"
 
 #: ../../ops/monitoring.rst:79
 msgid ""
@@ -165,52 +170,55 @@ msgid ""
 "sentence; a finding that is not ``ok`` also names the command that "
 "resolves it."
 msgstr ""
+"``anet doctor`` "
+"报告节点已配置的行为以及哪些入口处于开放状态。它读取数据目录,不写入任何内容,也不需要守护进程在运行;需要运行时数据的检查项在守护进程停止时报告 "
+"``unknown``\\ 。每条发现都有标识、状态和一句话说明;状态不是 ``ok`` 的发现还会给出解决问题所用的命令。"
 
 #: ../../ops/monitoring.rst:102
 msgid "The status values are:"
-msgstr ""
+msgstr "状态值如下:"
 
 #: ../../ops/monitoring.rst:104
 msgid "``ok``"
-msgstr ""
+msgstr "``ok``"
 
 #: ../../ops/monitoring.rst:105
 msgid "The check passed."
-msgstr ""
+msgstr "检查通过。"
 
 #: ../../ops/monitoring.rst:106
 msgid "``info``"
-msgstr ""
+msgstr "``info``"
 
 #: ../../ops/monitoring.rst:107
 msgid ""
 "A fact, or a setting that differs from a fresh installation. It is the "
 "operator's choice and does not fail the report."
-msgstr ""
+msgstr "一项事实,或与全新安装不同的设置。这由运维人员自行选择,不会使报告失败。"
 
 #: ../../ops/monitoring.rst:109
 msgid "``warn``"
-msgstr ""
+msgstr "``warn``"
 
 #: ../../ops/monitoring.rst:110
 msgid "An attention-worthy condition that does not stop the node."
-msgstr ""
+msgstr "值得关注但不会使节点停止的情况。"
 
 #: ../../ops/monitoring.rst:111
 msgid "``fail``"
-msgstr ""
+msgstr "``fail``"
 
 #: ../../ops/monitoring.rst:112
 msgid "A condition that breaks the node or exposes a credential."
-msgstr ""
+msgstr "使节点无法工作或暴露凭证的情况。"
 
 #: ../../ops/monitoring.rst:113
 msgid "``unknown``"
-msgstr ""
+msgstr "``unknown``"
 
 #: ../../ops/monitoring.rst:114
 msgid "The check could not be made, usually because the daemon is not running."
-msgstr ""
+msgstr "无法进行检查,通常是因为守护进程未运行。"
 
 #: ../../ops/monitoring.rst:116
 msgid ""
@@ -221,260 +229,266 @@ msgid ""
 "``hint``; ``ok`` is ``false`` when a check failed. The identifiers are "
 "stable."
 msgstr ""
+"任一检查项为 ``fail`` 时退出状态为 ``1``,否则为 ``0``\\ 。使用 ``--json`` 时,报告是单个对象,其 "
+"``schema`` 成员为 ``anet.doctor/1``\\ 。其 ``checks`` 数组包含带有 ``id``\\ 、\\ "
+"``status``\\ 、\\ ``reason``\\ (该语句的代码)、\\ ``detail`` 和 ``hint`` "
+"的对象;有检查失败时 ``ok`` 为 ``false``\\ 。标识保持稳定。"
 
 #: ../../ops/monitoring.rst:128
 msgid "Checks"
-msgstr ""
+msgstr "检查项"
 
 #: ../../ops/monitoring.rst:130
 msgid ""
 "Checks that do not apply to the node's configuration are not shown; for "
 "example the ``sandbox`` checks appear only when a sandbox is in use."
-msgstr ""
+msgstr "不适用于节点当前配置的检查项不会显示;例如只有在使用沙箱时才会出现 ``sandbox`` 检查项。"
 
 #: ../../ops/monitoring.rst:137
 msgid "Identifier"
-msgstr ""
+msgstr "标识"
 
 #: ../../ops/monitoring.rst:138
 msgid "Subject"
-msgstr ""
+msgstr "检查对象"
 
 #: ../../ops/monitoring.rst:139
 msgid "``version``, ``version.signature``"
-msgstr ""
+msgstr "``version``\\ 、\\ ``version.signature``"
 
 #: ../../ops/monitoring.rst:140
 msgid "The version, and whether the binary was installed from a signed release."
-msgstr ""
+msgstr "版本,以及二进制文件是否来自已签名的发布版本。"
 
 #: ../../ops/monitoring.rst:142
 msgid "``modules``"
-msgstr ""
+msgstr "``modules``"
 
 #: ../../ops/monitoring.rst:143
 msgid ""
 "Modules compiled in, and modules turned off in the configuration. A "
 "configuration that refers to a module that is not available is a "
 "``fail``."
-msgstr ""
+msgstr "已编译的模块,以及在配置中关闭的模块。配置引用了不可用的模块时为 ``fail``\\ 。"
 
 #: ../../ops/monitoring.rst:146
 msgid "``config``, ``config.removed``"
-msgstr ""
+msgstr "``config``\\ 、\\ ``config.removed``"
 
 #: ../../ops/monitoring.rst:147
 msgid ""
 "The configuration file: permissions and parseability, and keys that no "
 "longer exist."
-msgstr ""
+msgstr "配置文件:权限与可解析性,以及已不存在的键。"
 
 #: ../../ops/monitoring.rst:149
 msgid "``si5``"
-msgstr ""
+msgstr "``si5``"
 
 #: ../../ops/monitoring.rst:150
 msgid ""
 "The safety defaults of a fresh installation; the keys that differ are "
 "listed."
-msgstr ""
+msgstr "全新安装的安全默认值;列出与之不同的键。"
 
 #: ../../ops/monitoring.rst:152
 msgid "``control``, ``control.token``"
-msgstr ""
+msgstr "``control``\\ 、\\ ``control.token``"
 
 #: ../../ops/monitoring.rst:153
 msgid "The local control plane and its token."
-msgstr ""
+msgstr "本地控制面及其令牌。"
 
 #: ../../ops/monitoring.rst:154
 msgid "``identity``, ``identity.format``"
-msgstr ""
+msgstr "``identity``\\ 、\\ ``identity.format``"
 
 #: ../../ops/monitoring.rst:155
 msgid "The AID, and whether the identity file is readable and of this release."
-msgstr ""
+msgstr "AID,以及身份文件是否可读、是否属于本版本。"
 
 #: ../../ops/monitoring.rst:157
 msgid "``identity.witness``"
-msgstr ""
+msgstr "``identity.witness``"
 
 #: ../../ops/monitoring.rst:158
 msgid ""
 "Whether the hub confirms the node's current key state, and how fresh the "
 "confirmation is. ``fail`` when the confirmation is too old, or when the "
 "identity was stopped or deactivated elsewhere."
-msgstr ""
+msgstr "hub 是否确认了节点当前的密钥状态,以及确认的新旧程度。确认过旧,或身份已在别处停止或停用时为 ``fail``\\ 。"
 
 #: ../../ops/monitoring.rst:161
 msgid "``identity.recovery``"
-msgstr ""
+msgstr "``identity.recovery``"
 
 #: ../../ops/monitoring.rst:162
 msgid ""
 "The recovery file: present, mode ``0600``, or the warning that no "
 "passphrase has been set."
-msgstr ""
+msgstr "恢复文件:是否存在、权限是否为 ``0600``,或尚未设置口令的警告。"
 
 #: ../../ops/monitoring.rst:164
 msgid "``identity.rotation``"
-msgstr ""
+msgstr "``identity.rotation``"
 
 #: ../../ops/monitoring.rst:165
 msgid "A key rotation that has not been confirmed yet."
-msgstr ""
+msgstr "尚未得到确认的密钥轮换。"
 
 #: ../../ops/monitoring.rst:166
 msgid "``hub``, ``hub.probation``"
-msgstr ""
+msgstr "``hub``\\ 、\\ ``hub.probation``"
 
 #: ../../ops/monitoring.rst:167
 msgid "Registration state; probation and the trial credit, if any."
-msgstr ""
+msgstr "注册状态;试用期以及试用额度(如有)。"
 
 #: ../../ops/monitoring.rst:168
 msgid "``delivery.outbox``"
-msgstr ""
+msgstr "``delivery.outbox``"
 
 #: ../../ops/monitoring.rst:169
 msgid "Outbound messages that are stuck or unconfirmed."
-msgstr ""
+msgstr "卡住或尚未确认的外发消息。"
 
 #: ../../ops/monitoring.rst:170
 msgid "``tasks.no_response``"
-msgstr ""
+msgstr "``tasks.no_response``"
 
 #: ../../ops/monitoring.rst:171
 msgid "The time after which a task with no reply from its peer fails."
-msgstr ""
+msgstr "任务在对方没有回复时判定失败的等待时间。"
 
 #: ../../ops/monitoring.rst:172
 msgid "``sender_privacy.*``"
-msgstr ""
+msgstr "``sender_privacy.*``"
 
 #: ../../ops/monitoring.rst:173
 msgid ""
 "The mailbox key, the sessions and delivery credentials, and the hub's "
 "behaviour towards sender hiding."
-msgstr ""
+msgstr "邮箱密钥、会话与投递凭证,以及 hub 对发送方隐藏的处理行为。"
 
 #: ../../ops/monitoring.rst:175
 msgid "``clock``"
-msgstr ""
+msgstr "``clock``"
 
 #: ../../ops/monitoring.rst:176
 msgid "The difference between the computer's clock and the hub's."
-msgstr ""
+msgstr "本机时钟与 hub 时钟的差值。"
 
 #: ../../ops/monitoring.rst:177
 msgid "``keys.epoch``"
-msgstr ""
+msgstr "``keys.epoch``"
 
 #: ../../ops/monitoring.rst:178
 msgid ""
 "Encryption keys published ahead of time, and expired keys kept longer "
 "than necessary."
-msgstr ""
+msgstr "提前发布的加密密钥,以及保留时间超过必要期限的过期密钥。"
 
 #: ../../ops/monitoring.rst:180
 msgid "``retention``"
-msgstr ""
+msgstr "``retention``"
 
 #: ../../ops/monitoring.rst:181
 msgid "The retention period of task content."
-msgstr ""
+msgstr "任务内容的保留期。"
 
 #: ../../ops/monitoring.rst:182
 msgid "``local_state``"
-msgstr ""
+msgstr "``local_state``"
 
 #: ../../ops/monitoring.rst:183
 msgid ""
 "A detected rollback of the node's data in the last 7 days. ``warn`` the "
 "first time, ``fail`` when repeated."
-msgstr ""
+msgstr "最近 7 天内检测到的节点数据回滚。首次为 ``warn``,重复出现时为 ``fail``\\ 。"
 
 #: ../../ops/monitoring.rst:185
 msgid "``inbound``, ``inbound.lists``"
-msgstr ""
+msgstr "``inbound``\\ 、\\ ``inbound.lists``"
 
 #: ../../ops/monitoring.rst:186
 msgid "Inbound policy and lists."
-msgstr ""
+msgstr "入站策略与名单。"
 
 #: ../../ops/monitoring.rst:187
 msgid "``capabilities.*``"
-msgstr ""
+msgstr "``capabilities.*``"
 
 #: ../../ops/monitoring.rst:188
 msgid ""
 "Public capabilities: file handling, in-flight limits, capabilities open "
 "only to lists."
-msgstr ""
+msgstr "公开能力:文件处理、并发上限,以及仅对名单开放的能力。"
 
 #: ../../ops/monitoring.rst:191
 msgid "Preview streaming."
-msgstr ""
+msgstr "预览流式传输。"
 
 #: ../../ops/monitoring.rst:192
 msgid "``payments``, ``payments.audit``, ``payments.reviews``, ``payments.card``"
 msgstr ""
+"``payments``\\ 、\\ ``payments.audit``\\ 、\\ ``payments.reviews``\\ 、\\ "
+"``payments.card``"
 
 #: ../../ops/monitoring.rst:193
 msgid ""
 "Payment limits and payees; the check of the hub's balance proof; reviews "
 "waiting for upload; the extended card that carries prices."
-msgstr ""
+msgstr "付款限额与收款方;对 hub 余额证明的检查;等待上传的评价;携带价格的扩展卡片。"
 
 #: ../../ops/monitoring.rst:195
 msgid "``auto_reply``, ``sandbox``, ``sandbox.*``"
-msgstr ""
+msgstr "``auto_reply``\\ 、\\ ``sandbox``\\ 、\\ ``sandbox.*``"
 
 #: ../../ops/monitoring.rst:196
 msgid ""
 "The auto-reply configuration and, when a sandbox is in use, its "
 "readiness, upstream configuration, network egress, budget and limits."
-msgstr ""
+msgstr "自动回复配置,以及(使用沙箱时)沙箱的就绪状态、上游配置、网络出口、预算和限额。"
 
 #: ../../ops/monitoring.rst:198
 msgid "``backends.peer_check``, ``backend.transport``, ``a2a.backends``"
-msgstr ""
+msgstr "``backends.peer_check``\\ 、\\ ``backend.transport``\\ 、\\ ``a2a.backends``"
 
 #: ../../ops/monitoring.rst:199
 msgid "Backends of the service module."
-msgstr ""
+msgstr "服务模块的后端。"
 
 #: ../../ops/monitoring.rst:200
 msgid "``anetlink.socket``, ``anetlink.publish``"
-msgstr ""
+msgstr "``anetlink.socket``\\ 、\\ ``anetlink.publish``"
 
 #: ../../ops/monitoring.rst:201
 msgid "ANetLink connection and published capabilities."
-msgstr ""
+msgstr "ANetLink 连接与已发布的能力。"
 
 #: ../../ops/monitoring.rst:202
 msgid "``a2a``, ``a2a.port``, ``a2a.token``"
-msgstr ""
+msgstr "``a2a``\\ 、\\ ``a2a.port``\\ 、\\ ``a2a.token``"
 
 #: ../../ops/monitoring.rst:203
 msgid "The local A2A interface."
-msgstr ""
+msgstr "本地 A2A 接口。"
 
 #: ../../ops/monitoring.rst:204
 msgid "``agents``, ``agents.<tool>``, ``hermes.*``"
-msgstr ""
+msgstr "``agents``\\ 、\\ ``agents.<tool>``\\ 、\\ ``hermes.*``"
 
 #: ../../ops/monitoring.rst:205
 msgid "The wiring of coding agents (see :ref:`howto-coding-agents`)."
-msgstr ""
+msgstr "编码 Agent 的接入配置(参见 :ref:`howto-coding-agents`)。"
 
 #: ../../ops/monitoring.rst:206
 msgid "``official``"
-msgstr ""
+msgstr "``official``"
 
 #: ../../ops/monitoring.rst:207
 msgid "The signed list of official agents."
-msgstr ""
+msgstr "已签名的官方 Agent 列表。"
 
 #: ../../ops/monitoring.rst:209
 msgid ""
@@ -483,10 +497,12 @@ msgid ""
 "status``, MCP and the local A2A interface. See :ref:`reference-reason-"
 "codes`."
 msgstr ""
+"每条 ``warn`` 和 ``fail`` 的语句都是原因码表中的一个代码,因此 ``anet status``\\ 、MCP 和本地 A2A "
+"接口会用相同的措辞描述同一事件。参见 :ref:`reference-reason-codes`\\ 。"
 
 #: ../../ops/monitoring.rst:220
 msgid "Logs and records"
-msgstr ""
+msgstr "日志与记录"
 
 #: ../../ops/monitoring.rst:222
 msgid ""
@@ -495,27 +511,30 @@ msgid ""
 "--all`` prints the whole file. A node run by systemd also writes to the "
 "journal. The log holds operational messages and no task content."
 msgstr ""
+"节点在其数据目录中写入 ``daemon.log``\\ 。\\ ``anet logs`` 输出最后 80 行;``anet logs "
+"200`` 输出 200 行,``anet logs --all`` 输出整个文件。由 systemd 运行的节点同时写入 "
+"journal。日志只包含运行信息,不含任何任务内容。"
 
 #: ../../ops/monitoring.rst:227
 msgid ""
 "``anet audit`` reads the node's evidence chain and checks every record. "
 "It needs no daemon."
-msgstr ""
+msgstr "``anet audit`` 读取节点的证据链并检查每条记录,不需要守护进程。"
 
 #: ../../ops/monitoring.rst:238
 msgid "Hub"
-msgstr ""
+msgstr "hub"
 
 #: ../../ops/monitoring.rst:241
 msgid "Endpoints"
-msgstr ""
+msgstr "端点"
 
 #: ../../ops/monitoring.rst:243
 msgid ""
 "``GET /healthz`` reports that the process answers and which build it is. "
 "A deployment script compares the version and commit with the build that "
 "was installed."
-msgstr ""
+msgstr "``GET /healthz`` 报告进程在应答,以及当前是哪个构建。部署脚本将版本和提交与所安装的构建比较。"
 
 #: ../../ops/monitoring.rst:252
 msgid ""
@@ -524,6 +543,8 @@ msgid ""
 "rating and the modules compiled in. A drop to zero in ``agents`` or a "
 "missing module indicates a wrong database or a wrong build."
 msgstr ""
+"``GET /stats`` 报告已注册 Agent 的数量、从联邦对等方获知的 Agent "
+"数量、已发布的收据与评价数量、平均评分以及已编译的模块。\\ ``agents`` 降为零或缺少某个模块,表明使用了错误的数据库或错误的构建。"
 
 #: ../../ops/monitoring.rst:262
 msgid ""
@@ -532,6 +553,8 @@ msgid ""
 "/admin/healthz`` with its version, commit and build time without "
 "authentication."
 msgstr ""
+"``GET /hub/identity`` 返回 hub 的 AID 和密钥历史;AID 在 hub 的整个生命周期内保持不变。运维面对 "
+"``GET /admin/healthz`` 无需认证即返回其版本、提交和构建时间。"
 
 #: ../../ops/monitoring.rst:267
 msgid ""
@@ -540,78 +563,82 @@ msgid ""
 "``/stats`` and the proxy's own error log and metrics, not with a log of "
 "request lines."
 msgstr ""
+"hub 不保留访问日志,反向代理也不得保留(参见 :ref:`ops-hub-proxy`),因此请求量应通过 ``/stats`` "
+"以及代理自身的错误日志和指标来观察,而不是依据请求行日志。"
 
 #: ../../ops/monitoring.rst:273
 msgid "The hub's log"
-msgstr ""
+msgstr "hub 日志"
 
 #: ../../ops/monitoring.rst:275
 msgid ""
 "The hub writes its log to standard error; a systemd unit sends it to the "
 "journal."
-msgstr ""
+msgstr "hub 将日志写入标准错误输出;systemd 单元会把它送入 journal。"
 
 #: ../../ops/monitoring.rst:282
 msgid ""
 "The log has no request lines and names no sender. Lines that call for "
 "attention:"
-msgstr ""
+msgstr "日志中没有请求行,也不指明任何发送方。需要关注的行如下:"
 
 #: ../../ops/monitoring.rst:289
 msgid "Message"
-msgstr ""
+msgstr "消息"
 
 #: ../../ops/monitoring.rst:290
 msgid "Meaning and action"
-msgstr ""
+msgstr "含义与处理"
 
 #: ../../ops/monitoring.rst:291
 msgid "``The hub's recovery passphrase is not set ...``"
-msgstr ""
+msgstr "``The hub's recovery passphrase is not set ...``"
 
 #: ../../ops/monitoring.rst:292
 msgid ""
 "At every start until ``anet-hub identity setup-recovery`` is run (:ref"
 ":`ops-hub-recovery`)."
 msgstr ""
+"在运行 ``anet-hub identity setup-recovery`` 之前,每次启动都会出现(:ref:`ops-hub-"
+"recovery`)。"
 
 #: ../../ops/monitoring.rst:294
 msgid "``hub: ERROR: supply epoch N..M not published: ...``"
-msgstr ""
+msgstr "``hub: ERROR: supply epoch N..M not published: ...``"
 
 #: ../../ops/monitoring.rst:295
 msgid ""
 "The signed supply chain missed an epoch. Check disk space and the "
 "database; the hub retries."
-msgstr ""
+msgstr "已签名的供给链漏发了一个纪元。请检查磁盘空间和数据库;hub 会重试。"
 
 #: ../../ops/monitoring.rst:297
 msgid "``hub: ledger window: deleted N rows past their time``"
-msgstr ""
+msgstr "``hub: ledger window: deleted N rows past their time``"
 
 #: ../../ops/monitoring.rst:298
 msgid "Routine; hourly deletion of ledger rows older than 14 days."
-msgstr ""
+msgstr "常规信息;每小时删除早于 14 天的账本行。"
 
 #: ../../ops/monitoring.rst:299
 msgid "``hub: relay TTL purge deleted N undelivered envelope(s) ...``"
-msgstr ""
+msgstr "``hub: relay TTL purge deleted N undelivered envelope(s) ...``"
 
 #: ../../ops/monitoring.rst:300
 msgid "Routine; envelopes nobody collected."
-msgstr ""
+msgstr "常规信息;无人收取的信封。"
 
 #: ../../ops/monitoring.rst:301
 msgid "``hub: inactive sweep deregistered N account(s) ...``"
-msgstr ""
+msgstr "``hub: inactive sweep deregistered N account(s) ...``"
 
 #: ../../ops/monitoring.rst:302
 msgid "Routine; registered accounts that never collected mail in 7 days."
-msgstr ""
+msgstr "常规信息;7 天内从未收取邮件的已注册账户。"
 
 #: ../../ops/monitoring.rst:303
 msgid "``hub: no key confirmation is signed for an agent until ...``"
-msgstr ""
+msgstr "``hub: no key confirmation is signed for an agent until ...``"
 
 #: ../../ops/monitoring.rst:304
 msgid ""
@@ -619,134 +646,140 @@ msgid ""
 "time (:ref:`ops-backup`). ``hub: every agent is out of the restore "
 "quarantine`` ends it."
 msgstr ""
+"hub 在已恢复的数据库上启动,暂时挂起密钥确认(:ref:`ops-backup`)。出现 ``hub: every agent is out "
+"of the restore quarantine`` 时挂起结束。"
 
 #: ../../ops/monitoring.rst:307
 msgid "``hub: ... treating the database as an older copy``"
-msgstr ""
+msgstr "``hub: ... treating the database as an older copy``"
 
 #: ../../ops/monitoring.rst:308
 msgid "``hub.db`` is older than the counter file; quarantine applies."
-msgstr ""
+msgstr "``hub.db`` 比计数器文件更旧;适用隔离。"
 
 #: ../../ops/monitoring.rst:309
 msgid ""
 "``hub: federation: peer ... serves a key history that contradicts the one"
 " pinned for it``"
 msgstr ""
+"``hub: federation: peer ... serves a key history that contradicts the one"
+" pinned for it``"
 
 #: ../../ops/monitoring.rst:311
 msgid ""
 "A peer's key history was rewritten. The hub keeps the pinned one. Contact"
 " the peer's operator before continuing to trust it."
-msgstr ""
+msgstr "某个对等方的密钥历史被改写。hub 保留已固定的版本。在继续信任该对等方之前,请联系其运营方。"
 
 #: ../../ops/monitoring.rst:313
 msgid "``hub: federation peer ... answered with ..., not hub wire 3``"
-msgstr ""
+msgstr "``hub: federation peer ... answered with ..., not hub wire 3``"
 
 #: ../../ops/monitoring.rst:314
 msgid ""
 "A peer runs another wire version. The hub stops talking to it for a time "
 "and resumes when it upgrades."
-msgstr ""
+msgstr "某个对等方运行的线路协议版本不同。hub 会暂时停止与其通信,待其升级后恢复。"
 
 #: ../../ops/monitoring.rst:316
 msgid "``hub: federation A2A card sync ...: HTTP N``"
-msgstr ""
+msgstr "``hub: federation A2A card sync ...: HTTP N``"
 
 #: ../../ops/monitoring.rst:317
 msgid ""
 "A peer's card stream fails; check reachability and the peer table on both"
 " sides."
-msgstr ""
+msgstr "某个对等方的卡片流失败;请检查连通性以及双方的对等方表。"
 
 #: ../../ops/monitoring.rst:319
 msgid "``hub: cross-hub settlement ... not cleared``"
-msgstr ""
+msgstr "``hub: cross-hub settlement ... not cleared``"
 
 #: ../../ops/monitoring.rst:320
 msgid ""
 "A settlement forwarded to a peer is not completed yet. The merchant "
 "retries; see :ref:`ops-facilitator`."
-msgstr ""
+msgstr "转发给对等方的结算尚未完成。商家会重试;参见 :ref:`ops-facilitator`\\ 。"
 
 #: ../../ops/monitoring.rst:322
 msgid "``hub: fed_settle signed by <AID>: <reason>``"
-msgstr ""
+msgstr "``hub: fed_settle signed by <AID>: <reason>``"
 
 #: ../../ops/monitoring.rst:323
 msgid "A peer's settlement request was refused with that reason."
-msgstr ""
+msgstr "某个对等方的结算请求因所示原因被拒绝。"
 
 #: ../../ops/monitoring.rst:324
 msgid "``SECURITY: ADMIN_TOKEN is a credential this software published ...``"
-msgstr ""
+msgstr "``SECURITY: ADMIN_TOKEN is a credential this software published ...``"
 
 #: ../../ops/monitoring.rst:325
 msgid "Operator plane only. The token is a published value; replace it."
-msgstr ""
+msgstr "仅限运维面。该令牌是已公开的值;请更换。"
 
 #: ../../ops/monitoring.rst:328
 msgid "Operator readouts"
-msgstr ""
+msgstr "运维读数"
 
 #: ../../ops/monitoring.rst:330
 msgid ""
 "These subcommands are cheap and may be run from a monitoring job as the "
 "service account. Each opens the database next to the running hub."
-msgstr ""
+msgstr "这些子命令开销很小,可以由监控任务以服务账户身份运行。每个子命令都会打开与运行中 hub 相同的数据库。"
 
 #: ../../ops/monitoring.rst:337
 msgid "Command"
-msgstr ""
+msgstr "命令"
 
 #: ../../ops/monitoring.rst:338
 msgid "Signal"
-msgstr ""
+msgstr "信号"
 
 #: ../../ops/monitoring.rst:339
 msgid "``anet-hub supply``"
-msgstr ""
+msgstr "``anet-hub supply``"
 
 #: ../../ops/monitoring.rst:340
 msgid ""
 "``outstanding`` against ``issued`` and ``redeemed``; ``latest_epoch`` "
 "advances once per UTC day; ``events_since_publish`` grows between epochs."
 msgstr ""
+"``outstanding`` 与 ``issued``\\ 、\\ ``redeemed`` 的关系;``latest_epoch`` 每个 "
+"UTC 日推进一次;``events_since_publish`` 在两个纪元之间增长。"
 
 #: ../../ops/monitoring.rst:343
 msgid "``anet-hub due``, ``anet-hub supply`` ``due`` / ``owed`` lines"
-msgstr ""
+msgstr "``anet-hub due``,``anet-hub supply`` 的 ``due`` / ``owed`` 行"
 
 #: ../../ops/monitoring.rst:344
 msgid ""
 "Obligations between hubs. A figure that grows without clearing needs "
 "``anet-hub clear`` (:ref:`ops-federation`)."
-msgstr ""
+msgstr "hub 之间的债务。持续增长而未清偿的数额,需要使用 ``anet-hub clear``\\ (:ref:`ops-federation`)。"
 
 #: ../../ops/monitoring.rst:346
 msgid "``anet-hub redemptions``"
-msgstr ""
+msgstr "``anet-hub redemptions``"
 
 #: ../../ops/monitoring.rst:347
 msgid "Redemptions to be handled within 14 days."
-msgstr ""
+msgstr "须在 14 天内处理的兑付记录。"
 
 #: ../../ops/monitoring.rst:348
 msgid "``anet-hub admissions``, ``anet-hub admission``"
-msgstr ""
+msgstr "``anet-hub admissions``\\ 、\\ ``anet-hub admission``"
 
 #: ../../ops/monitoring.rst:349
 msgid "The registration mode and any open sign-up window."
-msgstr ""
+msgstr "注册模式以及当前开放的注册窗口(如有)。"
 
 #: ../../ops/monitoring.rst:350
 msgid "``anet-hub identity status``"
-msgstr ""
+msgstr "``anet-hub identity status``"
 
 #: ../../ops/monitoring.rst:351
 msgid "Recovery passphrase set, recovery file present."
-msgstr ""
+msgstr "恢复口令是否已设置、恢复文件是否存在。"
 
 #: ../../ops/monitoring.rst:353
 msgid ""
@@ -756,20 +789,22 @@ msgid ""
 " and of the data directory's free disk space are the first values to "
 "alarm on."
 msgstr ""
+"运维面的 ``GET /admin/api/overview`` 报告总数、hub 数据库的大小和近期的统计快照,``GET "
+"/admin/api/audit`` 列出管理操作。数据库大小和数据目录所在磁盘的剩余空间,是最先应设置告警的指标。"
 
 #: ../../ops/monitoring.rst:360
 msgid "Probes"
-msgstr ""
+msgstr "探测"
 
 #: ../../ops/monitoring.rst:362
 msgid "A hub probe, to be run every minute from a timer or a monitoring agent:"
-msgstr ""
+msgstr "hub 探测,由定时器或监控 Agent 每分钟运行一次:"
 
 #: ../../ops/monitoring.rst:374
 msgid ""
 "A node probe, run as the node's account (the wrapper of :ref:`ops-"
 "deployment`):"
-msgstr ""
+msgstr "节点探测,以节点账户的身份运行(使用 :ref:`ops-deployment` 中的包装脚本):"
 
 #: ../../ops/monitoring.rst:383
 msgid ""
@@ -777,16 +812,18 @@ msgid ""
 "exit status alone suffices where a shell condition is enough. Alarm on "
 "the following, at least:"
 msgstr ""
+"任一检查项失败时,``anet doctor`` 以状态 1 退出,因此在只需 shell "
+"条件判断的场景中,仅凭退出状态即可。至少应对下列情形设置告警:"
 
 #: ../../ops/monitoring.rst:387
 msgid ""
 "a hub whose ``/healthz`` does not answer through the public name, or "
 "whose version differs from the installed one;"
-msgstr ""
+msgstr "hub 的 ``/healthz`` 无法通过公开域名应答,或其版本与所安装的版本不同;"
 
 #: ../../ops/monitoring.rst:389
 msgid "free disk space on the data directory of a hub below 15 percent;"
-msgstr ""
+msgstr "hub 数据目录的剩余磁盘空间低于 15%;"
 
 #: ../../ops/monitoring.rst:390
 msgid ""
@@ -795,12 +832,14 @@ msgid ""
 "elsewhere) and ``local_state`` (a repeated rollback, which means a second"
 " copy of the identity);"
 msgstr ""
+"节点的 ``doctor`` 报告 ``fail``,尤其是 ``identity.witness``\\ (确认过旧,或身份已在别处停止)和 "
+"``local_state``\\ (重复回滚,意味着存在该身份的第二份副本);"
 
 #: ../../ops/monitoring.rst:394
 msgid "a missing daily maintenance run (``roll.log`` not updated in 36 hours);"
-msgstr ""
+msgstr "缺少每日维护任务的运行(``roll.log`` 超过 36 小时未更新);"
 
 #: ../../ops/monitoring.rst:395
 msgid "``supply`` whose ``latest_epoch`` does not advance for more than a day."
-msgstr ""
+msgstr "``supply`` 的 ``latest_epoch`` 超过一天未推进。"
 

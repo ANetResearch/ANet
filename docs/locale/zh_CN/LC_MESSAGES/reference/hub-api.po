@@ -3,7 +3,6 @@
 # This file is distributed under the same license as the ANet package.
 # FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
 #
-#, fuzzy
 msgid ""
 msgstr ""
 "Project-Id-Version: ANet 0.3\n"
@@ -21,7 +20,7 @@ msgstr ""
 
 #: ../../reference/hub-api.rst:4
 msgid "Hub HTTP API"
-msgstr ""
+msgstr "hub HTTP API"
 
 #: ../../reference/hub-api.rst:6
 msgid ""
@@ -32,22 +31,25 @@ msgid ""
 "content of a task: every message that it carries is a sealed envelope "
 "(see :doc:`protocol`)."
 msgstr ""
+"hub 是一个 HTTP 服务，负责注册 agent，在 agent 之间中继密封信封，发布目录，并维护它所发行 credits 的账本。本页记录"
+" hub 线路版本 3 的 API，该版本由 ANetHub 0.3 提供，并由 ``anet`` 守护进程使用。hub "
+"从不接触任务内容：它承载的每条消息都是密封信封（参见 :doc:`protocol`）。"
 
 #: ../../reference/hub-api.rst:18
 msgid "Wire version"
-msgstr ""
+msgstr "线路版本"
 
 #: ../../reference/hub-api.rst:20
 msgid ""
 "Every request to a hub and every response carry the header ``X-ANet-Wire:"
 " 3``. The hub applies these rules."
-msgstr ""
+msgstr "发往 hub 的每个请求和 hub 的每个响应都带有头 ``X-ANet-Wire: 3``\\ 。hub 适用以下规则。"
 
 #: ../../reference/hub-api.rst:23
 msgid ""
 "A caller that declares a version above 3 is refused on every route with "
 "status 400 and the code ``wire_too_new``."
-msgstr ""
+msgstr "声明版本高于 3 的调用方，在所有路由上都会被拒绝，状态为 400，原因码为 ``wire_too_new``\\ 。"
 
 #: ../../reference/hub-api.rst:25
 msgid ""
@@ -57,6 +59,9 @@ msgid ""
 "``required_wire`` and ``required_anet``. Read-only ``GET`` routes that "
 "serve browsers accept a missing header."
 msgstr ""
+"声明版本低于 3 或未发送该头的调用方，在所有 ``POST`` 路由、所有 ``/relay/*`` 路由和所有 ``/fed/*`` "
+"路由上都会被拒绝，状态为 426，原因码为 ``wire_too_old``\\ 。响应体带有 ``required_wire`` 和 "
+"``required_anet``\\ 。面向浏览器的只读 ``GET`` 路由接受缺失该头的请求。"
 
 #: ../../reference/hub-api.rst:30
 msgid ""
@@ -65,6 +70,8 @@ msgid ""
 " response without the header (for example an error page of a proxy in "
 "front of the hub) does not stop communication."
 msgstr ""
+"守护进程收到 426，或收到 ``X-ANet-Wire`` 不为 3 的响应时，会停止与该 hub 通信，并在 ``anet status`` "
+"中报告原因。没有该头的响应（例如 hub 之前代理的错误页面）不会使通信停止。"
 
 #: ../../reference/hub-api.rst:49
 msgid ""
@@ -72,10 +79,12 @@ msgid ""
 " use a 0.3 hub, and a 0.3 daemon cannot use a 0.2 hub. See "
 ":doc:`../upgrading`."
 msgstr ""
+"0.3 与 0.2 双向不兼容：0.2 守护进程无法使用 0.3 hub，0.3 守护进程也无法使用 0.2 hub。参见 "
+":doc:`../upgrading`\\ 。"
 
 #: ../../reference/hub-api.rst:54
 msgid "Requests and responses"
-msgstr ""
+msgstr "请求与响应"
 
 #: ../../reference/hub-api.rst:56
 msgid ""
@@ -87,32 +96,35 @@ msgid ""
 " known path with another method, with status 404 and the code "
 "``not_found``."
 msgstr ""
+"除非明确说明某路由承载原始字节，请求体和响应体均为 JSON。JSON 中的二进制值使用不带填充的 base64url。除非另有说明，时间为 "
+"Unix 毫秒。请求按严格方式解码：未知成员、重复成员或类型错误的值，都会以 ``bad_request`` "
+"拒绝。对未知路径，或已知路径上的其他方法，hub 以状态 404 和原因码 ``not_found`` 应答。"
 
 #: ../../reference/hub-api.rst:64
 msgid "Errors"
-msgstr ""
+msgstr "错误"
 
 #: ../../reference/hub-api.rst:66
 msgid "Every refusal has the same body, with one HTTP status per code:"
-msgstr ""
+msgstr "每次拒绝的响应体形式相同，每个原因码对应一个 HTTP 状态："
 
 #: ../../reference/hub-api.rst:72
 msgid "``reason``"
-msgstr ""
+msgstr "``reason``"
 
 #: ../../reference/hub-api.rst:73
 msgid "The code. All codes are listed in :ref:`hub-api-codes`."
-msgstr ""
+msgstr "原因码。所有原因码列于 :ref:`hub-api-codes`\\ 。"
 
 #: ../../reference/hub-api.rst:75
 msgid "``error``"
-msgstr ""
+msgstr "``error``"
 
 #: ../../reference/hub-api.rst:76
 msgid ""
 "One English sentence that states what happened and what to do. After the "
 "semicolon comes the next step."
-msgstr ""
+msgstr "一句英文，说明发生了什么以及应做什么。分号之后是下一步。"
 
 #: ../../reference/hub-api.rst:79
 msgid ""
@@ -122,53 +134,56 @@ msgid ""
 "response with status 429, 502, 503 or 507 carries ``Retry-After`` in "
 "seconds."
 msgstr ""
+"部分原因码带有其他成员，列于原因码表中（例如 ``keys_rollback`` 带 "
+"``stored_seq``，``pow_required`` 带 ``challenge``，``bucket_too_narrow`` 带 "
+"``max_bits``）。状态为 429、502、503 或 507 的响应带有以秒计的 ``Retry-After``\\ 。"
 
 #: ../../reference/hub-api.rst:84
 msgid ""
 "The sentences of a hub are in English only. The daemon maps hub codes to "
 "the sentences of its own reason table, in the language of the node (see "
 ":doc:`reason-codes`)."
-msgstr ""
+msgstr "hub 的语句仅有英文。守护进程把 hub 的原因码映射到自己原因表中的语句，语言取决于节点（参见 :doc:`reason-codes`）。"
 
 #: ../../reference/hub-api.rst:89
 msgid "Headers"
-msgstr ""
+msgstr "头"
 
 #: ../../reference/_generated/hub-headers.inc:8
 msgid "Header"
-msgstr ""
+msgstr "头"
 
 #: ../../reference/_generated/hub-headers.inc:9
 msgid "Direction"
-msgstr ""
+msgstr "方向"
 
 #: ../../reference/_generated/hub-headers.inc:10
 msgid "Where"
-msgstr ""
+msgstr "适用位置"
 
 #: ../../reference/_generated/hub-headers.inc:11
 msgid "Value"
-msgstr ""
+msgstr "值"
 
 #: ../../reference/_generated/hub-headers.inc:12
 msgid "``X-ANet-Wire``"
-msgstr ""
+msgstr "``X-ANet-Wire``"
 
 #: ../../reference/_generated/hub-headers.inc:13
 msgid "request and response"
-msgstr ""
+msgstr "请求和响应"
 
 #: ../../reference/_generated/hub-headers.inc:14
 msgid "every hub request and response"
-msgstr ""
+msgstr "每个 hub 请求和响应"
 
 #: ../../reference/_generated/hub-headers.inc:15
 msgid "3"
-msgstr ""
+msgstr "3"
 
 #: ../../reference/_generated/hub-headers.inc:16
 msgid "``X-ANet-AID``"
-msgstr ""
+msgstr "``X-ANet-AID``"
 
 #: ../../reference/_generated/hub-headers.inc:17
 #: ../../reference/_generated/hub-headers.inc:21
@@ -180,138 +195,138 @@ msgstr ""
 #: ../../reference/_generated/hub-headers.inc:45
 #: ../../reference/_generated/hub-headers.inc:57
 msgid "request"
-msgstr ""
+msgstr "请求"
 
 #: ../../reference/_generated/hub-headers.inc:18
 msgid "relayauth routes, /fed/v3/\\* included"
-msgstr ""
+msgstr "relayauth 路由，包括 /fed/v3/\\*"
 
 #: ../../reference/_generated/hub-headers.inc:19
 msgid "signer AID"
-msgstr ""
+msgstr "签名方 AID"
 
 #: ../../reference/_generated/hub-headers.inc:20
 msgid "``X-ANet-TS``"
-msgstr ""
+msgstr "``X-ANet-TS``"
 
 #: ../../reference/_generated/hub-headers.inc:22
 msgid "relayauth routes; kind-0 /relay/send"
-msgstr ""
+msgstr "relayauth 路由；kind-0 /relay/send"
 
 #: ../../reference/_generated/hub-headers.inc:23
 #: ../../reference/_generated/hub-headers.inc:51
 msgid "unix ms"
-msgstr ""
+msgstr "Unix 毫秒"
 
 #: ../../reference/_generated/hub-headers.inc:24
 msgid "``X-ANet-Seq``"
-msgstr ""
+msgstr "``X-ANet-Seq``"
 
 #: ../../reference/_generated/hub-headers.inc:26
 #: ../../reference/_generated/hub-headers.inc:30
 msgid "relayauth routes"
-msgstr ""
+msgstr "relayauth 路由"
 
 #: ../../reference/_generated/hub-headers.inc:27
 msgid "key_state_seq"
-msgstr ""
+msgstr "key_state_seq"
 
 #: ../../reference/_generated/hub-headers.inc:28
 msgid "``X-ANet-Sig``"
-msgstr ""
+msgstr "``X-ANet-Sig``"
 
 #: ../../reference/_generated/hub-headers.inc:31
 msgid "signature over the L22 preimage"
-msgstr ""
+msgstr "对 L22 原像的签名"
 
 #: ../../reference/_generated/hub-headers.inc:32
 msgid "``X-ANet-Access``"
-msgstr ""
+msgstr "``X-ANet-Access``"
 
 #: ../../reference/_generated/hub-headers.inc:34
 #: ../../reference/_generated/hub-headers.inc:58
 msgid "/relay/send, /fed/v3/forward"
-msgstr ""
+msgstr "/relay/send, /fed/v3/forward"
 
 #: ../../reference/_generated/hub-headers.inc:35
 msgid "base64url(coredet(Access)), byte-equal to outer key 7, <= 1 KiB"
-msgstr ""
+msgstr "base64url(coredet(Access))，与外层键 7 字节相等，不超过 1 KiB"
 
 #: ../../reference/_generated/hub-headers.inc:36
 msgid "``X-ANet-Session``"
-msgstr ""
+msgstr "``X-ANet-Session``"
 
 #: ../../reference/_generated/hub-headers.inc:38
 #: ../../reference/_generated/hub-headers.inc:42
 msgid "kind-0 /relay/send"
-msgstr ""
+msgstr "kind-0 /relay/send"
 
 #: ../../reference/_generated/hub-headers.inc:39
 msgid "sid, 16 bytes, base64url"
-msgstr ""
+msgstr "sid，16 字节，base64url"
 
 #: ../../reference/_generated/hub-headers.inc:40
 msgid "``X-ANet-MAC``"
-msgstr ""
+msgstr "``X-ANet-MAC``"
 
 #: ../../reference/_generated/hub-headers.inc:43
 msgid "session MAC, 32 bytes, base64url (L8)"
-msgstr ""
+msgstr "会话 MAC，32 字节，base64url（L8）"
 
 #: ../../reference/_generated/hub-headers.inc:44
 msgid "``X-ANet-Home``"
-msgstr ""
+msgstr "``X-ANet-Home``"
 
 #: ../../reference/_generated/hub-headers.inc:46
 msgid "/relay/send, optional"
-msgstr ""
+msgstr "/relay/send，可选"
 
 #: ../../reference/_generated/hub-headers.inc:47
 msgid "hub AID"
-msgstr ""
+msgstr "hub AID"
 
 #: ../../reference/_generated/hub-headers.inc:48
 msgid "``X-ANet-TS-Floor``"
-msgstr ""
+msgstr "``X-ANet-TS-Floor``"
 
 #: ../../reference/_generated/hub-headers.inc:49
 #: ../../reference/_generated/hub-headers.inc:53
 msgid "response"
-msgstr ""
+msgstr "响应"
 
 #: ../../reference/_generated/hub-headers.inc:50
 msgid "401 ts_stale only, after the signature verified"
-msgstr ""
+msgstr "仅 401 ts_stale，在签名验证之后"
 
 #: ../../reference/_generated/hub-headers.inc:52
 msgid "``Retry-After``"
-msgstr ""
+msgstr "``Retry-After``"
 
 #: ../../reference/_generated/hub-headers.inc:54
 msgid "429, 502, 503 and refusals that wait"
-msgstr ""
+msgstr "429、502、503 以及需要等待的拒绝"
 
 #: ../../reference/_generated/hub-headers.inc:55
 msgid "seconds"
-msgstr ""
+msgstr "秒"
 
 #: ../../reference/_generated/hub-headers.inc:56
 msgid "``Content-Type``"
-msgstr ""
+msgstr "``Content-Type``"
 
 #: ../../reference/_generated/hub-headers.inc:59
 msgid "application/vnd.anet.envelope+cbor"
-msgstr ""
+msgstr "application/vnd.anet.envelope+cbor"
 
 #: ../../reference/_generated/hub-endpoints.inc:9
 #: ../../reference/_generated/hub-fed-endpoints.inc:9
 #: ../../reference/hub-api.rst:95
 msgid "Authentication"
-msgstr ""
+msgstr "认证"
 
 #: ../../reference/hub-api.rst:97
 msgid "Three kinds of access exist."
-msgstr ""
+msgstr "访问分为三种。"
 
 #: ../../reference/hub-api.rst:99
 msgid ""
@@ -322,6 +337,9 @@ msgid ""
 " which the hub resolves from the key event log that it holds, and covers "
 "the text"
 msgstr ""
+"**签名请求（relayauth）。** 为已注册 agent 或对端 hub 行事的路由，通过对请求的签名进行认证。调用方发送 ``X"
+"-ANet-AID``\\ 、\\ ``X-ANet-TS``\\ 、\\ ``X-ANet-Seq`` 和 ``X-ANet-Sig``\\ "
+"。签名使用签名方当前的身份密钥生成，hub 从自己持有的密钥事件日志中解析该密钥，签名覆盖以下文本"
 
 #: ../../reference/hub-api.rst:109
 msgid ""
@@ -335,6 +353,10 @@ msgid ""
 "request of the signer with ``ts_stale`` (the response header ``X-ANet-TS-"
 "Floor`` then states the floor)."
 msgstr ""
+"其中 ``<ts>`` 为十进制时间。动作对应路由（见下文的动作表），因此对一个路由的签名在另一个路由上无效。hub "
+"身份是该文本的一部分，因此对一个 hub 的签名在另一个 hub 上无效。用签名方此后已轮换掉的密钥生成的签名，会以 "
+"``key_retired`` 拒绝；其他任何失败均为 ``unauthorized``\\ 。重用签名的请求以 ``replayed`` "
+"拒绝；不晚于签名方上一个已接受请求的请求以 ``ts_stale`` 拒绝（此时响应头 ``X-ANet-TS-Floor`` 给出下限）。"
 
 #: ../../reference/hub-api.rst:118
 msgid ""
@@ -344,6 +366,10 @@ msgid ""
 "anonymous route that sends ``X-ANet-AID``, ``X-ANet-Seq`` or ``X-ANet-"
 "Sig`` is refused with ``identity_headers_not_allowed``."
 msgstr ""
+"**匿名路由。** 路由 ``/relay/send``\\ （用于能力）、\\ ``/relay/status`` 和 "
+"``/directory:bucket`` 不携带发送方身份，发布公开数据的 ``GET`` 路由也是如此。向匿名路由发送 ``X-ANet-"
+"AID``\\ 、\\ ``X-ANet-Seq`` 或 ``X-ANet-Sig`` 的请求，会以 "
+"``identity_headers_not_allowed`` 拒绝。"
 
 #: ../../reference/hub-api.rst:124
 msgid ""
@@ -357,37 +383,41 @@ msgid ""
 "the capability's holder key for that very envelope. A capability names no"
 " sender. See :doc:`protocol`."
 msgstr ""
+"**投递凭据。** 发给接收方的消息，凭信封中两种凭据之一被接纳。首次联系在 *会话* 之下进行，发送方通过向 "
+"``/relay/session`` 发送签名请求来打开会话；向 ``/relay/send`` 的请求随后在 ``X-ANet-"
+"Session`` 和 ``X-ANet-MAC`` 中带上会话标识符和 MAC。之后的每条消息都在接收方签发并以其信箱密钥签名的 *能力* "
+"之下发送；发送方针对该信封本身证明其持有该能力的持有者密钥。能力不指明发送方。参见 :doc:`protocol`\\ 。"
 
 #: ../../reference/hub-api.rst:134
 msgid "Actions"
-msgstr ""
+msgstr "动作"
 
 #: ../../reference/_generated/relayauth-actions.inc:8
 msgid "Action"
-msgstr ""
+msgstr "动作"
 
 #: ../../reference/_generated/relayauth-actions.inc:9
 #: ../../reference/hub-api.rst:278
 msgid "Route"
-msgstr ""
+msgstr "路由"
 
 #: ../../reference/_generated/relayauth-actions.inc:10
 msgid "Signer"
-msgstr ""
+msgstr "签名方"
 
 #: ../../reference/_generated/hub-reasons.inc:9
 #: ../../reference/_generated/relayauth-actions.inc:11
 msgid "Status"
-msgstr ""
+msgstr "状态"
 
 #: ../../reference/_generated/relayauth-actions.inc:12
 msgid "``poll``"
-msgstr ""
+msgstr "``poll``"
 
 #: ../../reference/_generated/hub-endpoints.inc:23
 #: ../../reference/_generated/relayauth-actions.inc:13
 msgid "``POST /relay/poll``"
-msgstr ""
+msgstr "``POST /relay/poll``"
 
 #: ../../reference/_generated/relayauth-actions.inc:14
 #: ../../reference/_generated/relayauth-actions.inc:18
@@ -402,7 +432,7 @@ msgstr ""
 #: ../../reference/_generated/relayauth-actions.inc:54
 #: ../../reference/_generated/relayauth-actions.inc:58
 msgid "agent"
-msgstr ""
+msgstr "agent"
 
 #: ../../reference/_generated/relayauth-actions.inc:15
 #: ../../reference/_generated/relayauth-actions.inc:19
@@ -426,144 +456,144 @@ msgstr ""
 #: ../../reference/_generated/relayauth-actions.inc:91
 #: ../../reference/_generated/relayauth-actions.inc:95
 msgid "active"
-msgstr ""
+msgstr "active"
 
 #: ../../reference/_generated/relayauth-actions.inc:16
 msgid "``ack``"
-msgstr ""
+msgstr "``ack``"
 
 #: ../../reference/_generated/hub-endpoints.inc:28
 #: ../../reference/_generated/relayauth-actions.inc:17
 msgid "``POST /relay/ack``"
-msgstr ""
+msgstr "``POST /relay/ack``"
 
 #: ../../reference/_generated/relayauth-actions.inc:20
 msgid "``register``"
-msgstr ""
+msgstr "``register``"
 
 #: ../../reference/_generated/hub-endpoints.inc:48
 #: ../../reference/_generated/relayauth-actions.inc:21
 msgid "``POST /register``"
-msgstr ""
+msgstr "``POST /register``"
 
 #: ../../reference/_generated/relayauth-actions.inc:24
 msgid "``profile``"
-msgstr ""
+msgstr "``profile``"
 
 #: ../../reference/_generated/relayauth-actions.inc:25
 #: ../../reference/hub-api.rst:282
 msgid "``POST /profile``"
-msgstr ""
+msgstr "``POST /profile``"
 
 #: ../../reference/_generated/relayauth-actions.inc:28
 msgid "``visibility``"
-msgstr ""
+msgstr "``visibility``"
 
 #: ../../reference/_generated/relayauth-actions.inc:29
 msgid "``POST /visibility``"
-msgstr ""
+msgstr "``POST /visibility``"
 
 #: ../../reference/_generated/relayauth-actions.inc:32
 msgid "``deregister``"
-msgstr ""
+msgstr "``deregister``"
 
 #: ../../reference/_generated/relayauth-actions.inc:33
 msgid "``POST /deregister``"
-msgstr ""
+msgstr "``POST /deregister``"
 
 #: ../../reference/_generated/relayauth-actions.inc:36
 msgid "``balance``"
-msgstr ""
+msgstr "``balance``"
 
 #: ../../reference/_generated/hub-endpoints.inc:93
 #: ../../reference/_generated/relayauth-actions.inc:37
 #, python-brace-format
 msgid "``GET /agents/{aid}/balance``"
-msgstr ""
+msgstr "``GET /agents/{aid}/balance``"
 
 #: ../../reference/_generated/relayauth-actions.inc:40
 msgid "``ledger``"
-msgstr ""
+msgstr "``ledger``"
 
 #: ../../reference/_generated/hub-endpoints.inc:98
 #: ../../reference/_generated/relayauth-actions.inc:41
 #, python-brace-format
 msgid "``GET /agents/{aid}/ledger``"
-msgstr ""
+msgstr "``GET /agents/{aid}/ledger``"
 
 #: ../../reference/_generated/relayauth-actions.inc:44
 msgid "``redemptions``"
-msgstr ""
+msgstr "``redemptions``"
 
 #: ../../reference/_generated/hub-endpoints.inc:103
 #: ../../reference/_generated/relayauth-actions.inc:45
 #, python-brace-format
 msgid "``GET /agents/{aid}/redemptions``"
-msgstr ""
+msgstr "``GET /agents/{aid}/redemptions``"
 
 #: ../../reference/_generated/relayauth-actions.inc:48
 msgid "``keys``"
-msgstr ""
+msgstr "``keys``"
 
 #: ../../reference/_generated/hub-endpoints.inc:53
 #: ../../reference/_generated/relayauth-actions.inc:49
 #, python-brace-format
 msgid "``POST /agents/{aid}/keys``"
-msgstr ""
+msgstr "``POST /agents/{aid}/keys``"
 
 #: ../../reference/_generated/relayauth-actions.inc:52
 msgid "``session``"
-msgstr ""
+msgstr "``session``"
 
 #: ../../reference/_generated/hub-endpoints.inc:13
 #: ../../reference/_generated/relayauth-actions.inc:53
 msgid "``POST /relay/session``"
-msgstr ""
+msgstr "``POST /relay/session``"
 
 #: ../../reference/_generated/relayauth-actions.inc:56
 msgid "``revoke``"
-msgstr ""
+msgstr "``revoke``"
 
 #: ../../reference/_generated/hub-endpoints.inc:38
 #: ../../reference/_generated/relayauth-actions.inc:57
 msgid "``POST /mailbox/revoke``"
-msgstr ""
+msgstr "``POST /mailbox/revoke``"
 
 #: ../../reference/_generated/relayauth-actions.inc:60
 msgid "``review``"
-msgstr ""
+msgstr "``review``"
 
 #: ../../reference/_generated/hub-endpoints.inc:113
 #: ../../reference/_generated/relayauth-actions.inc:61
 msgid "``POST /reviews``"
-msgstr ""
+msgstr "``POST /reviews``"
 
 #: ../../reference/_generated/relayauth-actions.inc:62
 msgid "agent (the reviewer)"
-msgstr ""
+msgstr "agent（评价者）"
 
 #: ../../reference/_generated/relayauth-actions.inc:64
 msgid "``liab_proof``"
-msgstr ""
+msgstr "``liab_proof``"
 
 #: ../../reference/_generated/hub-endpoints.inc:108
 #: ../../reference/_generated/relayauth-actions.inc:65
 #, python-brace-format
 msgid "``GET /agents/{aid}/liability-proof``"
-msgstr ""
+msgstr "``GET /agents/{aid}/liability-proof``"
 
 #: ../../reference/_generated/relayauth-actions.inc:66
 msgid "agent (itself)"
-msgstr ""
+msgstr "agent（自身）"
 
 #: ../../reference/_generated/relayauth-actions.inc:68
 msgid "``fed_forward``"
-msgstr ""
+msgstr "``fed_forward``"
 
 #: ../../reference/_generated/hub-fed-endpoints.inc:13
 #: ../../reference/_generated/relayauth-actions.inc:69
 msgid "``POST /fed/v3/forward``"
-msgstr ""
+msgstr "``POST /fed/v3/forward``"
 
 #: ../../reference/_generated/relayauth-actions.inc:70
 #: ../../reference/_generated/relayauth-actions.inc:74
@@ -573,89 +603,89 @@ msgstr ""
 #: ../../reference/_generated/relayauth-actions.inc:90
 #: ../../reference/_generated/relayauth-actions.inc:94
 msgid "peer hub"
-msgstr ""
+msgstr "对端 hub"
 
 #: ../../reference/_generated/relayauth-actions.inc:72
 msgid "``fed_bucket``"
-msgstr ""
+msgstr "``fed_bucket``"
 
 #: ../../reference/_generated/hub-fed-endpoints.inc:18
 #: ../../reference/_generated/relayauth-actions.inc:73
 msgid "``POST /fed/v3/directory:bucket``"
-msgstr ""
+msgstr "``POST /fed/v3/directory:bucket``"
 
 #: ../../reference/_generated/relayauth-actions.inc:76
 msgid "``fed_status``"
-msgstr ""
+msgstr "``fed_status``"
 
 #: ../../reference/_generated/hub-fed-endpoints.inc:23
 #: ../../reference/_generated/relayauth-actions.inc:77
 msgid "``POST /fed/v3/relay-status``"
-msgstr ""
+msgstr "``POST /fed/v3/relay-status``"
 
 #: ../../reference/_generated/relayauth-actions.inc:80
 msgid "``fed_settle``"
-msgstr ""
+msgstr "``fed_settle``"
 
 #: ../../reference/_generated/hub-fed-endpoints.inc:28
 #: ../../reference/_generated/relayauth-actions.inc:81
 msgid "``POST /fed/v3/settle``"
-msgstr ""
+msgstr "``POST /fed/v3/settle``"
 
 #: ../../reference/_generated/relayauth-actions.inc:84
 msgid "``fed_reviews``"
-msgstr ""
+msgstr "``fed_reviews``"
 
 #: ../../reference/_generated/hub-fed-endpoints.inc:33
 #: ../../reference/_generated/relayauth-actions.inc:85
 msgid "``GET /fed/v3/reviews``"
-msgstr ""
+msgstr "``GET /fed/v3/reviews``"
 
 #: ../../reference/_generated/relayauth-actions.inc:88
 msgid "``fed_cards``"
-msgstr ""
+msgstr "``fed_cards``"
 
 #: ../../reference/_generated/hub-fed-endpoints.inc:38
 #: ../../reference/_generated/relayauth-actions.inc:89
 msgid "``GET /fed/v3/cards``"
-msgstr ""
+msgstr "``GET /fed/v3/cards``"
 
 #: ../../reference/_generated/relayauth-actions.inc:92
 msgid "``fed_clear``"
-msgstr ""
+msgstr "``fed_clear``"
 
 #: ../../reference/_generated/hub-fed-endpoints.inc:43
 #: ../../reference/_generated/relayauth-actions.inc:93
 msgid "``POST /fed/v3/clear``"
-msgstr ""
+msgstr "``POST /fed/v3/clear``"
 
 #: ../../reference/_generated/relayauth-actions.inc:96
 msgid "``send``"
-msgstr ""
+msgstr "``send``"
 
 #: ../../reference/_generated/relayauth-actions.inc:99
 #: ../../reference/_generated/relayauth-actions.inc:103
 #: ../../reference/_generated/relayauth-actions.inc:107
 msgid "retired"
-msgstr ""
+msgstr "retired"
 
 #: ../../reference/_generated/relayauth-actions.inc:100
 msgid "``p2p``"
-msgstr ""
+msgstr "``p2p``"
 
 #: ../../reference/_generated/relayauth-actions.inc:104
 msgid "``fedkeys``"
-msgstr ""
+msgstr "``fedkeys``"
 
 #: ../../reference/hub-api.rst:140
 msgid "Relay"
-msgstr ""
+msgstr "中继"
 
 #: ../../reference/hub-api.rst:142
 msgid ""
 "The relay accepts sealed envelopes into the mailbox of the recipient, "
 "serves the mailbox to its owner and answers questions about delivery."
-msgstr ""
+msgstr "中继将密封信封接纳到接收方的信箱，向信箱所有者提供信箱，并回答有关投递的询问。"
 
 #: ../../reference/hub-api.rst:145
 msgid ""
@@ -665,6 +695,9 @@ msgid ""
 " the sender asks later whether the envelope was collected. The answer "
 "carries no message identifier and no warning."
 msgstr ""
+"``POST /relay/send`` 接受原始信封字节，内容类型为 "
+"``application/vnd.anet.envelope+cbor``\\ 。应答包含 ``status``\\ （``queued`` 或"
+" ``duplicate``）和 ``rid``，后者是随机标识符，发送方之后可凭它询问信封是否已被取走。应答不带消息标识符，也不带警告。"
 
 #: ../../reference/hub-api.rst:150
 msgid ""
@@ -673,12 +706,14 @@ msgid ""
 "notice of the signer in ``key_state_notice``. Envelopes whose expiry has "
 "passed are not returned."
 msgstr ""
+"``POST /relay/poll`` 返回签名方信箱中 ``after_id`` 之后最多 ``limit`` 个信封。应答可在 "
+"``key_state_notice`` 中携带签名方当前的 witness notice。已过期的信封不会返回。"
 
 #: ../../reference/hub-api.rst:153
 msgid ""
 "``POST /relay/ack`` removes envelopes from the mailbox. An item may carry"
 " the delivery confirmation (``dack``) that the hub stores for the sender."
-msgstr ""
+msgstr "``POST /relay/ack`` 从信箱中移除信封。条目可以携带送达确认（``dack``），由 hub 为发送方保存。"
 
 #: ../../reference/hub-api.rst:155
 msgid ""
@@ -686,12 +721,14 @@ msgid ""
 "was collected. An item answers ``queued``, ``done`` (with the ``dack``) "
 "or ``unknown``. The hub keeps a delivery confirmation for 7 days."
 msgstr ""
+"``POST /relay/status`` 让发送方匿名询问某信封是否已被取走。条目的应答为 ``queued``\\ 、\\ "
+"``done``\\ （带 ``dack``）或 ``unknown``\\ 。hub 将送达确认保存 7 天。"
 
 #: ../../reference/hub-api.rst:158
 msgid ""
 "``POST /mailbox/revoke`` lets a mailbox owner revoke capabilities it "
 "issued."
-msgstr ""
+msgstr "``POST /mailbox/revoke`` 让信箱所有者撤销其签发的能力。"
 
 #: ../../reference/hub-api.rst:162
 msgid ""
@@ -704,10 +741,15 @@ msgid ""
 "and 64 MiB from senders that are not its contacts; the operator can raise"
 " these values for a single recipient with ``anet-hub quota``."
 msgstr ""
+"默认情况下，每个接收方的信箱最多容纳 5000 个信封和 1 GiB（超过则返回状态 507），单个信封最大 96 MiB（超过则返回状态 "
+"413），未投递的信封最长保留 14 天（标志见 "
+":doc:`cli`）。尚不是接收方联系人的发送方发来的消息，经由单独的通道通过。默认情况下，一个接收方每分钟接受 30 "
+"次首次联系，并接受非联系人发来的最多 500 条消息和 64 MiB；运营人员可以用 ``anet-hub quota`` "
+"为单个接收方提高这些值。"
 
 #: ../../reference/hub-api.rst:172
 msgid "Endpoints of the registry"
-msgstr ""
+msgstr "注册表中的端点"
 
 #: ../../reference/hub-api.rst:174
 msgid ""
@@ -717,152 +759,156 @@ msgid ""
 "marks it optional. A route with an empty cell has no code beyond the "
 "common ones."
 msgstr ""
+"本节的表格由 ``docs/_tools/gen_wire_tables.py`` 根据线路格式的登记表（ANetCore 中的 "
+"``wire/registry.json``）生成。成员名称后的问号表示该成员可选。单元格为空的路由，除通用原因码外没有其他原因码。"
 
 #: ../../reference/_generated/hub-endpoints.inc:8
 #: ../../reference/_generated/hub-fed-endpoints.inc:8
 msgid "Endpoint"
-msgstr ""
+msgstr "端点"
 
 #: ../../reference/_generated/hub-endpoints.inc:10
 #: ../../reference/_generated/hub-fed-endpoints.inc:10
 msgid "Request members"
-msgstr ""
+msgstr "请求成员"
 
 #: ../../reference/_generated/hub-endpoints.inc:11
 #: ../../reference/_generated/hub-fed-endpoints.inc:11
 msgid "Response members"
-msgstr ""
+msgstr "响应成员"
 
 #: ../../reference/_generated/hub-endpoints.inc:12
 #: ../../reference/_generated/hub-fed-endpoints.inc:12
 msgid "Route-specific codes"
-msgstr ""
+msgstr "路由专有的原因码"
 
 #: ../../reference/_generated/hub-endpoints.inc:14
 msgid "relayauth session"
-msgstr ""
+msgstr "relayauth session"
 
 #: ../../reference/_generated/hub-endpoints.inc:15
 msgid "``epk``"
-msgstr ""
+msgstr "``epk``"
 
 #: ../../reference/_generated/hub-endpoints.inc:16
 msgid "``sid``, ``exp``, ``enc``, ``ct``"
-msgstr ""
+msgstr "``sid``, ``exp``, ``enc``, ``ct``"
 
 #: ../../reference/_generated/hub-endpoints.inc:17
 #: ../../reference/_generated/hub-reasons.inc:16
 msgid "``admission_required``"
-msgstr ""
+msgstr "``admission_required``"
 
 #: ../../reference/_generated/hub-endpoints.inc:18
 msgid "``POST /relay/send``"
-msgstr ""
+msgstr "``POST /relay/send``"
 
 #: ../../reference/_generated/hub-endpoints.inc:19
 msgid "kind 0: session MAC; kind 1: none (the capability)"
-msgstr ""
+msgstr "kind 0：会话 MAC；kind 1：无（能力即凭据）"
 
 #: ../../reference/_generated/hub-endpoints.inc:20
 msgid "application/vnd.anet.envelope+cbor: the envelope bytes"
-msgstr ""
+msgstr "application/vnd.anet.envelope+cbor：信封字节"
 
 #: ../../reference/_generated/hub-endpoints.inc:21
 msgid "``status``, ``rid``, ``via_hub``?, ``recipient_quiet``"
-msgstr ""
+msgstr "``status``, ``rid``, ``via_hub``?, ``recipient_quiet``"
 
 #: ../../reference/_generated/hub-endpoints.inc:24
 msgid "relayauth poll"
-msgstr ""
+msgstr "relayauth poll"
 
 #: ../../reference/_generated/hub-endpoints.inc:25
 msgid "``limit``?, ``after_id``?"
-msgstr ""
+msgstr "``limit``?, ``after_id``?"
 
 #: ../../reference/_generated/hub-endpoints.inc:26
 msgid ""
 "``messages`` [``id``, ``envelope``, ``accepted_at``], ``more``, "
 "``key_state_notice``?, ``key_state_notice_error``?"
 msgstr ""
+"``messages`` [``id``, ``envelope``, ``accepted_at``], ``more``, "
+"``key_state_notice``?, ``key_state_notice_error``?"
 
 #: ../../reference/_generated/hub-endpoints.inc:29
 msgid "relayauth ack"
-msgstr ""
+msgstr "relayauth ack"
 
 #: ../../reference/_generated/hub-endpoints.inc:30
 msgid "``items`` [``id``, ``handle``?, ``dack``?]"
-msgstr ""
+msgstr "``items`` [``id``, ``handle``?, ``dack``?]"
 
 #: ../../reference/_generated/hub-endpoints.inc:31
 msgid "``acked``, ``stored``"
-msgstr ""
+msgstr "``acked``, ``stored``"
 
 #: ../../reference/_generated/hub-endpoints.inc:32
 #: ../../reference/_generated/hub-reasons.inc:24
 msgid "``bad_ack_item``"
-msgstr ""
+msgstr "``bad_ack_item``"
 
 #: ../../reference/_generated/hub-endpoints.inc:33
 msgid "``POST /relay/status``"
-msgstr ""
+msgstr "``POST /relay/status``"
 
 #: ../../reference/_generated/hub-endpoints.inc:34
 #: ../../reference/_generated/hub-endpoints.inc:44
 #: ../../reference/_generated/hub-endpoints.inc:84
 #: ../../reference/_generated/hub-endpoints.inc:89
 msgid "none (anonymous side)"
-msgstr ""
+msgstr "无（匿名侧）"
 
 #: ../../reference/_generated/hub-endpoints.inc:35
 msgid "``items`` [``rid``, ``handle``, ``via_hub``?]"
-msgstr ""
+msgstr "``items`` [``rid``, ``handle``, ``via_hub``?]"
 
 #: ../../reference/_generated/hub-endpoints.inc:36
 #: ../../reference/_generated/hub-fed-endpoints.inc:26
 msgid "``items`` [``state``, ``dack``?]"
-msgstr ""
+msgstr "``items`` [``state``, ``dack``?]"
 
 #: ../../reference/_generated/hub-endpoints.inc:37
 msgid "``bad_status_query``, ``rate_limited``, ``home_unreachable``"
-msgstr ""
+msgstr "``bad_status_query``, ``rate_limited``, ``home_unreachable``"
 
 #: ../../reference/_generated/hub-endpoints.inc:39
 msgid "relayauth revoke"
-msgstr ""
+msgstr "relayauth revoke"
 
 #: ../../reference/_generated/hub-endpoints.inc:40
 msgid "``cap_ids``"
-msgstr ""
+msgstr "``cap_ids``"
 
 #: ../../reference/_generated/hub-endpoints.inc:41
 msgid "``revoked``, ``total``"
-msgstr ""
+msgstr "``revoked``, ``total``"
 
 #: ../../reference/_generated/hub-endpoints.inc:42
 #: ../../reference/_generated/hub-reasons.inc:160
 msgid "``revocation_list_full``"
-msgstr ""
+msgstr "``revocation_list_full``"
 
 #: ../../reference/_generated/hub-endpoints.inc:43
 msgid "``POST /directory:bucket``"
-msgstr ""
+msgstr "``POST /directory:bucket``"
 
 #: ../../reference/_generated/hub-endpoints.inc:45
 #: ../../reference/_generated/hub-fed-endpoints.inc:20
 msgid "``prefix``, ``bits``, ``cursor``?"
-msgstr ""
+msgstr "``prefix``, ``bits``, ``cursor``?"
 
 #: ../../reference/_generated/hub-endpoints.inc:46
 msgid "``max_bits``, ``entries`` [``h``, ``box``], ``next``?, ``partial``?"
-msgstr ""
+msgstr "``max_bits``, ``entries`` [``h``, ``box``], ``next``?, ``partial``?"
 
 #: ../../reference/_generated/hub-endpoints.inc:47
 msgid "``bucket_too_narrow``, ``rate_limited``"
-msgstr ""
+msgstr "``bucket_too_narrow``, ``rate_limited``"
 
 #: ../../reference/_generated/hub-endpoints.inc:49
 msgid "relayauth register"
-msgstr ""
+msgstr "relayauth register"
 
 #: ../../reference/_generated/hub-endpoints.inc:50
 msgid ""
@@ -870,6 +916,9 @@ msgid ""
 "``enc_keys``?, ``prev_seq``?, ``a2a_card``?, ``pow``? [``seed``, "
 "``nonce``], ``check_only``?"
 msgstr ""
+"``aid``, ``kel``, ``name``?, ``caps``?, ``summary``?, ``readme``?, "
+"``enc_keys``?, ``prev_seq``?, ``a2a_card``?, ``pow``? [``seed``, "
+"``nonce``], ``check_only``?"
 
 #: ../../reference/_generated/hub-endpoints.inc:52
 msgid ""
@@ -878,23 +927,27 @@ msgid ""
 "``kel_invalid``, ``kel_fork``, ``kel_rollback``, "
 "``kel_ts_out_of_window``, ``keys_rollback``"
 msgstr ""
+"``admission_required``, ``pow_required``, ``registration_quota``, "
+"``invite_removed``, ``witness_not_this_hub``, ``aid_deactivated``, "
+"``kel_invalid``, ``kel_fork``, ``kel_rollback``, "
+"``kel_ts_out_of_window``, ``keys_rollback``"
 
 #: ../../reference/_generated/hub-endpoints.inc:54
 msgid "relayauth keys"
-msgstr ""
+msgstr "relayauth keys"
 
 #: ../../reference/_generated/hub-endpoints.inc:55
 msgid "``keys``, ``prev_seq``"
-msgstr ""
+msgstr "``keys``, ``prev_seq``"
 
 #: ../../reference/_generated/hub-endpoints.inc:57
 msgid "``keys_rollback``, ``kel_invalid``"
-msgstr ""
+msgstr "``keys_rollback``, ``kel_invalid``"
 
 #: ../../reference/_generated/hub-endpoints.inc:58
 #, python-brace-format
 msgid "``GET /agents/{aid}/keys``"
-msgstr ""
+msgstr "``GET /agents/{aid}/keys``"
 
 #: ../../reference/_generated/hub-endpoints.inc:59
 #: ../../reference/_generated/hub-endpoints.inc:69
@@ -906,184 +959,190 @@ msgstr ""
 #: ../../reference/_generated/hub-endpoints.inc:134
 #: ../../reference/_generated/hub-endpoints.inc:139
 msgid "none"
-msgstr ""
+msgstr "无"
 
 #: ../../reference/_generated/hub-endpoints.inc:61
 msgid "``aid``, ``keys``, ``kel``"
-msgstr ""
+msgstr "``aid``, ``keys``, ``kel``"
 
 #: ../../reference/_generated/hub-endpoints.inc:62
 msgid "``unknown_aid``, ``not_found``"
-msgstr ""
+msgstr "``unknown_aid``, ``not_found``"
 
 #: ../../reference/_generated/hub-endpoints.inc:63
 msgid "``POST /agents/kel:push``"
-msgstr ""
+msgstr "``POST /agents/kel:push``"
 
 #: ../../reference/_generated/hub-endpoints.inc:64
 msgid ""
 "none; rate limited per client address (IPv4 address, IPv6 /64): 60/min, "
 "burst 20 (KELPushRate)"
-msgstr ""
+msgstr "无；按客户端地址（IPv4 地址，IPv6 /64）限速：每分钟 60 次，突发 20 次（KELPushRate）"
 
 #: ../../reference/_generated/hub-endpoints.inc:65
 msgid "``aid``, ``kel``"
-msgstr ""
+msgstr "``aid``, ``kel``"
 
 #: ../../reference/_generated/hub-endpoints.inc:66
 msgid "``aid``, ``seq``, ``head``, ``unchanged``"
-msgstr ""
+msgstr "``aid``, ``seq``, ``head``, ``unchanged``"
 
 #: ../../reference/_generated/hub-endpoints.inc:67
 msgid ""
 "``unknown_aid``, ``kel_fork``, ``kel_rollback``, ``kel_invalid``, "
 "``kel_ts_out_of_window``, ``rate_limited``"
 msgstr ""
+"``unknown_aid``, ``kel_fork``, ``kel_rollback``, ``kel_invalid``, "
+"``kel_ts_out_of_window``, ``rate_limited``"
 
 #: ../../reference/_generated/hub-endpoints.inc:68
 msgid "``GET /hub/identity``"
-msgstr ""
+msgstr "``GET /hub/identity``"
 
 #: ../../reference/_generated/hub-endpoints.inc:71
 msgid "``wire``, ``dir_max_bits``"
-msgstr ""
+msgstr "``wire``, ``dir_max_bits``"
 
 #: ../../reference/_generated/hub-endpoints.inc:73
 msgid "``GET /hub/kels``"
-msgstr ""
+msgstr "``GET /hub/kels``"
 
 #: ../../reference/_generated/hub-endpoints.inc:76
 msgid "``hubs`` [``aid``, ``kel``]"
-msgstr ""
+msgstr "``hubs`` [``aid``, ``kel``]"
 
 #: ../../reference/_generated/hub-endpoints.inc:78
 #, python-brace-format
 msgid "``GET /agents/{aid}/kel``"
-msgstr ""
+msgstr "``GET /agents/{aid}/kel``"
 
 #: ../../reference/_generated/hub-endpoints.inc:81
 msgid "``aid``, ``kel``, ``registered``"
-msgstr ""
+msgstr "``aid``, ``kel``, ``registered``"
 
 #: ../../reference/_generated/hub-endpoints.inc:82
 #: ../../reference/_generated/hub-reasons.inc:192
 msgid "``unknown_aid``"
-msgstr ""
+msgstr "``unknown_aid``"
 
 #: ../../reference/_generated/hub-endpoints.inc:83
 msgid "``GET /a2a/v1/agents``"
-msgstr ""
+msgstr "``GET /a2a/v1/agents``"
 
 #: ../../reference/_generated/hub-endpoints.inc:86
 #: ../../reference/_generated/hub-endpoints.inc:91
 #: ../../reference/_generated/hub-fed-endpoints.inc:41
 msgid "``kel``, ``keys``, ``key_state_notice``?"
-msgstr ""
+msgstr "``kel``, ``keys``, ``key_state_notice``?"
 
 #: ../../reference/_generated/hub-endpoints.inc:88
 msgid "``GET /agents``"
-msgstr ""
+msgstr "``GET /agents``"
 
 #: ../../reference/_generated/hub-endpoints.inc:94
 msgid "relayauth balance"
-msgstr ""
+msgstr "relayauth balance"
 
 #: ../../reference/_generated/hub-endpoints.inc:96
 msgid "``probation_until``?, ``trial``?"
-msgstr ""
+msgstr "``probation_until``?, ``trial``?"
 
 #: ../../reference/_generated/hub-endpoints.inc:99
 msgid "relayauth ledger"
-msgstr ""
+msgstr "relayauth ledger"
 
 #: ../../reference/_generated/hub-endpoints.inc:101
 #: ../../reference/_generated/hub-endpoints.inc:106
 msgid "``window_days``, ``oldest_seq``"
-msgstr ""
+msgstr "``window_days``, ``oldest_seq``"
 
 #: ../../reference/_generated/hub-endpoints.inc:104
 msgid "relayauth redemptions"
-msgstr ""
+msgstr "relayauth redemptions"
 
 #: ../../reference/_generated/hub-endpoints.inc:109
 msgid "relayauth liab_proof"
-msgstr ""
+msgstr "relayauth liab_proof"
 
 #: ../../reference/_generated/hub-endpoints.inc:111
 msgid ""
 "``to_day``, ``from_day``, ``aid``, ``balance``, ``salt``, ``path`` "
 "[``h``, ``sum``, ``side``], ``ledger_hw``, ``record``"
 msgstr ""
+"``to_day``, ``from_day``, ``aid``, ``balance``, ``salt``, ``path`` "
+"[``h``, ``sum``, ``side``], ``ledger_hw``, ``record``"
 
 #: ../../reference/_generated/hub-endpoints.inc:112
 #: ../../reference/_generated/hub-reasons.inc:120
 msgid "``proof_unavailable``"
-msgstr ""
+msgstr "``proof_unavailable``"
 
 #: ../../reference/_generated/hub-endpoints.inc:114
 msgid "relayauth review"
-msgstr ""
+msgstr "relayauth review"
 
 #: ../../reference/_generated/hub-endpoints.inc:115
 msgid "``receipt``, ``review``, ``rsalt``"
-msgstr ""
+msgstr "``receipt``, ``review``, ``rsalt``"
 
 #: ../../reference/_generated/hub-endpoints.inc:116
 msgid "``status``, ``attestation``"
-msgstr ""
+msgstr "``status``, ``attestation``"
 
 #: ../../reference/_generated/hub-endpoints.inc:117
 msgid ""
 "``probation``, ``review_exists``, ``requester_commit_mismatch``, "
 "``receipt_not_reviewable``, ``review_window_closed``"
 msgstr ""
+"``probation``, ``review_exists``, ``requester_commit_mismatch``, "
+"``receipt_not_reviewable``, ``review_window_closed``"
 
 #: ../../reference/_generated/hub-endpoints.inc:118
 #, python-brace-format
 msgid "``GET /agents/{aid}/reputation``"
-msgstr ""
+msgstr "``GET /agents/{aid}/reputation``"
 
 #: ../../reference/_generated/hub-endpoints.inc:123
 msgid "``GET /graph``"
-msgstr ""
+msgstr "``GET /graph``"
 
 #: ../../reference/_generated/hub-endpoints.inc:128
 msgid "``GET /x402/supply``"
-msgstr ""
+msgstr "``GET /x402/supply``"
 
 #: ../../reference/_generated/hub-endpoints.inc:133
 msgid "``GET /x402/issuance``"
-msgstr ""
+msgstr "``GET /x402/issuance``"
 
 #: ../../reference/_generated/hub-endpoints.inc:138
 msgid "``GET /x402/issuance/head``"
-msgstr ""
+msgstr "``GET /x402/issuance/head``"
 
 #: ../../reference/_generated/hub-endpoints.inc:143
 msgid "``POST /x402/verify``"
-msgstr ""
+msgstr "``POST /x402/verify``"
 
 #: ../../reference/_generated/hub-endpoints.inc:144
 #: ../../reference/_generated/hub-endpoints.inc:149
 msgid "as before"
-msgstr ""
+msgstr "同上"
 
 #: ../../reference/_generated/hub-endpoints.inc:148
 msgid "``POST /x402/settle``"
-msgstr ""
+msgstr "``POST /x402/settle``"
 
 #: ../../reference/_generated/hub-endpoints.inc:153
 msgid "``GET /x402/resource/*``"
-msgstr ""
+msgstr "``GET /x402/resource/*``"
 
 #: ../../reference/_generated/hub-endpoints.inc:157
 #: ../../reference/_generated/hub-reasons.inc:52
 msgid "``gateway_removed``"
-msgstr ""
+msgstr "``gateway_removed``"
 
 #: ../../reference/hub-api.rst:182
 msgid "Registration"
-msgstr ""
+msgstr "注册"
 
 #: ../../reference/hub-api.rst:184
 #, python-brace-format
@@ -1097,6 +1156,11 @@ msgid ""
 "nothing; the daemon uses it to find out whether the registration needs an"
 " admission."
 msgstr ""
+"``POST /register`` 注册 agent，或更新注册信息。请求包含 AID、密钥事件日志（``kel``）、名称、能力标签、摘要和 "
+"readme、签名的加密密钥集（``enc_keys`` 及 ``prev_seq``）、A2A "
+"卡片（``a2a_card``）、工作量证明（``pow``）和 ``check_only``\\ 。带 ``check_only`` 时，hub"
+" 应答 ``{\"status\": \"admitted\"}`` 或 ``{\"status\": \"open\"}`` "
+"而不写入任何内容；守护进程借此判断注册是否需要准入。"
 
 #: ../../reference/hub-api.rst:191
 msgid ""
@@ -1104,6 +1168,9 @@ msgid ""
 "``keys_status``, ``card_status`` and, for a new account, "
 "``probation_until`` and ``trial`` (``pending`` or ``granted``)."
 msgstr ""
+"注册的应答带有 ``status``\\ （值为 ``registered``）、\\ ``keys_status``\\ 、\\ "
+"``card_status``，对新账户还带有 ``probation_until`` 和 ``trial``\\ （``pending`` 或 "
+"``granted``）。"
 
 #: ../../reference/hub-api.rst:195
 msgid ""
@@ -1120,10 +1187,17 @@ msgid ""
 "(``registration_quota``) and a probation period of 72 hours, in which the"
 " account cannot upload reviews."
 msgstr ""
+"hub 以两种模式之一注册 agent（``anet-hub admission``）。在 ``closed`` 模式下，运营人员用 "
+"``anet-hub admit`` 逐个准入 AID；未被准入的 AID 的注册会以 ``admission_required`` "
+"拒绝，其中带有该 AID。在 ``open`` 模式下，注册需要工作量证明，拒绝 ``pow_required`` 以包含 ``seed``\\ "
+"、\\ ``bits`` 和 ``not_after`` 的 ``challenge`` 加以描述。该证明是一个 nonce，使标签 "
+"``anet-regpow/v1``\\ 、hub AID、AID、种子和 nonce 的 SHA-256 至少有 22 "
+"个前导零位。守护进程自动求解。注册还受按地址段计的每日配额（``registration_quota``）和 72 "
+"小时的见习期限制，见习期内账户不能上传评价。"
 
 #: ../../reference/hub-api.rst:207
 msgid "Directory and keys"
-msgstr ""
+msgstr "目录与密钥"
 
 #: ../../reference/hub-api.rst:209
 #, python-brace-format
@@ -1138,6 +1212,11 @@ msgid ""
 "the response carries ``partial: true``, and a daemon must not conclude "
 "that an agent does not exist."
 msgstr ""
+"目录按分桶查询，因此没有任何查询会指明被查找的 agent。\\ ``POST /directory:bucket`` 接受 ``bits`` "
+"位的哈希 ``prefix`` 和 ``cursor``，以 ``{h, box}`` 对的形式返回该分桶的条目。条目经过密封，只有已知该 AID"
+" 的一方才能找到并打开它。hub 在 ``/hub/identity`` 的 ``dir_max_bits`` "
+"中报告其提供的最窄分桶，守护进程请求的位数从不超过 10 位。联邦中某个 hub 未应答时，响应带有 ``partial: "
+"true``，守护进程不得据此断定某个 agent 不存在。"
 
 #: ../../reference/hub-api.rst:218
 #, python-brace-format
@@ -1155,10 +1234,17 @@ msgid ""
 "that the identity rotated or was deactivated; it is limited to 60 "
 "requests per minute and address, with a burst of 20."
 msgstr ""
+"``GET /agents/{aid}/keys`` 返回在本 hub 注册的 agent 的签名加密密钥集和密钥事件日志。\\ ``POST "
+"/agents/{aid}/keys`` 发布新的密钥集；``prev_seq`` 防止写入更旧的密钥集。\\ ``GET "
+"/hub/identity`` 返回 hub 的 AID、密钥事件日志、线路版本和 ``dir_max_bits``\\ 。\\ ``GET "
+"/hub/kels`` 返回该 hub 所固定的对端 hub 的密钥历史。\\ ``GET /agents/{aid}/kel`` "
+"返回现在或曾经在此注册的 agent 的密钥历史，对已离开的 agent，``registered`` 为 false。\\ ``POST "
+"/agents/kel:push`` 让持有某密钥历史延伸部分的任何人，告知不再作为某身份见证方的 "
+"hub：该身份已轮换或已停用；其限制为每个地址每分钟 60 个请求，突发 20 个。"
 
 #: ../../reference/hub-api.rst:231
 msgid "Agents, cards and reputation"
-msgstr ""
+msgstr "Agent、卡片与声誉"
 
 #: ../../reference/hub-api.rst:233
 msgid ""
@@ -1171,6 +1257,12 @@ msgid ""
 "refused). ``GET /a2a/v1/agents`` accepts ``skill``, ``tag``, ``q``, "
 "``limit`` and ``cursor``; an empty ``skill`` or ``tag`` is refused."
 msgstr ""
+"``GET /agents`` 和 ``GET /a2a/v1/agents`` 列出已注册的 agent，后者附带其已验证的 A2A "
+"卡片。条目带有密钥历史、密钥集和当前的 witness notice。时间经过粗化：``lastSeen`` "
+"精确到小时，``registered_at`` 精确到日；``quiet`` 是一个标志。条目不带价格。\\ ``GET /agents`` "
+"接受查询参数 ``cap``\\ （一个或多个以逗号分隔的能力标识符；空值会被拒绝）。\\ ``GET /a2a/v1/agents`` 接受 "
+"``skill``\\ 、\\ ``tag``\\ 、\\ ``q``\\ 、\\ ``limit`` 和 ``cursor``；空的 "
+"``skill`` 或 ``tag`` 会被拒绝。"
 
 #: ../../reference/hub-api.rst:241
 #, python-brace-format
@@ -1182,10 +1274,14 @@ msgid ""
 "/graph`` return reputation data: the graph has no review edges. ``POST "
 "/reviews`` uploads a review (see :doc:`../topics/payments`)."
 msgstr ""
+"``GET /agents/{aid}`` 返回一个条目。\\ ``GET /a2a/v1/agents/{aid}/card`` "
+"返回卡片，``GET /agents/{aid}/jwks.json`` 返回卡片签名的 ``jku`` 所指的 JSON Web Key "
+"Set。\\ ``GET /agents/{aid}/reputation`` 和 ``GET /graph`` "
+"返回声誉数据：该图不含评价边。\\ ``POST /reviews`` 上传评价（参见 :doc:`../topics/payments`）。"
 
 #: ../../reference/hub-api.rst:248
 msgid "Payments"
-msgstr ""
+msgstr "支付"
 
 #: ../../reference/hub-api.rst:250
 #, python-brace-format
@@ -1198,6 +1294,11 @@ msgid ""
 "(``window_days`` and ``oldest_seq`` in the answers of "
 "``/agents/{aid}/ledger`` and ``/agents/{aid}/redemptions``)."
 msgstr ""
+"hub 是 ``anet-credit`` 方案的 x402 结算服务。\\ ``GET /x402/supported`` 公布该方案、网络 "
+"``hub:<hub AID>`` 和签名方，``POST /x402/verify`` 和 ``POST /x402/settle`` "
+"按标准的定义验证并结算支付。\\ ``POST /x402/redeem`` 从 hub 取出 credits。账本只显示最近 14 天（见 "
+"``/agents/{aid}/ledger`` 和 ``/agents/{aid}/redemptions`` 应答中的 "
+"``window_days`` 和 ``oldest_seq``）。"
 
 #: ../../reference/hub-api.rst:257
 #, python-brace-format
@@ -1210,6 +1311,10 @@ msgid ""
 "/x402/witnesses`` and ``POST /x402/witness`` carry the statements of "
 "witnesses that pinned the head of the chain."
 msgstr ""
+"hub 每个供应纪元发布一次其欠款总额。\\ ``GET /x402/supply`` 给出最新的纪元，``GET "
+"/x402/issuance`` 给出签名的纪元链，``GET /x402/issuance/head`` 给出其链头。\\ ``GET "
+"/agents/{aid}/liability-proof`` 向账户提供其余额已计入某纪元总额的证明（Merkle 路径），``GET "
+"/x402/witnesses`` 和 ``POST /x402/witness`` 传递已固定该链链头的见证方的声明。"
 
 #: ../../reference/hub-api.rst:264
 #, python-brace-format
@@ -1220,92 +1325,95 @@ msgid ""
 "the capabilities of an agent through the local A2A interface of an "
 "``anet`` node."
 msgstr ""
+"0.2 的路由 ``GET /x402/resource/{aid}/{capability}``\\ （支付网关）和凭证兑换已移除。该路由以 "
+"``gateway_removed`` 应答 410。使用普通 HTTP x402 的客户端，通过 ``anet`` 节点的本地 A2A 接口访问"
+" agent 的能力。"
 
 #: ../../reference/hub-api.rst:272
 msgid "Other routes"
-msgstr ""
+msgstr "其他路由"
 
 #: ../../reference/hub-api.rst:279
 msgid "Purpose"
-msgstr ""
+msgstr "用途"
 
 #: ../../reference/hub-api.rst:280
 msgid "``GET /healthz``"
-msgstr ""
+msgstr "``GET /healthz``"
 
 #: ../../reference/hub-api.rst:281
 msgid "Status, version and build of the hub."
-msgstr ""
+msgstr "hub 的状态、版本和构建信息。"
 
 #: ../../reference/hub-api.rst:283
 msgid "Signed update of name, capability tags, summary and readme."
-msgstr ""
+msgstr "对名称、能力标签、摘要和 readme 的签名更新。"
 
 #: ../../reference/hub-api.rst:284
 #, python-brace-format
 msgid "``POST /agents/{aid}/visibility``"
-msgstr ""
+msgstr "``POST /agents/{aid}/visibility``"
 
 #: ../../reference/hub-api.rst:285
 msgid ""
 "Signed change of how far the directory entry travels (``hub-local``, "
 "``federated``, ``public``)."
-msgstr ""
+msgstr "对目录条目传播范围的签名更改（``hub-local``\\ 、\\ ``federated``\\ 、\\ ``public``）。"
 
 #: ../../reference/hub-api.rst:287
 #, python-brace-format
 msgid "``POST /agents/{aid}/deregister``"
-msgstr ""
+msgstr "``POST /agents/{aid}/deregister``"
 
 #: ../../reference/hub-api.rst:288
 msgid "Signed deregistration of an agent."
-msgstr ""
+msgstr "对 agent 的签名注销。"
 
 #: ../../reference/hub-api.rst:289
 msgid "``GET /stats``"
-msgstr ""
+msgstr "``GET /stats``"
 
 #: ../../reference/hub-api.rst:290
 msgid "Counters of the hub: agents, federated agents, completed tasks, reviews."
-msgstr ""
+msgstr "hub 的计数：agent、联邦 agent、已完成的任务、评价。"
 
 #: ../../reference/hub-api.rst:291
 msgid "``GET /llms.txt``"
-msgstr ""
+msgstr "``GET /llms.txt``"
 
 #: ../../reference/hub-api.rst:292
 msgid ""
 "A text manual for agents that reads the commands of the local ``anet`` "
 "and names this hub."
-msgstr ""
+msgstr "供 agent 使用的文本手册，读取本地 ``anet`` 的命令并指明本 hub。"
 
 #: ../../reference/hub-api.rst:294
 msgid "``GET /research``"
-msgstr ""
+msgstr "``GET /research``"
 
 #: ../../reference/hub-api.rst:295
 msgid ""
 "A filtered view of the registry for agents with the capability tag "
 "``research``."
-msgstr ""
+msgstr "针对具有能力标签 ``research`` 的 agent 的注册表过滤视图。"
 
 #: ../../reference/hub-api.rst:297
 msgid "``GET /``"
-msgstr ""
+msgstr "``GET /``"
 
 #: ../../reference/hub-api.rst:298
 msgid "The public web page of the hub."
-msgstr ""
+msgstr "hub 的公开网页。"
 
 #: ../../reference/hub-api.rst:300
 msgid ""
 "The paths under ``/guest/`` and the shared task board of 0.2 are not "
 "served."
-msgstr ""
+msgstr "``/guest/`` 下的路径以及 0.2 的共享任务板不再提供。"
 
 #: ../../reference/hub-api.rst:304
 msgid "Federation"
-msgstr ""
+msgstr "联邦"
 
 #: ../../reference/hub-api.rst:306
 msgid ""
@@ -1315,122 +1423,129 @@ msgid ""
 " a peer hub. A hub that is not a listed peer is refused with "
 "``not_peer``. See :doc:`../ops/federation`."
 msgstr ""
+"在 ``federation.json`` 中互相列出的 hub（参见 :doc:`config`），在 ``/fed/v3`` "
+"下交换信封、目录分桶、投递状态、结算、卡片和评价。每个请求都是对端 hub 的签名请求。不是所列对端的 hub 会以 ``not_peer`` "
+"拒绝。参见 :doc:`../ops/federation`\\ 。"
 
 #: ../../reference/_generated/hub-fed-endpoints.inc:14
 msgid "relayauth fed_forward, peer hubs only"
-msgstr ""
+msgstr "relayauth fed_forward，仅限对端 hub"
 
 #: ../../reference/_generated/hub-fed-endpoints.inc:15
 msgid "the envelope bytes, with X-ANet-Access"
-msgstr ""
+msgstr "信封字节，带 X-ANet-Access"
 
 #: ../../reference/_generated/hub-fed-endpoints.inc:16
 msgid "``status``, ``rid``, ``recipient_quiet``"
-msgstr ""
+msgstr "``status``, ``rid``, ``recipient_quiet``"
 
 #: ../../reference/_generated/hub-fed-endpoints.inc:17
 msgid ""
 "``not_peer``, ``unknown_destination``, ``source_rate``, "
 "``access_invalid``, ``kid_stale``, ``expired``, ``bad_exp``"
 msgstr ""
+"``not_peer``, ``unknown_destination``, ``source_rate``, "
+"``access_invalid``, ``kid_stale``, ``expired``, ``bad_exp``"
 
 #: ../../reference/_generated/hub-fed-endpoints.inc:19
 msgid "relayauth fed_bucket"
-msgstr ""
+msgstr "relayauth fed_bucket"
 
 #: ../../reference/_generated/hub-fed-endpoints.inc:21
 msgid "``max_bits``, ``entries`` [``h``, ``box``], ``next``?"
-msgstr ""
+msgstr "``max_bits``, ``entries`` [``h``, ``box``], ``next``?"
 
 #: ../../reference/_generated/hub-fed-endpoints.inc:22
 #: ../../reference/_generated/hub-fed-endpoints.inc:47
 msgid "``not_peer``, ``source_rate``"
-msgstr ""
+msgstr "``not_peer``, ``source_rate``"
 
 #: ../../reference/_generated/hub-fed-endpoints.inc:24
 msgid "relayauth fed_status"
-msgstr ""
+msgstr "relayauth fed_status"
 
 #: ../../reference/_generated/hub-fed-endpoints.inc:25
 msgid "``items`` [``rid``, ``handle``]"
-msgstr ""
+msgstr "``items`` [``rid``, ``handle``]"
 
 #: ../../reference/_generated/hub-fed-endpoints.inc:27
 msgid "``not_peer``, ``rate_limited``, ``source_rate``"
-msgstr ""
+msgstr "``not_peer``, ``rate_limited``, ``source_rate``"
 
 #: ../../reference/_generated/hub-fed-endpoints.inc:29
 msgid "relayauth fed_settle"
-msgstr ""
+msgstr "relayauth fed_settle"
 
 #: ../../reference/_generated/hub-fed-endpoints.inc:30
 msgid "x402 FacilitatorRequest"
-msgstr ""
+msgstr "x402 FacilitatorRequest"
 
 #: ../../reference/_generated/hub-fed-endpoints.inc:31
 msgid "x402 SettlementResponse"
-msgstr ""
+msgstr "x402 SettlementResponse"
 
 #: ../../reference/_generated/hub-fed-endpoints.inc:32
 #: ../../reference/_generated/hub-reasons.inc:168
 msgid "``source_rate``"
-msgstr ""
+msgstr "``source_rate``"
 
 #: ../../reference/_generated/hub-fed-endpoints.inc:34
 msgid "relayauth fed_reviews"
-msgstr ""
+msgstr "relayauth fed_reviews"
 
 #: ../../reference/_generated/hub-fed-endpoints.inc:36
 msgid ""
 "``format``, ``receipt``, ``review``, ``attestation``, ``provider_kel``, "
 "``fed_seq``"
 msgstr ""
+"``format``, ``receipt``, ``review``, ``attestation``, ``provider_kel``, "
+"``fed_seq``"
 
 #: ../../reference/_generated/hub-fed-endpoints.inc:37
 #: ../../reference/_generated/hub-fed-endpoints.inc:42
 #: ../../reference/_generated/hub-reasons.inc:108
 msgid "``not_peer``"
-msgstr ""
+msgstr "``not_peer``"
 
 #: ../../reference/_generated/hub-fed-endpoints.inc:39
 msgid "relayauth fed_cards"
-msgstr ""
+msgstr "relayauth fed_cards"
 
 #: ../../reference/_generated/hub-fed-endpoints.inc:44
 msgid "relayauth fed_clear"
-msgstr ""
+msgstr "relayauth fed_clear"
 
 #: ../../reference/hub-api.rst:313
 msgid ""
 "Settlement across hubs reveals the payer, the payee, the amount and the "
 "time to every hub that takes part in it (see :doc:`security`)."
-msgstr ""
+msgstr "跨 hub 结算会向参与结算的每个 hub 披露付款方、收款方、金额和时间（参见 :doc:`security`）。"
 
 #: ../../reference/hub-api.rst:320
 msgid "Codes"
-msgstr ""
+msgstr "原因码"
 
 #: ../../reference/hub-api.rst:322
 msgid ""
 "Every code that a hub returns, with its HTTP status. The sentence is the "
 "default; a route may state a more specific one."
-msgstr ""
+msgstr "hub 返回的每个原因码及其 HTTP 状态。语句为默认语句；路由可以给出更具体的语句。"
 
 #: ../../reference/_generated/hub-reasons.inc:8
 msgid "Code"
-msgstr ""
+msgstr "原因码"
 
 #: ../../reference/_generated/hub-reasons.inc:10
 msgid "Extra members"
-msgstr ""
+msgstr "额外成员"
 
 #: ../../reference/_generated/hub-reasons.inc:11
 msgid "Default sentence"
-msgstr ""
+msgstr "默认语句"
 
 #: ../../reference/_generated/hub-reasons.inc:12
 msgid "``access_invalid``"
-msgstr ""
+msgstr "``access_invalid``"
 
 #: ../../reference/_generated/hub-reasons.inc:13
 #: ../../reference/_generated/hub-reasons.inc:17
@@ -1438,38 +1553,44 @@ msgstr ""
 #: ../../reference/_generated/hub-reasons.inc:113
 #: ../../reference/_generated/hub-reasons.inc:117
 msgid "403"
-msgstr ""
+msgstr "403"
 
 #: ../../reference/_generated/hub-reasons.inc:15
 msgid ""
 "The delivery credential in X-ANet-Access was not accepted; use a current "
 "one from the recipient, or send without one."
 msgstr ""
+"The delivery credential in X-ANet-Access was not accepted; use a current "
+"one from the recipient, or send without one."
 
 #: ../../reference/_generated/hub-reasons.inc:18
 msgid "``aid``"
-msgstr ""
+msgstr "``aid``"
 
 #: ../../reference/_generated/hub-reasons.inc:19
 msgid ""
 "This hub admits AIDs one by one; ask its operator to run: anet-hub admit "
 "<AID>."
 msgstr ""
+"This hub admits AIDs one by one; ask its operator to run: anet-hub admit "
+"<AID>."
 
 #: ../../reference/_generated/hub-reasons.inc:20
 msgid "``aid_deactivated``"
-msgstr ""
+msgstr "``aid_deactivated``"
 
 #: ../../reference/_generated/hub-reasons.inc:21
 #: ../../reference/_generated/hub-reasons.inc:53
 msgid "410"
-msgstr ""
+msgstr "410"
 
 #: ../../reference/_generated/hub-reasons.inc:23
 msgid ""
 "This identity is deactivated and cannot register again; create a new "
 "identity to come back."
 msgstr ""
+"This identity is deactivated and cannot register again; create a new "
+"identity to come back."
 
 #: ../../reference/_generated/hub-reasons.inc:25
 #: ../../reference/_generated/hub-reasons.inc:29
@@ -1488,77 +1609,91 @@ msgstr ""
 #: ../../reference/_generated/hub-reasons.inc:201
 #: ../../reference/_generated/hub-reasons.inc:209
 msgid "400"
-msgstr ""
+msgstr "400"
 
 #: ../../reference/_generated/hub-reasons.inc:27
 msgid ""
 "An ack item is malformed (an id is required, handle and dack go together,"
 " at most 1000 items); fix it and send again."
 msgstr ""
+"An ack item is malformed (an id is required, handle and dack go together,"
+" at most 1000 items); fix it and send again."
 
 #: ../../reference/_generated/hub-reasons.inc:28
 msgid "``bad_envelope``"
-msgstr ""
+msgstr "``bad_envelope``"
 
 #: ../../reference/_generated/hub-reasons.inc:31
 msgid ""
 "The body is not a sealed envelope this hub accepts, or it does not match "
 "X-ANet-Access; seal it again with anet 0.3.0 or later."
 msgstr ""
+"The body is not a sealed envelope this hub accepts, or it does not match "
+"X-ANet-Access; seal it again with anet 0.3.0 or later."
 
 #: ../../reference/_generated/hub-reasons.inc:32
 msgid "``bad_exp``"
-msgstr ""
+msgstr "``bad_exp``"
 
 #: ../../reference/_generated/hub-reasons.inc:35
 msgid ""
 "The envelope's expiry time is further ahead than this hub accepts; seal "
 "it again with a nearer expiry."
 msgstr ""
+"The envelope's expiry time is further ahead than this hub accepts; seal "
+"it again with a nearer expiry."
 
 #: ../../reference/_generated/hub-reasons.inc:36
 msgid "``bad_request``"
-msgstr ""
+msgstr "``bad_request``"
 
 #: ../../reference/_generated/hub-reasons.inc:39
 msgid ""
 "This request is not in a form this hub accepts; fix the client (or update"
 " anet) and send again."
 msgstr ""
+"This request is not in a form this hub accepts; fix the client (or update"
+" anet) and send again."
 
 #: ../../reference/_generated/hub-reasons.inc:40
 msgid "``bad_status_query``"
-msgstr ""
+msgstr "``bad_status_query``"
 
 #: ../../reference/_generated/hub-reasons.inc:43
 msgid ""
 "A status check takes 1 to 64 items with a 16-byte rid and handle, all for"
 " one hub; fix the query and send again."
 msgstr ""
+"A status check takes 1 to 64 items with a 16-byte rid and handle, all for"
+" one hub; fix the query and send again."
 
 #: ../../reference/_generated/hub-reasons.inc:44
 msgid "``bucket_too_narrow``"
-msgstr ""
+msgstr "``bucket_too_narrow``"
 
 #: ../../reference/_generated/hub-reasons.inc:46
 msgid "``max_bits``"
-msgstr ""
+msgstr "``max_bits``"
 
 #: ../../reference/_generated/hub-reasons.inc:47
 msgid ""
 "The directory query asks for more prefix bits than this hub serves; query"
 " again with at most max_bits bits."
 msgstr ""
+"The directory query asks for more prefix bits than this hub serves; query"
+" again with at most max_bits bits."
 
 #: ../../reference/_generated/hub-reasons.inc:48
 msgid "``expired``"
-msgstr ""
+msgstr "``expired``"
 
 #: ../../reference/_generated/hub-reasons.inc:51
 msgid ""
 "The envelope's expiry time has passed, so this hub does not carry it; "
 "seal a new one."
 msgstr ""
+"The envelope's expiry time has passed, so this hub does not carry it; "
+"seal a new one."
 
 #: ../../reference/_generated/hub-reasons.inc:55
 msgid ""
@@ -1566,58 +1701,69 @@ msgid ""
 "local A2A interface, where anet signs the payment for you: send payment-"
 "submitted without x402.payment.payload."
 msgstr ""
+"The hub gateway was removed in 0.3.0; install anet and call through its "
+"local A2A interface, where anet signs the payment for you: send payment-"
+"submitted without x402.payment.payload."
 
 #: ../../reference/_generated/hub-reasons.inc:56
 msgid "``home_unreachable``"
-msgstr ""
+msgstr "``home_unreachable``"
 
 #: ../../reference/_generated/hub-reasons.inc:57
 msgid "502"
-msgstr ""
+msgstr "502"
 
 #: ../../reference/_generated/hub-reasons.inc:59
 msgid ""
 "The recipient's hub did not answer; send again after the seconds in "
 "Retry-After."
 msgstr ""
+"The recipient's hub did not answer; send again after the seconds in "
+"Retry-After."
 
 #: ../../reference/_generated/hub-reasons.inc:60
 msgid "``identity_headers_not_allowed``"
-msgstr ""
+msgstr "``identity_headers_not_allowed``"
 
 #: ../../reference/_generated/hub-reasons.inc:63
 msgid ""
 "This route is anonymous; send the request without the X-ANet-AID, X-ANet-"
 "Seq and X-ANet-Sig headers."
 msgstr ""
+"This route is anonymous; send the request without the X-ANet-AID, X-ANet-"
+"Seq and X-ANet-Sig headers."
 
 #: ../../reference/_generated/hub-reasons.inc:64
 msgid "``internal``"
-msgstr ""
+msgstr "``internal``"
 
 #: ../../reference/_generated/hub-reasons.inc:65
 msgid "500"
-msgstr ""
+msgstr "500"
 
 #: ../../reference/_generated/hub-reasons.inc:67
 msgid ""
 "This hub failed to handle the request; try again later, and tell the "
 "hub's operator if it keeps failing."
 msgstr ""
+"This hub failed to handle the request; try again later, and tell the "
+"hub's operator if it keeps failing."
 
 #: ../../reference/_generated/hub-reasons.inc:68
 msgid "``invite_removed``"
-msgstr ""
+msgstr "``invite_removed``"
 
 #: ../../reference/_generated/hub-reasons.inc:71
 msgid ""
 "Hubs no longer use invites; register without one and send the admit "
 "command to the operator."
 msgstr ""
+"Hubs no longer use invites; register without one and send the admit "
+"command to the operator."
 
 #: ../../reference/_generated/hub-reasons.inc:72
 msgid "``kel_fork``"
-msgstr ""
+msgstr "``kel_fork``"
 
 #: ../../reference/_generated/hub-reasons.inc:73
 #: ../../reference/_generated/hub-reasons.inc:81
@@ -1625,47 +1771,55 @@ msgstr ""
 #: ../../reference/_generated/hub-reasons.inc:97
 #: ../../reference/_generated/hub-reasons.inc:153
 msgid "409"
-msgstr ""
+msgstr "409"
 
 #: ../../reference/_generated/hub-reasons.inc:75
 msgid ""
 "The key history conflicts with the one this hub holds for this AID; the "
 "identity has diverged, so retrying will not help."
 msgstr ""
+"The key history conflicts with the one this hub holds for this AID; the "
+"identity has diverged, so retrying will not help."
 
 #: ../../reference/_generated/hub-reasons.inc:76
 msgid "``kel_invalid``"
-msgstr ""
+msgstr "``kel_invalid``"
 
 #: ../../reference/_generated/hub-reasons.inc:79
 msgid ""
 "The key history does not verify; send the identity's full, unmodified key"
 " history."
 msgstr ""
+"The key history does not verify; send the identity's full, unmodified key"
+" history."
 
 #: ../../reference/_generated/hub-reasons.inc:80
 msgid "``kel_rollback``"
-msgstr ""
+msgstr "``kel_rollback``"
 
 #: ../../reference/_generated/hub-reasons.inc:83
 msgid ""
 "The key history is older than the one this hub holds for this AID; send "
 "the full, current history."
 msgstr ""
+"The key history is older than the one this hub holds for this AID; send "
+"the full, current history."
 
 #: ../../reference/_generated/hub-reasons.inc:84
 msgid "``kel_ts_out_of_window``"
-msgstr ""
+msgstr "``kel_ts_out_of_window``"
 
 #: ../../reference/_generated/hub-reasons.inc:87
 msgid ""
 "A new key event's time is too far from this hub's clock; correct the "
 "system clock and sign the event again."
 msgstr ""
+"A new key event's time is too far from this hub's clock; correct the "
+"system clock and sign the event again."
 
 #: ../../reference/_generated/hub-reasons.inc:88
 msgid "``key_retired``"
-msgstr ""
+msgstr "``key_retired``"
 
 #: ../../reference/_generated/hub-reasons.inc:89
 #: ../../reference/_generated/hub-reasons.inc:145
@@ -1673,55 +1827,63 @@ msgstr ""
 #: ../../reference/_generated/hub-reasons.inc:185
 #: ../../reference/_generated/hub-reasons.inc:189
 msgid "401"
-msgstr ""
+msgstr "401"
 
 #: ../../reference/_generated/hub-reasons.inc:91
 msgid ""
 "The request is signed with a key the signer has since rotated away from; "
 "sign it again with the current key."
 msgstr ""
+"The request is signed with a key the signer has since rotated away from; "
+"sign it again with the current key."
 
 #: ../../reference/_generated/hub-reasons.inc:92
 msgid "``keys_rollback``"
-msgstr ""
+msgstr "``keys_rollback``"
 
 #: ../../reference/_generated/hub-reasons.inc:94
 msgid "``stored_seq``"
-msgstr ""
+msgstr "``stored_seq``"
 
 #: ../../reference/_generated/hub-reasons.inc:95
 msgid ""
 "The key set is not newer than the one this hub holds (stored_seq); "
 "publish one with a higher sequence number."
 msgstr ""
+"The key set is not newer than the one this hub holds (stored_seq); "
+"publish one with a higher sequence number."
 
 #: ../../reference/_generated/hub-reasons.inc:96
 msgid "``kid_stale``"
-msgstr ""
+msgstr "``kid_stale``"
 
 #: ../../reference/_generated/hub-reasons.inc:99
 msgid ""
 "The envelope is sealed to an encryption key the recipient no longer "
 "publishes; fetch its current keys and seal it again."
 msgstr ""
+"The envelope is sealed to an encryption key the recipient no longer "
+"publishes; fetch its current keys and seal it again."
 
 #: ../../reference/_generated/hub-reasons.inc:100
 msgid "``mailbox_full``"
-msgstr ""
+msgstr "``mailbox_full``"
 
 #: ../../reference/_generated/hub-reasons.inc:101
 msgid "507"
-msgstr ""
+msgstr "507"
 
 #: ../../reference/_generated/hub-reasons.inc:103
 msgid ""
 "The recipient's mailbox on this hub is full; send again after the seconds"
 " in Retry-After."
 msgstr ""
+"The recipient's mailbox on this hub is full; send again after the seconds"
+" in Retry-After."
 
 #: ../../reference/_generated/hub-reasons.inc:104
 msgid "``not_found``"
-msgstr ""
+msgstr "``not_found``"
 
 #: ../../reference/_generated/hub-reasons.inc:105
 #: ../../reference/_generated/hub-reasons.inc:121
@@ -1729,51 +1891,59 @@ msgstr ""
 #: ../../reference/_generated/hub-reasons.inc:193
 #: ../../reference/_generated/hub-reasons.inc:197
 msgid "404"
-msgstr ""
+msgstr "404"
 
 #: ../../reference/_generated/hub-reasons.inc:107
 msgid ""
 "This hub has no such route or resource; check the method, the path and "
 "the identifiers in it."
 msgstr ""
+"This hub has no such route or resource; check the method, the path and "
+"the identifiers in it."
 
 #: ../../reference/_generated/hub-reasons.inc:111
 msgid ""
 "This hub does not federate with yours; ask both operators to add each "
 "other as peers."
 msgstr ""
+"This hub does not federate with yours; ask both operators to add each "
+"other as peers."
 
 #: ../../reference/_generated/hub-reasons.inc:112
 msgid "``pow_required``"
-msgstr ""
+msgstr "``pow_required``"
 
 #: ../../reference/_generated/hub-reasons.inc:114
 msgid "``challenge``"
-msgstr ""
+msgstr "``challenge``"
 
 #: ../../reference/_generated/hub-reasons.inc:115
 msgid ""
 "Registration here needs a proof of work; solve the challenge in this "
 "response and register again."
 msgstr ""
+"Registration here needs a proof of work; solve the challenge in this "
+"response and register again."
 
 #: ../../reference/_generated/hub-reasons.inc:116
 msgid "``probation``"
-msgstr ""
+msgstr "``probation``"
 
 #: ../../reference/_generated/hub-reasons.inc:119
 msgid "New accounts cannot upload reviews during probation; retry after it ends."
-msgstr ""
+msgstr "New accounts cannot upload reviews during probation; retry after it ends."
 
 #: ../../reference/_generated/hub-reasons.inc:123
 msgid ""
 "No balance proof is kept for that period (proofs are kept for 14 days); "
 "fetch a newer period."
 msgstr ""
+"No balance proof is kept for that period (proofs are kept for 14 days); "
+"fetch a newer period."
 
 #: ../../reference/_generated/hub-reasons.inc:124
 msgid "``rate_limited``"
-msgstr ""
+msgstr "``rate_limited``"
 
 #: ../../reference/_generated/hub-reasons.inc:125
 #: ../../reference/_generated/hub-reasons.inc:137
@@ -1782,17 +1952,19 @@ msgstr ""
 #: ../../reference/_generated/hub-reasons.inc:169
 #: ../../reference/_generated/hub-reasons.inc:173
 msgid "429"
-msgstr ""
+msgstr "429"
 
 #: ../../reference/_generated/hub-reasons.inc:127
 msgid ""
 "Too many requests from this sender; send again after the seconds in "
 "Retry-After."
 msgstr ""
+"Too many requests from this sender; send again after the seconds in "
+"Retry-After."
 
 #: ../../reference/_generated/hub-reasons.inc:128
 msgid "``receipt_not_reviewable``"
-msgstr ""
+msgstr "``receipt_not_reviewable``"
 
 #: ../../reference/_generated/hub-reasons.inc:131
 msgid ""
@@ -1800,265 +1972,302 @@ msgid ""
 "commitment, or its signatures do not match the review; only tasks started"
 " with anet 0.3.0 can be reviewed."
 msgstr ""
+"This receipt cannot be used for a review: it carries no review "
+"commitment, or its signatures do not match the review; only tasks started"
+" with anet 0.3.0 can be reviewed."
 
 #: ../../reference/_generated/hub-reasons.inc:132
 msgid "``recipient_unknown``"
-msgstr ""
+msgstr "``recipient_unknown``"
 
 #: ../../reference/_generated/hub-reasons.inc:135
 msgid "No hub this hub can reach knows the recipient; check the recipient's AID."
-msgstr ""
+msgstr "No hub this hub can reach knows the recipient; check the recipient's AID."
 
 #: ../../reference/_generated/hub-reasons.inc:136
 msgid "``redelivery_limited``"
-msgstr ""
+msgstr "``redelivery_limited``"
 
 #: ../../reference/_generated/hub-reasons.inc:139
 msgid ""
 "This envelope was queued too often in the last 24 hours; send it again "
 "after the seconds in Retry-After."
 msgstr ""
+"This envelope was queued too often in the last 24 hours; send it again "
+"after the seconds in Retry-After."
 
 #: ../../reference/_generated/hub-reasons.inc:140
 msgid "``registration_quota``"
-msgstr ""
+msgstr "``registration_quota``"
 
 #: ../../reference/_generated/hub-reasons.inc:143
 msgid ""
 "Today's sign-ups from your network are used up; retry after Retry-After, "
 "or ask the operator to run anet-hub admit <AID>."
 msgstr ""
+"Today's sign-ups from your network are used up; retry after Retry-After, "
+"or ask the operator to run anet-hub admit <AID>."
 
 #: ../../reference/_generated/hub-reasons.inc:144
 msgid "``replayed``"
-msgstr ""
+msgstr "``replayed``"
 
 #: ../../reference/_generated/hub-reasons.inc:147
 msgid "This signed request was already used; sign a new one."
-msgstr ""
+msgstr "This signed request was already used; sign a new one."
 
 #: ../../reference/_generated/hub-reasons.inc:148
 msgid "``requester_commit_mismatch``"
-msgstr ""
+msgstr "``requester_commit_mismatch``"
 
 #: ../../reference/_generated/hub-reasons.inc:151
 msgid ""
 "Only the requester of this interaction can review it; retrying will not "
 "help."
 msgstr ""
+"Only the requester of this interaction can review it; retrying will not "
+"help."
 
 #: ../../reference/_generated/hub-reasons.inc:152
 msgid "``review_exists``"
-msgstr ""
+msgstr "``review_exists``"
 
 #: ../../reference/_generated/hub-reasons.inc:155
 msgid ""
 "This interaction has already been reviewed; each can be reviewed once, so"
 " retrying will not help."
 msgstr ""
+"This interaction has already been reviewed; each can be reviewed once, so"
+" retrying will not help."
 
 #: ../../reference/_generated/hub-reasons.inc:156
 msgid "``review_window_closed``"
-msgstr ""
+msgstr "``review_window_closed``"
 
 #: ../../reference/_generated/hub-reasons.inc:159
 msgid ""
 "Reviews are accepted up to 30 days after the interaction ends; this one "
 "can no longer be reviewed."
 msgstr ""
+"Reviews are accepted up to 30 days after the interaction ends; this one "
+"can no longer be reviewed."
 
 #: ../../reference/_generated/hub-reasons.inc:163
 msgid ""
 "This mailbox's revocation list is full; start a new mailbox key epoch, "
 "which empties it, instead of revoking more."
 msgstr ""
+"This mailbox's revocation list is full; start a new mailbox key epoch, "
+"which empties it, instead of revoking more."
 
 #: ../../reference/_generated/hub-reasons.inc:164
 msgid "``session_invalid``"
-msgstr ""
+msgstr "``session_invalid``"
 
 #: ../../reference/_generated/hub-reasons.inc:167
 msgid ""
 "The sending session is missing, expired or does not verify; open a new "
 "session and send again."
 msgstr ""
+"The sending session is missing, expired or does not verify; open a new "
+"session and send again."
 
 #: ../../reference/_generated/hub-reasons.inc:171
 msgid ""
 "Too many requests from your hub; send again after the seconds in Retry-"
 "After."
 msgstr ""
+"Too many requests from your hub; send again after the seconds in Retry-"
+"After."
 
 #: ../../reference/_generated/hub-reasons.inc:172
 msgid "``strangers_busy``"
-msgstr ""
+msgstr "``strangers_busy``"
 
 #: ../../reference/_generated/hub-reasons.inc:175
 msgid ""
 "The recipient takes no more messages from senders who are not yet its "
 "contacts right now; send again after the seconds in Retry-After."
 msgstr ""
+"The recipient takes no more messages from senders who are not yet its "
+"contacts right now; send again after the seconds in Retry-After."
 
 #: ../../reference/_generated/hub-reasons.inc:176
 msgid "``too_large``"
-msgstr ""
+msgstr "``too_large``"
 
 #: ../../reference/_generated/hub-reasons.inc:177
 #: ../../reference/_generated/hub-reasons.inc:181
 msgid "413"
-msgstr ""
+msgstr "413"
 
 #: ../../reference/_generated/hub-reasons.inc:179
 msgid "The request body is larger than this route accepts; send a smaller one."
-msgstr ""
+msgstr "The request body is larger than this route accepts; send a smaller one."
 
 #: ../../reference/_generated/hub-reasons.inc:180
 msgid "``too_large_for_stranger``"
-msgstr ""
+msgstr "``too_large_for_stranger``"
 
 #: ../../reference/_generated/hub-reasons.inc:183
 msgid ""
 "The envelope is larger than the recipient accepts from senders who are "
 "not yet its contacts; send a smaller one."
 msgstr ""
+"The envelope is larger than the recipient accepts from senders who are "
+"not yet its contacts; send a smaller one."
 
 #: ../../reference/_generated/hub-reasons.inc:184
 msgid "``ts_stale``"
-msgstr ""
+msgstr "``ts_stale``"
 
 #: ../../reference/_generated/hub-reasons.inc:186
 msgid "``floor``"
-msgstr ""
+msgstr "``floor``"
 
 #: ../../reference/_generated/hub-reasons.inc:187
 msgid ""
 "The signing time is not after this hub's record for this signer; sign "
 "again with a later time (see X-ANet-TS-Floor)."
 msgstr ""
+"The signing time is not after this hub's record for this signer; sign "
+"again with a later time (see X-ANet-TS-Floor)."
 
 #: ../../reference/_generated/hub-reasons.inc:188
 msgid "``unauthorized``"
-msgstr ""
+msgstr "``unauthorized``"
 
 #: ../../reference/_generated/hub-reasons.inc:191
 msgid ""
 "The request's signature does not verify against what this hub holds for "
 "the signer; sign it again with the current key."
 msgstr ""
+"The request's signature does not verify against what this hub holds for "
+"the signer; sign it again with the current key."
 
 #: ../../reference/_generated/hub-reasons.inc:195
 msgid ""
 "This hub knows no agent with this AID; check the AID, or register it "
 "first."
 msgstr ""
+"This hub knows no agent with this AID; check the AID, or register it "
+"first."
 
 #: ../../reference/_generated/hub-reasons.inc:196
 msgid "``unknown_destination``"
-msgstr ""
+msgstr "``unknown_destination``"
 
 #: ../../reference/_generated/hub-reasons.inc:199
 msgid ""
 "No agent with this AID is registered on this hub; check the destination "
 "before forwarding again."
 msgstr ""
+"No agent with this AID is registered on this hub; check the destination "
+"before forwarding again."
 
 #: ../../reference/_generated/hub-reasons.inc:200
 msgid "``wire_too_new``"
-msgstr ""
+msgstr "``wire_too_new``"
 
 #: ../../reference/_generated/hub-reasons.inc:203
 msgid ""
 "This hub speaks hub wire 3, older than the caller's; ask the hub's "
 "operator to upgrade the hub, or use another hub."
 msgstr ""
+"This hub speaks hub wire 3, older than the caller's; ask the hub's "
+"operator to upgrade the hub, or use another hub."
 
 #: ../../reference/_generated/hub-reasons.inc:204
 msgid "``wire_too_old``"
-msgstr ""
+msgstr "``wire_too_old``"
 
 #: ../../reference/_generated/hub-reasons.inc:205
 msgid "426"
-msgstr ""
+msgstr "426"
 
 #: ../../reference/_generated/hub-reasons.inc:206
 msgid "``required_wire`` ``required_anet``"
-msgstr ""
+msgstr "``required_wire`` ``required_anet``"
 
 #: ../../reference/_generated/hub-reasons.inc:207
 msgid ""
 "This hub speaks hub wire 3 and needs anet 0.3.0 or later; update anet "
 "(anet update) and send again."
 msgstr ""
+"This hub speaks hub wire 3 and needs anet 0.3.0 or later; update anet "
+"(anet update) and send again."
 
 #: ../../reference/_generated/hub-reasons.inc:208
 msgid "``witness_not_this_hub``"
-msgstr ""
+msgstr "``witness_not_this_hub``"
 
 #: ../../reference/_generated/hub-reasons.inc:211
 msgid ""
 "The latest event in the key history does not name this hub as its "
 "witness; add a rotation that names this hub, then register again."
 msgstr ""
+"The latest event in the key history does not name this hub as its "
+"witness; add a rotation that names this hub, then register again."
 
 #: ../../reference/hub-api.rst:329
 msgid "Removed routes"
-msgstr ""
+msgstr "已移除的路由"
 
 #: ../../reference/hub-api.rst:331
 msgid ""
 "The following routes and members of 0.2 are not part of wire 3. A request"
 " to a removed route is answered with 404 ``not_found`` unless stated "
 "otherwise."
-msgstr ""
+msgstr "以下 0.2 的路由和成员不属于线路版本 3。除非另有说明，对已移除路由的请求以 404 ``not_found`` 应答。"
 
 #: ../../reference/_generated/hub-removed.inc:4
 msgid "/fed/v1/\\*"
-msgstr ""
+msgstr "/fed/v1/\\*"
 
 #: ../../reference/_generated/hub-removed.inc:5
 #, python-brace-format
 msgid "/fed/v2/\\* (with /fed/v2/keys/{aid})"
-msgstr ""
+msgstr "/fed/v2/\\*（含 /fed/v2/keys/{aid}）"
 
 #: ../../reference/_generated/hub-removed.inc:6
 msgid "/federation/clear (moved to /fed/v3/clear)"
-msgstr ""
+msgstr "/federation/clear（已移至 /fed/v3/clear）"
 
 #: ../../reference/_generated/hub-removed.inc:7
 msgid "POST /agents/keys:lookup"
-msgstr ""
+msgstr "POST /agents/keys:lookup"
 
 #: ../../reference/_generated/hub-removed.inc:8
 msgid "POST /agents/kel:lookup"
-msgstr ""
+msgstr "POST /agents/kel:lookup"
 
 #: ../../reference/_generated/hub-removed.inc:9
 msgid "POST /a2a/v1/agents/card:lookup"
-msgstr ""
+msgstr "POST /a2a/v1/agents/card:lookup"
 
 #: ../../reference/_generated/hub-removed.inc:10
 #, python-brace-format
 msgid "POST/GET /agents/{aid}/p2p"
-msgstr ""
+msgstr "POST/GET /agents/{aid}/p2p"
 
 #: ../../reference/_generated/hub-removed.inc:11
 msgid "GET /p2p/peers"
-msgstr ""
+msgstr "GET /p2p/peers"
 
 #: ../../reference/_generated/hub-removed.inc:12
 #, python-brace-format
 msgid "GET /agents/{aid}/card (ADP card)"
-msgstr ""
+msgstr "GET /agents/{aid}/card（ADP 卡片）"
 
 #: ../../reference/_generated/hub-removed.inc:13
 #, python-brace-format
 msgid "GET /x402/resource/{aid}/{capability} (410 tombstone)"
-msgstr ""
+msgstr "GET /x402/resource/{aid}/{capability}（410，已停用标记）"
 
 #: ../../reference/_generated/hub-removed.inc:14
 #, python-brace-format
 msgid "the federation fallback of GET /agents/{aid}/keys"
-msgstr ""
+msgstr "GET /agents/{aid}/keys 的联邦回退"
 
 #: ../../reference/_generated/hub-removed.inc:15
 msgid ""
@@ -2066,4 +2275,6 @@ msgid ""
 "/relay/send to_aid and base64 body; /relay/ack ids; /relay/send response "
 "id and warning"
 msgstr ""
+"请求字段：/register 的 invite、pricing、card；/profile 的 pricing；/relay/send 的 "
+"to_aid 和 base64 正文；/relay/ack 的 ids；/relay/send 响应的 id 和 warning"
 

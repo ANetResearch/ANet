@@ -3,7 +3,6 @@
 # This file is distributed under the same license as the ANet package.
 # FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
 #
-#, fuzzy
 msgid ""
 msgstr ""
 "Project-Id-Version: ANet 0.3\n"
@@ -21,7 +20,7 @@ msgstr ""
 
 #: ../../howto/troubleshooting.rst:4
 msgid "Troubleshooting"
-msgstr ""
+msgstr "故障排查"
 
 #: ../../howto/troubleshooting.rst:12
 msgid ""
@@ -33,31 +32,34 @@ msgid ""
 "errors, and on the local A2A interface. The complete table is in :ref"
 ":`reference-reason-codes`."
 msgstr ""
+"本页按所观察到的现象以及节点报告的原因码对故障分组。任务的每一次拒绝、失败和等待状态都带有原因码,位于任务的元数据 ``anet.reason``"
+" 以及命令行界面的输出中。与某个代码对应的语句和下一步操作,在命令行、MCP 工具错误和本地 A2A 接口中完全一致。完整的表见 :ref"
+":`reference-reason-codes`\\ 。"
 
 #: ../../howto/troubleshooting.rst:25
 msgid "Diagnosis"
-msgstr ""
+msgstr "诊断"
 
 #: ../../howto/troubleshooting.rst:27
 msgid ""
 "Four commands answer most questions. They are listed in the order in "
 "which they are usually used."
-msgstr ""
+msgstr "四条命令可以解答大多数问题,下面按通常的使用顺序列出。"
 
 #: ../../howto/troubleshooting.rst:30
 msgid "``anet status``"
-msgstr ""
+msgstr "``anet status``"
 
 #: ../../howto/troubleshooting.rst:31
 msgid ""
 "The state of the running node: identity, hub join state, delivery, "
 "inbound policy, payments, sandbox. The status lines use the sentences of "
 "the reason table."
-msgstr ""
+msgstr "运行中节点的状态:身份、hub 加入状态、投递、入站策略、付款、沙箱。状态行使用原因码表中的语句。"
 
 #: ../../howto/troubleshooting.rst:35
 msgid "``anet doctor``"
-msgstr ""
+msgstr "``anet doctor``"
 
 #: ../../howto/troubleshooting.rst:36
 msgid ""
@@ -67,62 +69,64 @@ msgid ""
 "does not need a running daemon. ``anet doctor --json`` gives the same "
 "result in a machine-readable form."
 msgstr ""
+"节点已配置的行为以及哪些入口处于开放状态。它读取数据目录,检查配置、编码工具的接入、本地 A2A 接口、沙箱和付款配置,不需要守护进程在运行。\\"
+" ``anet doctor --json`` 以机器可读的形式给出相同的结果。"
 
 #: ../../howto/troubleshooting.rst:42
 msgid "``anet logs [N|--all]``"
-msgstr ""
+msgstr "``anet logs [N|--all]``"
 
 #: ../../howto/troubleshooting.rst:43
 msgid "The last ``N`` lines of the daemon log, or the whole log."
-msgstr ""
+msgstr "守护进程日志的最后 ``N`` 行,或整个日志。"
 
 #: ../../howto/troubleshooting.rst:45
 msgid "``anet task get <task-id> [--full] [--history N]``"
-msgstr ""
+msgstr "``anet task get <task-id> [--full] [--history N]``"
 
 #: ../../howto/troubleshooting.rst:46
 msgid ""
 "One task as it is now, with the reason code in its metadata. ``--full`` "
 "returns content that other interfaces cut."
-msgstr ""
+msgstr "任务的当前状态,其元数据中带有原因码。\\ ``--full`` 会返回其他界面所截断的内容。"
 
 #: ../../howto/troubleshooting.rst:56
 msgid ""
 "A code that has a command as its next step is resolved by running that "
 "command; the tables below repeat the command where one exists."
-msgstr ""
+msgstr "以命令作为下一步的代码,运行该命令即可解决;下表在存在命令时会重复给出该命令。"
 
 #: ../../howto/troubleshooting.rst:59
 msgid "The meaning of the classes in the tables:"
-msgstr ""
+msgstr "表中各类别的含义:"
 
 #: ../../howto/troubleshooting.rst:61
 msgid "*Refused* (``rejected``): the other side certainly did not run the task."
-msgstr ""
+msgstr "*被拒绝*\\ (``rejected``):对方肯定没有运行该任务。"
 
 #: ../../howto/troubleshooting.rst:62
 msgid ""
 "*Failed* (``failed``): the task ended; the effect on the other side may "
 "be unknown."
-msgstr ""
+msgstr "*失败*\\ (``failed``):任务已结束;对方一侧的效果可能未知。"
 
 #: ../../howto/troubleshooting.rst:64
 msgid ""
 "*Waiting*: the node recovers on its own; no action is needed unless the "
 "wait is unusually long."
-msgstr ""
+msgstr "*等待*:节点会自行恢复;除非等待时间异常长,否则无需操作。"
 
 #: ../../howto/troubleshooting.rst:66
 msgid "*Needs a decision*: the task waits in ``input-required`` for an operator."
-msgstr ""
+msgstr "*需要决定*:任务以 ``input-required`` 状态等待运维人员。"
 
 #: ../../howto/troubleshooting.rst:67
 msgid "*Local*: refused by this node before anything was sent."
-msgstr ""
+msgstr "*本地*:在发送任何内容之前即被本节点拒绝。"
 
 #: ../../howto/troubleshooting.rst:71
 msgid "Node and installation"
-msgstr ""
+msgstr "节点与安装"
 
 #: ../../howto/troubleshooting.rst:77 ../../howto/troubleshooting.rst:138
 #: ../../howto/troubleshooting.rst:200 ../../howto/troubleshooting.rst:282
@@ -131,7 +135,7 @@ msgstr ""
 #: ../../howto/troubleshooting.rst:448 ../../howto/troubleshooting.rst:510
 #: ../../howto/troubleshooting.rst:580 ../../howto/troubleshooting.rst:724
 msgid "Code"
-msgstr ""
+msgstr "代码"
 
 #: ../../howto/troubleshooting.rst:78 ../../howto/troubleshooting.rst:139
 #: ../../howto/troubleshooting.rst:201 ../../howto/troubleshooting.rst:283
@@ -140,7 +144,7 @@ msgstr ""
 #: ../../howto/troubleshooting.rst:449 ../../howto/troubleshooting.rst:511
 #: ../../howto/troubleshooting.rst:581
 msgid "Cause"
-msgstr ""
+msgstr "原因"
 
 #: ../../howto/troubleshooting.rst:79 ../../howto/troubleshooting.rst:140
 #: ../../howto/troubleshooting.rst:202 ../../howto/troubleshooting.rst:284
@@ -148,129 +152,129 @@ msgstr ""
 #: ../../howto/troubleshooting.rst:426 ../../howto/troubleshooting.rst:450
 #: ../../howto/troubleshooting.rst:512 ../../howto/troubleshooting.rst:582
 msgid "Action"
-msgstr ""
+msgstr "处理"
 
 #: ../../howto/troubleshooting.rst:80
 msgid "``daemon_not_running``"
-msgstr ""
+msgstr "``daemon_not_running``"
 
 #: ../../howto/troubleshooting.rst:81
 msgid "No daemon answers for the data directory shown."
-msgstr ""
+msgstr "所示数据目录没有守护进程应答。"
 
 #: ../../howto/troubleshooting.rst:82
 msgid ""
 "``anet up``. If a node runs under another identity, the message names the"
 " command to use with ``--id``."
-msgstr ""
+msgstr "运行 ``anet up``\\ 。如果节点以另一个身份运行,消息会指明应配合 ``--id`` 使用的命令。"
 
 #: ../../howto/troubleshooting.rst:84
 msgid "``identity_v02``"
-msgstr ""
+msgstr "``identity_v02``"
 
 #: ../../howto/troubleshooting.rst:85
 msgid ""
 "The data directory was written by anet 0.2. Version 0.3 does not migrate "
 "old data."
-msgstr ""
+msgstr "数据目录由 anet 0.2 写入。0.3 版不迁移旧数据。"
 
 #: ../../howto/troubleshooting.rst:87
 msgid ""
 "Move the directory away and run ``anet up`` to create a new identity. See"
 " :doc:`/upgrading`."
-msgstr ""
+msgstr "将该目录移开,并运行 ``anet up`` 以创建新的身份。参见 :doc:`/upgrading`\\ 。"
 
 #: ../../howto/troubleshooting.rst:89
 msgid "``datadir_too_new``"
-msgstr ""
+msgstr "``datadir_too_new``"
 
 #: ../../howto/troubleshooting.rst:90
 msgid "The data directory was written by a newer release."
-msgstr ""
+msgstr "数据目录由更新的版本写入。"
 
 #: ../../howto/troubleshooting.rst:91
 msgid "``anet update``. The directory is not deleted."
-msgstr ""
+msgstr "运行 ``anet update``\\ 。该目录不会被删除。"
 
 #: ../../howto/troubleshooting.rst:92
 msgid "``clock_skew``"
-msgstr ""
+msgstr "``clock_skew``"
 
 #: ../../howto/troubleshooting.rst:93
 msgid ""
 "The clock of the machine differs from that of the hub by more than five "
 "minutes."
-msgstr ""
+msgstr "本机时钟与 hub 时钟相差超过五分钟。"
 
 #: ../../howto/troubleshooting.rst:95
 msgid ""
 "Correct the system time, for example by enabling NTP, and repeat the "
 "command."
-msgstr ""
+msgstr "校正系统时间,例如启用 NTP,然后重复该命令。"
 
 #: ../../howto/troubleshooting.rst:97
 msgid "``config_invalid``"
-msgstr ""
+msgstr "``config_invalid``"
 
 #: ../../howto/troubleshooting.rst:98
 msgid "A setting is not valid. The message names the key and the rule."
-msgstr ""
+msgstr "某项设置无效。消息会指明键和规则。"
 
 #: ../../howto/troubleshooting.rst:99
 msgid "Correct the value in ``config.json`` or through the command that sets it."
-msgstr ""
+msgstr "在 ``config.json`` 中,或通过设置该项的命令更正该值。"
 
 #: ../../howto/troubleshooting.rst:101
 msgid "``config_key_removed``, ``cli_removed``"
-msgstr ""
+msgstr "``config_key_removed``\\ 、\\ ``cli_removed``"
 
 #: ../../howto/troubleshooting.rst:102
 msgid "A setting or a command of an earlier release was removed in 0.3.0."
-msgstr ""
+msgstr "早期版本的某项设置或命令已在 0.3.0 中移除。"
 
 #: ../../howto/troubleshooting.rst:103
 msgid "The message names the replacement. See :doc:`/upgrading`."
-msgstr ""
+msgstr "消息会指明替代方式。参见 :doc:`/upgrading`\\ 。"
 
 #: ../../howto/troubleshooting.rst:104
 msgid "``aid_invalid``"
-msgstr ""
+msgstr "``aid_invalid``"
 
 #: ../../howto/troubleshooting.rst:105
 msgid "The argument is not a full AID."
-msgstr ""
+msgstr "参数不是完整的 AID。"
 
 #: ../../howto/troubleshooting.rst:106
 msgid ""
 "Copy the full AID from the AID column of ``anet find`` or ``anet peers "
 "list``."
-msgstr ""
+msgstr "从 ``anet find`` 或 ``anet peers list`` 的 AID 列中复制完整的 AID。"
 
 #: ../../howto/troubleshooting.rst:108
 msgid "``tty_required``"
-msgstr ""
+msgstr "``tty_required``"
 
 #: ../../howto/troubleshooting.rst:109
 msgid "The action requires confirmation at a terminal of the operator."
-msgstr ""
+msgstr "该操作需要在运维人员的终端上确认。"
 
 #: ../../howto/troubleshooting.rst:110
 msgid ""
 "Run the command shown in an interactive terminal. Commands that widen "
 "authority are not available through MCP or the control plane."
-msgstr ""
+msgstr "在交互式终端中运行所示命令。扩大权限的命令不能通过 MCP 或控制面使用。"
 
 #: ../../howto/troubleshooting.rst:112
 msgid "``retention_invalid``"
-msgstr ""
+msgstr "``retention_invalid``"
 
 #: ../../howto/troubleshooting.rst:113
 msgid "A retention value does not have the form ``<days>d`` or ``forever``."
-msgstr ""
+msgstr "保留期的取值不符合 ``<days>d`` 或 ``forever`` 的形式。"
 
 #: ../../howto/troubleshooting.rst:114
 msgid "``anet retention set 30d``. Valid values are 1 to 3650 days."
-msgstr ""
+msgstr "运行 ``anet retention set 30d``\\ 。有效值为 1 到 3650 天。"
 
 #: ../../howto/troubleshooting.rst:116
 msgid ""
@@ -279,10 +283,12 @@ msgid ""
 "deleting early. The status lines ``clock.skewed``, ``clock.unverified`` "
 "and ``clock.no_hub`` describe the state."
 msgstr ""
+"时钟在另一方面也很重要:当时钟无法与 hub 比对时,过期密钥和内容的删除会放慢,以避免过早删除。状态行 ``clock.skewed``\\ "
+"、\\ ``clock.unverified`` 和 ``clock.no_hub`` 描述这些状态。"
 
 #: ../../howto/troubleshooting.rst:123
 msgid "Joining a hub"
-msgstr ""
+msgstr "加入 hub"
 
 #: ../../howto/troubleshooting.rst:125
 msgid ""
@@ -291,421 +297,427 @@ msgid ""
 " AID prints one line of the form ``anet-hub admit <aid>``; that line is "
 "sent to the operator of the hub, and joining then finishes on its own."
 msgstr ""
+"未在 hub 注册的节点无法发送或接收。命令 ``anet hub-register <url>`` 开始加入流程。按 AID 准入的 hub "
+"会输出一行形如 ``anet-hub admit <aid>`` 的内容;将这一行发送给 hub 的运营方,加入流程随后会自行完成。"
 
 #: ../../howto/troubleshooting.rst:141
 msgid "``no_hub_yet``"
-msgstr ""
+msgstr "``no_hub_yet``"
 
 #: ../../howto/troubleshooting.rst:142
 msgid "The node has not joined a hub."
-msgstr ""
+msgstr "节点尚未加入 hub。"
 
 #: ../../howto/troubleshooting.rst:143
 msgid "``anet hub-register <hub-url>``."
-msgstr ""
+msgstr "运行 ``anet hub-register <hub-url>``\\ 。"
 
 #: ../../howto/troubleshooting.rst:144
 msgid "``hub_pending_admission``"
-msgstr ""
+msgstr "``hub_pending_admission``"
 
 #: ../../howto/troubleshooting.rst:145
 msgid "The hub requires its operator to admit the AID first."
-msgstr ""
+msgstr "hub 要求其运营方先准入该 AID。"
 
 #: ../../howto/troubleshooting.rst:146
 msgid ""
 "Send the printed ``anet-hub admit <aid>`` line to the operator of the "
 "hub. No further action is needed afterwards. Do not register again."
-msgstr ""
+msgstr "将输出的 ``anet-hub admit <aid>`` 行发送给 hub 的运营方。此后无需其他操作。请勿再次注册。"
 
 #: ../../howto/troubleshooting.rst:148
 msgid "``hub_retrying``"
-msgstr ""
+msgstr "``hub_retrying``"
 
 #: ../../howto/troubleshooting.rst:149
 msgid ""
 "Joining could not be completed yet. The message gives the reason and the "
 "time of the next attempt."
-msgstr ""
+msgstr "加入流程暂时无法完成。消息会给出原因和下次尝试的时间。"
 
 #: ../../howto/troubleshooting.rst:151
 msgid "None; the node retries."
-msgstr ""
+msgstr "无;节点会重试。"
 
 #: ../../howto/troubleshooting.rst:152
 msgid "``hub_retrying.quota``"
-msgstr ""
+msgstr "``hub_retrying.quota``"
 
 #: ../../howto/troubleshooting.rst:153
 msgid "The sign-ups of the network of the node for the current day are used up."
-msgstr ""
+msgstr "节点所在网络当日的注册名额已用完。"
 
 #: ../../howto/troubleshooting.rst:155
 msgid ""
 "Wait for the next attempt, or ask the operator of the hub to admit the "
 "AID."
-msgstr ""
+msgstr "等待下一次尝试,或请 hub 运营方准入该 AID。"
 
 #: ../../howto/troubleshooting.rst:157
 msgid "``hub_refused``"
-msgstr ""
+msgstr "``hub_refused``"
 
 #: ../../howto/troubleshooting.rst:158
 msgid "The hub refused the registration. The node does not retry."
-msgstr ""
+msgstr "hub 拒绝了注册。节点不会重试。"
 
 #: ../../howto/troubleshooting.rst:159
 msgid "Contact the operator of the hub with the message."
-msgstr ""
+msgstr "携带该消息联系 hub 的运营方。"
 
 #: ../../howto/troubleshooting.rst:160
 msgid "``hub_unreachable``"
-msgstr ""
+msgstr "``hub_unreachable``"
 
 #: ../../howto/troubleshooting.rst:161
 msgid "The hub does not answer. Nothing was changed."
-msgstr ""
+msgstr "hub 没有应答。未作任何更改。"
 
 #: ../../howto/troubleshooting.rst:162
 msgid ""
 "Check the address and the network, then repeat ``anet hub-register <hub-"
 "url>``."
-msgstr ""
+msgstr "检查地址和网络,然后重复 ``anet hub-register <hub-url>``\\ 。"
 
 #: ../../howto/troubleshooting.rst:164
 msgid "``hub_publication_blocked``"
-msgstr ""
+msgstr "``hub_publication_blocked``"
 
 #: ../../howto/troubleshooting.rst:165
 msgid ""
 "The registration data contain content that an organization module marks "
 "as confidential, so it was not sent."
-msgstr ""
+msgstr "注册数据包含被组织模块标记为机密的内容,因此未发送。"
 
 #: ../../howto/troubleshooting.rst:167
 msgid ""
 "Remove the content from the agent name, the capability descriptions or "
 "the profile and register again."
-msgstr ""
+msgstr "从 Agent 名称、能力描述或档案中删除这些内容,然后重新注册。"
 
 #: ../../howto/troubleshooting.rst:169
 msgid "``invite_removed``"
-msgstr ""
+msgstr "``invite_removed``"
 
 #: ../../howto/troubleshooting.rst:170
 msgid "Hubs no longer use invitations."
-msgstr ""
+msgstr "hub 不再使用邀请。"
 
 #: ../../howto/troubleshooting.rst:171
 msgid ""
 "``anet hub-register <hub-url>`` and send the printed admit line to the "
 "operator."
-msgstr ""
+msgstr "运行 ``anet hub-register <hub-url>``,并将输出的 admit 行发送给运营方。"
 
 #: ../../howto/troubleshooting.rst:173
 msgid "``hub_switch_requires_rotation``"
-msgstr ""
+msgstr "``hub_switch_requires_rotation``"
 
 #: ../../howto/troubleshooting.rst:174
 msgid "Switching hubs needs a key rotation with the recovery passphrase."
-msgstr ""
+msgstr "切换 hub 需要凭恢复口令执行一次密钥轮换。"
 
 #: ../../howto/troubleshooting.rst:175
 msgid "Run ``anet hub-register <hub-url>`` in a terminal."
-msgstr ""
+msgstr "在终端中运行 ``anet hub-register <hub-url>``\\ 。"
 
 #: ../../howto/troubleshooting.rst:176
 msgid "``hub_switch_pending_admission``"
-msgstr ""
+msgstr "``hub_switch_pending_admission``"
 
 #: ../../howto/troubleshooting.rst:177
 msgid "The new hub has not admitted the AID yet."
-msgstr ""
+msgstr "新 hub 尚未准入该 AID。"
 
 #: ../../howto/troubleshooting.rst:178
 msgid ""
 "Send ``anet-hub admit <aid>`` to its operator and repeat ``anet hub-"
 "register <hub-url>`` afterwards."
 msgstr ""
+"将 ``anet-hub admit <aid>`` 发送给其运营方,之后重复 ``anet hub-register <hub-url>``\\"
+" 。"
 
 #: ../../howto/troubleshooting.rst:180
 msgid "``witness_hub_leave``"
-msgstr ""
+msgstr "``witness_hub_leave``"
 
 #: ../../howto/troubleshooting.rst:181
 msgid ""
 "The hub is the witness hub of the identity; leaving it would stop sending"
 " and receiving."
-msgstr ""
+msgstr "该 hub 是此身份的见证 hub;离开它将导致无法发送和接收。"
 
 #: ../../howto/troubleshooting.rst:183
 msgid "Switch with ``anet hub-register <new-hub-url>``."
-msgstr ""
+msgstr "使用 ``anet hub-register <new-hub-url>`` 切换。"
 
 #: ../../howto/troubleshooting.rst:184
 msgid "``session_unavailable``"
-msgstr ""
+msgstr "``session_unavailable``"
 
 #: ../../howto/troubleshooting.rst:185
 msgid ""
 "The hub does not accept first contacts from this node at the moment. "
 "Messages are queued."
-msgstr ""
+msgstr "hub 目前不接受来自本节点的首次联系。消息已排队。"
 
 #: ../../howto/troubleshooting.rst:187
 msgid "``anet status``."
-msgstr ""
+msgstr "运行 ``anet status``\\ 。"
 
 #: ../../howto/troubleshooting.rst:191
 msgid "Task refused by the other side"
-msgstr ""
+msgstr "任务被对方拒绝"
 
 #: ../../howto/troubleshooting.rst:193
 msgid ""
 "These codes arrive with the state ``rejected``. The other side did not "
 "run the task."
-msgstr ""
+msgstr "这些代码随状态 ``rejected`` 到达。对方没有运行该任务。"
 
 #: ../../howto/troubleshooting.rst:203
 msgid "``not_accepting``"
-msgstr ""
+msgstr "``not_accepting``"
 
 #: ../../howto/troubleshooting.rst:204
 msgid ""
 "The inbound policy of the other node is ``closed`` and the AID is not on "
 "its allow list."
-msgstr ""
+msgstr "对方节点的入站策略为 ``closed``,且该 AID 不在其允许名单上。"
 
 #: ../../howto/troubleshooting.rst:206
 msgid ""
 "The other operator runs ``anet peers allow <aid>``. The message names the"
 " command."
-msgstr ""
+msgstr "对方运营人员运行 ``anet peers allow <aid>``\\ 。消息会指明该命令。"
 
 #: ../../howto/troubleshooting.rst:208
 msgid "``denied``"
-msgstr ""
+msgstr "``denied``"
 
 #: ../../howto/troubleshooting.rst:209
 msgid "The other side has blocked the AID."
-msgstr ""
+msgstr "对方已屏蔽该 AID。"
 
 #: ../../howto/troubleshooting.rst:210
 msgid "None; repeating has no effect."
-msgstr ""
+msgstr "无;重复发送没有作用。"
 
 #: ../../howto/troubleshooting.rst:211
 msgid "``capability_not_public``"
-msgstr ""
+msgstr "``capability_not_public``"
 
 #: ../../howto/troubleshooting.rst:212
 msgid "The capability is not offered to this AID."
-msgstr ""
+msgstr "该能力不向此 AID 提供。"
 
 #: ../../howto/troubleshooting.rst:213
 msgid ""
 "``anet card <aid>`` lists what the agent offers. Ask to be put on its "
 "allow list."
-msgstr ""
+msgstr "``anet card <aid>`` 列出该 Agent 提供的能力。可请求对方将自己加入允许名单。"
 
 #: ../../howto/troubleshooting.rst:215
 msgid "``provider_policy``"
-msgstr ""
+msgstr "``provider_policy``"
 
 #: ../../howto/troubleshooting.rst:216
 msgid "The other side does not allow remote calls to this capability."
-msgstr ""
+msgstr "对方不允许远程调用此能力。"
 
 #: ../../howto/troubleshooting.rst:217
 msgid "``anet card <aid>`` for the other capabilities; contact the operator."
-msgstr ""
+msgstr "用 ``anet card <aid>`` 查看其他能力;或联系运营人员。"
 
 #: ../../howto/troubleshooting.rst:218
 msgid "``capability_not_served``"
-msgstr ""
+msgstr "``capability_not_served``"
 
 #: ../../howto/troubleshooting.rst:219
 msgid "The other side does not serve this capability at the moment."
-msgstr ""
+msgstr "对方目前不提供此能力。"
 
 #: ../../howto/troubleshooting.rst:220
 msgid "``anet card <aid>``."
-msgstr ""
+msgstr "运行 ``anet card <aid>``\\ 。"
 
 #: ../../howto/troubleshooting.rst:221
 msgid "``pending_approval``"
-msgstr ""
+msgstr "``pending_approval``"
 
 #: ../../howto/troubleshooting.rst:222
 msgid ""
 "The other side approves tasks by hand and queued this one. This is a "
 "waiting state."
-msgstr ""
+msgstr "对方手动批准任务,并将此任务排入队列。这是一个等待状态。"
 
 #: ../../howto/troubleshooting.rst:224
 msgid "None. The task does not run before approval."
-msgstr ""
+msgstr "无。任务在批准之前不会运行。"
 
 #: ../../howto/troubleshooting.rst:225
 msgid "``pending_expired``"
-msgstr ""
+msgstr "``pending_expired``"
 
 #: ../../howto/troubleshooting.rst:226
 msgid "The operator of the other side did not approve within 72 hours."
-msgstr ""
+msgstr "对方的运营人员未在 72 小时内批准。"
 
 #: ../../howto/troubleshooting.rst:227
 msgid "Contact the operator before sending again."
-msgstr ""
+msgstr "再次发送之前,请联系运营人员。"
 
 #: ../../howto/troubleshooting.rst:228
 msgid "``operator_rejected``"
-msgstr ""
+msgstr "``operator_rejected``"
 
 #: ../../howto/troubleshooting.rst:229
 msgid "The operator turned the task down."
-msgstr ""
+msgstr "运营人员拒绝了该任务。"
 
 #: ../../howto/troubleshooting.rst:230 ../../howto/troubleshooting.rst:471
 #: ../../howto/troubleshooting.rst:493 ../../howto/troubleshooting.rst:538
 msgid "None."
-msgstr ""
+msgstr "无。"
 
 #: ../../howto/troubleshooting.rst:231
 msgid "``pending_full``"
-msgstr ""
+msgstr "``pending_full``"
 
 #: ../../howto/troubleshooting.rst:232
 msgid "The approval queue of the other side is full."
-msgstr ""
+msgstr "对方的审批队列已满。"
 
 #: ../../howto/troubleshooting.rst:233 ../../howto/troubleshooting.rst:262
 msgid "Send again later."
-msgstr ""
+msgstr "稍后再发送。"
 
 #: ../../howto/troubleshooting.rst:234
 msgid "``busy``, ``caller_busy``"
-msgstr ""
+msgstr "``busy``\\ 、\\ ``caller_busy``"
 
 #: ../../howto/troubleshooting.rst:235
 msgid ""
 "The other side is occupied, or a call to the same capability from this "
 "node is still running."
-msgstr ""
+msgstr "对方正忙,或本节点对同一能力的先前调用仍在运行。"
 
 #: ../../howto/troubleshooting.rst:237
 msgid "Send again after the time shown, or after the earlier call ended."
-msgstr ""
+msgstr "在所示时间之后,或在先前调用结束之后再发送。"
 
 #: ../../howto/troubleshooting.rst:238
 msgid "``quota_caller_per_min``, ``quota_caller_per_day``"
-msgstr ""
+msgstr "``quota_caller_per_min``\\ 、\\ ``quota_caller_per_day``"
 
 #: ../../howto/troubleshooting.rst:239
 msgid "The per-caller quota is used up. The daily quota is counted in UTC."
-msgstr ""
+msgstr "每个调用方的配额已用完。每日配额按 UTC 计算。"
 
 #: ../../howto/troubleshooting.rst:240 ../../howto/troubleshooting.rst:243
 msgid "Send again after the time shown."
-msgstr ""
+msgstr "在所示时间之后再发送。"
 
 #: ../../howto/troubleshooting.rst:241
 msgid "``budget``"
-msgstr ""
+msgstr "``budget``"
 
 #: ../../howto/troubleshooting.rst:242
 msgid "The other side used its daily runs for peers it does not trust."
-msgstr ""
+msgstr "对方已用完每日为不受信任的对等方安排的运行次数。"
 
 #: ../../howto/troubleshooting.rst:244
 msgid "``sandbox_unavailable``"
-msgstr ""
+msgstr "``sandbox_unavailable``"
 
 #: ../../howto/troubleshooting.rst:245
 msgid "The sandbox of the other side cannot run the task now."
-msgstr ""
+msgstr "对方的沙箱目前无法运行该任务。"
 
 #: ../../howto/troubleshooting.rst:246
 msgid "Send again later or contact its operator."
-msgstr ""
+msgstr "稍后再发送,或联系其运营人员。"
 
 #: ../../howto/troubleshooting.rst:247
 msgid ""
 "``args_too_large``, ``files_count``, ``files_too_large``, "
 "``file_type_not_accepted``"
 msgstr ""
+"``args_too_large``\\ 、\\ ``files_count``\\ 、\\ ``files_too_large``\\ 、\\ "
+"``file_type_not_accepted``"
 
 #: ../../howto/troubleshooting.rst:248
 msgid "The arguments or files do not meet the limits of the capability."
-msgstr ""
+msgstr "参数或文件不符合该能力的限制。"
 
 #: ../../howto/troubleshooting.rst:249
 msgid "``anet card <aid>`` shows the limits; adjust the request."
-msgstr ""
+msgstr "``anet card <aid>`` 显示这些限制;请调整请求。"
 
 #: ../../howto/troubleshooting.rst:250
 msgid "``bad_request``"
-msgstr ""
+msgstr "``bad_request``"
 
 #: ../../howto/troubleshooting.rst:251
 msgid "The other side cannot accept the form of the request."
-msgstr ""
+msgstr "对方无法接受该请求的格式。"
 
 #: ../../howto/troubleshooting.rst:252 ../../howto/troubleshooting.rst:385
 msgid "``anet update`` and send again."
-msgstr ""
+msgstr "运行 ``anet update`` 后重新发送。"
 
 #: ../../howto/troubleshooting.rst:253
 msgid "``key_state``, ``invalid``"
-msgstr ""
+msgstr "``key_state``\\ 、\\ ``invalid``"
 
 #: ../../howto/troubleshooting.rst:254
 msgid ""
 "The other side could not confirm that the identity key is current, or "
 "could not verify the message (time, signature or identity record)."
-msgstr ""
+msgstr "对方无法确认身份密钥是否为当前密钥,或无法验证该消息(时间、签名或身份记录)。"
 
 #: ../../howto/troubleshooting.rst:256
 msgid "``anet doctor``; check the connection to the hub and the clock."
-msgstr ""
+msgstr "运行 ``anet doctor``;检查与 hub 的连接和时钟。"
 
 #: ../../howto/troubleshooting.rst:257
 msgid "``payments_unavailable``"
-msgstr ""
+msgstr "``payments_unavailable``"
 
 #: ../../howto/troubleshooting.rst:258
 msgid "The capability is priced, but the other side cannot take payments now."
-msgstr ""
+msgstr "该能力有定价,但对方目前无法收款。"
 
 #: ../../howto/troubleshooting.rst:259
 msgid "Try again later or contact the other side."
-msgstr ""
+msgstr "稍后再试,或联系对方。"
 
 #: ../../howto/troubleshooting.rst:260
 msgid "``unavailable``"
-msgstr ""
+msgstr "``unavailable``"
 
 #: ../../howto/troubleshooting.rst:261
 msgid "The other side cannot run the capability now."
-msgstr ""
+msgstr "对方目前无法运行该能力。"
 
 #: ../../howto/troubleshooting.rst:263
 msgid "``refused``, ``unknown_code``"
-msgstr ""
+msgstr "``refused``\\ 、\\ ``unknown_code``"
 
 #: ../../howto/troubleshooting.rst:264
 msgid ""
 "The other side refused without a reason, or with a code that this release"
 " does not know."
-msgstr ""
+msgstr "对方未说明原因即拒绝,或使用了本版本不认识的代码。"
 
 #: ../../howto/troubleshooting.rst:266
 msgid "Contact the other side. For ``unknown_code`` the message gives the code."
-msgstr ""
+msgstr "联系对方。对于 ``unknown_code``,消息会给出该代码。"
 
 #: ../../howto/troubleshooting.rst:271
 msgid "Task failed or without confirmed effect"
-msgstr ""
+msgstr "任务失败或效果未确认"
 
 #: ../../howto/troubleshooting.rst:273
 msgid ""
@@ -714,128 +726,130 @@ msgid ""
 "call left the node and that nobody knows whether it took effect. Such a "
 "call is not sent again as if it had not run."
 msgstr ""
+"对于能力调用,元数据 ``anet.effect_status`` 说明了关于效果已知的情况。失败之后出现 "
+"``UNVERIFIED``,表示调用已离开节点,且无人知道其是否生效。这样的调用不会被当作未运行而重新发送。"
 
 #: ../../howto/troubleshooting.rst:285
 msgid "``timeout``"
-msgstr ""
+msgstr "``timeout``"
 
 #: ../../howto/troubleshooting.rst:286
 msgid "The other side timed out; the effect is not known."
-msgstr ""
+msgstr "对方超时;效果未知。"
 
 #: ../../howto/troubleshooting.rst:287
 msgid "Ask the other side, or ``anet task get <task-id>``. Do not send again."
-msgstr ""
+msgstr "询问对方,或运行 ``anet task get <task-id>``\\ 。请勿重新发送。"
 
 #: ../../howto/troubleshooting.rst:288
 msgid "``connection_lost``"
-msgstr ""
+msgstr "``connection_lost``"
 
 #: ../../howto/troubleshooting.rst:289
 msgid ""
 "The service behind the other side lost its connection while running the "
 "task."
-msgstr ""
+msgstr "对方背后的服务在运行任务时断开了连接。"
 
 #: ../../howto/troubleshooting.rst:291 ../../howto/troubleshooting.rst:294
 msgid "Ask the other side. Do not send again."
-msgstr ""
+msgstr "询问对方。请勿重新发送。"
 
 #: ../../howto/troubleshooting.rst:292
 msgid "``interrupted``"
-msgstr ""
+msgstr "``interrupted``"
 
 #: ../../howto/troubleshooting.rst:293
 msgid "The other side restarted while running the task."
-msgstr ""
+msgstr "对方在运行任务时重启了。"
 
 #: ../../howto/troubleshooting.rst:295
 msgid "``no_response``"
-msgstr ""
+msgstr "``no_response``"
 
 #: ../../howto/troubleshooting.rst:296
 msgid ""
 "Delivery was confirmed, but no answer arrived within the limit "
 "(``no_response_after``, 15 minutes by default). A later answer is still "
 "recorded."
-msgstr ""
+msgstr "投递已确认,但在限定时间(``no_response_after``,默认 15 分钟)内没有收到答复。之后到达的答复仍会被记录。"
 
 #: ../../howto/troubleshooting.rst:299
 msgid "``anet task get <task-id>``."
-msgstr ""
+msgstr "运行 ``anet task get <task-id>``\\ 。"
 
 #: ../../howto/troubleshooting.rst:300
 msgid "``backend_failed``"
-msgstr ""
+msgstr "``backend_failed``"
 
 #: ../../howto/troubleshooting.rst:301
 msgid "The service of the other side failed without a reason."
-msgstr ""
+msgstr "对方的服务失败,未给出原因。"
 
 #: ../../howto/troubleshooting.rst:302
 msgid "Send again later or contact the other side."
-msgstr ""
+msgstr "稍后再发送,或联系对方。"
 
 #: ../../howto/troubleshooting.rst:303
 msgid "``result_refused``"
-msgstr ""
+msgstr "``result_refused``"
 
 #: ../../howto/troubleshooting.rst:304
 msgid ""
 "The result does not match the conversation that the other side signed; "
 "the node discarded it."
-msgstr ""
+msgstr "结果与对方已签名的对话不一致;节点已丢弃该结果。"
 
 #: ../../howto/troubleshooting.rst:306
 msgid "Contact the other side or start the task again."
-msgstr ""
+msgstr "联系对方,或重新启动任务。"
 
 #: ../../howto/troubleshooting.rst:307
 msgid "``task_not_found``"
-msgstr ""
+msgstr "``task_not_found``"
 
 #: ../../howto/troubleshooting.rst:308
 msgid "The other side has no such task (expired or removed)."
-msgstr ""
+msgstr "对方没有这个任务(已过期或已被移除)。"
 
 #: ../../howto/troubleshooting.rst:309
 msgid "Start a new task."
-msgstr ""
+msgstr "启动新任务。"
 
 #: ../../howto/troubleshooting.rst:310
 msgid "``task_ended``"
-msgstr ""
+msgstr "``task_ended``"
 
 #: ../../howto/troubleshooting.rst:311
 msgid "A message was not used because the task had already ended there."
-msgstr ""
+msgstr "消息未被采用,因为任务在对方一侧已经结束。"
 
 #: ../../howto/troubleshooting.rst:312
 msgid "Start a new task if the request still stands."
-msgstr ""
+msgstr "如果请求仍然有效,启动新任务。"
 
 #: ../../howto/troubleshooting.rst:313
 msgid "``bad_image``, ``no_face_in_a``, ``no_face_in_b``"
-msgstr ""
+msgstr "``bad_image``\\ 、\\ ``no_face_in_a``\\ 、\\ ``no_face_in_b``"
 
 #: ../../howto/troubleshooting.rst:314
 msgid "Capability-specific input errors (image unreadable, no face found)."
-msgstr ""
+msgstr "特定能力的输入错误(图片无法读取、未检测到人脸)。"
 
 #: ../../howto/troubleshooting.rst:315
 msgid "Use a different image."
-msgstr ""
+msgstr "换用其他图片。"
 
 #: ../../howto/troubleshooting.rst:317
 msgid ""
 "``receipt_mismatch`` is information and not an error: the signed "
 "conversation differs from what was sent, so the node keeps no evidence of"
 " the task, and the result can still be read."
-msgstr ""
+msgstr "``receipt_mismatch`` 只是信息而不是错误:已签名的对话与所发送的内容不同,因此节点不保存该任务的证据,但仍可读取结果。"
 
 #: ../../howto/troubleshooting.rst:323
 msgid "Delivery"
-msgstr ""
+msgstr "投递"
 
 #: ../../howto/troubleshooting.rst:325
 msgid ""
@@ -843,158 +857,160 @@ msgid ""
 " then it waits at the hub or in the outbox of the sender. ``anet status``"
 " shows the number of unconfirmed messages and the age of the oldest."
 msgstr ""
+"收件方的节点接收消息之后,该消息即被确认。在此之前,它在 hub 上或发送方的发件箱中等待。\\ ``anet status`` "
+"显示未确认消息的数量和最旧一条的存留时间。"
 
 #: ../../howto/troubleshooting.rst:329
 msgid "Waiting states, which resolve without action:"
-msgstr ""
+msgstr "无需操作即可自行解决的等待状态:"
 
 #: ../../howto/troubleshooting.rst:337
 msgid "``rate_limited``, ``redelivery_limited``"
-msgstr ""
+msgstr "``rate_limited``\\ 、\\ ``redelivery_limited``"
 
 #: ../../howto/troubleshooting.rst:338
 msgid "The sender is too fast and the hub asked it to wait. The node retries."
-msgstr ""
+msgstr "发送方过快,hub 要求其等待。节点会重试。"
 
 #: ../../howto/troubleshooting.rst:339
 msgid "``mailbox_full``, ``strangers_busy``"
-msgstr ""
+msgstr "``mailbox_full``\\ 、\\ ``strangers_busy``"
 
 #: ../../howto/troubleshooting.rst:340
 msgid ""
 "The mailbox of the recipient, or its mailbox for senders it does not "
 "know, is full. The message is queued."
-msgstr ""
+msgstr "收件方的邮箱,或其面向陌生发送方的邮箱已满。消息已排队。"
 
 #: ../../howto/troubleshooting.rst:342
 msgid "``home_unreachable``"
-msgstr ""
+msgstr "``home_unreachable``"
 
 #: ../../howto/troubleshooting.rst:343
 msgid "The hub of the recipient cannot be reached at the moment."
-msgstr ""
+msgstr "目前无法连接收件方的 hub。"
 
 #: ../../howto/troubleshooting.rst:344
 msgid "``credential_refused``"
-msgstr ""
+msgstr "``credential_refused``"
 
 #: ../../howto/troubleshooting.rst:345
 msgid ""
 "The hub refused a delivery credential. If it is still refused after 10 "
 "minutes, the message goes out as a first contact."
-msgstr ""
+msgstr "hub 拒绝了某个投递凭证。10 分钟后仍被拒绝时,消息将作为首次联系发出。"
 
 #: ../../howto/troubleshooting.rst:347
 msgid "``notice_stale.wait``"
-msgstr ""
+msgstr "``notice_stale.wait``"
 
 #: ../../howto/troubleshooting.rst:348
 msgid ""
 "The hub has not confirmed the current key of this node yet. See also "
 "``anet doctor``."
-msgstr ""
+msgstr "hub 尚未确认本节点的当前密钥。另请参阅 ``anet doctor``\\ 。"
 
 #: ../../howto/troubleshooting.rst:350
 msgid "``rotation_pending.wait``"
-msgstr ""
+msgstr "``rotation_pending.wait``"
 
 #: ../../howto/troubleshooting.rst:351
 msgid "A key rotation is being published."
-msgstr ""
+msgstr "正在发布一次密钥轮换。"
 
 #: ../../howto/troubleshooting.rst:353
 msgid "Failures:"
-msgstr ""
+msgstr "失败:"
 
 #: ../../howto/troubleshooting.rst:362
 msgid "``delivery_unconfirmed.queued``, ``.waiting``, ``.sent``"
-msgstr ""
+msgstr "``delivery_unconfirmed.queued``\\ 、\\ ``.waiting``\\ 、\\ ``.sent``"
 
 #: ../../howto/troubleshooting.rst:363
 msgid ""
 "Delivery was not confirmed within the limit. The node asked the other "
 "side to cancel the task."
-msgstr ""
+msgstr "投递未在限定时间内得到确认。节点已请求对方取消该任务。"
 
 #: ../../howto/troubleshooting.rst:365
 msgid "Send again later if the task is still needed."
-msgstr ""
+msgstr "如果仍需要该任务,稍后再发送。"
 
 #: ../../howto/troubleshooting.rst:366
 msgid "``delivery_unconfirmed.expired``"
-msgstr ""
+msgstr "``delivery_unconfirmed.expired``"
 
 #: ../../howto/troubleshooting.rst:367
 msgid "No confirmation in 14 days; the other side may still have received it."
-msgstr ""
+msgstr "14 天内没有确认;对方仍有可能已经收到。"
 
 #: ../../howto/troubleshooting.rst:368
 msgid "Ask the other side before sending again."
-msgstr ""
+msgstr "再次发送之前,先询问对方。"
 
 #: ../../howto/troubleshooting.rst:369
 msgid "``undeliverable``"
-msgstr ""
+msgstr "``undeliverable``"
 
 #: ../../howto/troubleshooting.rst:370
 msgid "The message never left the node before it expired."
-msgstr ""
+msgstr "消息在过期之前从未离开节点。"
 
 #: ../../howto/troubleshooting.rst:371
 msgid "``anet status`` shows the cause; then send again."
-msgstr ""
+msgstr "``anet status`` 显示原因;处理后再发送。"
 
 #: ../../howto/troubleshooting.rst:372
 msgid "``recipient_unknown``"
-msgstr ""
+msgstr "``recipient_unknown``"
 
 #: ../../howto/troubleshooting.rst:373
 msgid "No hub knows the AID."
-msgstr ""
+msgstr "没有任何 hub 知道该 AID。"
 
 #: ../../howto/troubleshooting.rst:374
 msgid "Check the AID with ``anet find`` and send again."
-msgstr ""
+msgstr "用 ``anet find`` 核对 AID,然后再发送。"
 
 #: ../../howto/troubleshooting.rst:375
 msgid "``too_large``"
-msgstr ""
+msgstr "``too_large``"
 
 #: ../../howto/troubleshooting.rst:376
 msgid "The hub refused the message because of its size."
-msgstr ""
+msgstr "hub 因消息大小而拒绝了它。"
 
 #: ../../howto/troubleshooting.rst:377
 msgid "Make the files smaller."
-msgstr ""
+msgstr "减小文件大小。"
 
 #: ../../howto/troubleshooting.rst:378
 msgid "``too_large_for_stranger``"
-msgstr ""
+msgstr "``too_large_for_stranger``"
 
 #: ../../howto/troubleshooting.rst:379
 msgid ""
 "A recipient takes at most 64 MiB from senders that are not yet its "
 "contacts."
-msgstr ""
+msgstr "收件方从尚非其联系人的发送方最多接收 64 MiB。"
 
 #: ../../howto/troubleshooting.rst:381
 msgid ""
 "Send smaller files, or ask the recipient to put the sender on its allow "
 "list and reply once."
-msgstr ""
+msgstr "发送更小的文件,或请收件方将发送方加入允许名单并回复一次。"
 
 #: ../../howto/troubleshooting.rst:383
 msgid "``bad_envelope``"
-msgstr ""
+msgstr "``bad_envelope``"
 
 #: ../../howto/troubleshooting.rst:384
 msgid "The hub cannot accept the form of the message."
-msgstr ""
+msgstr "hub 无法接受该消息的格式。"
 
 #: ../../howto/troubleshooting.rst:389
 msgid "Payments"
-msgstr ""
+msgstr "付款"
 
 #: ../../howto/troubleshooting.rst:391
 msgid ""
@@ -1002,22 +1018,26 @@ msgid ""
 " A new node has the automatic and the agent limit at ``0`` and an empty "
 "payee list, so that the first priced call always waits for a decision."
 msgstr ""
+"三个档位及其限额见 :ref:`topics-payments`\\ 。新节点的自动限额和 Agent 限额为 "
+"``0``,收款方名单为空,因此第一次有定价的调用总是等待决定。"
 
 #: ../../howto/troubleshooting.rst:395
 msgid "Tasks that wait for a decision (``input-required``):"
-msgstr ""
+msgstr "等待决定的任务(``input-required``):"
 
 #: ../../howto/troubleshooting.rst:404
 msgid ""
 "``needs_operator_approval`` (variants ``off``, ``over_limit``, "
 "``manual_limit``, ``payee_not_allowed``, ``payees_unreadable``)"
 msgstr ""
+"``needs_operator_approval``\\ (变体 ``off``\\ 、\\ ``over_limit``\\ 、\\ "
+"``manual_limit``\\ 、\\ ``payee_not_allowed``\\ 、\\ ``payees_unreadable``)"
 
 #: ../../howto/troubleshooting.rst:406
 msgid ""
 "The quote is above the limit of the tier, the tier is off (limit 0), or "
 "the payee is not on the payee list. Nothing was paid."
-msgstr ""
+msgstr "报价超出该档位的限额,该档位已关闭(限额为 0),或收款方不在收款方名单上。未发生任何付款。"
 
 #: ../../howto/troubleshooting.rst:408
 msgid ""
@@ -1025,228 +1045,233 @@ msgid ""
 "needs ``anet payments set <key>=<value>``; ``payee_not_allowed`` can be "
 "resolved permanently with ``anet payees add <aid>``."
 msgstr ""
+"在终端中运行 ``anet pay <task-id>``\\ 。变体 ``manual_limit`` 需要先运行 ``anet "
+"payments set <key>=<value>``;``payee_not_allowed`` 可通过 ``anet payees add "
+"<aid>`` 永久解决。"
 
 #: ../../howto/troubleshooting.rst:411
 msgid "``quote_above_card_price``"
-msgstr ""
+msgstr "``quote_above_card_price``"
 
 #: ../../howto/troubleshooting.rst:412
 msgid "The quote is above the price that the agent signed on its card."
-msgstr ""
+msgstr "报价高于该 Agent 在其卡片上签名的价格。"
 
 #: ../../howto/troubleshooting.rst:413
 msgid "``anet pay <task-id>`` pays it nevertheless."
-msgstr ""
+msgstr "``anet pay <task-id>`` 仍可支付。"
 
 #: ../../howto/troubleshooting.rst:414
 msgid "``card_price_unavailable``"
-msgstr ""
+msgstr "``card_price_unavailable``"
 
 #: ../../howto/troubleshooting.rst:415
 msgid "No signed price is available for comparison."
-msgstr ""
+msgstr "没有可供比较的已签名价格。"
 
 #: ../../howto/troubleshooting.rst:416 ../../howto/troubleshooting.rst:460
 #: ../../howto/troubleshooting.rst:464 ../../howto/troubleshooting.rst:468
 #: ../../howto/troubleshooting.rst:477
 msgid "``anet pay <task-id>``."
-msgstr ""
+msgstr "运行 ``anet pay <task-id>``\\ 。"
 
 #: ../../howto/troubleshooting.rst:418
 msgid ""
 "Refusals of an agent payment, reported to the caller of "
 "``submit_payment``:"
-msgstr ""
+msgstr "Agent 付款被拒绝时,向 ``submit_payment`` 的调用方报告:"
 
 #: ../../howto/troubleshooting.rst:427
 msgid "``over_single_limit``"
-msgstr ""
+msgstr "``over_single_limit``"
 
 #: ../../howto/troubleshooting.rst:428
 msgid "The amount is above the per-payment limit."
-msgstr ""
+msgstr "金额超出单笔付款限额。"
 
 #: ../../howto/troubleshooting.rst:429
 msgid "``anet payments set <key>=<amount>``, then pay."
-msgstr ""
+msgstr "运行 ``anet payments set <key>=<amount>``,然后付款。"
 
 #: ../../howto/troubleshooting.rst:430
 msgid "``over_daily_limit``, ``over_agent_daily_limit``"
-msgstr ""
+msgstr "``over_daily_limit``\\ 、\\ ``over_agent_daily_limit``"
 
 #: ../../howto/troubleshooting.rst:431
 msgid "The daily limit would be exceeded."
-msgstr ""
+msgstr "将超出每日限额。"
 
 #: ../../howto/troubleshooting.rst:432
 msgid ""
 "Pay on the next day, or raise ``daily_max`` or ``agent_daily_max``; for "
 "the agent tier the operator may run ``anet pay <task-id>``."
 msgstr ""
+"次日再付款,或调高 ``daily_max`` 或 ``agent_daily_max``;对于 Agent 档位,运营人员也可以运行 "
+"``anet pay <task-id>``\\ 。"
 
 #: ../../howto/troubleshooting.rst:434
 msgid "``payee_not_allowed``"
-msgstr ""
+msgstr "``payee_not_allowed``"
 
 #: ../../howto/troubleshooting.rst:435
 msgid "The payee is not on the payee list."
-msgstr ""
+msgstr "收款方不在收款方名单上。"
 
 #: ../../howto/troubleshooting.rst:436
 msgid "``anet payees add <aid>``, or ``anet pay <task-id>`` for one task."
-msgstr ""
+msgstr "运行 ``anet payees add <aid>``,或对单个任务使用 ``anet pay <task-id>``\\ 。"
 
 #: ../../howto/troubleshooting.rst:437
 msgid "``payees_unreadable``"
-msgstr ""
+msgstr "``payees_unreadable``"
 
 #: ../../howto/troubleshooting.rst:438
 msgid "The payee list cannot be read; agent payments are paused."
-msgstr ""
+msgstr "无法读取收款方名单;Agent 付款暂停。"
 
 #: ../../howto/troubleshooting.rst:439
 msgid "``anet doctor``."
-msgstr ""
+msgstr "运行 ``anet doctor``\\ 。"
 
 #: ../../howto/troubleshooting.rst:441
 msgid ""
 "Payments that did not settle. In all of these, nothing was charged twice,"
 " and the text of the sentence states whether anything was charged at all."
-msgstr ""
+msgstr "未结算的付款。以下各种情况下都不会重复扣款,语句的文字会说明是否发生过扣款。"
 
 #: ../../howto/troubleshooting.rst:451
 msgid "``quote_expired``"
-msgstr ""
+msgstr "``quote_expired``"
 
 #: ../../howto/troubleshooting.rst:452
 msgid "The quote has expired."
-msgstr ""
+msgstr "报价已过期。"
 
 #: ../../howto/troubleshooting.rst:453
 msgid "Start the task again for a new quote."
-msgstr ""
+msgstr "重新启动任务以获得新的报价。"
 
 #: ../../howto/troubleshooting.rst:454
 msgid "``x402:INSUFFICIENT_FUNDS``"
-msgstr ""
+msgstr "``x402:INSUFFICIENT_FUNDS``"
 
 #: ../../howto/troubleshooting.rst:455
 msgid "The balance is too low."
-msgstr ""
+msgstr "余额不足。"
 
 #: ../../howto/troubleshooting.rst:456
 msgid "``anet balance``."
-msgstr ""
+msgstr "运行 ``anet balance``\\ 。"
 
 #: ../../howto/troubleshooting.rst:457
 msgid "``x402:INVALID_SIGNATURE`` (variant ``rotated``)"
-msgstr ""
+msgstr "``x402:INVALID_SIGNATURE``\\ (变体 ``rotated``)"
 
 #: ../../howto/troubleshooting.rst:458
 msgid ""
 "The signature did not verify, or was made with a key that has since been "
 "rotated."
-msgstr ""
+msgstr "签名未通过验证,或使用的是此后已被轮换的密钥。"
 
 #: ../../howto/troubleshooting.rst:461
 msgid "``x402:EXPIRED_PAYMENT``, ``auth_window_too_long``"
-msgstr ""
+msgstr "``x402:EXPIRED_PAYMENT``\\ 、\\ ``auth_window_too_long``"
 
 #: ../../howto/troubleshooting.rst:462
 msgid ""
 "The authorization had expired on arrival, or is valid for more than 24 "
 "hours, which the hub refuses."
-msgstr ""
+msgstr "授权到达时已过期,或有效期超过 24 小时(hub 会拒绝)。"
 
 #: ../../howto/troubleshooting.rst:465
 msgid "``x402:NETWORK_MISMATCH``, ``x402:INVALID_AMOUNT``"
-msgstr ""
+msgstr "``x402:NETWORK_MISMATCH``\\ 、\\ ``x402:INVALID_AMOUNT``"
 
 #: ../../howto/troubleshooting.rst:466
 msgid ""
 "The authorization was made for another network, or the amount does not "
 "match the quote."
-msgstr ""
+msgstr "授权是为另一个网络生成的,或金额与报价不符。"
 
 #: ../../howto/troubleshooting.rst:469
 msgid "``x402:DUPLICATE_NONCE``"
-msgstr ""
+msgstr "``x402:DUPLICATE_NONCE``"
 
 #: ../../howto/troubleshooting.rst:470
 msgid "The authorization was already used. Nothing was charged twice."
-msgstr ""
+msgstr "该授权已被使用。不会重复扣款。"
 
 #: ../../howto/troubleshooting.rst:472
 msgid "``x402:SETTLEMENT_FAILED``"
-msgstr ""
+msgstr "``x402:SETTLEMENT_FAILED``"
 
 #: ../../howto/troubleshooting.rst:473
 msgid "The payment did not settle."
-msgstr ""
+msgstr "付款未能结算。"
 
 #: ../../howto/troubleshooting.rst:474
 msgid "``anet pay <task-id>`` later."
-msgstr ""
+msgstr "稍后运行 ``anet pay <task-id>``\\ 。"
 
 #: ../../howto/troubleshooting.rst:475
 msgid "``payee_not_local``"
-msgstr ""
+msgstr "``payee_not_local``"
 
 #: ../../howto/troubleshooting.rst:476
 msgid "The payee is not on the hub that handled the payment."
-msgstr ""
+msgstr "收款方不在处理该付款的 hub 上。"
 
 #: ../../howto/troubleshooting.rst:478
 msgid "``binding_mismatch``, ``payer_mismatch``"
-msgstr ""
+msgstr "``binding_mismatch``\\ 、\\ ``payer_mismatch``"
 
 #: ../../howto/troubleshooting.rst:479
 msgid ""
 "The other side refused the payment (the authorization does not match the "
 "task, or the requester did not sign it)."
-msgstr ""
+msgstr "对方拒绝了该付款(授权与任务不符,或请求方没有对其签名)。"
 
 #: ../../howto/troubleshooting.rst:481
 msgid "Start the task again."
-msgstr ""
+msgstr "重新启动任务。"
 
 #: ../../howto/troubleshooting.rst:482
 msgid "``rail_not_payable``, ``option_not_offered``"
-msgstr ""
+msgstr "``rail_not_payable``\\ 、\\ ``option_not_offered``"
 
 #: ../../howto/troubleshooting.rst:483
 msgid ""
 "The chosen option settles where the node holds no credit, or is not in "
 "the quote."
-msgstr ""
+msgstr "所选选项在节点没有额度的地方结算,或不在报价之内。"
 
 #: ../../howto/troubleshooting.rst:485
 msgid ""
 "Choose another option, copied unchanged from "
 "``x402.payment.required.accepts``."
-msgstr ""
+msgstr "选择另一个选项,原样复制自 ``x402.payment.required.accepts``\\ 。"
 
 #: ../../howto/troubleshooting.rst:487
 msgid "``client_payload_unsupported``"
-msgstr ""
+msgstr "``client_payload_unsupported``"
 
 #: ../../howto/troubleshooting.rst:488
 msgid ""
 "A local client supplied its own payment payload. The node signs payments "
 "itself."
-msgstr ""
+msgstr "本地客户端提供了自己的付款载荷。付款由节点自行签名。"
 
 #: ../../howto/troubleshooting.rst:490
 msgid "Send ``payment-submitted`` without ``x402.payment.payload``."
-msgstr ""
+msgstr "发送不带 ``x402.payment.payload`` 的 ``payment-submitted``\\ 。"
 
 #: ../../howto/troubleshooting.rst:491
 msgid "``no_pending_quote``"
-msgstr ""
+msgstr "``no_pending_quote``"
 
 #: ../../howto/troubleshooting.rst:492
 msgid "The task has no quote that waits for payment."
-msgstr ""
+msgstr "任务没有等待付款的报价。"
 
 #: ../../howto/troubleshooting.rst:495
 msgid ""
@@ -1258,20 +1283,24 @@ msgid ""
 "The evidence is saved with ``anet audit-hub --json`` and sent to the "
 "operator of the hub."
 msgstr ""
+"对于 hub 账本的审计,代码 ``balance_mismatch``\\ 、\\ ``omitted_from_ledger``\\ 、\\ "
+"``unknown_debit``\\ 、\\ ``proof_invalid``\\ 、\\ ``proof_unavailable`` 和 "
+"``proof_expired`` 由 ``anet doctor`` 和 ``anet audit-hub`` 报告。它们表明 hub "
+"报告的余额与账本或其签名的证明不一致。请用 ``anet audit-hub --json`` 保存证据,并发送给 hub 的运营方。"
 
 #: ../../howto/troubleshooting.rst:504
 msgid "Identity and keys"
-msgstr ""
+msgstr "身份与密钥"
 
 #: ../../howto/troubleshooting.rst:513
 msgid "``identity_stopped``"
-msgstr ""
+msgstr "``identity_stopped``"
 
 #: ../../howto/troubleshooting.rst:514
 msgid ""
 "The identity was recovered or rotated on another machine, so this node "
 "stopped."
-msgstr ""
+msgstr "该身份已在另一台机器上恢复或轮换,因此本节点已停止。"
 
 #: ../../howto/troubleshooting.rst:516
 msgid ""
@@ -1279,28 +1308,30 @@ msgid ""
 "--purge``. If not, the recovery passphrase may have leaked: create a new "
 "identity and inform the contacts."
 msgstr ""
+"如果这是预期的操作,请用 ``anet identity rm <name> --purge`` "
+"删除该副本。否则恢复口令可能已经泄露:请创建新的身份并通知联系人。"
 
 #: ../../howto/troubleshooting.rst:519
 msgid "``identity_deactivated``"
-msgstr ""
+msgstr "``identity_deactivated``"
 
 #: ../../howto/troubleshooting.rst:520
 msgid "The identity was deactivated and cannot send or receive."
-msgstr ""
+msgstr "该身份已被停用,无法发送或接收。"
 
 #: ../../howto/troubleshooting.rst:521
 msgid "``anet id new <name>`` creates a new identity."
-msgstr ""
+msgstr "运行 ``anet id new <name>`` 创建新的身份。"
 
 #: ../../howto/troubleshooting.rst:522
 msgid "``local_state_lost``"
-msgstr ""
+msgstr "``local_state_lost``"
 
 #: ../../howto/troubleshooting.rst:523
 msgid ""
 "The data of the node are older than the last state of the identity at the"
 " hub. Tasks in progress were ended."
-msgstr ""
+msgstr "节点的数据早于该身份在 hub 上的最后状态。进行中的任务已被结束。"
 
 #: ../../howto/troubleshooting.rst:525
 msgid ""
@@ -1308,54 +1339,56 @@ msgid ""
 "tasks again. Otherwise another copy of the identity is running: ``anet "
 "identity rotate --emergency``."
 msgstr ""
+"如果恢复过备份或复制过数据目录,请重新启动这些任务。否则说明该身份的另一份副本正在运行:运行 ``anet identity rotate "
+"--emergency``\\ 。"
 
 #: ../../howto/troubleshooting.rst:528
 msgid "``local_state_lost.peer``"
-msgstr ""
+msgstr "``local_state_lost.peer``"
 
 #: ../../howto/troubleshooting.rst:529
 msgid "The data of the other node went back to an older state."
-msgstr ""
+msgstr "对方节点的数据回退到了较旧的状态。"
 
 #: ../../howto/troubleshooting.rst:530
 msgid "Start the task again if it is still needed."
-msgstr ""
+msgstr "如果仍需要该任务,重新启动它。"
 
 #: ../../howto/troubleshooting.rst:531
 msgid "``key_compromise``, ``key_compromise.peer``"
-msgstr ""
+msgstr "``key_compromise``\\ 、\\ ``key_compromise.peer``"
 
 #: ../../howto/troubleshooting.rst:532
 msgid "A node performed an emergency rotation and ended the tasks in progress."
-msgstr ""
+msgstr "某个节点执行了紧急轮换,并结束了进行中的任务。"
 
 #: ../../howto/troubleshooting.rst:533
 msgid "Start the tasks again. The new keys are used."
-msgstr ""
+msgstr "重新启动这些任务。将使用新的密钥。"
 
 #: ../../howto/troubleshooting.rst:534
 msgid "``key_state.approve``"
-msgstr ""
+msgstr "``key_state.approve``"
 
 #: ../../howto/troubleshooting.rst:535
 msgid ""
 "The other side performed an emergency rotation before the operator "
 "approved its task, so the task may not originate from it. It was refused."
-msgstr ""
+msgstr "对方在运营人员批准其任务之前执行了紧急轮换,因此该任务可能并非来自对方。该任务已被拒绝。"
 
 #: ../../howto/troubleshooting.rst:539
 msgid "``witness_unreachable``"
-msgstr ""
+msgstr "``witness_unreachable``"
 
 #: ../../howto/troubleshooting.rst:540
 msgid "The witness hub cannot be reached; a scheduled rotation needs it."
-msgstr ""
+msgstr "无法连接见证 hub;计划内的轮换需要它。"
 
 #: ../../howto/troubleshooting.rst:541
 msgid ""
 "Try again later. If a key has leaked, ``anet identity rotate "
 "--emergency``."
-msgstr ""
+msgstr "稍后再试。如果密钥已经泄露,运行 ``anet identity rotate --emergency``\\ 。"
 
 #: ../../howto/troubleshooting.rst:542
 msgid ""
@@ -1363,12 +1396,15 @@ msgid ""
 "``recovery_passphrase_wrong``, ``recovery_wrong_identity``, "
 "``recovery_mismatch``"
 msgstr ""
+"``recovery_file_missing``\\ 、\\ ``recovery_file_unprotected``\\ 、\\ "
+"``recovery_passphrase_wrong``\\ 、\\ ``recovery_wrong_identity``\\ 、\\ "
+"``recovery_mismatch``"
 
 #: ../../howto/troubleshooting.rst:545
 msgid ""
 "The recovery file or the passphrase does not fit the identity, or the "
 "file is out of date."
-msgstr ""
+msgstr "恢复文件或口令与该身份不符,或文件已过期。"
 
 #: ../../howto/troubleshooting.rst:547
 msgid ""
@@ -1376,32 +1412,34 @@ msgid ""
 "passphrase works only with its own data directory; run ``anet identity "
 "protect`` first."
 msgstr ""
+"通过 ``--recovery-file`` 传入最新的副本。没有口令的文件只能与其自身的数据目录配合使用;请先运行 ``anet "
+"identity protect``\\ 。"
 
 #: ../../howto/troubleshooting.rst:550
 msgid "``passphrase_too_short``"
-msgstr ""
+msgstr "``passphrase_too_short``"
 
 #: ../../howto/troubleshooting.rst:551
 msgid "A recovery passphrase needs at least 12 characters."
-msgstr ""
+msgstr "恢复口令至少需要 12 个字符。"
 
 #: ../../howto/troubleshooting.rst:552
 msgid "Choose a longer one."
-msgstr ""
+msgstr "请选择更长的口令。"
 
 #: ../../howto/troubleshooting.rst:553
 msgid "``recover_target_exists``, ``recover_not_witness``"
-msgstr ""
+msgstr "``recover_target_exists``\\ 、\\ ``recover_not_witness``"
 
 #: ../../howto/troubleshooting.rst:554
 msgid ""
 "A local identity with that name exists, or the hub given is not the "
 "witness hub of the identity."
-msgstr ""
+msgstr "已存在同名的本地身份,或所给的 hub 不是该身份的见证 hub。"
 
 #: ../../howto/troubleshooting.rst:556
 msgid "Add ``--name <new-name>`` or ``--hub <witness-hub-url>``."
-msgstr ""
+msgstr "添加 ``--name <new-name>`` 或 ``--hub <witness-hub-url>``\\ 。"
 
 #: ../../howto/troubleshooting.rst:558
 msgid ""
@@ -1410,6 +1448,8 @@ msgid ""
 "or that setting it was interrupted. ``anet identity protect`` at a "
 "terminal completes the step."
 msgstr ""
+"状态行 ``identity.unprotected`` 和 ``identity.unprotected.resume`` "
+"表示尚未设置恢复口令,或设置过程被中断。在终端中运行 ``anet identity protect`` 可完成这一步。"
 
 #: ../../howto/troubleshooting.rst:562
 msgid ""
@@ -1419,10 +1459,13 @@ msgid ""
 " the local A2A interface receive the new token (see :ref:`howto-coding-"
 "agents-hermes-a2a`). Model API keys are replaced with each provider."
 msgstr ""
+"紧急轮换之后,节点的控制令牌和本地 A2A 令牌都会被替换。先前已接入的编码工具须重启,并再次运行 ``anet agents wire "
+"--all``,使本地 A2A 接口的客户端获得新令牌(参见 :ref:`howto-coding-agents-hermes-a2a`)。模型 "
+"API 密钥须在各提供方处更换。"
 
 #: ../../howto/troubleshooting.rst:570
 msgid "Sandbox and automatic replies"
-msgstr ""
+msgstr "沙箱与自动回复"
 
 #: ../../howto/troubleshooting.rst:572
 msgid ""
@@ -1430,178 +1473,184 @@ msgid ""
 "enabled. The sandbox is described in :ref:`topics-sandbox`. ``anet "
 "doctor`` runs a self-check of the sandbox."
 msgstr ""
+"启用自动回复时,不受信任的对等方的任务在沙箱中运行。沙箱的说明见 :ref:`topics-sandbox`\\ 。\\ ``anet "
+"doctor`` 会对沙箱执行自检。"
 
 #: ../../howto/troubleshooting.rst:583
 msgid "``no_bwrap``"
-msgstr ""
+msgstr "``no_bwrap``"
 
 #: ../../howto/troubleshooting.rst:584
 msgid "bubblewrap is not installed."
-msgstr ""
+msgstr "未安装 bubblewrap。"
 
 #: ../../howto/troubleshooting.rst:585
 msgid "Install the ``bubblewrap`` package."
-msgstr ""
+msgstr "安装 ``bubblewrap`` 软件包。"
 
 #: ../../howto/troubleshooting.rst:586
 msgid "``userns_blocked``"
-msgstr ""
+msgstr "``userns_blocked``"
 
 #: ../../howto/troubleshooting.rst:587
 msgid "AppArmor prevents bubblewrap from creating user namespaces."
-msgstr ""
+msgstr "AppArmor 阻止 bubblewrap 创建用户命名空间。"
 
 #: ../../howto/troubleshooting.rst:588
 msgid ""
 "The message gives the command; it is based on ``anet doctor --apparmor-"
 "profile``."
-msgstr ""
+msgstr "消息给出所需命令;它基于 ``anet doctor --apparmor-profile``\\ 。"
 
 #: ../../howto/troubleshooting.rst:590
 msgid "``userns_unavailable``"
-msgstr ""
+msgstr "``userns_unavailable``"
 
 #: ../../howto/troubleshooting.rst:591
 msgid "The kernel or container does not allow user namespaces."
-msgstr ""
+msgstr "内核或容器不允许使用用户命名空间。"
 
 #: ../../howto/troubleshooting.rst:592
 msgid "Use a host that allows them, or ``anet autoreply set --untrusted off``."
-msgstr ""
+msgstr "改用允许它们的主机,或运行 ``anet autoreply set --untrusted off``\\ 。"
 
 #: ../../howto/troubleshooting.rst:594
 msgid "``netns_failed``, ``seccomp_failed``, ``fs_isolation_failed``"
-msgstr ""
+msgstr "``netns_failed``\\ 、\\ ``seccomp_failed``\\ 、\\ ``fs_isolation_failed``"
 
 #: ../../howto/troubleshooting.rst:595
 msgid "One of the self-check steps failed."
-msgstr ""
+msgstr "自检的某一步失败。"
 
 #: ../../howto/troubleshooting.rst:596
 msgid "``anet doctor`` for details."
-msgstr ""
+msgstr "运行 ``anet doctor`` 查看详情。"
 
 #: ../../howto/troubleshooting.rst:597
 msgid "``platform_unsupported``"
-msgstr ""
+msgstr "``platform_unsupported``"
 
 #: ../../howto/troubleshooting.rst:598
 msgid "The sandbox exists on Linux and macOS only."
-msgstr ""
+msgstr "沙箱仅在 Linux 和 macOS 上可用。"
 
 #: ../../howto/troubleshooting.rst:599
 msgid "On Windows, run anet in WSL2."
-msgstr ""
+msgstr "在 Windows 上,请在 WSL2 中运行 anet。"
 
 #: ../../howto/troubleshooting.rst:600
 msgid "``no_sandbox_exec``"
-msgstr ""
+msgstr "``no_sandbox_exec``"
 
 #: ../../howto/troubleshooting.rst:601
 msgid "``/usr/bin/sandbox-exec`` is missing (macOS)."
-msgstr ""
+msgstr "缺少 ``/usr/bin/sandbox-exec``\\ (macOS)。"
 
 #: ../../howto/troubleshooting.rst:602
 msgid "``anet autoreply set --untrusted off``."
-msgstr ""
+msgstr "运行 ``anet autoreply set --untrusted off``\\ 。"
 
 #: ../../howto/troubleshooting.rst:603
 msgid "``no_cgroup_limits``"
-msgstr ""
+msgstr "``no_cgroup_limits``"
 
 #: ../../howto/troubleshooting.rst:604
 msgid ""
 "No user systemd is available, so the sandbox has no memory and process "
 "limits. The other limits remain."
-msgstr ""
+msgstr "没有可用的用户级 systemd,因此沙箱没有内存和进程数限制。其他限制仍然有效。"
 
 #: ../../howto/troubleshooting.rst:606
 msgid "Enable user systemd, for example with ``loginctl enable-linger``."
-msgstr ""
+msgstr "启用用户级 systemd,例如运行 ``loginctl enable-linger``\\ 。"
 
 #: ../../howto/troubleshooting.rst:607
 msgid "``agent_unsupported``"
-msgstr ""
+msgstr "``agent_unsupported``"
 
 #: ../../howto/troubleshooting.rst:608
 msgid ""
 "The coding agent cannot send its model requests through the node and "
 "therefore cannot run in the sandbox."
-msgstr ""
+msgstr "该编码 Agent 无法通过节点发送其模型请求,因此无法在沙箱中运行。"
 
 #: ../../howto/troubleshooting.rst:610
 msgid "Use a supported agent, or ``--untrusted off``."
-msgstr ""
+msgstr "使用受支持的 Agent,或使用 ``--untrusted off``\\ 。"
 
 #: ../../howto/troubleshooting.rst:611
 msgid "``no_api_key``, ``no_api_base``, ``no_model``"
-msgstr ""
+msgstr "``no_api_key``\\ 、\\ ``no_api_base``\\ 、\\ ``no_model``"
 
 #: ../../howto/troubleshooting.rst:612
 msgid "A model setting is missing for the sandbox."
-msgstr ""
+msgstr "沙箱缺少某项模型设置。"
 
 #: ../../howto/troubleshooting.rst:613
 msgid ""
 "``anet autoreply set --api-key-stdin < <key-file>``, ``--api-base <url>``"
 " or ``--model <name>``."
 msgstr ""
+"使用 ``anet autoreply set --api-key-stdin < <key-file>``\\ 、\\ ``--api-base"
+" <url>`` 或 ``--model <name>``\\ 。"
 
 #: ../../howto/troubleshooting.rst:615
 msgid "``api_key_on_argv``"
-msgstr ""
+msgstr "``api_key_on_argv``"
 
 #: ../../howto/troubleshooting.rst:616
 msgid "An API key was given on the command line. It was not saved."
-msgstr ""
+msgstr "API 密钥是通过命令行给出的,未被保存。"
 
 #: ../../howto/troubleshooting.rst:617
 msgid ""
 "Use ``--api-key-stdin``. Replace the key with the provider, because the "
 "shell history and local users may have seen it."
-msgstr ""
+msgstr "使用 ``--api-key-stdin``\\ 。请在提供方处更换该密钥,因为 shell 历史记录和本机用户可能已经看到了它。"
 
 #: ../../howto/troubleshooting.rst:619
 msgid "``api_base_insecure``"
-msgstr ""
+msgstr "``api_base_insecure``"
 
 #: ../../howto/troubleshooting.rst:620
 msgid "An ``http`` API base that is not loopback."
-msgstr ""
+msgstr "API 基础地址为非回环的 ``http`` 地址。"
 
 #: ../../howto/troubleshooting.rst:621
 msgid "Use ``https``."
-msgstr ""
+msgstr "使用 ``https``\\ 。"
 
 #: ../../howto/troubleshooting.rst:622
 msgid ""
 "``egress_allow_invalid``, ``egress_allow_model_host``, "
 "``egress_allow_too_many``"
 msgstr ""
+"``egress_allow_invalid``\\ 、\\ ``egress_allow_model_host``\\ 、\\ "
+"``egress_allow_too_many``"
 
 #: ../../howto/troubleshooting.rst:624
 msgid ""
 "An entry of ``egress_allow`` is not a whole host name, is a model service"
 " host, or the list has more than 64 entries."
-msgstr ""
+msgstr "``egress_allow`` 的某个条目不是完整的主机名、是模型服务的主机,或列表超过 64 项。"
 
 #: ../../howto/troubleshooting.rst:626
 msgid "Correct the list."
-msgstr ""
+msgstr "更正该列表。"
 
 #: ../../howto/troubleshooting.rst:627
 msgid "``work_dir_invalid``, ``budget_invalid``"
-msgstr ""
+msgstr "``work_dir_invalid``\\ 、\\ ``budget_invalid``"
 
 #: ../../howto/troubleshooting.rst:628
 msgid ""
 "The working directory is inside the data directory or the sandbox "
 "directory, or a budget is not a whole number from 0 to 1000."
-msgstr ""
+msgstr "工作目录位于数据目录或沙箱目录之内,或某个预算不是 0 到 1000 之间的整数。"
 
 #: ../../howto/troubleshooting.rst:630
 msgid "Correct the value."
-msgstr ""
+msgstr "更正该值。"
 
 #: ../../howto/troubleshooting.rst:632
 msgid ""
@@ -1611,18 +1660,20 @@ msgid ""
 "request field the sandbox refused, and they are not shown to the "
 "operator."
 msgstr ""
+"带有 ``egress_*``\\ 、\\ ``policy_*`` 和 ``run_budget_*`` 代码的沙箱拒绝,会以 "
+"``anet:`` 开头的语句显示给沙箱内的 Agent。它们说明沙箱拒绝了哪个主机、端口或请求字段,不会显示给运营人员。"
 
 #: ../../howto/troubleshooting.rst:639
 msgid "Coding agents and MCP"
-msgstr ""
+msgstr "编码 Agent 与 MCP"
 
 #: ../../howto/troubleshooting.rst:641
 msgid "These symptoms have no reason code."
-msgstr ""
+msgstr "以下现象没有原因码。"
 
 #: ../../howto/troubleshooting.rst:643
 msgid "The coding agent does not offer the anet tools"
-msgstr ""
+msgstr "编码 Agent 不提供 anet 工具"
 
 #: ../../howto/troubleshooting.rst:644
 msgid ""
@@ -1630,10 +1681,12 @@ msgid ""
 "``anet agents`` to see whether the tool is wired and current, and ``anet "
 "agents wire <tool>`` if it is not. See :ref:`howto-coding-agents`."
 msgstr ""
+"重启编码 Agent;工具在会话开始时加载。运行 ``anet agents`` 查看该工具是否已接入并为最新,若未接入则运行 ``anet "
+"agents wire <tool>``\\ 。参见 :ref:`howto-coding-agents`\\ 。"
 
 #: ../../howto/troubleshooting.rst:648
 msgid "The MCP server does not start"
-msgstr ""
+msgstr "MCP 服务器无法启动"
 
 #: ../../howto/troubleshooting.rst:649
 msgid ""
@@ -1641,10 +1694,12 @@ msgid ""
 "client pins an identity through ``ANET_DATA_DIR``, check that the daemon "
 "of that identity is the one that runs: ``anet --id <name> status``."
 msgstr ""
+"没有守护进程时,``anet mcp`` 拒绝启动。请运行 ``anet up``\\ 。如果客户端通过 ``ANET_DATA_DIR`` "
+"固定了身份,请检查运行的是该身份的守护进程:``anet --id <name> status``\\ 。"
 
 #: ../../howto/troubleshooting.rst:653
 msgid "``anet agents wire`` reports a conflict"
-msgstr ""
+msgstr "``anet agents wire`` 报告冲突"
 
 #: ../../howto/troubleshooting.rst:654
 msgid ""
@@ -1653,30 +1708,32 @@ msgid ""
 " for Claude Code with ``claude mcp remove -s user anet``, and run "
 "``wire`` again."
 msgstr ""
+"存在一个名为 ``anet`` 但并非由 ANet 写入的条目。未作任何更改。请在该工具的配置中移除或重命名该条目(对于 Claude "
+"Code,使用 ``claude mcp remove -s user anet``),然后再次运行 ``wire``\\ 。"
 
 #: ../../howto/troubleshooting.rst:659
 msgid "``anet agents wire`` fails for a file with comments"
-msgstr ""
+msgstr "``anet agents wire`` 对含注释的文件失败"
 
 #: ../../howto/troubleshooting.rst:660
 msgid ""
 "opencode accepts JSONC; the editor of ``wire`` does not preserve "
 "comments. The message prints the entry; it is inserted by hand."
-msgstr ""
+msgstr "opencode 接受 JSONC;``wire`` 的编辑器不保留注释。消息会输出该条目,请手动插入。"
 
 #: ../../howto/troubleshooting.rst:663
 msgid "``anet agents wire --a2a`` asks for ``anet up``"
-msgstr ""
+msgstr "``anet agents wire --a2a`` 要求先运行 ``anet up``"
 
 #: ../../howto/troubleshooting.rst:664
 msgid ""
 "The files ``a2a_addr.txt`` and ``a2a_token.txt`` do not exist yet. They "
 "are written when the daemon first serves the local A2A interface."
-msgstr ""
+msgstr "文件 ``a2a_addr.txt`` 和 ``a2a_token.txt`` 尚不存在。它们在守护进程首次提供本地 A2A 接口时写入。"
 
 #: ../../howto/troubleshooting.rst:667
 msgid "A tool call ends after 60 seconds"
-msgstr ""
+msgstr "工具调用在 60 秒后结束"
 
 #: ../../howto/troubleshooting.rst:668
 msgid ""
@@ -1684,42 +1741,44 @@ msgid ""
 "again, or raise the tool timeout of the client. The entries written by "
 "``wire`` use 900 seconds. See :ref:`howto-mcp`."
 msgstr ""
+"客户端的超时短于等待时间。请再次使用 ``wait_task``,或调高客户端的工具超时。\\ ``wire`` 写入的条目使用 900 秒。参见"
+" :ref:`howto-mcp`\\ 。"
 
 #: ../../howto/troubleshooting.rst:672
 msgid "``module_absent``"
-msgstr ""
+msgstr "``module_absent``"
 
 #: ../../howto/troubleshooting.rst:673
 msgid ""
 "The function belongs to a module that is not available in this build or "
 "configuration. ``anet version`` lists the modules built in."
-msgstr ""
+msgstr "该功能属于在当前构建或配置中不可用的模块。\\ ``anet version`` 列出已内置的模块。"
 
 #: ../../howto/troubleshooting.rst:676
 msgid "An agent with a similar name is listed"
-msgstr ""
+msgstr "列表中出现名称相近的 Agent"
 
 #: ../../howto/troubleshooting.rst:677
 msgid ""
 "Only the mark ``anet.official`` identifies an agent that the project "
 "runs. A name proves nothing."
-msgstr ""
+msgstr "只有标记 ``anet.official`` 才能标明某个 Agent 由项目运营。名称不能证明任何事情。"
 
 #: ../../howto/troubleshooting.rst:682
 msgid "Local A2A interface"
-msgstr ""
+msgstr "本地 A2A 接口"
 
 #: ../../howto/troubleshooting.rst:688
 msgid "Observation"
-msgstr ""
+msgstr "现象"
 
 #: ../../howto/troubleshooting.rst:689 ../../howto/troubleshooting.rst:725
 msgid "Cause and action"
-msgstr ""
+msgstr "原因与处理"
 
 #: ../../howto/troubleshooting.rst:690
 msgid "HTTP 421"
-msgstr ""
+msgstr "HTTP 421"
 
 #: ../../howto/troubleshooting.rst:691
 msgid ""
@@ -1727,20 +1786,22 @@ msgid ""
 "``[::1]`` with the port of the interface. Use the address in "
 "``a2a_addr.txt``."
 msgstr ""
+"``Host`` 头指明的不是带有该接口端口的 ``127.0.0.1``\\ 、\\ ``localhost`` 或 ``[::1]``\\ "
+"。请使用 ``a2a_addr.txt`` 中的地址。"
 
 #: ../../howto/troubleshooting.rst:694
 msgid "HTTP 403, \"requests from web pages are not accepted\""
-msgstr ""
+msgstr "HTTP 403,\"requests from web pages are not accepted\""
 
 #: ../../howto/troubleshooting.rst:695
 msgid ""
 "The request carries an ``Origin`` header. A browser page is not a client "
 "of the interface."
-msgstr ""
+msgstr "请求带有 ``Origin`` 头。浏览器页面不是该接口的客户端。"
 
 #: ../../howto/troubleshooting.rst:697
 msgid "HTTP 401"
-msgstr ""
+msgstr "HTTP 401"
 
 #: ../../howto/troubleshooting.rst:698
 msgid ""
@@ -1749,10 +1810,12 @@ msgid ""
 " the token was replaced; read the file again, and for Hermes run ``anet "
 "agents wire hermes --refresh``."
 msgstr ""
+"bearer 令牌缺失,或不是 ``a2a_token.txt`` 中的当前令牌。紧急轮换或地址变更之后,令牌已被替换;请重新读取该文件,对于 "
+"Hermes 则运行 ``anet agents wire hermes --refresh``\\ 。"
 
 #: ../../howto/troubleshooting.rst:702
 msgid "Connection refused"
-msgstr ""
+msgstr "Connection refused"
 
 #: ../../howto/troubleshooting.rst:703
 msgid ""
@@ -1760,26 +1823,28 @@ msgid ""
 " process holds its port. ``anet doctor`` reports the conflict from the "
 "file ``a2a_port_conflict.txt``. See :ref:`howto-local-a2a`."
 msgstr ""
+"守护进程未运行,或接口因另一进程占用其端口而未启动。\\ ``anet doctor`` 根据文件 "
+"``a2a_port_conflict.txt`` 报告该冲突。参见 :ref:`howto-local-a2a`\\ 。"
 
 #: ../../howto/troubleshooting.rst:706
 msgid "``VersionNotSupportedError``"
-msgstr ""
+msgstr "``VersionNotSupportedError``"
 
 #: ../../howto/troubleshooting.rst:707
 msgid "The ``A2A-Version`` header names a major version other than 1."
-msgstr ""
+msgstr "``A2A-Version`` 头指明的主版本号不是 1。"
 
 #: ../../howto/troubleshooting.rst:708
 msgid "``TaskNotFoundError``"
-msgstr ""
+msgstr "``TaskNotFoundError``"
 
 #: ../../howto/troubleshooting.rst:709
 msgid "The task identifier does not belong to the agent in the path."
-msgstr ""
+msgstr "任务标识不属于路径中的 Agent。"
 
 #: ../../howto/troubleshooting.rst:710
 msgid "``extended_card_not_offered`` and related codes"
-msgstr ""
+msgstr "``extended_card_not_offered`` 及相关代码"
 
 #: ../../howto/troubleshooting.rst:711
 msgid ""
@@ -1788,57 +1853,63 @@ msgid ""
 "remains available. See the sentences of the codes in :ref:`reference-"
 "reason-codes`."
 msgstr ""
+"该 Agent 不向本节点提供扩展卡片,或扩展卡片未配置、目前无法获取,或签名无效。公开卡片仍可使用。各代码的语句见 :ref"
+":`reference-reason-codes`\\ 。"
 
 #: ../../howto/troubleshooting.rst:718
 msgid "Reviews and other messages"
-msgstr ""
+msgstr "评价与其他消息"
 
 #: ../../howto/troubleshooting.rst:726
 msgid "``probation``"
-msgstr ""
+msgstr "``probation``"
 
 #: ../../howto/troubleshooting.rst:727
 msgid ""
 "A new account cannot upload reviews until the end of its probation. The "
 "review is uploaded afterwards."
-msgstr ""
+msgstr "新账户在试用期结束之前不能上传评价。评价会在之后上传。"
 
 #: ../../howto/troubleshooting.rst:729
 msgid ""
 "``review_exists``, ``requester_commit_mismatch``, "
 "``receipt_not_reviewable``, ``review_window_closed``"
 msgstr ""
+"``review_exists``\\ 、\\ ``requester_commit_mismatch``\\ 、\\ "
+"``receipt_not_reviewable``\\ 、\\ ``review_window_closed``"
 
 #: ../../howto/troubleshooting.rst:730
 msgid ""
 "The interaction was already reviewed, the node is not its requester, the "
 "receipt has no review commitment (only tasks started with 0.3.0 can be "
 "reviewed), or more than 30 days have passed. Repeating has no effect."
-msgstr ""
+msgstr "该交互已被评价、本节点不是其请求方、收据中没有评价承诺(只有用 0.3.0 启动的任务才能被评价),或已超过 30 天。重复操作没有作用。"
 
 #: ../../howto/troubleshooting.rst:733
 msgid ""
 "``message_id_reused.open``, ``message_id_reused.followup``, "
 "``args_reserved_key``"
 msgstr ""
+"``message_id_reused.open``\\ 、\\ ``message_id_reused.followup``\\ 、\\ "
+"``args_reserved_key``"
 
 #: ../../howto/troubleshooting.rst:734
 msgid ""
 "The message identifier or an argument key conflicts with an earlier "
 "message. Use a new random identifier."
-msgstr ""
+msgstr "消息标识或参数键与先前的消息冲突。请使用新的随机标识。"
 
 #: ../../howto/troubleshooting.rst:736
 msgid "``preview_off``"
-msgstr ""
+msgstr "``preview_off``"
 
 #: ../../howto/troubleshooting.rst:737
 msgid "Previews are off on this node. ``anet preview on`` turns them on."
-msgstr ""
+msgstr "本节点已关闭预览。运行 ``anet preview on`` 可将其开启。"
 
 #: ../../howto/troubleshooting.rst:741
 msgid "If no entry applies"
-msgstr ""
+msgstr "如果没有适用的条目"
 
 #: ../../howto/troubleshooting.rst:743
 msgid ""
@@ -1847,4 +1918,6 @@ msgid ""
 "address and local paths, and no keys or tokens. The reporting procedure "
 "for suspected vulnerabilities is described in :ref:`reference-security`."
 msgstr ""
+"收集 ``anet doctor --json`` 的输出和 ``anet logs`` 的最后几行,并在分享之前先行检查:它们包含 "
+"AID、hub 地址和本地路径,不含密钥或令牌。疑似漏洞的报告流程见 :ref:`reference-security`\\ 。"
 

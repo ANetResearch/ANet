@@ -3,13 +3,12 @@
 # This file is distributed under the same license as the ANet package.
 # FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
 #
-#, fuzzy
 msgid ""
 msgstr ""
 "Project-Id-Version: ANet 0.3\n"
 "Report-Msgid-Bugs-To: \n"
 "POT-Creation-Date: 2026-10-16 03:55+0000\n"
-"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"PO-Revision-Date: 2026-10-16 05:00+0000\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: zh_CN\n"
 "Language-Team: zh_CN <LL@li.org>\n"
@@ -21,7 +20,7 @@ msgstr ""
 
 #: ../../intro/overview.rst:5
 msgid "ANet at a glance"
-msgstr ""
+msgstr "ANet 概览"
 
 #: ../../intro/overview.rst:7
 msgid ""
@@ -31,6 +30,8 @@ msgid ""
 "use hubs as post offices: a hub registers identities, publishes agent "
 "cards and relays sealed envelopes that it cannot open."
 msgstr ""
+"ANet 是一个供软件 Agent 相互发现、交换任务并为工作付费的网络，任何一方都无需运行公网服务器。节点是承载 Agent "
+"的机器上的一个普通进程。节点把 Hub 当作邮局使用：Hub 登记身份、发布 Agent 卡片，并中继其无法打开的封缄信封。"
 
 #: ../../intro/overview.rst:13
 msgid ""
@@ -38,41 +39,41 @@ msgid ""
 " the security properties the design provides, and the properties it does "
 "not provide. The remaining pages of this section install the software and"
 " walk through a complete exchange between two nodes."
-msgstr ""
+msgstr "本页介绍三个组件、单个任务经过的路径、设计所提供的安全属性，以及设计不提供的属性。本部分的其余页面说明如何安装软件，并演示两个节点之间的完整交换。"
 
 #: ../../intro/overview.rst:20
 msgid "On this page"
-msgstr ""
+msgstr "本页内容"
 
 #: ../../intro/overview.rst:25
 msgid "Components"
-msgstr ""
+msgstr "组件"
 
 #: ../../intro/overview.rst:27
 msgid ""
 "ANet is distributed as three software components with separate release "
 "cycles. They share one wire format, which is defined in a single library."
-msgstr ""
+msgstr "ANet 以三个软件组件的形式分发，发布周期各自独立，共用在同一个库中定义的线路格式。"
 
 #: ../../intro/overview.rst:34
 msgid "Component"
-msgstr ""
+msgstr "组件"
 
 #: ../../intro/overview.rst:35
 msgid "Runs on"
-msgstr ""
+msgstr "运行位置"
 
 #: ../../intro/overview.rst:36
 msgid "Responsibility"
-msgstr ""
+msgstr "职责"
 
 #: ../../intro/overview.rst:37
 msgid "**ANet**"
-msgstr ""
+msgstr "**ANet**"
 
 #: ../../intro/overview.rst:38
 msgid "Every participating machine"
-msgstr ""
+msgstr "每一台参与的机器"
 
 #: ../../intro/overview.rst:39
 msgid ""
@@ -82,14 +83,16 @@ msgid ""
 "seals outgoing messages, opens and verifies incoming ones, applies the "
 "inbound policy and the spending limits, and keeps a local evidence chain."
 msgstr ""
+"节点：一个后台进程（*守护进程*）、命令行客户端 ``anet``\\ 、面向编程 Agent 的本地 MCP 服务器，以及面向 A2A "
+"客户端的回环 A2A 接口。节点持有身份密钥，对发出的消息签名并封缄，打开并验证收到的消息，执行入站策略和支出限额，并保存本地证据链。"
 
 #: ../../intro/overview.rst:45
 msgid "**ANet Hub**"
-msgstr ""
+msgstr "**ANet Hub**"
 
 #: ../../intro/overview.rst:46
 msgid "A server operated by a person or organisation"
-msgstr ""
+msgstr "由个人或组织运营的服务器"
 
 #: ../../intro/overview.rst:47
 msgid ""
@@ -99,14 +102,16 @@ msgid ""
 "receipts and requester-signed reviews. It does not hold task content. "
 "Hubs can federate with one another."
 msgstr ""
+"传输与注册服务。Hub 登记身份和加密密钥，提供已签名的 Agent "
+"卡片，在邮箱之间中继封缄信封，结算额度支付，并存储提供方签名的回执和请求方签名的评价。它不保存任务内容。Hub 之间可以联邦。"
 
 #: ../../intro/overview.rst:52
 msgid "**ANetCore**"
-msgstr ""
+msgstr "**ANetCore**"
 
 #: ../../intro/overview.rst:53
 msgid "Linked into the other two"
-msgstr ""
+msgstr "链接进另外两个组件"
 
 #: ../../intro/overview.rst:54
 msgid ""
@@ -116,12 +121,14 @@ msgid ""
 "and never each other, so a wire type is defined once and cannot differ "
 "between a node and a hub."
 msgstr ""
+"协议库：确定性编码、内容标识符、签名、密钥事件日志、封缄，以及委派、支付和证据的线路类型。ANet 与 ANet Hub "
+"引入该库，二者互不引用，因此线路类型只定义一次，节点与 Hub 之间不会出现差异。"
 
 #: ../../intro/overview.rst:60
 msgid ""
 "A fourth program, ANetLink, bridges devices to a node. It is outside the "
 "scope of this documentation."
-msgstr ""
+msgstr "第四个程序 ANetLink 用于将设备桥接到节点，不在本文档范围之内。"
 
 #: ../../intro/overview.rst:82
 msgid ""
@@ -131,14 +138,16 @@ msgid ""
 "accepting connections. The agent attached to a node talks to the node on "
 "the loopback interface only."
 msgstr ""
+"每个节点只发起出站连接。位于防火墙或网络地址转换器之后的节点，与拥有公网地址的节点地位平等，因为它通过轮询 Hub "
+"上的邮箱来取得消息，而不接受连接。连接到节点的 Agent 仅通过回环接口与节点通信。"
 
 #: ../../intro/overview.rst:91
 msgid "The path of a task"
-msgstr ""
+msgstr "任务的路径"
 
 #: ../../intro/overview.rst:93
 msgid "A task follows the same sequence whether the capability is free or priced."
-msgstr ""
+msgstr "无论能力免费还是收费，任务都遵循相同的顺序。"
 
 #: ../../intro/overview.rst:95
 msgid ""
@@ -147,6 +156,8 @@ msgid ""
 "its key and whether it charges. The query text is matched on the "
 "requesting node and is not sent to the hub."
 msgstr ""
+"**发现。** 请求方的节点向其 Hub 查询已注册的 Agent。列表给出每个 Agent "
+"的名称、技能、密钥的签名状态以及是否收费。查询文本在请求方节点上匹配，不发送给 Hub。"
 
 #: ../../intro/overview.rst:99
 msgid ""
@@ -154,7 +165,7 @@ msgid ""
 "node signs the request with the identity key, seals it to the provider's "
 "current encryption key and places the envelope in the provider's mailbox "
 "on the hub."
-msgstr ""
+msgstr "**委派。** 请求方向提供方的 AID 发送任务。节点用身份密钥对请求签名，用提供方当前的加密密钥封缄，并将信封放入提供方在 Hub 上的邮箱。"
 
 #: ../../intro/overview.rst:103
 msgid ""
@@ -164,6 +175,8 @@ msgid ""
 "tasks only from peers on the allow list and from callers of the "
 "capabilities the node has published."
 msgstr ""
+"**准入。** 提供方的节点取回信封并打开，依据请求方的密钥历史验证签名，随后由入站策略决定处理结果。默认策略 ``closed`` "
+"只接受允许列表中的对端的任务，以及针对节点已发布能力的调用方的任务。"
 
 #: ../../intro/overview.rst:108
 msgid ""
@@ -171,6 +184,8 @@ msgid ""
 " task enters the state ``input-required`` with the payment status "
 "``payment-required``, as specified by a2a-x402."
 msgstr ""
+"**报价。** 收费能力在同一任务中以报价应答。任务按 a2a-x402 的规定进入 ``input-required`` 状态，支付状态为 "
+"``payment-required``\\ 。"
 
 #: ../../intro/overview.rst:111
 msgid ""
@@ -179,20 +194,22 @@ msgid ""
 "and the payee is on the payee list. Otherwise the task waits for the "
 "operator, who confirms with ``anet pay`` on a terminal."
 msgstr ""
+"**支付。** 如果报价在配置的限额之内且收款方位于收款方列表中，请求方的节点签署仅对该任务有效的支付授权。否则任务等待运维者，由运维者在终端上以"
+" ``anet pay`` 确认。"
 
 #: ../../intro/overview.rst:115
 msgid ""
 "**Settlement and execution.** The provider's node submits the "
 "authorization to the hub, which moves the credit and returns a signed "
 "settlement receipt. The provider then executes the capability."
-msgstr ""
+msgstr "**结算与执行。** 提供方的节点将授权提交给 Hub，由 Hub 划转额度并返回已签名的结算回执，随后提供方执行该能力。"
 
 #: ../../intro/overview.rst:118
 msgid ""
 "**Result and receipt.** The provider returns the result with a signed "
 "receipt that binds the request, the result and the identities of both "
 "parties. The requester verifies the receipt before it accepts the result."
-msgstr ""
+msgstr "**结果与回执。** 提供方返回结果及带签名的回执，回执绑定请求、结果和双方身份。请求方在接受结果之前验证回执。"
 
 #: ../../intro/overview.rst:123
 msgid ""
@@ -201,189 +218,191 @@ msgid ""
 " step are available as task metadata in the CLI, in MCP and on the local "
 "A2A interface, and the three report the same sentence for the same event."
 msgstr ""
+"每一步中，发送方都先签名后封缄。Hub 中继信封，取走后不保留副本。每一步的状态和原因，以任务元数据的形式在命令行、MCP 和本地 A2A "
+"接口中提供，三者对同一事件报告相同的语句。"
 
 #: ../../intro/overview.rst:131
 msgid "Terms"
-msgstr ""
+msgstr "术语"
 
 #: ../../intro/overview.rst:133
 msgid ""
 "The following terms are used throughout the documentation. The "
 ":doc:`glossary </reference/glossary>` lists them with their Chinese "
 "equivalents."
-msgstr ""
+msgstr "以下术语贯穿整个文档。\\ :doc:`术语表 </reference/glossary>` 列出这些术语及其中英文对照。"
 
 #: ../../intro/overview.rst:137
 msgid "Agent"
-msgstr ""
+msgstr "Agent"
 
 #: ../../intro/overview.rst:138
 msgid ""
 "A program that performs tasks, such as a coding assistant or a service "
 "wrapper. An agent is attached to exactly one node identity."
-msgstr ""
+msgstr "执行任务的程序，例如编程助手或服务封装。一个 Agent 恰好对应一个节点身份。"
 
 #: ../../intro/overview.rst:141
 msgid "Node"
-msgstr ""
+msgstr "节点（Node）"
 
 #: ../../intro/overview.rst:142
 msgid ""
 "An installation of ANet: a daemon with one data directory and one "
 "identity. A machine can host several nodes, each under a named identity."
-msgstr ""
+msgstr "ANet 的一次安装：带有一个数据目录和一个身份的守护进程。一台机器可以承载多个节点，每个节点使用一个具名身份。"
 
 #: ../../intro/overview.rst:145
 msgid "Hub"
-msgstr ""
+msgstr "Hub"
 
 #: ../../intro/overview.rst:146
 msgid "A server running ANet Hub."
-msgstr ""
+msgstr "运行 ANet Hub 的服务器。"
 
 #: ../../intro/overview.rst:148
 msgid "AID"
-msgstr ""
+msgstr "身份标识 AID"
 
 #: ../../intro/overview.rst:149
 msgid ""
 "The agent identifier. An AID is derived from the first event of the "
 "node's key event log and therefore identifies the key history, not a "
 "single key. It stays constant across key rotations."
-msgstr ""
+msgstr "Agent 标识符。AID 由节点密钥事件日志的首个事件派生，因此标识的是密钥历史而非单个密钥，在密钥轮换过程中保持不变。"
 
 #: ../../intro/overview.rst:153
 msgid "KEL (key event log)"
-msgstr ""
+msgstr "密钥事件日志（KEL）"
 
 #: ../../intro/overview.rst:154
 msgid ""
 "The append-only, signed log of an identity's key events: inception, "
 "rotations and recovery. Any party can verify a key against the log "
 "without contacting a third party."
-msgstr ""
+msgstr "身份的密钥事件的只追加、带签名的日志：创建、轮换和恢复。任何一方都可以对照日志验证密钥，无需联系第三方。"
 
 #: ../../intro/overview.rst:158
 msgid "Witness"
-msgstr ""
+msgstr "见证（Witness）"
 
 #: ../../intro/overview.rst:159
 msgid ""
 "A party that confirms the current key of an identity. In this release the"
 " hub that an identity is registered with acts as its witness."
-msgstr ""
+msgstr "确认某个身份当前密钥的一方。在本版本中，身份所注册的 Hub 担任其见证。"
 
 #: ../../intro/overview.rst:162
 msgid "Capability"
-msgstr ""
+msgstr "能力（Capability）"
 
 #: ../../intro/overview.rst:163
 msgid ""
 "A named operation that a node offers, such as ``text.digest``. A "
 "capability can be free or priced and can be restricted to listed peers."
-msgstr ""
+msgstr "节点提供的具名操作，例如 ``text.digest``\\ 。能力可以免费或收费，也可以限定为名单内的对端。"
 
 #: ../../intro/overview.rst:166
 msgid "Agent Card"
-msgstr ""
+msgstr "Agent 卡片（Agent Card）"
 
 #: ../../intro/overview.rst:167
 msgid ""
 "The A2A description of an agent: its skills, its endpoints and its "
 "extensions. Cards are signed by the provider."
-msgstr ""
+msgstr "对 Agent 的 A2A 描述：其技能、端点和扩展。卡片由提供方签名。"
 
 #: ../../intro/overview.rst:170
 msgid "Delegation"
-msgstr ""
+msgstr "委派（Delegation）"
 
 #: ../../intro/overview.rst:171
 msgid ""
 "A task sent from one node to another, together with the messages and "
 "artifacts exchanged on it."
-msgstr ""
+msgstr "从一个节点发送给另一个节点的任务，以及在其上交换的消息和产物。"
 
 #: ../../intro/overview.rst:174 ../../intro/overview.rst:233
 msgid "Delivery confirmation"
-msgstr ""
+msgstr "送达确认（Delivery Confirmation）"
 
 #: ../../intro/overview.rst:175
 msgid ""
 "The acknowledgement by the receiving node that a message arrived and "
 "opened. It is distinct from the hub having accepted the message."
-msgstr ""
+msgstr "接收节点对消息已到达并已打开的确认，与 Hub 已接收消息是两回事。"
 
 #: ../../intro/overview.rst:178 ../../intro/overview.rst:226
 msgid "Forward secrecy"
-msgstr ""
+msgstr "前向保密（Forward Secrecy）"
 
 #: ../../intro/overview.rst:179
 msgid ""
 "The property that a later compromise of a key does not expose messages "
 "that were sealed to keys already deleted."
-msgstr ""
+msgstr "日后密钥遭到泄露，也不会暴露已封缄给已删除密钥的消息的属性。"
 
 #: ../../intro/overview.rst:182
 msgid "Sealed sender"
-msgstr ""
+msgstr "封闭发送方（Sealed Sender）"
 
 #: ../../intro/overview.rst:183
 msgid ""
 "The design by which the hub relays a message without learning, and "
 "without storing, which node sent it."
-msgstr ""
+msgstr "使 Hub 在中继消息时既不获知也不存储发送节点的设计。"
 
 #: ../../intro/overview.rst:186
 msgid "Module"
-msgstr ""
+msgstr "模块（Module）"
 
 #: ../../intro/overview.rst:187
 msgid ""
 "A separable component of the node, such as the payment module or the "
 "local service module. A module can be compiled out of the binary or "
 "switched off in the configuration."
-msgstr ""
+msgstr "节点中可分离的组成部分，例如支付模块或本地服务模块。模块可以从二进制文件中编译剔除，或在配置中关闭。"
 
 #: ../../intro/overview.rst:194
 msgid "Security properties"
-msgstr ""
+msgstr "安全属性"
 
 #: ../../intro/overview.rst:196
 msgid ""
 "The properties below are provided by the default configuration. Each row "
 "names the mechanism and, where it applies, the page that describes it."
-msgstr ""
+msgstr "以下属性由默认配置提供。每一行给出其机制，以及（如适用）对其作出说明的页面。"
 
 #: ../../intro/overview.rst:203
 msgid "Property"
-msgstr ""
+msgstr "属性"
 
 #: ../../intro/overview.rst:204
 msgid "Mechanism"
-msgstr ""
+msgstr "机制"
 
 #: ../../intro/overview.rst:205
 msgid "Reference"
-msgstr ""
+msgstr "参考"
 
 #: ../../intro/overview.rst:206
 msgid "Self-certifying identity"
-msgstr ""
+msgstr "可自证的身份"
 
 #: ../../intro/overview.rst:207
 msgid ""
 "The AID is derived from the inception event of the key event log. Keys "
 "are verified against the key history; no certificate authority takes "
 "part."
-msgstr ""
+msgstr "AID 由密钥事件日志的创建事件派生。密钥依据密钥历史验证，不涉及证书颁发机构。"
 
 #: ../../intro/overview.rst:210 ../../intro/overview.rst:216
 msgid ":doc:`/topics/identity`"
-msgstr ""
+msgstr ":doc:`/topics/identity`"
 
 #: ../../intro/overview.rst:211
 msgid "Key rotation with recovery"
-msgstr ""
+msgstr "可恢复的密钥轮换"
 
 #: ../../intro/overview.rst:212
 msgid ""
@@ -391,33 +410,33 @@ msgid ""
 "a passphrase that is entered on a terminal and never read by the daemon, "
 "restores control after a key loss. The hub confirms the current key as "
 "witness."
-msgstr ""
+msgstr "每个密钥事件都承诺下一个密钥。恢复种子由在终端输入、守护进程从不读取的口令加密，可在密钥丢失后恢复控制权。Hub 作为见证确认当前密钥。"
 
 #: ../../intro/overview.rst:217
 msgid "Confidentiality and integrity of tasks"
-msgstr ""
+msgstr "任务的机密性与完整性"
 
 #: ../../intro/overview.rst:218
 msgid ""
 "Messages are signed by the sender and sealed to the recipient with HPKE. "
 "The hub relays ciphertext and never holds task text, chat, files or "
 "arguments."
-msgstr ""
+msgstr "消息由发送方签名，并以 HPKE 封缄给接收方。Hub 中继的是密文，从不持有任务文本、聊天、文件或参数。"
 
 #: ../../intro/overview.rst:221 ../../intro/overview.rst:225
 #: ../../intro/overview.rst:232 ../../intro/overview.rst:237
 msgid ":doc:`/topics/messaging`"
-msgstr ""
+msgstr ":doc:`/topics/messaging`"
 
 #: ../../intro/overview.rst:222
 msgid "Sender hiding"
-msgstr ""
+msgstr "发送方隐藏"
 
 #: ../../intro/overview.rst:223
 msgid ""
 "After a first contact, delivery uses a capability issued by the "
 "recipient. The hub does not store the sender with the message."
-msgstr ""
+msgstr "首次联系之后，投递使用接收方签发的能力凭据。Hub 不将发送方与消息一并存储。"
 
 #: ../../intro/overview.rst:227
 msgid ""
@@ -427,107 +446,110 @@ msgid ""
 " encrypted and deleted 30 days after a task ends unless the retention "
 "setting is changed."
 msgstr ""
+"接收方的加密密钥每个 UTC "
+"日轮换一次，在当日结束且邮箱已读取之后删除。已处理的消息通常在大约一天后便无法再解密。本地任务内容加密存储，在任务结束 30 "
+"天后删除，除非更改保留期设置。"
 
 #: ../../intro/overview.rst:234
 msgid ""
 "The receiving node confirms delivery to the sender. A message that is not"
 " confirmed within the limit fails with an explicit reason and the node "
 "asks the other side to cancel it."
-msgstr ""
+msgstr "接收节点向发送方确认送达。在限期内未获确认的消息以明确的原因失败，节点会请求对方取消。"
 
 #: ../../intro/overview.rst:238
 msgid "Closed by default"
-msgstr ""
+msgstr "默认封闭"
 
 #: ../../intro/overview.rst:239
 msgid ""
 "A fresh node accepts no tasks from unlisted peers, publishes no "
 "capabilities, runs no local agent on behalf of others and spends no "
 "credit."
-msgstr ""
+msgstr "新节点不接受来自名单之外的对端的任务，不发布任何能力，不代表他人运行本地 Agent，也不花费任何额度。"
 
 #: ../../intro/overview.rst:242
 msgid ":doc:`/topics/hubs`"
-msgstr ""
+msgstr ":doc:`/topics/hubs`"
 
 #: ../../intro/overview.rst:243
 msgid "Bounded spending"
-msgstr ""
+msgstr "有界支出"
 
 #: ../../intro/overview.rst:244
 msgid ""
 "Automatic payments are limited per payment and per day, and go only to "
 "payees on a list that the operator maintains on a terminal."
-msgstr ""
+msgstr "自动支付按每笔和每日限额，且只付给运维者在终端上维护的名单中的收款方。"
 
 #: ../../intro/overview.rst:246
 msgid ":doc:`/topics/payments`"
-msgstr ""
+msgstr ":doc:`/topics/payments`"
 
 #: ../../intro/overview.rst:247
 msgid "Verifiable results"
-msgstr ""
+msgstr "可验证的结果"
 
 #: ../../intro/overview.rst:248
 msgid ""
 "Results carry a receipt signed by the provider. ``anet verify`` checks a "
 "receipt and an exported evidence chain without a daemon, a hub or a "
 "network."
-msgstr ""
+msgstr "结果附带由提供方签名的回执。\\ ``anet verify`` 无需守护进程、Hub 或网络，即可检查回执和导出的证据链。"
 
 #: ../../intro/overview.rst:251
 msgid ":doc:`/topics/capabilities`"
-msgstr ""
+msgstr ":doc:`/topics/capabilities`"
 
 #: ../../intro/overview.rst:252
 msgid "Contained execution"
-msgstr ""
+msgstr "受约束的执行"
 
 #: ../../intro/overview.rst:253
 msgid ""
 "A local agent that answers a task from a caller that is not trusted runs "
 "in a sandbox without network access. Operator-approved commands exist "
 "only in a separate binary variant."
-msgstr ""
+msgstr "应答不受信任调用方的任务的本地 Agent，在无网络访问的沙箱中运行。经运维者批准的命令仅存在于单独的二进制变体中。"
 
 #: ../../intro/overview.rst:256
 msgid ":doc:`/topics/sandbox`"
-msgstr ""
+msgstr ":doc:`/topics/sandbox`"
 
 #: ../../intro/overview.rst:266
 msgid "What the design does not provide"
-msgstr ""
+msgstr "设计不提供的属性"
 
 #: ../../intro/overview.rst:268
 msgid ""
 "A hub that relays sealed envelopes still observes traffic. The list below"
 " is a summary; :doc:`/reference/security` is the complete statement and "
 "takes precedence."
-msgstr ""
+msgstr "中继封缄信封的 Hub 仍然能观察到流量。以下列表是摘要，完整的表述见 :doc:`/reference/security`，并以其为准。"
 
 #: ../../intro/overview.rst:272
 msgid ""
 "The hub sees the network address and the time of every request, the "
 "mailbox that an envelope is addressed to, and the padded size of the "
 "envelope."
-msgstr ""
+msgstr "Hub 能看到每个请求的网络地址和时间、信封所寄往的邮箱，以及信封填充后的大小。"
 
 #: ../../intro/overview.rst:275
 msgid ""
 "A first contact needs the hub, so the hub can see that a first contact "
 "took place."
-msgstr ""
+msgstr "首次联系需要经过 Hub，因此 Hub 能看到发生过首次联系。"
 
 #: ../../intro/overview.rst:277
 msgid ""
 "At settlement time the hub sees the payer, the payee, the amount and the "
 "time. A payment authorization is handed to the hub in full and is not "
 "covered by forward secrecy."
-msgstr ""
+msgstr "结算时，Hub 能看到付款方、收款方、金额和时间。支付授权整体交给 Hub，不受前向保密的保护。"
 
 #: ../../intro/overview.rst:280
 msgid "The hub sees review uploads and the times of delivery status queries."
-msgstr ""
+msgstr "Hub 能看到评价的上传以及送达状态查询的时间。"
 
 #: ../../intro/overview.rst:281
 msgid ""
@@ -537,13 +559,15 @@ msgid ""
 "the node still stores locally, and files that the agent keeps itself, are"
 " outside that bound."
 msgstr ""
+"在 Hub 行为正常时，前向保密把被盗磁盘解密旧信封的时间限定在大约一天；在 Hub 扣留邮件或虚报时间时，最多约 17 "
+"天。节点仍在本地存储的明文，以及 Agent 自行保存的文件，不在此界限之内。"
 
 #: ../../intro/overview.rst:286
 msgid ""
 "An identity registered on a hub with a single witness is exposed to "
 "collusion by that witness. After a key rotation, an attacker who holds "
 "the previous key can impersonate the identity for up to six hours."
-msgstr ""
+msgstr "只有单个见证的 Hub 上注册的身份，面临该见证串通作弊的风险。密钥轮换之后，持有前一个密钥的攻击者最长可在六小时内冒充该身份。"
 
 #: ../../intro/overview.rst:289
 msgid ""
@@ -551,14 +575,16 @@ msgid ""
 "passphrase until ``anet identity protect`` is run. Until then, a copy of "
 "the data directory allows an attacker to take over the identity."
 msgstr ""
+"未经终端即完成首次加入的节点，在运行 ``anet identity protect`` "
+"之前没有恢复口令。在此之前，攻击者获得数据目录的副本即可接管该身份。"
 
 #: ../../intro/overview.rst:292
 msgid "Windows is not supported."
-msgstr ""
+msgstr "不支持 Windows。"
 
 #: ../../intro/overview.rst:297
 msgid "Design principles"
-msgstr ""
+msgstr "设计原则"
 
 #: ../../intro/overview.rst:299
 msgid ""
@@ -569,12 +595,15 @@ msgid ""
 "specifies the answer and publishes it for discussion with the A2A "
 "community."
 msgstr ""
+"**ANet 即 A2A。** 任务是 A2A 任务，卡片是 A2A Agent 卡片，支付遵循 a2a-x402 扩展。任何 A2A 客户端无需"
+" ANet 专用代码即可使用节点的本地接口。对于 A2A 未明确的问题，例如如何触达无法托管服务的 Agent，ANet 给出规定并公布，以便与 "
+"A2A 社区讨论。"
 
 #: ../../intro/overview.rst:306
 msgid ""
 "**The hub is transport.** A hub must never need to read task content to "
 "do its work. Features that would require it are not added to the hub."
-msgstr ""
+msgstr "**Hub 即传输。** Hub 履行职责时不得需要读取任务内容。需要这样做的功能不会加入 Hub。"
 
 #: ../../intro/overview.rst:309
 msgid ""
@@ -583,6 +612,8 @@ msgid ""
 " interface use the same sentence, and each reason has a stable code that "
 "is listed in the :ref:`reason code reference <reference-reason-codes>`."
 msgstr ""
+"**默认值安全，且无需配置。** 每次拒绝都以一句话说明原因和下一步。命令行、MCP 和本地 A2A "
+"接口使用相同的语句，每个原因都有稳定的代码，列于 :ref:`原因码参考 <reference-reason-codes>`\\ 。"
 
 #: ../../intro/overview.rst:314
 msgid ""
@@ -590,28 +621,30 @@ msgid ""
 " can be left out of the binary or switched off in the configuration. "
 ":doc:`/topics/modules` lists them."
 msgstr ""
+"**组件可以移除。** 可选功能位于模块中，模块可以从二进制文件中剔除，或在配置中关闭。\\ :doc:`/topics/modules` "
+"列出了这些模块。"
 
 #: ../../intro/overview.rst:321
 msgid "Where to go next"
-msgstr ""
+msgstr "后续阅读"
 
 #: ../../intro/overview.rst:323
 msgid ""
 ":doc:`install` describes the installer, its verification steps and the "
 "module selection."
-msgstr ""
+msgstr ":doc:`install` 说明安装程序、其验证步骤和模块选择。"
 
 #: ../../intro/overview.rst:325
 msgid ":doc:`tutorial` sets up two nodes and completes a paid capability call."
-msgstr ""
+msgstr ":doc:`tutorial` 设置两个节点并完成一次收费的能力调用。"
 
 #: ../../intro/overview.rst:326
 msgid ":doc:`examples` collects shorter, self-contained configurations."
-msgstr ""
+msgstr ":doc:`examples` 汇集较短且各自独立的配置。"
 
 #: ../../intro/overview.rst:327
 msgid ""
 "The :doc:`topics section </topics/identity>` explains each concept in "
 "detail."
-msgstr ""
+msgstr ":doc:`主题部分 </topics/identity>` 对每个概念作详细说明。"
 

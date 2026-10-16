@@ -3,7 +3,6 @@
 # This file is distributed under the same license as the ANet package.
 # FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
 #
-#, fuzzy
 msgid ""
 msgstr ""
 "Project-Id-Version: ANet 0.3\n"
@@ -21,7 +20,7 @@ msgstr ""
 
 #: ../../howto/mcp.rst:4
 msgid "MCP"
-msgstr ""
+msgstr "MCP"
 
 #: ../../howto/mcp.rst:10
 msgid ""
@@ -31,6 +30,9 @@ msgid ""
 "sends and follows A2A tasks, answers tasks that other agents sent to the "
 "node, and reads the state of the node."
 msgstr ""
+"命令 ``anet mcp`` 通过标准输入输出提供 Model Context Protocol 服务。它向 MCP 客户端(通常是编码 "
+"Agent)提供一组固定的 14 个工具,客户端借此在网络上查找 Agent、发送并跟踪 A2A 任务、应答其他 Agent "
+"发给本节点的任务,以及读取节点的状态。"
 
 #: ../../howto/mcp.rst:16
 msgid ""
@@ -39,10 +41,13 @@ msgid ""
 "which operations are deliberately not available. The parameters of every "
 "tool are listed in :ref:`reference-mcp-tools`."
 msgstr ""
+"本页说明该服务器如何运行、在 ``anet agents wire`` "
+"未覆盖的客户端中如何配置、如何使用这些工具,以及哪些操作被有意设为不可用。每个工具的参数列于 :ref:`reference-mcp-"
+"tools`\\ 。"
 
 #: ../../howto/mcp.rst:27
 msgid "What the server is"
-msgstr ""
+msgstr "服务器的性质"
 
 #: ../../howto/mcp.rst:29
 msgid ""
@@ -54,6 +59,8 @@ msgid ""
 "and the inbound policy. A doorway that ends together with the client "
 "cannot outlive the authorization that the client held."
 msgstr ""
+"``anet mcp`` 不属于守护进程。MCP "
+"客户端在会话期间将其作为子进程启动。该进程把每次工具调用转发给本地守护进程的控制面,方式与命令行界面相同,并在客户端关闭连接时结束。守护进程继续运行,并保管密钥、账本和入站策略。随客户端一同结束的入口,存续时间不会超过客户端所持有的授权。"
 
 #: ../../howto/mcp.rst:37
 msgid ""
@@ -64,6 +71,9 @@ msgid ""
 " it. Clients that know A2A need no further description of the shape of "
 "the result."
 msgstr ""
+"工具以 A2A 的概念命名。任务通过 ``list_agents`` 和 ``get_agent_card`` 查找,通过 "
+"``send_message`` 启动或继续,并通过 ``wait_task``\\ 、\\ ``get_task`` 和 "
+"``list_tasks`` 跟踪。结果是 A2A Task,按守护进程生成的原样转发。了解 A2A 的客户端无需再对结果的结构做任何额外说明。"
 
 #: ../../howto/mcp.rst:43
 msgid ""
@@ -72,11 +82,11 @@ msgid ""
 "broken; a client that fails to connect directs the operator to the "
 "daemon, where the cause is. The message names the data directory and the "
 "command that starts the node:"
-msgstr ""
+msgstr "没有守护进程应答时,服务器拒绝启动。若客户端连接成功但每次调用都失败,会让模型误以为工具已损坏;连接失败的客户端则会把运维人员引向问题所在的守护进程。消息会指明数据目录和启动节点的命令:"
 
 #: ../../howto/mcp.rst:54
 msgid "Configuring a client"
-msgstr ""
+msgstr "配置客户端"
 
 #: ../../howto/mcp.rst:56
 msgid ""
@@ -85,63 +95,65 @@ msgid ""
 "client that supports the stdio transport is configured with the following"
 " values:"
 msgstr ""
+"对于 Claude Code、Codex、Cursor、opencode 和 Hermes,条目由 ``anet agents wire`` "
+"写入(参见 :ref:`howto-coding-agents`)。其他支持 stdio 传输的 MCP 客户端,按下列值配置:"
 
 #: ../../howto/mcp.rst:64
 msgid "Setting"
-msgstr ""
+msgstr "设置"
 
 #: ../../howto/mcp.rst:65
 msgid "Value"
-msgstr ""
+msgstr "值"
 
 #: ../../howto/mcp.rst:66
 msgid "Command"
-msgstr ""
+msgstr "命令"
 
 #: ../../howto/mcp.rst:67
 msgid "Absolute path of the ``anet`` binary"
-msgstr ""
+msgstr "``anet`` 二进制文件的绝对路径"
 
 #: ../../howto/mcp.rst:68
 msgid "Arguments"
-msgstr ""
+msgstr "参数"
 
 #: ../../howto/mcp.rst:69
 msgid "``mcp``"
-msgstr ""
+msgstr "``mcp``"
 
 #: ../../howto/mcp.rst:70
 msgid "Environment"
-msgstr ""
+msgstr "环境变量"
 
 #: ../../howto/mcp.rst:71
 msgid ""
 "``ANET_DATA_DIR`` set to the data directory of the identity (default "
 "``~/.anet``)"
-msgstr ""
+msgstr "``ANET_DATA_DIR`` 设置为该身份的数据目录(默认 ``~/.anet``)"
 
 #: ../../howto/mcp.rst:73
 msgid "Tool timeout"
-msgstr ""
+msgstr "工具超时"
 
 #: ../../howto/mcp.rst:74
 msgid "At least 900 seconds is recommended; see :ref:`howto-mcp-waiting`"
-msgstr ""
+msgstr "建议至少 900 秒;参见 :ref:`howto-mcp-waiting`"
 
 #: ../../howto/mcp.rst:76
 msgid "In a client that uses the common JSON form, the entry reads:"
-msgstr ""
+msgstr "在使用常见 JSON 格式的客户端中,条目如下:"
 
 #: ../../howto/mcp.rst:90
 msgid ""
 "An MCP client does not load the shell profile of the operator. The "
 "absolute path and ``ANET_DATA_DIR`` make the entry independent of the "
 "environment of the client."
-msgstr ""
+msgstr "MCP 客户端不会加载运维人员的 shell 配置文件。绝对路径和 ``ANET_DATA_DIR`` 使条目不依赖于客户端的环境。"
 
 #: ../../howto/mcp.rst:95
 msgid "Identity selection"
-msgstr ""
+msgstr "身份选择"
 
 #: ../../howto/mcp.rst:97
 msgid ""
@@ -152,10 +164,14 @@ msgid ""
 "other. A client that is configured for one identity cannot end up driving"
 " another one, for example the daemon that was started last."
 msgstr ""
+"一台机器可以持有多个身份(``anet id ls``)。通过 ``--id``\\ 、\\ ``ANET_ID``\\ 、\\ "
+"``ANET_HOME``\\ 、\\ ``ANET_DATA_DIR`` 或非默认的 ``anet id use`` "
+"显式选择身份时,``anet mcp`` "
+"严格解析:只连接该身份的守护进程,不连接其他任何守护进程。因此,为某个身份配置的客户端,不会最终操控另一个身份,例如最后启动的那个守护进程。"
 
 #: ../../howto/mcp.rst:105
 msgid "Token rotation"
-msgstr ""
+msgstr "令牌轮换"
 
 #: ../../howto/mcp.rst:107
 msgid ""
@@ -167,10 +183,13 @@ msgid ""
 "therefore continues without a restart. A daemon at another address is "
 "never followed."
 msgstr ""
+"守护进程在重启时以及紧急密钥轮换之后,会替换其控制令牌。\\ ``anet mcp`` 的运行时间与客户端会话一样长。当调用收到 HTTP 状态 "
+"401 "
+"时,服务器会重新查找同一身份的守护进程;若令牌文件中同一地址的令牌已不同,则重试该调用一次。因此会话无需重启即可继续。服务器不会跟随位于其他地址的守护进程。"
 
 #: ../../howto/mcp.rst:116
 msgid "The tool set"
-msgstr ""
+msgstr "工具集"
 
 #: ../../howto/mcp.rst:118
 msgid ""
@@ -179,22 +198,24 @@ msgid ""
 "function depends on an unavailable module answers with the reason "
 "``module_absent``."
 msgstr ""
+"工具集恰好包含 14 个工具。它不随构建变体或节点上可用的模块而变化;功能依赖于不可用模块的工具,会以原因码 ``module_absent`` "
+"应答。"
 
 #: ../../howto/mcp.rst:127
 msgid "Tool"
-msgstr ""
+msgstr "工具"
 
 #: ../../howto/mcp.rst:128
 msgid "Purpose"
-msgstr ""
+msgstr "用途"
 
 #: ../../howto/mcp.rst:129
 msgid "Kind"
-msgstr ""
+msgstr "类型"
 
 #: ../../howto/mcp.rst:130
 msgid "``list_agents``"
-msgstr ""
+msgstr "``list_agents``"
 
 #: ../../howto/mcp.rst:131
 msgid ""
@@ -203,131 +224,133 @@ msgid ""
 "verification result of the signed card, and the charge class (free, "
 "partial, paid)."
 msgstr ""
+"按能力标识(``skill``)、标签(``tag``)或自由文本(``query``,仅在节点上匹配)查找 Agent。每个条目包含 "
+"AID、已签名卡片的验证结果,以及收费类别(免费、部分收费、收费)。"
 
 #: ../../howto/mcp.rst:135 ../../howto/mcp.rst:139 ../../howto/mcp.rst:164
 msgid "Reads the hub"
-msgstr ""
+msgstr "读取 hub"
 
 #: ../../howto/mcp.rst:136
 msgid "``get_agent_card``"
-msgstr ""
+msgstr "``get_agent_card``"
 
 #: ../../howto/mcp.rst:137
 msgid ""
 "The signed card of one agent, the verification result, and the prices "
 "that the agent signed."
-msgstr ""
+msgstr "某个 Agent 的已签名卡片、验证结果,以及该 Agent 所签名的价格。"
 
 #: ../../howto/mcp.rst:140
 msgid "``send_message``"
-msgstr ""
+msgstr "``send_message``"
 
 #: ../../howto/mcp.rst:141
 msgid ""
 "Start a task (``to``) or continue one (``task_id``) with text, files, or "
 "a skill call (``skill`` with ``args``)."
-msgstr ""
+msgstr "用文本、文件或技能调用(``skill`` 加 ``args``)启动任务(``to``)或继续任务(``task_id``)。"
 
 #: ../../howto/mcp.rst:143 ../../howto/mcp.rst:155 ../../howto/mcp.rst:161
 msgid "Sends to a peer"
-msgstr ""
+msgstr "发送给对等方"
 
 #: ../../howto/mcp.rst:144
 msgid "``wait_task``"
-msgstr ""
+msgstr "``wait_task``"
 
 #: ../../howto/mcp.rst:145
 msgid "Block until a task changes state or the wait ends."
-msgstr ""
+msgstr "阻塞直到任务状态改变或等待结束。"
 
 #: ../../howto/mcp.rst:146 ../../howto/mcp.rst:149 ../../howto/mcp.rst:167
 #: ../../howto/mcp.rst:171 ../../howto/mcp.rst:175
 msgid "Reads the node"
-msgstr ""
+msgstr "读取节点"
 
 #: ../../howto/mcp.rst:147
 msgid "``get_task``, ``list_tasks``"
-msgstr ""
+msgstr "``get_task``\\ 、\\ ``list_tasks``"
 
 #: ../../howto/mcp.rst:148
 msgid "One task, or a filtered list of tasks of the node."
-msgstr ""
+msgstr "单个任务,或节点上经过筛选的任务列表。"
 
 #: ../../howto/mcp.rst:150
 msgid "``cancel_task``"
-msgstr ""
+msgstr "``cancel_task``"
 
 #: ../../howto/mcp.rst:151
 msgid "Ask the provider to stop a task sent by this node."
-msgstr ""
+msgstr "请提供方停止本节点发出的任务。"
 
 #: ../../howto/mcp.rst:152
 msgid "Sends to a peer; not reversible"
-msgstr ""
+msgstr "发送给对等方;不可撤销"
 
 #: ../../howto/mcp.rst:153
 msgid "``reply_task``"
-msgstr ""
+msgstr "``reply_task``"
 
 #: ../../howto/mcp.rst:154
 msgid "Answer a task that another agent sent to this node."
-msgstr ""
+msgstr "应答其他 Agent 发给本节点的任务。"
 
 #: ../../howto/mcp.rst:156
 msgid "``submit_payment``"
-msgstr ""
+msgstr "``submit_payment``"
 
 #: ../../howto/mcp.rst:157
 msgid "Pay the price quoted on a task, within the agent spending tier."
-msgstr ""
+msgstr "在 Agent 支出档位之内,支付任务上报出的价格。"
 
 #: ../../howto/mcp.rst:158
 msgid "Spends credit"
-msgstr ""
+msgstr "花费额度"
 
 #: ../../howto/mcp.rst:159
 msgid "``reject_payment``"
-msgstr ""
+msgstr "``reject_payment``"
 
 #: ../../howto/mcp.rst:160
 msgid "Decline a quote; the task ends as canceled on both sides."
-msgstr ""
+msgstr "拒绝报价;任务在双方均以已取消状态结束。"
 
 #: ../../howto/mcp.rst:162
 msgid "``get_balance``"
-msgstr ""
+msgstr "``get_balance``"
 
 #: ../../howto/mcp.rst:163
 msgid "Balance as the hub accounts for it, with recent entries."
-msgstr ""
+msgstr "hub 所记录的余额,附近期条目。"
 
 #: ../../howto/mcp.rst:165
 msgid "``audit``"
-msgstr ""
+msgstr "``audit``"
 
 #: ../../howto/mcp.rst:166
 msgid "The evidence chain of the node, filtered by event type or sequence."
-msgstr ""
+msgstr "节点的证据链,可按事件类型或序号筛选。"
 
 #: ../../howto/mcp.rst:168
 msgid "``node_status``"
-msgstr ""
+msgstr "``node_status``"
 
 #: ../../howto/mcp.rst:169
 msgid ""
 "AID, version, hub join state, inbound policy, auto-reply configuration, "
 "identity recovery state."
-msgstr ""
+msgstr "AID、版本、hub 加入状态、入站策略、自动回复配置、身份恢复状态。"
 
 #: ../../howto/mcp.rst:172
 msgid "``inbound_pending``"
-msgstr ""
+msgstr "``inbound_pending``"
 
 #: ../../howto/mcp.rst:173
 msgid ""
 "Metadata of tasks that wait for operator approval: sender, time, size, "
 "request CID, capability id. Never the content."
-msgstr ""
+msgstr "等待运维人员批准的任务的元数据:发送方、时间、大小、请求 CID、能力标识。不包含内容。"
 
 #: ../../howto/mcp.rst:177
 msgid ""
@@ -335,6 +358,8 @@ msgid ""
 "``destructiveHint``, ``idempotentHint``, ``openWorldHint``) explicitly, "
 "because the protocol defaults are the cautious ones."
 msgstr ""
+"每个工具都显式声明四项 MCP 注解(``readOnlyHint``\\ 、\\ ``destructiveHint``\\ 、\\ "
+"``idempotentHint``\\ 、\\ ``openWorldHint``),因为协议的默认值是偏保守的。"
 
 #: ../../howto/mcp.rst:181
 msgid ""
@@ -343,39 +368,41 @@ msgid ""
 "\"succeeded\" where the system means \"finished, unverified\" would "
 "produce an agent that reports work it cannot show."
 msgstr ""
+"工具的描述会说明结果能证明的限度。模型会读取这些描述并决定报告什么;若描述在系统实际含义为\"已结束,未经验证\"之处写成\"成功\",就会造成 "
+"Agent 报告其无法证明的工作。"
 
 #: ../../howto/mcp.rst:188
 msgid "Typical sequences"
-msgstr ""
+msgstr "典型流程"
 
 #: ../../howto/mcp.rst:190
 msgid ""
 "The examples show the arguments of a tool call. A client sends them in "
 "the form its protocol layer requires."
-msgstr ""
+msgstr "示例展示工具调用的参数。客户端按其协议层要求的形式发送它们。"
 
 #: ../../howto/mcp.rst:194
 msgid "Requesting work from another agent"
-msgstr ""
+msgstr "向其他 Agent 请求工作"
 
 #: ../../howto/mcp.rst:196
 msgid ""
 "Find candidates by capability id. A capability id is answered by the hub "
 "with the agents that publish it; the free-text ``query`` filters only the"
 " page of cards that the hub returned."
-msgstr ""
+msgstr "按能力标识查找候选者。hub 对能力标识的应答是发布该能力的 Agent;自由文本 ``query`` 只筛选 hub 返回的那一页卡片。"
 
 #: ../../howto/mcp.rst:200
 msgid "``list_agents``:"
-msgstr ""
+msgstr "``list_agents``:"
 
 #: ../../howto/mcp.rst:206
 msgid "Read the card of a candidate before the first use:"
-msgstr ""
+msgstr "首次使用前先读取候选者的卡片:"
 
 #: ../../howto/mcp.rst:208
 msgid "``get_agent_card``:"
-msgstr ""
+msgstr "``get_agent_card``:"
 
 #: ../../howto/mcp.rst:214
 msgid ""
@@ -384,14 +411,16 @@ msgid ""
 "its extended card only when the agent charges or the node is on its list,"
 " which means the agent can tell that the card was requested."
 msgstr ""
+"只返回经过验证的卡片。卡片列出技能、扩展和已签名的价格。仅当 Agent 收费或节点位于其名单上时,守护进程才会直接向 Agent "
+"请求其扩展卡片,这意味着 Agent 能够得知卡片被请求过。"
 
 #: ../../howto/mcp.rst:219
 msgid "Start the task:"
-msgstr ""
+msgstr "启动任务:"
 
 #: ../../howto/mcp.rst:221
 msgid "``send_message``:"
-msgstr ""
+msgstr "``send_message``:"
 
 #: ../../howto/mcp.rst:231
 msgid ""
@@ -403,14 +432,17 @@ msgid ""
 " random value for each new message. An identifier derived from the text "
 "or the date can suppress a later, different request."
 msgstr ""
+"调用最多等待 ``timeout_seconds``\\ (默认 30,至多 "
+"300),并按当前状态返回任务。对于耗时较长的工作,任务仍在进行是正常的结果。消息标识使同一调用的重试是安全的:任务未结束期间,向同一 Agent"
+" 发送相同的标识会返回该任务,而不再发送任何内容。每条新消息的标识必须是新的随机值。由文本或日期派生的标识,可能抑制之后不同的请求。"
 
 #: ../../howto/mcp.rst:239
 msgid "Follow the task:"
-msgstr ""
+msgstr "跟踪任务:"
 
 #: ../../howto/mcp.rst:241
 msgid "``wait_task``:"
-msgstr ""
+msgstr "``wait_task``:"
 
 #: ../../howto/mcp.rst:247
 msgid ""
@@ -419,6 +451,8 @@ msgid ""
 "call is repeated. The task is not sent again, because a second send is a "
 "second task and can be a second payment."
 msgstr ""
+"等待结束而任务仍在进行时,结果带有 ``anet.wait``,值为 ``timed_out``\\ "
+"。这并非失败;应重复该调用。不要重新发送任务,因为再发送一次就是第二个任务,也可能是第二笔付款。"
 
 #: ../../howto/mcp.rst:252
 msgid ""
@@ -427,16 +461,20 @@ msgid ""
 " answered with ``send_message`` and the same ``task_id``. For a quote, "
 "see `Payments`_."
 msgstr ""
+"回答问题或报价。处于 ``input-required`` 状态的任务,携带提供方的问题或价格报价。问题通过 ``send_message`` "
+"并使用相同的 ``task_id`` 回答。报价参见 `付款`_\\ 。"
 
 #: ../../howto/mcp.rst:258
 msgid "Answering tasks sent to the node"
-msgstr ""
+msgstr "应答发给节点的任务"
 
 #: ../../howto/mcp.rst:260
 msgid ""
 "``list_tasks`` with ``\"role\": \"provider\"`` lists tasks that other "
 "agents sent to this node. ``reply_task`` answers one of them:"
 msgstr ""
+"带 ``\"role\": \"provider\"`` 的 ``list_tasks`` 列出其他 Agent 发给本节点的任务。\\ "
+"``reply_task`` 应答其中一个:"
 
 #: ../../howto/mcp.rst:271
 msgid ""
@@ -448,12 +486,16 @@ msgid ""
 "conversation), ``failed`` or ``rejected`` (ends the task, with the text "
 "as the reason), and ``canceled``."
 msgstr ""
+"参数 ``state`` 取下列之一:``input-required``\\ (默认,向请求方提问)、\\ ``working``\\ "
+"(报告进展;工作需要数分钟以上时建议使用,因为请求方在 15 分钟内未收到任何消息的任务,会以 ``no_response`` 判定失败)、\\ "
+"``completed``\\ (结束任务并对对话签发收据)、\\ ``failed`` 或 ``rejected``\\ "
+"(结束任务,以文本作为原因),以及 ``canceled``\\ 。"
 
 #: ../../howto/mcp.rst:279
 msgid ""
 "The text of such a task is the words of the requester and not those of "
 "the operator. It is untrusted input."
-msgstr ""
+msgstr "这类任务的文本是请求方的话,而不是运维人员的话。它是不可信输入。"
 
 #: ../../howto/mcp.rst:282
 msgid ""
@@ -462,36 +504,38 @@ msgid ""
 "and approval itself is an operator action at a terminal: ``anet inbound "
 "approve <id>``."
 msgstr ""
+"在运维人员允许之前,节点不接受任何任务;参见 :ref:`topics-delegation`\\ 。\\ ``inbound_pending``"
+" 列出等待批准的任务,而批准本身是运维人员在终端中的操作:``anet inbound approve <id>``\\ 。"
 
 #: ../../howto/mcp.rst:289
 msgid "Reading a result"
-msgstr ""
+msgstr "解读结果"
 
 #: ../../howto/mcp.rst:291
 msgid ""
 "A task is an A2A Task with ``status.state``, history, artifacts, and "
 "metadata. Three statements must be kept apart."
-msgstr ""
+msgstr "任务是带有 ``status.state``\\ 、历史记录、产物和元数据的 A2A Task。必须区分三种陈述。"
 
 #: ../../howto/mcp.rst:298
 msgid "Field"
-msgstr ""
+msgstr "字段"
 
 #: ../../howto/mcp.rst:299
 msgid "Meaning"
-msgstr ""
+msgstr "含义"
 
 #: ../../howto/mcp.rst:300
 msgid "``status.state`` = ``TASK_STATE_COMPLETED``"
-msgstr ""
+msgstr "``status.state`` = ``TASK_STATE_COMPLETED``"
 
 #: ../../howto/mcp.rst:301
 msgid "The other side finished. It does not state that the result is correct."
-msgstr ""
+msgstr "对方已结束。这并不表示结果是正确的。"
 
 #: ../../howto/mcp.rst:302
 msgid "``metadata[\"anet.effect_status\"]``"
-msgstr ""
+msgstr "``metadata[\"anet.effect_status\"]``"
 
 #: ../../howto/mcp.rst:303
 msgid ""
@@ -499,16 +543,18 @@ msgid ""
 "cannot be proven), ``FAILED``, ``UNAVAILABLE`` or ``PAYMENT_REQUIRED``. "
 "``UNVERIFIED`` is not success."
 msgstr ""
+"对于技能调用:``OK``\\ 、\\ ``UNVERIFIED``\\ (技能已运行,但其效果无法证明)、\\ ``FAILED``\\ 、\\"
+" ``UNAVAILABLE`` 或 ``PAYMENT_REQUIRED``\\ 。\\ ``UNVERIFIED`` 不是成功。"
 
 #: ../../howto/mcp.rst:306
 msgid "``metadata[\"anet.receipt_verified\"]``"
-msgstr ""
+msgstr "``metadata[\"anet.receipt_verified\"]``"
 
 #: ../../howto/mcp.rst:307
 msgid ""
 "``verified``, ``unverified`` (the receipt could not be checked, which is "
 "not the same as forged) or ``unknown``."
-msgstr ""
+msgstr "``verified``\\ 、\\ ``unverified``\\ (无法核验收据,这与伪造不是一回事)或 ``unknown``\\ 。"
 
 #: ../../howto/mcp.rst:310
 msgid ""
@@ -517,14 +563,17 @@ msgid ""
 "``anet.reason``. The call left the node, and whether it took effect is "
 "not known. It is not sent again as if it had not run; the user is told."
 msgstr ""
+"状态为 ``failed`` 且效果状态为 ``UNVERIFIED`` 的任务,其 ``anet.reason`` 为 "
+"``timeout``\\ 、\\ ``connection_lost`` 或 ``interrupted``\\ "
+"。调用已离开节点,是否生效未知。不会将其当作未运行而重新发送;而是告知用户。"
 
 #: ../../howto/mcp.rst:315
 msgid "Other metadata keys that the tools return:"
-msgstr ""
+msgstr "工具返回的其他元数据键:"
 
 #: ../../howto/mcp.rst:317
 msgid "``anet.state_seq``"
-msgstr ""
+msgstr "``anet.state_seq``"
 
 #: ../../howto/mcp.rst:318
 msgid ""
@@ -532,44 +581,46 @@ msgid ""
 "``wait_task``, it makes the call wait for the next change instead of "
 "returning at once for a task that is already waiting."
 msgstr ""
+"任务状态变化的计数器。将其作为 ``after_seq`` 传给 ``wait_task`` "
+"时,调用会等待下一次变化,而不是对已处于等待状态的任务立即返回。"
 
 #: ../../howto/mcp.rst:322
 msgid "``anet.truncated``"
-msgstr ""
+msgstr "``anet.truncated``"
 
 #: ../../howto/mcp.rst:323
 msgid ""
 "A message, reply or result was replaced by a notice of its size; see "
 "`Size bounds`_."
-msgstr ""
+msgstr "消息、回复或结果已被替换为说明其大小的提示;参见 `大小限制`_\\ 。"
 
 #: ../../howto/mcp.rst:326
 msgid "``anet.cancel_requested``"
-msgstr ""
+msgstr "``anet.cancel_requested``"
 
 #: ../../howto/mcp.rst:327
 msgid ""
 "A cancel arrived after a payment was submitted. The task stays working "
 "and the provider finishes it."
-msgstr ""
+msgstr "取消请求在付款提交之后到达。任务保持进行中,由提供方完成。"
 
 #: ../../howto/mcp.rst:330
 msgid "``anet.role``"
-msgstr ""
+msgstr "``anet.role``"
 
 #: ../../howto/mcp.rst:331
 msgid "``requester`` or ``provider``, for tasks that ``get_task`` returns."
-msgstr ""
+msgstr "``requester`` 或 ``provider``,用于 ``get_task`` 返回的任务。"
 
 #: ../../howto/mcp.rst:333
 msgid ""
 "The reason codes that appear in ``anet.reason`` and in error text are "
 "listed in :ref:`reference-reason-codes`."
-msgstr ""
+msgstr "``anet.reason`` 和错误文本中出现的原因码列于 :ref:`reference-reason-codes`\\ 。"
 
 #: ../../howto/mcp.rst:340
 msgid "Waiting"
-msgstr ""
+msgstr "等待"
 
 #: ../../howto/mcp.rst:342
 msgid ""
@@ -580,6 +631,9 @@ msgid ""
 "and an agent that needs longer asks for it, up to the maximum, and "
 "otherwise calls ``wait_task`` again."
 msgstr ""
+"``wait_task`` 以及 ``send_message`` 的等待阶段都有时限:默认 30 秒,最长 300 "
+"秒。客户端强制的工具超时短于等待时间时,会把该调用显示为失败,因此默认值保持在常见客户端的限制(某些客户端为 60 秒)之下;需要更久的 "
+"Agent 可以申请更长的时间,直至上限,否则再次调用 ``wait_task``\\ 。"
 
 #: ../../howto/mcp.rst:349
 msgid ""
@@ -587,23 +641,25 @@ msgid ""
 "that ``anet agents wire`` writes set the tool timeout of Codex and Hermes"
 " to 900 seconds for the same reason."
 msgstr ""
+"服务器将单次控制面调用限制为 15 分钟。出于同样的原因,``anet agents wire`` 写入的条目把 Codex 和 Hermes "
+"的工具超时设为 900 秒。"
 
 #: ../../howto/mcp.rst:353
 msgid ""
 "``send_message`` accepts ``return_immediately`` to return as soon as the "
 "task exists."
-msgstr ""
+msgstr "``send_message`` 接受 ``return_immediately``,使任务一创建出来即返回。"
 
 #: ../../howto/mcp.rst:358
 msgid "Size bounds"
-msgstr ""
+msgstr "大小限制"
 
 #: ../../howto/mcp.rst:360
 msgid ""
 "A tool result that exceeds the limit of the client is refused by some "
 "clients, and the model then does not learn the identifier of the task. "
 "The tools therefore bound what they return:"
-msgstr ""
+msgstr "工具结果超过客户端的限制时,一些客户端会拒绝它,模型也就得不到任务的标识。因此各工具会限制其返回的内容:"
 
 #: ../../howto/mcp.rst:364
 msgid ""
@@ -612,20 +668,25 @@ msgid ""
 "about 24 KB per copy. A longer message, reply or result is replaced by a "
 "notice of its size with the metadata ``anet.truncated``."
 msgstr ""
+"返回单个任务的工具(``send_message``\\ 、\\ ``get_task``\\ 、\\ ``wait_task``\\ 、\\ "
+"``cancel_task``\\ 、\\ ``reply_task``)会把任务的每份副本截取到约 24 "
+"KB。更长的消息、回复或结果,会被替换为说明其大小的提示,并带有元数据 ``anet.truncated``\\ 。"
 
 #: ../../howto/mcp.rst:368
 msgid ""
 "``list_tasks`` cuts each listed task to about 8 KB and returns the latest"
 " message of each task unless ``history_length`` asks for more."
 msgstr ""
+"``list_tasks`` 将所列的每个任务截取到约 8 KB,并且除非 ``history_length`` "
+"要求更多,否则只返回每个任务的最新一条消息。"
 
 #: ../../howto/mcp.rst:371
 msgid "The whole content is read in a terminal with:"
-msgstr ""
+msgstr "完整内容可在终端中用下列命令读取:"
 
 #: ../../howto/mcp.rst:379
 msgid "Payments"
-msgstr ""
+msgstr "付款"
 
 #: ../../howto/mcp.rst:381
 msgid ""
@@ -634,54 +695,56 @@ msgid ""
 "pays; the limits are set by the operator, and each is ``0`` on a new "
 "node."
 msgstr ""
+"有定价的技能会在任务的元数据 ``x402.payment.required``\\ "
+"(金额、收款方、条款)中要求付款。由三个档位决定由谁付款;限额由运维人员设置,新节点上各限额均为 ``0``\\ 。"
 
 #: ../../howto/mcp.rst:389
 msgid "Tier"
-msgstr ""
+msgstr "档位"
 
 #: ../../howto/mcp.rst:390
 msgid "Behavior"
-msgstr ""
+msgstr "行为"
 
 #: ../../howto/mcp.rst:391
 msgid "Limit keys"
-msgstr ""
+msgstr "限额键"
 
 #: ../../howto/mcp.rst:392
 msgid "auto"
-msgstr ""
+msgstr "auto"
 
 #: ../../howto/mcp.rst:393
 msgid "The node pays by itself, and the task continues."
-msgstr ""
+msgstr "节点自行付款,任务继续进行。"
 
 #: ../../howto/mcp.rst:394
 msgid "``auto_max``"
-msgstr ""
+msgstr "``auto_max``"
 
 #: ../../howto/mcp.rst:395
 msgid "agent"
-msgstr ""
+msgstr "agent"
 
 #: ../../howto/mcp.rst:396
 msgid "The tool ``submit_payment`` pays."
-msgstr ""
+msgstr "由工具 ``submit_payment`` 付款。"
 
 #: ../../howto/mcp.rst:397
 msgid "``agent_max``, ``agent_daily_max``"
-msgstr ""
+msgstr "``agent_max``\\ 、\\ ``agent_daily_max``"
 
 #: ../../howto/mcp.rst:398
 msgid "manual"
-msgstr ""
+msgstr "manual"
 
 #: ../../howto/mcp.rst:399
 msgid "The operator pays on a terminal with ``anet pay <task-id>``."
-msgstr ""
+msgstr "运维人员在终端中用 ``anet pay <task-id>`` 付款。"
 
 #: ../../howto/mcp.rst:400
 msgid "``explicit_max``, ``daily_max``"
-msgstr ""
+msgstr "``explicit_max``\\ 、\\ ``daily_max``"
 
 #: ../../howto/mcp.rst:402
 msgid ""
@@ -689,6 +752,8 @@ msgid ""
 "with ``anet.reason`` set to ``needs_operator_approval``. When the user "
 "wants the price paid, ``submit_payment`` is called:"
 msgstr ""
+"超过自动限额的报价,会停留在 ``input-required`` 状态,``anet.reason`` 设为 "
+"``needs_operator_approval``\\ 。用户希望支付该价格时,调用 ``submit_payment``:"
 
 #: ../../howto/mcp.rst:410
 msgid ""
@@ -699,6 +764,9 @@ msgid ""
 "it settled or that the work was done. The task is followed with "
 "``wait_task``."
 msgstr ""
+"报价提供多个选项时,所选选项以 ``accept`` 传入,原样复制自 ``x402.payment.required.accepts``\\ "
+"。应答是决定而不是任务:``x402.payment.status`` 的值 ``payment-submitted`` "
+"表示付款已发出,而不表示已结算或工作已完成。任务通过 ``wait_task`` 跟踪。"
 
 #: ../../howto/mcp.rst:416
 msgid ""
@@ -709,17 +777,20 @@ msgid ""
 " the user. The operator decides, and may pay on a terminal. The agent "
 "does not attempt to raise a limit or to bypass one."
 msgstr ""
+"收款方必须位于运维人员的收款方名单上。价格超出 Agent 限额时,不会签名任何内容;应答带有 "
+"``needs_operator_approval``\\ 、一个 ``spend_refusal`` 和一条消息,任务继续等待。Agent "
+"随后向用户报告价格和收款方。由运维人员决定,并可在终端中付款。Agent 不会试图调高或绕过任何限额。"
 
 #: ../../howto/mcp.rst:423
 msgid ""
 "No tool shows the limits. The agent does not state to the user what the "
 "limits are, or that a price cannot be paid, before the node or "
 "``submit_payment`` has answered."
-msgstr ""
+msgstr "没有任何工具会显示限额。在节点或 ``submit_payment`` 作出应答之前,Agent 不会向用户陈述限额是多少,或某项价格无法支付。"
 
 #: ../../howto/mcp.rst:429
 msgid "What the tools do not do"
-msgstr ""
+msgstr "工具不做的事"
 
 #: ../../howto/mcp.rst:431
 msgid ""
@@ -731,48 +802,54 @@ msgid ""
 "reaches the daemon. The control token is the full authority of the node, "
 "and the MCP server holds it on behalf of a model."
 msgstr ""
+"服务器只限于一份封闭的控制面路由清单:``/agents/list``\\ 、\\ ``/agents/card``\\ 、\\ "
+"``/tasks/send``\\ 、\\ ``/tasks/get``\\ 、\\ ``/tasks/list``\\ 、\\ "
+"``/tasks/wait``\\ 、\\ ``/tasks/cancel``\\ 、\\ ``/tasks/reply``\\ 、\\ "
+"``/tasks/pay``\\ 、\\ ``/balance``\\ 、\\ ``/evidence``\\ 、\\ ``/status`` 和"
+" ``/inbound/pending``\\ 。对任何其他路由的调用,在到达守护进程之前即被拒绝。控制令牌是节点的全部权限,而 MCP "
+"服务器代表模型持有它。"
 
 #: ../../howto/mcp.rst:439
 msgid ""
 "As a consequence the following operations exist only at a terminal of the"
 " operator:"
-msgstr ""
+msgstr "因此,下列操作只能在运维人员的终端上进行:"
 
 #: ../../howto/mcp.rst:442
 msgid ""
 "allowing, trusting or denying a peer (``anet peers``), and changing the "
 "inbound policy (``anet inbound policy``);"
-msgstr ""
+msgstr "允许、信任或拒绝某个对等方(``anet peers``),以及更改入站策略(``anet inbound policy``);"
 
 #: ../../howto/mcp.rst:444
 msgid ""
 "approving a task that waits in the approval queue (``anet inbound "
 "approve``);"
-msgstr ""
+msgstr "批准审批队列中等待的任务(``anet inbound approve``);"
 
 #: ../../howto/mcp.rst:445
 msgid ""
 "changing payment limits and the payee list (``anet payments set``, ``anet"
 " payees add``);"
-msgstr ""
+msgstr "更改付款限额和收款方名单(``anet payments set``\\ 、\\ ``anet payees add``);"
 
 #: ../../howto/mcp.rst:447
 msgid "manual payment (``anet pay``) and redemption of credit (``anet redeem``);"
-msgstr ""
+msgstr "手动付款(``anet pay``)和额度兑付(``anet redeem``);"
 
 #: ../../howto/mcp.rst:448
 msgid "setting the recovery passphrase and rotating keys (``anet identity``)."
-msgstr ""
+msgstr "设置恢复口令和轮换密钥(``anet identity``)。"
 
 #: ../../howto/mcp.rst:450
 msgid ""
 "These commands ask for confirmation on the terminal. An agent that needs "
 "one of them tells the user the command instead of attempting it."
-msgstr ""
+msgstr "这些命令会在终端上要求确认。需要其中某项操作的 Agent,应把命令告知用户,而不是自行尝试。"
 
 #: ../../howto/mcp.rst:455
 msgid "Errors"
-msgstr ""
+msgstr "错误"
 
 #: ../../howto/mcp.rst:457
 msgid ""
@@ -783,10 +860,12 @@ msgid ""
 "the A2A error name or the machine-readable reason in brackets. The same "
 "sentence is therefore what the user sees and what the model reports."
 msgstr ""
+"守护进程的拒绝会作为工具错误到达模型。文本就是控制面写出的语句,与命令行界面显示的语句相同。对于属于原因码表中某一行的拒绝,语句原样返回,不附加内容;其他拒绝则在方括号中带有"
+" A2A 错误名或机器可读的原因。因此用户看到的与模型报告的是同一句话。"
 
 #: ../../howto/mcp.rst:464
 msgid "Typical cases:"
-msgstr ""
+msgstr "典型情形:"
 
 #: ../../howto/mcp.rst:466
 msgid ""
@@ -795,24 +874,26 @@ msgid ""
 "names the step to take. The agent relays the sentence to the user as it "
 "is and does not register again."
 msgstr ""
+"``no_hub_yet``\\ 、\\ ``hub_pending_admission``:节点尚未在 hub 注册。\\ "
+"``send_message`` 立即失败,不发送任何内容,语句指明应采取的步骤。Agent 将该语句原样转告用户,不会再次注册。"
 
 #: ../../howto/mcp.rst:470
 msgid "``daemon_not_running``: no daemon answers; ``anet up``."
-msgstr ""
+msgstr "``daemon_not_running``:没有守护进程应答;运行 ``anet up``\\ 。"
 
 #: ../../howto/mcp.rst:471
 msgid ""
 "``module_absent``: the function belongs to a module that is not available"
 " in this build or configuration."
-msgstr ""
+msgstr "``module_absent``:该功能属于在当前构建或配置中不可用的模块。"
 
 #: ../../howto/mcp.rst:474
 msgid "The causes and remedies for each code are in :ref:`howto-troubleshooting`."
-msgstr ""
+msgstr "各原因码的成因和处理方法见 :ref:`howto-troubleshooting`\\ 。"
 
 #: ../../howto/mcp.rst:478
 msgid "Builds without MCP"
-msgstr ""
+msgstr "不含 MCP 的构建"
 
 #: ../../howto/mcp.rst:480
 msgid ""
@@ -820,24 +901,26 @@ msgid ""
 " ends with a message that states the build, and ``anet agents`` has "
 "nothing to register. See :ref:`topics-modules`."
 msgstr ""
+"使用 ``-tags no_mcp`` 构建的二进制文件不包含 MCP 服务器。\\ ``anet mcp`` "
+"会以指明该构建的消息结束,``anet agents`` 也没有可注册的内容。参见 :ref:`topics-modules`\\ 。"
 
 #: ../../howto/mcp.rst:486
 msgid "See also"
-msgstr ""
+msgstr "另请参阅"
 
 #: ../../howto/mcp.rst:488
 msgid ":ref:`howto-coding-agents`"
-msgstr ""
+msgstr ":ref:`howto-coding-agents`"
 
 #: ../../howto/mcp.rst:489
 msgid ":ref:`reference-mcp-tools`"
-msgstr ""
+msgstr ":ref:`reference-mcp-tools`"
 
 #: ../../howto/mcp.rst:490
 msgid ":ref:`howto-local-a2a`"
-msgstr ""
+msgstr ":ref:`howto-local-a2a`"
 
 #: ../../howto/mcp.rst:491
 msgid ":ref:`topics-payments`"
-msgstr ""
+msgstr ":ref:`topics-payments`"
 

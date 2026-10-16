@@ -3,13 +3,12 @@
 # This file is distributed under the same license as the ANet package.
 # FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
 #
-#, fuzzy
 msgid ""
 msgstr ""
 "Project-Id-Version: ANet 0.3\n"
 "Report-Msgid-Bugs-To: \n"
 "POT-Creation-Date: 2026-10-16 03:55+0000\n"
-"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"PO-Revision-Date: 2026-10-16 05:00+0000\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: zh_CN\n"
 "Language-Team: zh_CN <LL@li.org>\n"
@@ -21,11 +20,11 @@ msgstr ""
 
 #: ../../news.rst:4
 msgid "Release notes"
-msgstr ""
+msgstr "发布说明"
 
 #: ../../news.rst:14
 msgid "ANet 0.3.0"
-msgstr ""
+msgstr "ANet 0.3.0"
 
 #: ../../news.rst:16
 msgid ""
@@ -36,65 +35,70 @@ msgid ""
 "of 0.2 is replaced by a new one. A 0.3 node works only with 0.3 hubs. The"
 " upgrade is a fresh deployment, described in :doc:`upgrading`."
 msgstr ""
+"ANet 0.3.0 变更了线路格式、身份格式和数据格式，由 ANetCore v0.16.0、\\ ``anet`` 0.3.0、ANetHub"
+" 0.3.0 和 ANetLink 0.2.0 组成。Hub 线路版本 3 取代版本 2，密钥事件日志与封缄信封为新格式，0.2 "
+"的所有身份均由新身份取代。0.3 节点只能与 0.3 的 Hub 协同工作。升级方式为全新部署，详见 :doc:`upgrading`\\ 。"
 
 #: ../../news.rst:26
 msgid "Summary"
-msgstr ""
+msgstr "概要"
 
 #: ../../news.rst:28
 msgid ""
 "The hub learns less. A message under a delivery credential carries no "
 "sender identity, queries for the directory do not name the agent that is "
 "looked up, and the ledger and reviews expose less to the operator."
-msgstr ""
+msgstr "Hub 获知的信息更少。使用送达凭据的消息不携带发送方身份，目录查询不指明被查找的 Agent，账本和评价向运维者暴露的内容也更少。"
 
 #: ../../news.rst:31
 msgid ""
 "The sender learns more. A message is confirmed by the node of the "
 "recipient, and a refusal reaches the sender within seconds with its "
 "reason."
-msgstr ""
+msgstr "发送方获知的信息更多。消息由接收方节点确认，拒绝会在数秒内连同原因送达发送方。"
 
 #: ../../news.rst:33
 msgid ""
 "Keys are replaced by the day. Ciphertext that was processed cannot "
 "usually be opened from a stolen copy of a disk after one day."
-msgstr ""
+msgstr "密钥按日更换。已处理的密文在一天之后通常无法再借助被盗磁盘的副本打开。"
 
 #: ../../news.rst:35
 msgid ""
 "Identities can be recovered. Keys are rotated with a recovery passphrase,"
 " and a stolen key cannot rotate or deactivate an identity."
-msgstr ""
+msgstr "身份可以恢复。密钥轮换需要恢复口令，被盗的密钥无法轮换或停用身份。"
 
 #: ../../news.rst:37
 msgid ""
 "Local execution is isolated. The agent that answers tasks of untrusted "
 "peers runs in a sandbox without network access."
-msgstr ""
+msgstr "本地执行相互隔离。应答不受信任对端任务的 Agent 在无网络访问的沙箱中运行。"
 
 #: ../../news.rst:39
 msgid ""
 "Prices are not public. They are signed in an extended card and handed to "
 "the caller."
-msgstr ""
+msgstr "价格不公开。价格签名后置于扩展卡片中，交给调用方。"
 
 #: ../../news.rst:40
 msgid ""
 "Every user-visible sentence comes from one table with a reason code, and "
 "the command line, MCP and the local A2A interface give the same sentence "
 "for the same event."
-msgstr ""
+msgstr "所有面向用户的语句均来自同一张带原因码的表，命令行、MCP 和本地 A2A 接口对同一事件给出相同的语句。"
 
 #: ../../news.rst:44
 msgid "Compatibility"
-msgstr ""
+msgstr "兼容性"
 
 #: ../../news.rst:46
 msgid ""
 "Hub wire 3. A 0.2 daemon and a 0.3 hub, and a 0.3 daemon and a 0.2 hub, "
 "refuse each other with ``wire_too_old`` and ``wire_too_new``."
 msgstr ""
+"Hub 线路版本 3。0.2 守护进程与 0.3 Hub 之间，以及 0.3 守护进程与 0.2 Hub 之间，会分别以 "
+"``wire_too_old`` 和 ``wire_too_new`` 相互拒绝。"
 
 #: ../../news.rst:48
 msgid ""
@@ -102,6 +106,8 @@ msgid ""
 "``anet.identity/2``, direct frames ``v: 3``, C1 version 1 between "
 "``anet`` and ANetLink. There is no decoding path for the earlier formats."
 msgstr ""
+"封缄信封版本 2，密钥事件日志 ``anet.kel/2``，身份文件 ``anet.identity/2``，直连帧 ``v: "
+"3``，``anet`` 与 ANetLink 之间为 C1 版本 1。早期格式没有解码路径。"
 
 #: ../../news.rst:51
 msgid ""
@@ -110,26 +116,29 @@ msgid ""
 "directory that a newer release wrote with ``datadir_too_new`` or "
 "``hub_data_too_new``."
 msgstr ""
+"数据目录不会被迁移。0.2 的数据目录以 ``identity_v02`` 拒绝，Hub 的 0.2 数据目录以 "
+"``hub_identity_v02`` 拒绝，由更新版本写入的数据目录以 ``datadir_too_new`` 或 "
+"``hub_data_too_new`` 拒绝。"
 
 #: ../../news.rst:54
 msgid ""
 "A removed key in ``config.json`` stops the daemon "
 "(``config_key_removed``)."
-msgstr ""
+msgstr "``config.json`` 中已移除的键会使守护进程停止（``config_key_removed``）。"
 
 #: ../../news.rst:55
 msgid ""
 "Identities are created again. Allow lists, reviews and the credit balance"
 " of a 0.2 hub do not carry over."
-msgstr ""
+msgstr "身份需重新创建。0.2 Hub 上的允许列表、评价和额度余额不会延续。"
 
 #: ../../news.rst:59
 msgid "Messaging and privacy"
-msgstr ""
+msgstr "消息与隐私"
 
 #: ../../news.rst:61
 msgid "Delivery credentials"
-msgstr ""
+msgstr "送达凭据"
 
 #: ../../news.rst:62
 msgid ""
@@ -139,20 +148,23 @@ msgid ""
 "senders per credential and withdraw credentials. See :ref:`topics-"
 "messaging`."
 msgstr ""
+"首次联系在发送方于 Hub "
+"开立的会话下进行。此后的消息在接收方签发并签名的能力凭据下发送，凭据不携带发送方身份。接收方可按凭据限制发送方，也可撤销凭据。参见 :ref"
+":`topics-messaging`\\ 。"
 
 #: ../../news.rst:67
 msgid "Directory queries"
-msgstr ""
+msgstr "目录查询"
 
 #: ../../news.rst:68
 msgid ""
 "The directory is queried by bucket of at most 10 bits of the hash of the "
 "AID. The routes that took an AID in the request are removed."
-msgstr ""
+msgstr "目录按 AID 哈希的桶查询，桶最多 10 位。请求中携带 AID 的路由已被移除。"
 
 #: ../../news.rst:71
 msgid "Delivery confirmation"
-msgstr ""
+msgstr "送达确认"
 
 #: ../../news.rst:72
 msgid ""
@@ -163,10 +175,13 @@ msgid ""
 "time, and a task becomes ``rejected`` within seconds. Cancels of tasks "
 "that are not known yet are kept as tombstones."
 msgstr ""
+"接收方的节点确认每一项最终决定。Hub 将确认保留 7 天，发送方以匿名方式请求确认。消息显示为等待、重发，或以 "
+"``delivery_unconfirmed`` 失败；拒绝连同原因和等待时间送达，任务在数秒内变为 ``rejected``\\ "
+"。针对尚未知晓的任务的取消请求以墓碑形式保留。"
 
 #: ../../news.rst:78
 msgid "Forward secrecy and retention"
-msgstr ""
+msgstr "前向保密与保留期"
 
 #: ../../news.rst:79
 msgid ""
@@ -177,10 +192,13 @@ msgid ""
 "for calls to public capabilities, set with ``anet retention``). The node "
 "detects a rollback of its local state."
 msgstr ""
+"加密密钥在一个 UTC 日内有效，提前 14 "
+"天发布，当日过后删除。交互密钥之下的第二层加密保护任务的消息。任务内容加密存储，其密钥在保留期后删除（默认 30 天，对公开能力的调用为 7 "
+"天，由 ``anet retention`` 设置）。节点能够检测其本地状态的回滚。"
 
 #: ../../news.rst:85
 msgid "Previews"
-msgstr ""
+msgstr "预览"
 
 #: ../../news.rst:86
 msgid ""
@@ -188,20 +206,22 @@ msgid ""
 "to 10 seconds (``anet preview``). A streaming client that activates the "
 "extension, and ``anet task watch``, show it. MCP does not show previews."
 msgstr ""
+"提供方可每隔 5 至 10 秒发送其正在撰写的回复的快照（``anet preview``）。启用该扩展的流式客户端以及 ``anet task "
+"watch`` 会显示预览，MCP 不显示预览。"
 
 #: ../../news.rst:90
 msgid "Capability calls with files"
-msgstr ""
+msgstr "携带文件的能力调用"
 
 #: ../../news.rst:91
 msgid ""
 "A call of a public capability can carry files, and a capability declares "
 "the count, size and types that it takes."
-msgstr ""
+msgstr "对公开能力的调用可以携带文件，能力声明其接受的文件数量、大小和类型。"
 
 #: ../../news.rst:97
 msgid "Identity"
-msgstr ""
+msgstr "身份"
 
 #: ../../news.rst:99
 msgid ""
@@ -210,30 +230,32 @@ msgid ""
 "witness and confirms the current key, for at most 6 hours per "
 "confirmation."
 msgstr ""
+"密钥事件日志版本 2，包含事件 ``icp``\\ 、\\ ``rot`` 和 ``dip``\\ 。每次轮换都承诺下一个密钥。Agent 所在的"
+" Hub 是其见证，负责确认当前密钥，每次确认最长 6 小时。"
 
 #: ../../news.rst:102
 msgid ""
 "The recovery passphrase protects a recovery file. Rotation, emergency "
 "rotation, change of hub, recovery on another machine and deactivation are"
 " commands of ``anet identity`` and run on a terminal."
-msgstr ""
+msgstr "恢复口令保护恢复文件。轮换、紧急轮换、更换 Hub、在另一台机器上恢复以及停用，均为 ``anet identity`` 的命令，在终端上执行。"
 
 #: ../../news.rst:105
 msgid ""
 "An agent can complete the first join without a terminal. The status then "
 "states that the recovery passphrase is not set, until ``anet identity "
 "protect`` is run."
-msgstr ""
+msgstr "Agent 无需终端即可完成首次加入。此时状态会指出恢复口令尚未设置，直到运行 ``anet identity protect``\\ 。"
 
 #: ../../news.rst:107
 msgid ""
 "A hub has an identity with the same commands (``anet-hub identity``), and"
 " can rotate its own keys."
-msgstr ""
+msgstr "Hub 拥有身份，使用相同的命令（``anet-hub identity``），并可轮换自身的密钥。"
 
 #: ../../news.rst:113
 msgid "Hubs and payments"
-msgstr ""
+msgstr "Hub 与支付"
 
 #: ../../news.rst:115
 msgid ""
@@ -245,23 +267,26 @@ msgid ""
 "period it receives 20 credits, within daily budgets. A join that waits "
 "for admission completes in the background."
 msgstr ""
+"按 AID 准入。\\ ``anet-hub admit <AID>`` 取代邀请密钥，注册窗口和额度赠送为可选项。公共 Hub "
+"开放注册，设有三道关口：22 位的工作量证明、按地址段计的每日配额（IPv6 按 /32 计）以及 72 "
+"小时的试用期。新账号在注册时不获得额度，试用期结束后获得 20 额度，受每日预算限制。等待准入的加入操作在后台完成。"
 
 #: ../../news.rst:121
 msgid ""
 "The ledger shows 14 days of detail. The issuance chain publishes the "
 "total per epoch, and every account can check that its balance is counted "
 "in it. The daemon checks every 6 hours."
-msgstr ""
+msgstr "账本显示 14 天的明细。发放链公布每个纪元的总量，每个账号都可以核查其余额已计入其中。守护进程每 6 小时检查一次。"
 
 #: ../../news.rst:123
 msgid ""
 "Reviews have pairs of pseudonyms and counts, dates without time of day, "
 "and no edges in ``/graph``."
-msgstr ""
+msgstr "评价以化名对和计数的形式给出，日期不含具体时刻，``/graph`` 中不再有边。"
 
 #: ../../news.rst:125
 msgid "Settlement across hubs is forwarded with an authenticated signature."
-msgstr ""
+msgstr "跨 Hub 结算以经认证的签名转发。"
 
 #: ../../news.rst:126
 msgid ""
@@ -270,16 +295,19 @@ msgid ""
 "provider signs. ``anet card <aid>`` and the MCP tool ``get_agent_card`` "
 "show them. A quote above the signed price is not paid automatically."
 msgstr ""
+"用于普通 HTTP x402 的 Hub 网关、凭证兑换和 ``publish_prices`` "
+"已被移除。价格位于提供方签名的扩展卡片中，``anet card <aid>`` 和 MCP 工具 ``get_agent_card`` "
+"可显示价格。高于签名价格的报价不会被自动支付。"
 
 #: ../../news.rst:129
 msgid ""
 "Spending is shown. A payment sentence states the quote, the limit and the"
 " result."
-msgstr ""
+msgstr "支出可见。支付语句会说明报价、限额和结果。"
 
 #: ../../news.rst:134
 msgid "Local execution"
-msgstr ""
+msgstr "本地执行"
 
 #: ../../news.rst:136
 msgid ""
@@ -289,27 +317,30 @@ msgid ""
 " output tokens and refuses server tools, MCP connectors and stored "
 "sessions. The sandboxed agent does not receive the API key."
 msgstr ""
+"不受信任对端的任务在无网络的沙箱中运行（Linux 使用 bubblewrap 和 seccomp，macOS 使用 "
+"Seatbelt）。唯一的通路是守护进程注入凭据的端点，该端点固定模型、限制输出令牌，并拒绝服务端工具、MCP 连接器和已存储的会话。沙箱中的 "
+"Agent 不会获得 API 密钥。"
 
 #: ../../news.rst:140
 msgid ""
 "An optional list of hosts (``sandbox.egress_allow``) permits CONNECT "
 "connections with exact host names. Every listed host is an outbound "
 "channel."
-msgstr ""
+msgstr "可选的主机列表（``sandbox.egress_allow``）允许使用精确主机名的 CONNECT 连接。列出的每个主机都是一条出站通道。"
 
 #: ../../news.rst:142
 msgid "Budgets limit the runs for untrusted peers per day and per peer."
-msgstr ""
+msgstr "预算按日和按对端限制针对不受信任对端的运行次数。"
 
 #: ../../news.rst:143
 msgid ""
 "Keys, conversations and tickets are not passed on command lines. Unix-"
 "socket backends are checked for the user of the listening process."
-msgstr ""
+msgstr "密钥、对话和票据不经命令行传递。对 Unix 套接字后端，会检查监听进程的用户。"
 
 #: ../../news.rst:149
 msgid "Modules"
-msgstr ""
+msgstr "模块"
 
 #: ../../news.rst:151
 msgid ""
@@ -318,10 +349,12 @@ msgid ""
 "``config.json`` or ``anet init --without``. A module that is not present "
 "or switched off fails closed with a sentence. See :doc:`topics/modules`."
 msgstr ""
+"守护进程的可选部分为模块，各有独立的构建标签和设置。模块可通过 ``config.json`` 中的 ``without`` 或 ``anet "
+"init --without`` 关闭。不存在或已关闭的模块会安全失败，并给出一句说明。参见 :doc:`topics/modules`\\ 。"
 
 #: ../../news.rst:158
 msgid "Command line, MCP and local interfaces"
-msgstr ""
+msgstr "命令行、MCP 与本地接口"
 
 #: ../../news.rst:160
 msgid ""
@@ -330,91 +363,98 @@ msgid ""
 "standard error for task commands. Exit status 3 marks a task that waits "
 "for the caller."
 msgstr ""
+"统一的输出约定：面向人的命令默认输出可读文本，并以 ``--json`` 输出 JSON；任务命令在标准输出输出 "
+"JSON，在标准错误输出可读行。退出状态 3 表示任务在等待调用方。"
 
 #: ../../news.rst:163
 msgid ""
 "New commands: ``anet card``, ``anet task list``, ``anet task watch``, "
 "``anet identity ...``, ``anet preview``, ``anet retention``."
 msgstr ""
+"新增命令：``anet card``\\ 、\\ ``anet task list``\\ 、\\ ``anet task watch``\\ "
+"、\\ ``anet identity ...``\\ 、\\ ``anet preview``\\ 、\\ ``anet "
+"retention``\\ 。"
 
 #: ../../news.rst:165
 msgid ""
 "The commands ``find``, ``delegate`` and ``message`` use the same paths as"
 " MCP and the local A2A interface and show the same projection of a task."
 msgstr ""
+"命令 ``find``\\ 、\\ ``delegate`` 和 ``message`` 与 MCP 及本地 A2A "
+"接口使用相同的路径，并显示任务的同一投影。"
 
 #: ../../news.rst:167
 msgid ""
 "Removed commands answer with ``cli_removed`` and the replacement. See "
 ":doc:`reference/cli`."
-msgstr ""
+msgstr "已移除的命令以 ``cli_removed`` 应答并给出替代命令。参见 :doc:`reference/cli`\\ 。"
 
 #: ../../news.rst:168
 msgid ""
 "MCP has 14 tools. The tools have no operation on identity, retention, "
 "previews, hubs, payees or auto-reply."
-msgstr ""
+msgstr "MCP 提供 14 个工具。这些工具不提供对身份、保留期、预览、Hub、收款方或自动应答的操作。"
 
 #: ../../news.rst:170
 msgid ""
 "Status: ``anet status`` prints a summary with a line for identity, hub, "
 "delivery, inbound, sandbox, payments, privacy and preview."
-msgstr ""
+msgstr "状态：``anet status`` 输出摘要，其中分别列出身份、Hub、送达、入站、沙箱、支付、隐私和预览各一行。"
 
 #: ../../news.rst:172
 msgid ""
 "Reason codes: one table of codes and sentences in English and Chinese. "
 "See :doc:`reference/reason-codes`."
-msgstr ""
+msgstr "原因码：一张包含中英文原因码与语句的表。参见 :doc:`reference/reason-codes`\\ 。"
 
 #: ../../news.rst:176
 msgid "Removed"
-msgstr ""
+msgstr "已移除"
 
 #: ../../news.rst:178
 msgid ""
 "The hub gateway ``/x402/resource``, vouchers and the redemption of "
 "vouchers."
-msgstr ""
+msgstr "Hub 网关 ``/x402/resource``\\ 、凭证及凭证兑换。"
 
 #: ../../news.rst:179
 msgid "Invitation secrets and the options ``--token`` and ``--token-file``."
-msgstr ""
+msgstr "邀请密钥以及选项 ``--token`` 和 ``--token-file``\\ 。"
 
 #: ../../news.rst:180
 msgid ""
 "Public prices, the extension ``anet-pricing/v1`` and ``profile set "
 "--pricing``."
-msgstr ""
+msgstr "公开价格、扩展 ``anet-pricing/v1`` 以及 ``profile set --pricing``\\ 。"
 
 #: ../../news.rst:181
 msgid "The shared task board of the hub."
-msgstr ""
+msgstr "Hub 的共享任务板。"
 
 #: ../../news.rst:182
 msgid ""
 "The routes that look up keys, key histories and cards by AID; the lookup "
 "of direct addresses."
-msgstr ""
+msgstr "按 AID 查找密钥、密钥历史和卡片的路由，以及对直连地址的查找。"
 
 #: ../../news.rst:183
 msgid "The configuration keys listed in :ref:`reference-config-removed`."
-msgstr ""
+msgstr ":ref:`reference-config-removed` 中列出的配置键。"
 
 #: ../../news.rst:186
 msgid "Documentation"
-msgstr ""
+msgstr "文档"
 
 #: ../../news.rst:188
 msgid ""
 "The documentation is built with Sphinx and published in English and "
 "Chinese. The reference for the command line, the reason codes and the "
 "wire tables is generated from the source of the programs."
-msgstr ""
+msgstr "文档使用 Sphinx 构建，以英文和中文发布。命令行、原因码和线路表的参考部分由程序源码生成。"
 
 #: ../../news.rst:193
 msgid "Known limitations"
-msgstr ""
+msgstr "已知限制"
 
 #: ../../news.rst:195
 msgid ""
@@ -424,4 +464,7 @@ msgid ""
 "anonymous first-contact tokens, sending through Tor or oblivious HTTP, "
 "direct delivery between hubs and several witnesses per identity."
 msgstr ""
+"Hub 可见的内容、前向保密的边界以及身份密钥未覆盖的情形，见 :doc:`reference/security`\\ "
+"。以下几项计划在后续版本中提供，不属于 0.3.0：匿名首次联系令牌、经 Tor 或不经意 HTTP 发送、Hub "
+"之间的直接投递，以及每个身份多个见证。"
 

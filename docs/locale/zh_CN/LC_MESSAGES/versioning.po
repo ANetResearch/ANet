@@ -3,13 +3,12 @@
 # This file is distributed under the same license as the ANet package.
 # FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
 #
-#, fuzzy
 msgid ""
 msgstr ""
 "Project-Id-Version: ANet 0.3\n"
 "Report-Msgid-Bugs-To: \n"
 "POT-Creation-Date: 2026-10-16 03:55+0000\n"
-"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"PO-Revision-Date: 2026-10-16 05:00+0000\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: zh_CN\n"
 "Language-Team: zh_CN <LL@li.org>\n"
@@ -21,81 +20,81 @@ msgstr ""
 
 #: ../../versioning.rst:4
 msgid "Versioning policy"
-msgstr ""
+msgstr "版本策略"
 
 #: ../../versioning.rst:6
 msgid ""
 "This page states what the version numbers of ANet promise, which "
 "compatibility surfaces exist and how a change reaches users."
-msgstr ""
+msgstr "本页说明 ANet 的版本号作出何种承诺、存在哪些兼容性面，以及变更如何到达用户。"
 
 #: ../../versioning.rst:15
 msgid "Components and numbers"
-msgstr ""
+msgstr "组件与版本号"
 
 #: ../../versioning.rst:17
 msgid "A release is made of four components, each with its own number."
-msgstr ""
+msgstr "一个发布版本由四个组件构成，各有自己的版本号。"
 
 #: ../../versioning.rst:23
 msgid "Component"
-msgstr ""
+msgstr "组件"
 
 #: ../../versioning.rst:24
 msgid "Release 0.3"
-msgstr ""
+msgstr "0.3 版本"
 
 #: ../../versioning.rst:25
 msgid "Content"
-msgstr ""
+msgstr "内容"
 
 #: ../../versioning.rst:26
 msgid "ANetCore"
-msgstr ""
+msgstr "ANetCore"
 
 #: ../../versioning.rst:27
 msgid "v0.16.0"
-msgstr ""
+msgstr "v0.16.0"
 
 #: ../../versioning.rst:28
 msgid ""
 "The protocol and cryptography kernel (Go module). ``ANet`` and "
 "``ANetHub`` require the same version in their ``go.mod``."
-msgstr ""
+msgstr "协议与密码学内核（Go 模块）。\\ ``ANet`` 与 ``ANetHub`` 在各自的 ``go.mod`` 中要求相同的版本。"
 
 #: ../../versioning.rst:30
 msgid "``anet``"
-msgstr ""
+msgstr "``anet``"
 
 #: ../../versioning.rst:31 ../../versioning.rst:34
 msgid "0.3.0"
-msgstr ""
+msgstr "0.3.0"
 
 #: ../../versioning.rst:32
 msgid "The node program: daemon, command line, MCP server and local interfaces."
-msgstr ""
+msgstr "节点程序：守护进程、命令行、MCP 服务器和本地接口。"
 
 #: ../../versioning.rst:33
 msgid "ANetHub"
-msgstr ""
+msgstr "ANetHub"
 
 #: ../../versioning.rst:35
 msgid "The hub and the operator console."
-msgstr ""
+msgstr "Hub 与运维控制台。"
 
 #: ../../versioning.rst:36
 msgid "ANetLink"
-msgstr ""
+msgstr "ANetLink"
 
 #: ../../versioning.rst:37
 msgid "0.2.0"
-msgstr ""
+msgstr "0.2.0"
 
 #: ../../versioning.rst:38
 msgid ""
 "The bridge to local devices and services. It speaks the C1 interface, "
 "version 1."
-msgstr ""
+msgstr "通往本地设备和服务的桥接程序，使用 C1 接口版本 1。"
 
 #: ../../versioning.rst:40
 msgid ""
@@ -104,149 +103,153 @@ msgid ""
 " prints the release, the hub wire version and the first ``anet`` release "
 "that speaks it."
 msgstr ""
+"``anet version`` 输出版本、提交、构建时间以及编译进二进制文件的模块。\\ ``anet-hub --version`` "
+"输出发布版本、Hub 线路版本以及首个支持该线路版本的 ``anet`` 发布版本。"
 
 #: ../../versioning.rst:46
 msgid "Compatibility surfaces"
-msgstr ""
+msgstr "兼容性面"
 
 #: ../../versioning.rst:48
 msgid ""
 "Compatibility is defined per surface, each with its own version that is "
 "checked at run time."
-msgstr ""
+msgstr "兼容性按面定义，每个面各有一个在运行时检查的版本。"
 
 #: ../../versioning.rst:54
 msgid "Surface"
-msgstr ""
+msgstr "面"
 
 #: ../../versioning.rst:55
 msgid "Version in 0.3"
-msgstr ""
+msgstr "0.3 中的版本"
 
 #: ../../versioning.rst:56
 msgid "Check"
-msgstr ""
+msgstr "检查"
 
 #: ../../versioning.rst:57
 msgid "Hub wire"
-msgstr ""
+msgstr "Hub 线路"
 
 #: ../../versioning.rst:58
 msgid "``X-ANet-Wire: 3``"
-msgstr ""
+msgstr "``X-ANet-Wire: 3``"
 
 #: ../../versioning.rst:59
 msgid ""
 "Sent on every request and response. A different value is refused with "
 "``wire_too_old`` (426) or ``wire_too_new`` (400)."
-msgstr ""
+msgstr "随每个请求和响应发送。取值不同时以 ``wire_too_old``\\ （426）或 ``wire_too_new``\\ （400）拒绝。"
 
 #: ../../versioning.rst:61
 msgid "Sealed envelope"
-msgstr ""
+msgstr "封缄信封"
 
 #: ../../versioning.rst:62
 msgid "``v = 2``"
-msgstr ""
+msgstr "``v = 2``"
 
 #: ../../versioning.rst:63
 msgid ""
 "Any other value is refused by the hub (``bad_envelope``) and by the "
 "receiver."
-msgstr ""
+msgstr "其他取值均被 Hub（``bad_envelope``）和接收方拒绝。"
 
 #: ../../versioning.rst:64
 msgid "Key event log"
-msgstr ""
+msgstr "密钥事件日志"
 
 #: ../../versioning.rst:65
 msgid "``anet.kel/2``"
-msgstr ""
+msgstr "``anet.kel/2``"
 
 #: ../../versioning.rst:66
 msgid "A log without the tag does not replay."
-msgstr ""
+msgstr "不带该标签的日志无法重放。"
 
 #: ../../versioning.rst:67
 msgid "Direct frames"
-msgstr ""
+msgstr "直连帧"
 
 #: ../../versioning.rst:68
 msgid "``v: 3``"
-msgstr ""
+msgstr "``v: 3``"
 
 #: ../../versioning.rst:69
 msgid "A frame of another version is not delivered."
-msgstr ""
+msgstr "其他版本的帧不予投递。"
 
 #: ../../versioning.rst:70
 msgid "C1 (``anet`` and ANetLink)"
-msgstr ""
+msgstr "C1（``anet`` 与 ANetLink）"
 
 #: ../../versioning.rst:71
 msgid "version 1, path ``/v1``"
-msgstr ""
+msgstr "版本 1，路径 ``/v1``"
 
 #: ../../versioning.rst:72
 msgid "``/v0`` answers 426 ``c1_version``."
-msgstr ""
+msgstr "``/v0`` 以 426 ``c1_version`` 应答。"
 
 #: ../../versioning.rst:73
 msgid "Data directory"
-msgstr ""
+msgstr "数据目录"
 
 #: ../../versioning.rst:74
 msgid "``user_version = 3``, ``enc_keys.cbor`` ``v = 2``, ``anet.identity/2``"
 msgstr ""
+"``user_version = 3``\\ 、\\ ``enc_keys.cbor`` ``v = 2``\\ 、\\ "
+"``anet.identity/2``"
 
 #: ../../versioning.rst:75
 msgid ""
 "An older data directory is refused with ``identity_v02``, a newer one "
 "with ``datadir_too_new``."
-msgstr ""
+msgstr "较旧的数据目录以 ``identity_v02`` 拒绝，较新的以 ``datadir_too_new`` 拒绝。"
 
 #: ../../versioning.rst:76
 msgid "Configuration"
-msgstr ""
+msgstr "配置"
 
 #: ../../versioning.rst:77
 msgid "the keys of :doc:`reference/config`"
-msgstr ""
+msgstr ":doc:`reference/config` 中的配置键"
 
 #: ../../versioning.rst:78
 msgid "A removed key stops the daemon (``config_key_removed``)."
-msgstr ""
+msgstr "已移除的键会使守护进程停止（``config_key_removed``）。"
 
 #: ../../versioning.rst:79
 msgid "A2A"
-msgstr ""
+msgstr "A2A"
 
 #: ../../versioning.rst:80
 msgid "A2A 1.0"
-msgstr ""
+msgstr "A2A 1.0"
 
 #: ../../versioning.rst:81
 msgid ""
 "The local interface and the cards follow A2A 1.0. ANet adds extensions in"
 " the namespace ``agentnetwork.org.cn``."
-msgstr ""
+msgstr "本地接口和卡片遵循 A2A 1.0。ANet 在命名空间 ``agentnetwork.org.cn`` 中添加扩展。"
 
 #: ../../versioning.rst:84
 msgid ""
 "A key number, a label, a code or a route that was removed is not reused "
 "for another meaning."
-msgstr ""
+msgstr "已被移除的密钥编号、标签、代码或路由，不会再用于其他含义。"
 
 #: ../../versioning.rst:88
 msgid "Release series"
-msgstr ""
+msgstr "发布系列"
 
 #: ../../versioning.rst:90
 msgid ""
 "A change that breaks a surface (wire, identity, data or configuration) is"
 " made only in a release that increases the minor number, such as 0.3.0. "
 "All such changes of a series are made in its first release."
-msgstr ""
+msgstr "破坏某个面（线路、身份、数据或配置）的变更，仅在提高次版本号的发布中进行，例如 0.3.0。同一系列的此类变更全部在其首个发布中完成。"
 
 #: ../../versioning.rst:92
 msgid ""
@@ -256,22 +259,24 @@ msgid ""
 "release fixes defects and adds features that do not change a surface, for"
 " example modules that are completed after the first release."
 msgstr ""
+"同一系列的补丁发布（0.3.x）不会破坏上表中的任何面。同一系列的节点与 Hub "
+"在任意补丁版本组合下均可互操作，并可按任意顺序升级。补丁发布修复缺陷，并添加不改变任何面的功能，例如在首个发布之后补全的模块。"
 
 #: ../../versioning.rst:96
 msgid ""
 "The notices for removed commands and options stay through the series. "
 "After it, a removed command is treated as an unknown command."
-msgstr ""
+msgstr "对已移除命令和选项的提示在整个系列中保留。此后，已移除的命令按未知命令处理。"
 
 #: ../../versioning.rst:98
 msgid ""
 "The notes of a release list every change of a surface, and "
 ":doc:`upgrading` states what has to be done."
-msgstr ""
+msgstr "每个发布的说明会列出对面的全部变更，:doc:`upgrading` 则说明需要执行的操作。"
 
 #: ../../versioning.rst:104
 msgid "Releases and updates"
-msgstr ""
+msgstr "发布与更新"
 
 #: ../../versioning.rst:106
 msgid ""
@@ -285,6 +290,11 @@ msgid ""
 "downloaded is not trusted. The key and its pre-committed successor are "
 "published in ``SECURITY.md`` of the repository."
 msgstr ""
+"发布版本由 ``release.json`` 描述，其中包含版本、提交、签名时间、有效期、每个归档和二进制文件的 "
+"SHA-256、各变体的模块集合，以及下一发布密钥的指纹。该文件以 SSH 签名格式，由项目发布密钥签名。\\ ``install.sh`` 与 "
+"``anet update`` "
+"在安装之前验证签名、有效期，以及版本不低于已安装版本。下载归档所用的主机不被信任。密钥及其预先承诺的后继密钥公布于仓库的 "
+"``SECURITY.md`` 中。"
 
 #: ../../versioning.rst:113
 msgid ""
@@ -292,10 +302,12 @@ msgid ""
 "newer ``anet``, says so in one sentence with the release to install "
 "(``required_anet`` in the answer of the hub)."
 msgstr ""
+"节点不支持 Hub 的某项功能，或 Hub 需要更新的 ``anet`` 时，会以一句话说明并给出应安装的发布版本（Hub 应答中的 "
+"``required_anet``）。"
 
 #: ../../versioning.rst:118
 msgid "Deprecation"
-msgstr ""
+msgstr "弃用"
 
 #: ../../versioning.rst:120
 msgid ""
@@ -303,16 +315,16 @@ msgid ""
 "release notes list it, the removal is answered with a sentence that names"
 " the replacement, and the replacement exists in the release that removes "
 "it."
-msgstr ""
+msgstr "功能在提高次版本号的发布中移除。发布说明会列出该功能，移除后的调用以一句说明替代方式的语句应答，且替代方式在移除该功能的发布中已经存在。"
 
 #: ../../versioning.rst:126
 msgid "Documentation versions"
-msgstr ""
+msgstr "文档版本"
 
 #: ../../versioning.rst:128
 msgid ""
 "The documentation is published for the current release and describes the "
 "behavior of that release. The English text is the source and the Chinese "
 "text is a translation of it."
-msgstr ""
+msgstr "文档针对当前发布版本发布，描述该版本的行为。英文为源文本，中文为其译文。"
 

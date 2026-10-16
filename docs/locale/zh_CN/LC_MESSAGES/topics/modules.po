@@ -3,7 +3,6 @@
 # This file is distributed under the same license as the ANet package.
 # FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
 #
-#, fuzzy
 msgid ""
 msgstr ""
 "Project-Id-Version: ANet 0.3\n"
@@ -21,7 +20,7 @@ msgstr ""
 
 #: ../../topics/modules.rst:5
 msgid "Modules"
-msgstr ""
+msgstr "模块"
 
 #: ../../topics/modules.rst:7
 msgid ""
@@ -30,10 +29,12 @@ msgid ""
 "how to turn a module off, how to build a node without one, and what a "
 "node does when a module is absent."
 msgstr ""
+"ANet "
+"由一个小型内核和一组可选模块构成。本页列出各模块，说明节点包含哪些模块，以及如何关闭模块、如何构建不含某模块的节点，还有模块缺失时节点的行为。"
 
 #: ../../topics/modules.rst:17
 msgid "Overview"
-msgstr ""
+msgstr "概述"
 
 #: ../../topics/modules.rst:19
 msgid ""
@@ -42,10 +43,12 @@ msgid ""
 "cannot be removed. Everything else is a *module*: a feature that a node "
 "can have or lack without losing the ability to exchange tasks."
 msgstr ""
+"*内核*\\ 包含每个节点所需的部分：协议、身份、加密、送达确认、存储和准入。内核不可移除。其余一切都是\\ *模块*\\ "
+"（Module）：节点有或没有它，都不影响交换任务的能力。"
 
 #: ../../topics/modules.rst:24
 msgid "The design follows three rules."
-msgstr ""
+msgstr "设计遵循三条规则。"
 
 #: ../../topics/modules.rst:26
 msgid ""
@@ -53,79 +56,79 @@ msgid ""
 "kernel grants it only what it needs. A module does not import the daemon,"
 " and the kernel does not import a module. Tests in the repository enforce"
 " both directions."
-msgstr ""
+msgstr "模块只通过固定接口访问内核，内核只授予模块所需的权限。模块不导入守护进程，内核也不导入模块。仓库中的测试对这两个方向都进行强制检查。"
 
 #: ../../topics/modules.rst:30
 msgid ""
 "A feature that acts for a network peer or spends money is off at run time"
 " until the operator turns it on. Including a module in a build does not "
 "turn it on."
-msgstr ""
+msgstr "代表网络对端行动或花费资金的功能，在运营人员开启之前于运行时保持关闭。构建中包含某模块并不意味着开启它。"
 
 #: ../../topics/modules.rst:33
 msgid ""
 "A module that is absent fails closed. It is not started, it registers "
 "nothing, and it accepts nothing from the network. To a peer, the node "
 "behaves as if the feature were switched off."
-msgstr ""
+msgstr "缺失的模块以封闭方式失败：不启动，不注册任何内容，也不接受来自网络的任何内容。对对端而言，节点的表现如同该功能已被关闭。"
 
 #: ../../topics/modules.rst:38
 msgid "The modules"
-msgstr ""
+msgstr "模块列表"
 
 #: ../../topics/modules.rst:44
 msgid "Module"
-msgstr ""
+msgstr "模块"
 
 #: ../../topics/modules.rst:45
 msgid "Function"
-msgstr ""
+msgstr "功能"
 
 #: ../../topics/modules.rst:46
 msgid "Build tag"
-msgstr ""
+msgstr "构建标签"
 
 #: ../../topics/modules.rst:47
 msgid "Configuration"
-msgstr ""
+msgstr "配置"
 
 #: ../../topics/modules.rst:48
 msgid "``a2a``"
-msgstr ""
+msgstr "``a2a``"
 
 #: ../../topics/modules.rst:49
 msgid ""
 "The local A2A interface: JSON-RPC and HTTP+JSON on a loopback port, "
 "protected by a token, with a proxy card for each remote agent."
-msgstr ""
+msgstr "本地 A2A 接口：在回环端口上提供 JSON-RPC 与 HTTP+JSON，由令牌保护，并为每个远端 Agent 提供代理卡片。"
 
 #: ../../topics/modules.rst:51
 msgid "``no_a2a``"
-msgstr ""
+msgstr "``no_a2a``"
 
 #: ../../topics/modules.rst:52
 msgid "``modules.a2a``"
-msgstr ""
+msgstr "``modules.a2a``"
 
 #: ../../topics/modules.rst:53
 msgid "``anetlink``"
-msgstr ""
+msgstr "``anetlink``"
 
 #: ../../topics/modules.rst:54
 msgid "A client for device capabilities served by ANetLink."
-msgstr ""
+msgstr "ANetLink 所提供设备能力的客户端。"
 
 #: ../../topics/modules.rst:55
 msgid "``no_anetlink``"
-msgstr ""
+msgstr "``no_anetlink``"
 
 #: ../../topics/modules.rst:56
 msgid "``modules.anetlink``"
-msgstr ""
+msgstr "``modules.anetlink``"
 
 #: ../../topics/modules.rst:57
 msgid "``autoreply``"
-msgstr ""
+msgstr "``autoreply``"
 
 #: ../../topics/modules.rst:58
 msgid ""
@@ -133,171 +136,175 @@ msgid ""
 "registry, the sandbox, the network controls and the run budget. See "
 ":doc:`delegation` and :doc:`sandbox`."
 msgstr ""
+"自动回复：循环、\\ ``openai`` 与 ``exec`` 后端、Agent 注册表、沙箱、网络控制和运行预算。参见 "
+":doc:`delegation` 与 :doc:`sandbox`\\ 。"
 
 #: ../../topics/modules.rst:61 ../../topics/modules.rst:74
 #: ../../topics/modules.rst:91
 msgid "none yet"
-msgstr ""
+msgstr "暂无"
 
 #: ../../topics/modules.rst:62
 msgid "top-level ``auto_reply``"
-msgstr ""
+msgstr "顶层 ``auto_reply``"
 
 #: ../../topics/modules.rst:63
 msgid "``blackboard``"
-msgstr ""
+msgstr "``blackboard``"
 
 #: ../../topics/modules.rst:64
 msgid "A shared blackboard for cooperating agents."
-msgstr ""
+msgstr "供协作 Agent 使用的共享黑板。"
 
 #: ../../topics/modules.rst:65
 msgid "``no_blackboard``"
-msgstr ""
+msgstr "``no_blackboard``"
 
 #: ../../topics/modules.rst:66
 msgid "``modules.blackboard``"
-msgstr ""
+msgstr "``modules.blackboard``"
 
 #: ../../topics/modules.rst:67
 msgid "``cas``"
-msgstr ""
+msgstr "``cas``"
 
 #: ../../topics/modules.rst:68
 msgid ""
 "A content-addressed store: ``cas.put``, ``cas.get``, ``cas.has`` and "
 "``cas.stat``."
-msgstr ""
+msgstr "内容寻址存储：``cas.put``\\ 、\\ ``cas.get``\\ 、\\ ``cas.has`` 与 ``cas.stat``\\ 。"
 
 #: ../../topics/modules.rst:70
 msgid "``no_cas``"
-msgstr ""
+msgstr "``no_cas``"
 
 #: ../../topics/modules.rst:71
 msgid "``modules.cas``"
-msgstr ""
+msgstr "``modules.cas``"
 
 #: ../../topics/modules.rst:72
 msgid "``console``"
-msgstr ""
+msgstr "``console``"
 
 #: ../../topics/modules.rst:73
 msgid "The local web console, opened with ``anet console``."
-msgstr ""
+msgstr "本地 Web 控制台，通过 ``anet console`` 打开。"
 
 #: ../../topics/modules.rst:75 ../../topics/modules.rst:80
 msgid "none"
-msgstr ""
+msgstr "无"
 
 #: ../../topics/modules.rst:76
 msgid "``mcp``"
-msgstr ""
+msgstr "``mcp``"
 
 #: ../../topics/modules.rst:77
 msgid ""
 "The MCP server for coding agents, ``anet mcp``, and the commands that "
 "wire it into coding agents, ``anet agents``. See :doc:`/howto/mcp`."
 msgstr ""
+"面向编码 Agent 的 MCP 服务器 ``anet mcp``，以及将其接入编码 Agent 的命令 ``anet agents``\\ "
+"。参见 :doc:`/howto/mcp`\\ 。"
 
 #: ../../topics/modules.rst:79
 msgid "``no_mcp``"
-msgstr ""
+msgstr "``no_mcp``"
 
 #: ../../topics/modules.rst:81
 msgid "``org``"
-msgstr ""
+msgstr "``org``"
 
 #: ../../topics/modules.rst:82
 msgid "Verification of organisation membership credentials."
-msgstr ""
+msgstr "组织成员资格凭证的验证。"
 
 #: ../../topics/modules.rst:83
 msgid "``no_org``"
-msgstr ""
+msgstr "``no_org``"
 
 #: ../../topics/modules.rst:84
 msgid "``modules.org``"
-msgstr ""
+msgstr "``modules.org``"
 
 #: ../../topics/modules.rst:85
 msgid "``p2p``"
-msgstr ""
+msgstr "``p2p``"
 
 #: ../../topics/modules.rst:86
 msgid "Direct delivery between nodes, as an addition to the hub."
-msgstr ""
+msgstr "节点之间的直接投递，作为 Hub 之外的补充。"
 
 #: ../../topics/modules.rst:87
 msgid "``no_p2p``"
-msgstr ""
+msgstr "``no_p2p``"
 
 #: ../../topics/modules.rst:88
 msgid "``modules.p2p``"
-msgstr ""
+msgstr "``modules.p2p``"
 
 #: ../../topics/modules.rst:89
 msgid "``preview``"
-msgstr ""
+msgstr "``preview``"
 
 #: ../../topics/modules.rst:90
 msgid "Preview streaming. See :doc:`preview`."
-msgstr ""
+msgstr "预览流。参见 :doc:`preview`\\ 。"
 
 #: ../../topics/modules.rst:92
 msgid "top-level ``stream_preview``"
-msgstr ""
+msgstr "顶层 ``stream_preview``"
 
 #: ../../topics/modules.rst:93
 msgid "``service``"
-msgstr ""
+msgstr "``service``"
 
 #: ../../topics/modules.rst:94
 msgid ""
 "Capabilities that are served by programs on the local machine. See "
 ":doc:`capabilities`."
-msgstr ""
+msgstr "由本机程序提供服务的能力。参见 :doc:`capabilities`\\ 。"
 
 #: ../../topics/modules.rst:96
 msgid "``no_service``"
-msgstr ""
+msgstr "``no_service``"
 
 #: ../../topics/modules.rst:97
 msgid "``modules.service``"
-msgstr ""
+msgstr "``modules.service``"
 
 #: ../../topics/modules.rst:98
 msgid "``shell``"
-msgstr ""
+msgstr "``shell``"
 
 #: ../../topics/modules.rst:99
 msgid "Commands that the operator has approved, run on the local machine."
-msgstr ""
+msgstr "运营人员已批准、在本机运行的命令。"
 
 #: ../../topics/modules.rst:100
 msgid "``shell`` (additive)"
-msgstr ""
+msgstr "``shell``\\ （附加式）"
 
 #: ../../topics/modules.rst:101
 msgid "``modules.shell``"
-msgstr ""
+msgstr "``modules.shell``"
 
 #: ../../topics/modules.rst:102
 msgid "``x402``"
-msgstr ""
+msgstr "``x402``"
 
 #: ../../topics/modules.rst:103
 msgid ""
 "Payment: signing, settlement, receipts, quotes, accounting. See "
 ":doc:`payments`."
-msgstr ""
+msgstr "付款：签名、结算、回执、报价、记账。参见 :doc:`payments`\\ 。"
 
 #: ../../topics/modules.rst:105
 msgid "``no_x402``"
-msgstr ""
+msgstr "``no_x402``"
 
 #: ../../topics/modules.rst:106
 msgid "``modules.x402``"
-msgstr ""
+msgstr "``modules.x402``"
 
 #: ../../topics/modules.rst:108
 msgid ""
@@ -308,17 +315,21 @@ msgid ""
 "``stream_preview``. These keys are fixed, and the form "
 "``modules.autoreply`` or ``modules.preview`` is rejected."
 msgstr ""
+"模块名称在所有使用处都相同：构建标签、\\ ``anet version`` 的 ``modules`` 一行、\\ ``without`` "
+"设置、安装选项，以及 ``config.json`` 中 ``modules`` 之下。有两个模块使用较早的顶层配置键，即 "
+"``auto_reply`` 和 ``stream_preview``\\ 。这些键是固定的，``modules.autoreply`` 或 "
+"``modules.preview`` 的写法会被拒绝。"
 
 #: ../../topics/modules.rst:115
 msgid ""
 "A build tag that starts with ``no_`` removes a module from the binary. "
 "The tag ``shell`` is additive: the module is included only when the tag "
 "is given."
-msgstr ""
+msgstr "以 ``no_`` 开头的构建标签会从二进制文件中移除一个模块。标签 ``shell`` 是附加式的：只有给出该标签时才包含该模块。"
 
 #: ../../topics/modules.rst:134
 msgid "What a default node includes"
-msgstr ""
+msgstr "默认节点包含什么"
 
 #: ../../topics/modules.rst:136
 msgid ""
@@ -326,68 +337,70 @@ msgid ""
 "second build, selected at installation with ``--shell``, adds ``shell``. "
 "There are no further prebuilt variants."
 msgstr ""
+"ANet 的默认构建包含除 ``shell`` 之外的所有模块。安装时用 ``--shell`` 选择的第二种构建增加了 ``shell``\\ "
+"。没有其他预构建的变体。"
 
 #: ../../topics/modules.rst:147
 msgid ""
 "The ``modules`` line lists the modules that the binary contains, in "
 "alphabetical order. The ``variant`` line is empty for a binary built "
 "locally."
-msgstr ""
+msgstr "``modules`` 一行按字母顺序列出二进制文件包含的模块。本地构建的二进制文件，其 ``variant`` 一行为空。"
 
 #: ../../topics/modules.rst:150
 msgid ""
 "After ``anet init`` and ``anet up``, a default node does the following "
 "without further configuration:"
-msgstr ""
+msgstr "执行 ``anet init`` 和 ``anet up`` 之后，默认节点无需进一步配置即可做到以下几点："
 
 #: ../../topics/modules.rst:153
 msgid "It runs the control interface on a local socket, protected by a token."
-msgstr ""
+msgstr "在本地套接字上运行控制接口，由令牌保护。"
 
 #: ../../topics/modules.rst:154
 msgid "It runs the local A2A interface on a loopback port, protected by a token."
-msgstr ""
+msgstr "在回环端口上运行本地 A2A 接口，由令牌保护。"
 
 #: ../../topics/modules.rst:155
 msgid ""
 "It serves the local web console through the control interface. A browser "
 "session needs a single-use ticket from ``anet console``."
-msgstr ""
+msgstr "通过控制接口提供本地 Web 控制台。浏览器会话需要来自 ``anet console`` 的一次性票据。"
 
 #: ../../topics/modules.rst:157
 msgid ""
 "It can read balances and quotes. Its payment limits are 0 for the "
 "automatic and agent tiers, and no payee is listed, so it pays nothing "
 "without a person."
-msgstr ""
+msgstr "可以读取余额和报价。其自动层和 Agent 层的付款限额均为 0，且未列出任何收款方，因此没有人工介入时不会支付任何款项。"
 
 #: ../../topics/modules.rst:159
 msgid "It requests previews for a task only when a local client asks for them."
-msgstr ""
+msgstr "仅当本地客户端要求时，才为任务请求预览。"
 
 #: ../../topics/modules.rst:161
 msgid "Every other module does nothing until it is configured."
-msgstr ""
+msgstr "其他每个模块在配置之前都不执行任何操作。"
 
 #: ../../topics/modules.rst:170
 msgid "Turning a module off"
-msgstr ""
+msgstr "关闭模块"
 
 #: ../../topics/modules.rst:172
 msgid ""
 "A module can be turned off in the configuration. A module that is turned "
 "off is still in the binary, but it is never started."
-msgstr ""
+msgstr "模块可以在配置中关闭。被关闭的模块仍在二进制文件中，但从不启动。"
 
 #: ../../topics/modules.rst:175
 msgid ""
 "The ``without`` setting is a list of module names at the top level of "
 "``config.json``:"
-msgstr ""
+msgstr "``without`` 设置是 ``config.json`` 顶层的模块名称列表："
 
 #: ../../topics/modules.rst:184
 msgid "The file is changed only while the node is stopped. Two commands do this."
-msgstr ""
+msgstr "仅在节点停止时才修改该文件。有两条命令可以完成这一操作。"
 
 #: ../../topics/modules.rst:192
 msgid ""
@@ -397,19 +410,22 @@ msgid ""
 "the list. Both commands refuse to run while the daemon is running, and "
 "they change nothing in that case."
 msgstr ""
+"``anet init --without`` 只添加名称，从不删除名称。如果 ``config.json`` "
+"中存在某模块的配置块，则拒绝关闭该模块，须先移除该配置块。\\ ``anet init --with p2p`` "
+"从列表中移除一个名称。两条命令在守护进程运行时都会拒绝执行，此时不做任何更改。"
 
 #: ../../topics/modules.rst:197
 msgid ""
 "There is no way to change ``without`` through the control interface, MCP "
 "or the local A2A interface. A peer on the network, and a program that "
 "holds only the control token, cannot turn a module back on."
-msgstr ""
+msgstr "无法通过控制接口、MCP 或本地 A2A 接口更改 ``without``\\ 。网络上的对端，以及仅持有控制令牌的程序，都不能重新开启某个模块。"
 
 #: ../../topics/modules.rst:201
 msgid ""
 "At installation, the option ``--without`` of the installation script does"
 " the same before the first start:"
-msgstr ""
+msgstr "安装时，安装脚本的 ``--without`` 选项在首次启动之前起到同样的作用："
 
 #: ../../topics/modules.rst:208
 msgid ""
@@ -417,10 +433,12 @@ msgid ""
 "The script has no ``--with`` option. To turn a module back on, use ``anet"
 " init --with``."
 msgstr ""
+"只要有任何一个名称对所选构建无效，就不会安装任何内容。脚本没有 ``--with`` 选项。要重新开启模块，请使用 ``anet init "
+"--with``\\ 。"
 
 #: ../../topics/modules.rst:224
 msgid "Building without a module"
-msgstr ""
+msgstr "构建不含某模块的节点"
 
 #: ../../topics/modules.rst:226
 msgid ""
@@ -428,7 +446,7 @@ msgid ""
 "statement than turning the module off: the symbols of the module are not "
 "in the binary. The repository checks this by counting symbols in both "
 "directions."
-msgstr ""
+msgstr "节点可以在构建时不包含某模块的代码。这比关闭模块更强：模块的符号不在二进制文件中。仓库通过双向统计符号数来检查这一点。"
 
 #: ../../topics/modules.rst:237
 msgid ""
@@ -436,6 +454,8 @@ msgid ""
 " the source tree, and ``scripts/tagcheck.sh all`` checks them. A build "
 "that contains a configuration block for a module it lacks does not start."
 msgstr ""
+"标签之间以逗号组合。\\ ``scripts/tagcheck.sh list`` 输出源码树的标签，``scripts/tagcheck.sh "
+"all`` 对其进行检查。含有所缺模块配置块的构建不会启动。"
 
 #: ../../topics/modules.rst:241
 msgid ""
@@ -443,7 +463,7 @@ msgid ""
 "not contain it, because it is the only module that turns a network "
 "request into a command on the host, and the operator must choose it on "
 "purpose:"
-msgstr ""
+msgstr "``shell`` 模块是唯一的附加式模块。默认构建不含它，因为它是唯一会把网络请求转化为主机上命令的模块，必须由运营人员有意选择："
 
 #: ../../topics/modules.rst:249
 msgid ""
@@ -453,20 +473,22 @@ msgid ""
 "omit a module is the reduction of what the node can be asked to do, not "
 "the size."
 msgstr ""
+"二进制文件的大小变化不大。在较早对默认构建所做的测量中，移除 MCP "
+"服务器节省了模块所占空间的大部分，其他模块合计只节省几个百分点。省略模块的理由是缩小节点可被要求执行的操作范围，而不是大小。"
 
 #: ../../topics/modules.rst:255
 msgid "The effect of absence"
-msgstr ""
+msgstr "缺失的影响"
 
 #: ../../topics/modules.rst:257
 msgid ""
 "A module is *available* when it is in the binary and is not in "
 "``without``. A module that is not available behaves as follows."
-msgstr ""
+msgstr "模块在位于二进制文件中且不在 ``without`` 中时为\\ *可用*。不可用的模块表现如下。"
 
 #: ../../topics/modules.rst:260
 msgid "At start"
-msgstr ""
+msgstr "启动时"
 
 #: ../../topics/modules.rst:261
 msgid ""
@@ -476,10 +498,12 @@ msgid ""
 "reason and gives the remedy. A node never starts with a module that is "
 "configured and not running."
 msgstr ""
+"``config.json`` 含有不可用模块的配置时，节点不会启动，说明语句为 ``module_absent.configured``\\ "
+"。该消息指明相应的键、说明原因并给出补救办法。节点绝不会在存在已配置但未运行的模块的情况下启动。"
 
 #: ../../topics/modules.rst:266
 msgid "On the local interfaces"
-msgstr ""
+msgstr "在本地接口上"
 
 #: ../../topics/modules.rst:267
 msgid ""
@@ -490,10 +514,13 @@ msgid ""
 " the daemon. The sentence names the reason (the binary does not contain "
 "the module, or the node turned it off) and the remedy."
 msgstr ""
+"模块的每个入口依然保留，并以代码 ``module_absent`` 应答。控制接口以状态 409 应答，本地 A2A 接口以 "
+"``UnsupportedOperationError`` 应答。属于该模块的命令行命令以状态 2 "
+"退出，不联系守护进程。说明语句指明原因（二进制文件不含该模块，或节点已将其关闭）和补救办法。"
 
 #: ../../topics/modules.rst:274
 msgid "To a peer"
-msgstr ""
+msgstr "对对端"
 
 #: ../../topics/modules.rst:275
 msgid ""
@@ -503,36 +530,38 @@ msgid ""
 "to a priced capability with ``payments_unavailable`` and does not run the"
 " work. A node without ``p2p`` publishes no direct address."
 msgstr ""
+"节点的表现如同该功能已关闭。没有自动回复的节点把任务留在收件箱。没有预览的节点从不声明预览，并丢弃收到的帧。没有付款的节点对收费能力的调用应答 "
+"``payments_unavailable``，且不执行工作。没有 ``p2p`` 的节点不发布直接地址。"
 
 #: ../../topics/modules.rst:281
 msgid "In the kernel"
-msgstr ""
+msgstr "在内核中"
 
 #: ../../topics/modules.rst:282
 msgid ""
 "Rules that protect data stay in force in every build. Working directories"
 " of past agent runs are deleted on time, the list of paths that a sandbox"
 " never mounts is kept, and the facts about prices are kept."
-msgstr ""
+msgstr "保护数据的规则在每种构建中都保持有效。过往 Agent 运行的工作目录按时删除，沙箱绝不挂载的路径列表得以保留，有关价格的事实也得以保留。"
 
 #: ../../topics/modules.rst:286
 msgid "No fallback"
-msgstr ""
+msgstr "不回退"
 
 #: ../../topics/modules.rst:287
 msgid ""
 "A feature does not fall back to a weaker path. A turn that needs the "
 "sandbox is not run directly, and a preview is not sent through another "
 "channel."
-msgstr ""
+msgstr "功能不会回退到较弱的路径。需要沙箱的一轮对话不会直接运行，预览也不会经由其他通道发送。"
 
 #: ../../topics/modules.rst:290
 msgid "Examples of the sentences:"
-msgstr ""
+msgstr "说明语句示例："
 
 #: ../../topics/modules.rst:305
 msgid "Updating"
-msgstr ""
+msgstr "更新"
 
 #: ../../topics/modules.rst:307
 msgid ""
@@ -543,10 +572,13 @@ msgid ""
 "update`` does not replace it. The setting ``without`` is part of the "
 "configuration and stays in force after an update."
 msgstr ""
+"``anet update`` 根据写入二进制文件的变体名称选择构建。以默认构建安装的节点更新为默认构建，用 ``--shell`` "
+"安装的节点更新为 ``shell`` 构建。本地构建的二进制文件没有变体，``anet update`` 不会替换它。\\ ``without``"
+" 设置属于配置，更新后继续有效。"
 
 #: ../../topics/modules.rst:314
 msgid "Notes"
-msgstr ""
+msgstr "说明"
 
 #: ../../topics/modules.rst:316
 msgid ""
@@ -555,6 +587,8 @@ msgid ""
 "``config.json`` and replace the binary. The setting protects against "
 "network peers and against callers that hold only the control token."
 msgstr ""
+"用 ``without`` 关闭的模块，对于以同一用户身份运行的其他代码而言并非安全边界。此类代码可以编辑 ``config.json`` "
+"并替换二进制文件。该设置防范的是网络对端，以及仅持有控制令牌的调用方。"
 
 #: ../../topics/modules.rst:320
 msgid ""
@@ -564,28 +598,32 @@ msgid ""
 "their commands: ``anet autoreply set``, ``anet preview on`` and ``anet "
 "payments set``."
 msgstr ""
+"附加式模块（如 ``shell``）需要不同的二进制文件，减法式模块只需要不同的配置。模块的安装选项只选择一次，功能由各自的命令开启：``anet"
+" autoreply set``\\ 、\\ ``anet preview on`` 和 ``anet payments set``\\ 。"
 
 #: ../../topics/modules.rst:324
 msgid ""
 "Do not edit ``without`` by hand while the node is running. The daemon "
 "reads the list at start, and a change takes effect at the next start."
-msgstr ""
+msgstr "节点运行期间不要手动编辑 ``without``\\ 。守护进程在启动时读取该列表，更改在下次启动时生效。"
 
 #: ../../topics/modules.rst:328
 msgid "See also"
-msgstr ""
+msgstr "另请参阅"
 
 #: ../../topics/modules.rst:330
 msgid ":doc:`/intro/install` for installation options."
-msgstr ""
+msgstr ":doc:`/intro/install`：安装选项。"
 
 #: ../../topics/modules.rst:331
 msgid ""
 ":ref:`reference-cli` for the commands ``anet init``, ``anet version`` and"
 " ``anet update``."
 msgstr ""
+":ref:`reference-cli`：命令 ``anet init``\\ 、\\ ``anet version`` 和 ``anet "
+"update``\\ 。"
 
 #: ../../topics/modules.rst:333
 msgid ":ref:`reference-config` for the keys of ``config.json``."
-msgstr ""
+msgstr ":ref:`reference-config`：``config.json`` 的键。"
 

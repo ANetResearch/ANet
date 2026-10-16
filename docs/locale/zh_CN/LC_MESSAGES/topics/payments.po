@@ -3,7 +3,6 @@
 # This file is distributed under the same license as the ANet package.
 # FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
 #
-#, fuzzy
 msgid ""
 msgstr ""
 "Project-Id-Version: ANet 0.3\n"
@@ -21,7 +20,7 @@ msgstr ""
 
 #: ../../topics/payments.rst:5
 msgid "Payments (x402)"
-msgstr ""
+msgstr "付款（x402）"
 
 #: ../../topics/payments.rst:7
 msgid ""
@@ -31,10 +30,12 @@ msgid ""
 "node pays on its own, what the hub and other parties learn from a "
 "payment, and how reviews relate to payments."
 msgstr ""
+"能力可以标价。请求方在发起调用的任务内，使用 A2A 的 a2a-x402 "
+"扩展为一次调用付款。本页说明付费调用的流程、决定节点能否自行付款的限额、Hub 和其他各方能从付款中获知什么，以及评价与付款的关系。"
 
 #: ../../topics/payments.rst:18
 msgid "Overview"
-msgstr ""
+msgstr "概述"
 
 #: ../../topics/payments.rst:20
 msgid ""
@@ -44,6 +45,9 @@ msgid ""
 "the hub moves the amount and signs a settlement receipt, and both nodes "
 "record the payment in their evidence chains."
 msgstr ""
+"ANet 以 *credits* 结算付款。一个 credit 是 Hub "
+"账本上的一个条目。请求方签署一份仅对一个任务有效的授权。提供方将授权出示给账本所在的 Hub，Hub "
+"划转金额并签署结算回执，双方节点在各自的证据链中记录该笔付款。"
 
 #: ../../topics/payments.rst:26
 msgid ""
@@ -53,10 +57,13 @@ msgid ""
 "implements a2a-x402 can take part in a paid call, subject to the "
 "differences in `Differences from a2a-x402`_."
 msgstr ""
+"ANet 遵循 A2A 的 `a2a-x402 <https://github.com/google-agentic-"
+"commerce/a2a-x402>`_ 扩展 0.2 版。报价、付款和回执是同一个 A2A 任务的元数据。实现了 a2a-x402 "
+"的客户端可以参与付费调用，但须留意 `与 a2a-x402 的差异`_ 中所述的差别。"
 
 #: ../../topics/payments.rst:32
 msgid "Who holds the money"
-msgstr ""
+msgstr "资金由谁持有"
 
 #: ../../topics/payments.rst:34
 msgid ""
@@ -65,6 +72,8 @@ msgid ""
 "prevent that. The choice of the hub with which a node registers is a "
 "choice of whom to trust with its balance."
 msgstr ""
+"余额属于 Hub。Hub 发行 credits、保管账本，并且可以拒绝兑付。协议和代码都无法阻止这一点。节点选择向哪个 Hub "
+"注册，就是在选择将余额托付给谁。"
 
 #: ../../topics/payments.rst:39
 msgid ""
@@ -74,16 +83,19 @@ msgid ""
 "account does not match, both parties can show their records. The commands"
 " in `Checking the ledger`_ verify the hub's own account of its supply."
 msgstr ""
+"Hub 做不到的是更改双方已持有的记录：付款方签署的授权、Hub "
+"签署的结算回执，以及双方证据链中的条目。账目不一致时，双方都可以出示各自的记录。\\ `核对账本`_ 中的命令用于核验 Hub "
+"自己关于其供应量的账目。"
 
 #: ../../topics/payments.rst:46
 msgid "A paid call"
-msgstr ""
+msgstr "付费调用"
 
 #: ../../topics/payments.rst:48
 msgid ""
 "The following sequence takes place in one task. The task identifier is "
 "the A2A task identifier."
-msgstr ""
+msgstr "以下流程在一个任务内进行。任务标识即 A2A 任务标识。"
 
 #: ../../topics/payments.rst:51
 msgid ""
@@ -93,6 +105,9 @@ msgid ""
 "``x402.payment.required``. The quote names the payee, the amount, the "
 "ledger and a validity of 24 hours."
 msgstr ""
+"请求方照常发送调用。提供方不予拒绝，而是以报价应答：任务转入 ``input-required``，``x402.payment.status``"
+" 设为 ``payment-required``，报价位于 ``x402.payment.required``\\ "
+"。报价指明收款方、金额、账本，有效期为 24 小时。"
 
 #: ../../topics/payments.rst:56
 msgid ""
@@ -101,13 +116,15 @@ msgid ""
 "the status ``payment-submitted``. Otherwise the task stays in ``input-"
 "required`` on the requester's node until a person or an agent decides."
 msgstr ""
+"请求方的节点决定是否付款（参见 `付款决定`_）。若付款，则签署授权，并在同一任务中以状态 ``payment-submitted`` "
+"发送。否则任务在请求方节点上保持 ``input-required``，直至由人或 Agent 决定。"
 
 #: ../../topics/payments.rst:60
 msgid ""
 "The authorization is valid for this task only. It binds the amount, the "
 "payee, the ledger and the task. It is valid for five minutes and the hub "
 "accepts no authorization valid for longer than 24 hours."
-msgstr ""
+msgstr "授权仅对该任务有效，绑定金额、收款方、账本和任务。授权有效期为五分钟，Hub 不接受有效期超过 24 小时的授权。"
 
 #: ../../topics/payments.rst:63
 msgid ""
@@ -117,12 +134,14 @@ msgid ""
 "authorization nor the quote has expired. A mismatch ends the payment with"
 " ``payment-failed``, and the provider neither settles nor runs the work."
 msgstr ""
+"提供方在结算之前检查授权：收款方为提供方本人，金额不低于报价，绑定与任务一致，账本属于报价所列选项之一，授权和报价均未过期。任一项不符，付款即以 "
+"``payment-failed`` 结束，提供方既不结算也不执行工作。"
 
 #: ../../topics/payments.rst:68
 msgid ""
 "The provider presents the authorization to the hub and waits for the "
 "settlement. The provider settles first and works afterwards."
-msgstr ""
+msgstr "提供方向 Hub 出示授权并等待结算。提供方先结算，后工作。"
 
 #: ../../topics/payments.rst:70
 msgid ""
@@ -132,6 +151,8 @@ msgid ""
 "to this task, that the payee is the peer and that the amount equals the "
 "authorization before it records the payment as complete."
 msgstr ""
+"任务继续进行。工作完成时，结果携带 ``payment-completed``，结算回执位于 "
+"``x402.payment.receipts``\\ 。请求方在记录付款完成之前，检查回执属于该任务、收款方是该对端，且金额与授权一致。"
 
 #: ../../topics/payments.rst:76
 msgid ""
@@ -141,6 +162,8 @@ msgid ""
 "after the work would leave the provider without payment when the hub "
 "refuses, and that case cannot be shown as clearly."
 msgstr ""
+"先结算后工作，意味着失败的任务可能留下一笔已经完成的付款。证据模型记录了这一点：结算回执存在，任务失败，双方都能出示这两个事实。若先工作后结算，则在"
+" Hub 拒绝时提供方得不到付款，而这种情况无法如此清楚地证明。"
 
 #: ../../topics/payments.rst:82
 msgid ""
@@ -150,6 +173,8 @@ msgid ""
 "provider cannot deliver after it has settled, it ends the task as failed "
 "and attaches the settlement receipt."
 msgstr ""
+"取消任务的请求无法撤回付款。付款提交之后，取消请求使任务保持 ``working`` 状态，并设置 "
+"``anet.cancel_requested``，提供方照常交付。如果提供方在结算后无法交付，则将任务以失败结束，并附上结算回执。"
 
 #: ../../topics/payments.rst:88
 msgid ""
@@ -157,11 +182,11 @@ msgid ""
 "network error, the provider retries with the same authorization until the"
 " outcome is known. The hub treats an authorization as idempotent: an "
 "authorization that has been charged always returns the original receipt."
-msgstr ""
+msgstr "结算结果未知时，例如发生网络错误之后，提供方用同一授权重试，直至结果明确。Hub 将授权视为幂等：已扣款的授权总是返回原来的回执。"
 
 #: ../../topics/payments.rst:94
 msgid "Payment decision"
-msgstr ""
+msgstr "付款决定"
 
 #: ../../topics/payments.rst:96
 msgid ""
@@ -169,73 +194,73 @@ msgid ""
 "decisions: it signs now, or it leaves the decision to a person. A node "
 "starts with no automatic payment. The decision uses three levels, called "
 "tiers."
-msgstr ""
+msgstr "报价到达时，请求方的节点做出两种决定之一：立即签署，或将决定交给人。节点起初没有自动付款。该决定采用三个层级。"
 
 #: ../../topics/payments.rst:104
 msgid "Tier"
-msgstr ""
+msgstr "层级"
 
 #: ../../topics/payments.rst:105
 msgid "Who triggers it"
-msgstr ""
+msgstr "触发方"
 
 #: ../../topics/payments.rst:106
 msgid "Limit per payment"
-msgstr ""
+msgstr "单笔限额"
 
 #: ../../topics/payments.rst:107
 msgid "Daily limit"
-msgstr ""
+msgstr "每日限额"
 
 #: ../../topics/payments.rst:108
 msgid "automatic"
-msgstr ""
+msgstr "automatic（自动）"
 
 #: ../../topics/payments.rst:109
 msgid "The daemon, on receiving a quote"
-msgstr ""
+msgstr "守护进程，在收到报价时"
 
 #: ../../topics/payments.rst:110
 msgid "``auto_max``"
-msgstr ""
+msgstr "``auto_max``"
 
 #: ../../topics/payments.rst:111 ../../topics/payments.rst:120
 msgid "``daily_max``"
-msgstr ""
+msgstr "``daily_max``"
 
 #: ../../topics/payments.rst:112
 msgid "agent"
-msgstr ""
+msgstr "agent"
 
 #: ../../topics/payments.rst:113
 msgid ""
 "A program through MCP ``submit_payment``, or a local A2A client that "
 "sends ``payment-submitted``"
-msgstr ""
+msgstr "通过 MCP ``submit_payment`` 的程序，或发送 ``payment-submitted`` 的本地 A2A 客户端"
 
 #: ../../topics/payments.rst:115
 msgid "``agent_max``"
-msgstr ""
+msgstr "``agent_max``"
 
 #: ../../topics/payments.rst:116
 msgid "``agent_daily_max`` and ``daily_max``"
-msgstr ""
+msgstr "``agent_daily_max`` 与 ``daily_max``"
 
 #: ../../topics/payments.rst:117
 msgid "manual"
-msgstr ""
+msgstr "manual（人工）"
 
 #: ../../topics/payments.rst:118
 msgid "A person, with ``anet pay`` on a terminal"
-msgstr ""
+msgstr "人，在终端使用 ``anet pay``"
 
 #: ../../topics/payments.rst:119
 msgid "``explicit_max``"
-msgstr ""
+msgstr "``explicit_max``"
 
 #: ../../topics/payments.rst:122
 msgid "The limits are set in the ``payments`` block of ``config.json``:"
-msgstr ""
+msgstr "限额在 ``config.json`` 的 ``payments`` 配置块中设置："
 
 #: ../../topics/payments.rst:136
 msgid ""
@@ -244,6 +269,8 @@ msgid ""
 "limit of 0 pays nothing. A person may pay up to 10 credits in one payment"
 " and up to 50 credits in one day."
 msgstr ""
+"这些值是默认值，没有该配置块的配置也取这些值。自动层和 agent 层处于关闭状态，因为限额为 0 即不支付任何款项。人工一次付款最多 10 "
+"credits，一天最多 50 credits。"
 
 #: ../../topics/payments.rst:141
 msgid ""
@@ -253,28 +280,30 @@ msgid ""
 " not counted against ``agent_daily_max``; it is bounded by ``auto_max``, "
 "the signed price, the payee list and ``daily_max``."
 msgstr ""
+"“当日”指节点所在地的日历日。每日总额统计的是节点已签署的金额，而非已结算的金额，因为已签署授权的持有者可以在其过期前使用。自动层不计入 "
+"``agent_daily_max``，它受 ``auto_max``\\ 、已签名价格、收款方名单和 ``daily_max`` 约束。"
 
 #: ../../topics/payments.rst:147
 msgid "An automatic or agent payment is made only when all of the following hold:"
-msgstr ""
+msgstr "仅当下列条件全部成立时，才进行自动或 agent 付款："
 
 #: ../../topics/payments.rst:149
 msgid "the tier's limit per payment is above 0 and the quote is within it;"
-msgstr ""
+msgstr "该层的单笔限额大于 0，且报价在其范围内；"
 
 #: ../../topics/payments.rst:150
 msgid "the amount is within what is left of the tier's daily limit;"
-msgstr ""
+msgstr "金额在该层当日剩余限额之内；"
 
 #: ../../topics/payments.rst:151
 msgid "the payee is on the payee list;"
-msgstr ""
+msgstr "收款方在收款方名单中；"
 
 #: ../../topics/payments.rst:152
 msgid ""
 "the capability has a signed price on the payee's extended card (see "
 ":doc:`capabilities`), and the quote is not higher than that price."
-msgstr ""
+msgstr "该能力在收款方的扩展卡片上有已签名价格（参见 :doc:`capabilities`），且报价不高于该价格。"
 
 #: ../../topics/payments.rst:155
 msgid ""
@@ -284,6 +313,8 @@ msgid ""
 "difference in one sentence. The manual tier checks neither the price nor "
 "the payee list: a person who runs ``anet pay`` has decided."
 msgstr ""
+"最后一个条件有两个后果。文本任务没有已签名价格，因此其报价从不自动支付。高于已签名价格的报价同样不自动支付，节点用一句话说明差额。人工层既不检查价格，也不检查收款方名单：运行"
+" ``anet pay`` 的人已经做出了决定。"
 
 #: ../../topics/payments.rst:161
 msgid ""
@@ -291,10 +322,12 @@ msgid ""
 "line, MCP and the local A2A interface all show that sentence. The "
 "sentences are listed in :ref:`reference-reason-codes`."
 msgstr ""
+"该决定以一句说明语句与任务一同保存，命令行、MCP 和本地 A2A 接口都显示这句话。这些说明语句列于 :ref:`reference-"
+"reason-codes`\\ 。"
 
 #: ../../topics/payments.rst:172
 msgid "Managing limits and payees"
-msgstr ""
+msgstr "管理限额与收款方"
 
 #: ../../topics/payments.rst:182
 msgid ""
@@ -305,20 +338,23 @@ msgid ""
 "It is always active, it is empty at first, and it binds the automatic "
 "tier and the agent tier only."
 msgstr ""
+"``anet payments set`` 和 ``anet payees add`` 需要在终端上确认。仅通过 MCP 或本地 A2A "
+"接口访问节点的程序，不能放宽限额或添加收款方。收款方名单是数据目录中的 ``payees.allow`` 文件，每行一个 "
+"AID。该名单始终生效，初始为空，仅约束自动层和 agent 层。"
 
 #: ../../topics/payments.rst:189
 msgid ""
 "To pay automatically for a capability, set ``auto_max`` to at least the "
 "price and add the payee. ``daily_max`` still applies."
-msgstr ""
+msgstr "要为某项能力自动付款，应将 ``auto_max`` 设为不低于其价格，并添加收款方。\\ ``daily_max`` 仍然适用。"
 
 #: ../../topics/payments.rst:193
 msgid "Paying by hand"
-msgstr ""
+msgstr "人工付款"
 
 #: ../../topics/payments.rst:195
 msgid "When a quote is waiting, ``anet pay`` shows it and asks for confirmation."
-msgstr ""
+msgstr "有报价等待处理时，``anet pay`` 显示报价并请求确认。"
 
 #: ../../topics/payments.rst:206
 msgid ""
@@ -329,22 +365,25 @@ msgid ""
 "--reject`` declines the quote. ``--option N`` chooses one of several "
 "offered options."
 msgstr ""
+"高于已签名价格的报价会显示“对方签名的价格为 3 "
+"credits；本次报价更高。”，未获取到价格的报价会显示“未获取到对方签名的价格。”两种情形下均由人决定。\\ ``anet pay "
+"<task> --reject`` 拒绝报价。\\ ``--option N`` 从多个选项中选择一个。"
 
 #: ../../topics/payments.rst:213
 msgid "Local A2A clients and MCP"
-msgstr ""
+msgstr "本地 A2A 客户端与 MCP"
 
 #: ../../topics/payments.rst:215
 msgid ""
 "A node that is reached through MCP or the local A2A interface signs the "
 "payment itself. The client does not sign."
-msgstr ""
+msgstr "通过 MCP 或本地 A2A 接口访问的节点自行签署付款，客户端不签署。"
 
 #: ../../topics/payments.rst:218
 msgid ""
 "In MCP, ``submit_payment`` and ``reject_payment`` answer a quote in the "
 "agent tier."
-msgstr ""
+msgstr "在 MCP 中，``submit_payment`` 和 ``reject_payment`` 在 agent 层应答报价。"
 
 #: ../../topics/payments.rst:220
 msgid ""
@@ -354,6 +393,9 @@ msgid ""
 "payload ends with ``payment-failed`` and the reason "
 "``client_payload_unsupported``."
 msgstr ""
+"本地 A2A 客户端在同一任务上发送 ``payment-submitted``\\ 。它可以附加 "
+"``anet.payment.accept``，其中带有从报价复制的所选选项。它不得发送 ``x402.payment.payload``\\ "
+"。带有载荷的消息以 ``payment-failed`` 结束，原因为 ``client_payload_unsupported``\\ 。"
 
 #: ../../topics/payments.rst:224
 #, python-brace-format
@@ -362,6 +404,8 @@ msgid ""
 "parameters ``{\"signer\": \"anet-daemon\", \"clientPayload\": false}``, "
 "so that a client can recognise this profile."
 msgstr ""
+"本地 Agent 卡片声明 a2a-x402 时不带 ``required``，参数为 ``{\"signer\": \"anet-"
+"daemon\", \"clientPayload\": false}``，以便客户端识别此配置。"
 
 #: ../../topics/payments.rst:228
 msgid ""
@@ -369,10 +413,12 @@ msgid ""
 " agent limits stays in ``input-required`` until a person runs ``anet "
 "pay``."
 msgstr ""
+"这两条路径所属的层级是 agent 层。超出 agent 限额的报价保持 ``input-required``，直至有人运行 ``anet "
+"pay``\\ 。"
 
 #: ../../topics/payments.rst:232
 msgid "Pricing a capability"
-msgstr ""
+msgstr "为能力定价"
 
 #: ../../topics/payments.rst:234
 msgid ""
@@ -384,6 +430,10 @@ msgid ""
 "For a priced capability it answers ``payments_unavailable``, and it does "
 "not run the work for free."
 msgstr ""
+"提供方通过在 ``modules.service.capabilities`` 的条目上设置 ``price`` 为能力定价，参见 "
+":doc:`capabilities`\\ 。\\ ``config.json`` "
+"中的价格是唯一来源：报价、扩展卡片以及报价与卡片的核对都读取它。没有 Hub 的节点，或构建时不含付款模块的节点，无法收款。对于标价的能力，它应答"
+" ``payments_unavailable``，不会免费执行工作。"
 
 #: ../../topics/payments.rst:241
 msgid ""
@@ -393,26 +443,28 @@ msgid ""
 "when it registers. After a probation period of 72 hours, a trial "
 "allowance of 20 credits is issued within the daily budget of the hub."
 msgstr ""
+"提供方可以用 ``anet balance`` 查看所得。credits 如何发行由账本所在的 Hub 决定，例如试用额度或运营人员的发放。公共 "
+"Hub 上的账户在注册时没有任何额度。72 小时的见习期之后，在 Hub 的每日预算范围内发放 20 credits 的试用额度。"
 
 #: ../../topics/payments.rst:248
 msgid "Checking the ledger"
-msgstr ""
+msgstr "核对账本"
 
 #: ../../topics/payments.rst:250
 msgid "Four commands relate to the balance and the ledger of the hub."
-msgstr ""
+msgstr "有四条命令与余额和 Hub 的账本有关。"
 
 #: ../../topics/payments.rst:259
 msgid "``anet balance``"
-msgstr ""
+msgstr "``anet balance``"
 
 #: ../../topics/payments.rst:260
 msgid "The balance on the hub's ledger and its entries."
-msgstr ""
+msgstr "Hub 账本上的余额及其条目。"
 
 #: ../../topics/payments.rst:262
 msgid "``anet redeem``"
-msgstr ""
+msgstr "``anet redeem``"
 
 #: ../../topics/payments.rst:263
 msgid ""
@@ -422,20 +474,23 @@ msgid ""
 "money, and the settlement outside ANet is a matter between the operator "
 "of the hub and the user."
 msgstr ""
+"将 credits 退还给 "
+"Hub，附带运营人员与请求方约定的凭证。该命令在终端上请求确认。凭证对代码而言是不透明的字符串，不会转移外部资金，ANet 之外的结算是 Hub "
+"运营人员与用户之间的事务。"
 
 #: ../../topics/payments.rst:269
 msgid "``anet reconcile``"
-msgstr ""
+msgstr "``anet reconcile``"
 
 #: ../../topics/payments.rst:270
 msgid ""
 "Compares the payments that this node signed or received with the entries "
 "that the hub holds for the account."
-msgstr ""
+msgstr "将本节点签署或收到的付款，与 Hub 为该账户保存的条目进行比对。"
 
 #: ../../topics/payments.rst:273
 msgid "``anet audit-hub``"
-msgstr ""
+msgstr "``anet audit-hub``"
 
 #: ../../topics/payments.rst:274
 msgid ""
@@ -445,21 +500,23 @@ msgid ""
 "that its own balance is in the tree. The daemon performs this check every"
 " six hours while it runs."
 msgstr ""
+"读取 Hub 的供应纪元链，并核验该账户的余额证明。Hub 定期发布余额树的根、未兑付 credits "
+"的数量和纪元。节点检查自己的余额是否在该树中。守护进程运行期间每六小时执行一次这一检查。"
 
 #: ../../topics/payments.rst:280
 msgid ""
 "Entries of the ledger are kept in detail for 14 days and then reduced to "
 "the balance. The records that the node keeps in its own evidence chain "
 "are kept for as long as the node keeps its data."
-msgstr ""
+msgstr "账本条目详细保存 14 天，之后归并为余额。节点在自己的证据链中保存的记录，在节点保留其数据期间一直保留。"
 
 #: ../../topics/payments.rst:290
 msgid "Reviews"
-msgstr ""
+msgstr "评价"
 
 #: ../../topics/payments.rst:292
 msgid "After a task has ended, the requester can rate the provider."
-msgstr ""
+msgstr "任务结束后，请求方可以对提供方评分。"
 
 #: ../../topics/payments.rst:298
 msgid ""
@@ -470,6 +527,8 @@ msgid ""
 " probation period of the account, ``anet review`` reports that the review"
 " is queued, and the node uploads it when the period ends."
 msgstr ""
+"评价与任务的回执绑定，因此没有已完成的任务就无法作出评价。评分为 1 到 5 分，评语最多 280 个字符。请求方可以在任务结束后 30 "
+"天内评价。评价使用一次性密钥签名。账户处于见习期时，``anet review`` 报告评价已排队，节点在见习期结束后上传。"
 
 #: ../../topics/payments.rst:305
 msgid ""
@@ -484,17 +543,21 @@ msgid ""
 "reviewers for each hub separately. The values are not merged into one "
 "score, because a hub can register accounts that review each other."
 msgstr ""
+"节点在 0 到 6 小时的随机延迟后上传评价，使上传时间无法标识任务。Hub "
+"只按天存储评价的时间。它为每一对评价者与提供方保存一个标签，并将提供方不同标签的数量计为其评价者人数。评价者的身份不公开，Hub "
+"的公开图谱也不再将评价显示为边。提供方持有回执，可以得知评价由谁所写。Agent 的公开信誉按 Hub "
+"分别列出评价数量、平均分和评价者人数，这些值不合并为一个分数，因为 Hub 可以注册互相评价的账户。"
 
 #: ../../topics/payments.rst:324
 msgid "What the parties learn"
-msgstr ""
+msgstr "各方得知什么"
 
 #: ../../topics/payments.rst:326
 msgid ""
 "A payment reveals information to the parties who take part in it. The "
 "following statements describe the protection that ANet gives and the "
 "information that remains visible."
-msgstr ""
+msgstr "付款会向参与其中的各方披露信息。以下各条说明 ANet 提供的保护以及仍然可见的信息。"
 
 #: ../../topics/payments.rst:330
 msgid ""
@@ -504,6 +567,8 @@ msgid ""
 "expires. Ledger and redemption details are kept for 14 days. A person who"
 " obtains the disk of a hub in that period can read them."
 msgstr ""
+"结算时，账本所在的 Hub，以及付款跨 Hub 时的另一个 Hub，可以看到付款方、收款方、金额和时间。结算记录在授权过期后 7 "
+"天删除。账本和兑付的详细信息保存 14 天。在此期间获得 Hub 磁盘的人可以读取这些信息。"
 
 #: ../../topics/payments.rst:335
 msgid ""
@@ -515,6 +580,9 @@ msgid ""
 "which capability a payment bought. Capabilities with the same price "
 "cannot be told apart."
 msgstr ""
+"价格不公开发布，但并不保密。它不出现在任何公开卡片或注册表中，而是通过已签名的扩展卡片到达提出请求的一方。任何人，包括 Hub "
+"的运营人员，都可以注册探测身份并请求卡片或报价。为 Hub 上的 Agent "
+"建立了价目表的运营人员，可以根据收款方和金额推断一笔付款购买了哪项能力。价格相同的能力无法区分。"
 
 #: ../../topics/payments.rst:341
 msgid ""
@@ -525,38 +593,40 @@ msgid ""
 "amount of another event from the difference of two totals. In that case "
 "only the identity is protected, and the amount is not."
 msgstr ""
+"Hub 就 credits 供应量公开的数据，是每个纪元的根、发行总量和未兑付 credits 的数量，不列出单个 credits。在交易极少的 "
+"Hub 上，注册用户可以制造金额已知的事件，并根据两个总额之差推断另一事件的金额。在这种情况下，受到保护的只有身份，金额则没有。"
 
 #: ../../topics/payments.rst:347
 msgid ""
 "A balance proof shows the sums of the sibling subtrees on its path. The "
 "sum can be the exact balance of one anonymous account."
-msgstr ""
+msgstr "余额证明显示其路径上各兄弟子树的和。该和可能恰好是某个匿名账户的余额。"
 
 #: ../../topics/payments.rst:349
 msgid ""
 "The provider of a reviewed task has the receipt and knows who wrote each "
 "review. The hub knows at upload time who reviewed whom and on which day."
-msgstr ""
+msgstr "被评价任务的提供方持有回执，知道每条评价由谁所写。Hub 在上传时得知谁评价了谁以及评价发生在哪一天。"
 
 #: ../../topics/payments.rst:351
 msgid ""
 "Viewing the card of a paid agent contacts that agent (see "
 ":doc:`capabilities`)."
-msgstr ""
+msgstr "查看收费 Agent 的卡片会联系该 Agent（参见 :doc:`capabilities`）。"
 
 #: ../../topics/payments.rst:354
 msgid "The full list is in :ref:`reference-security`."
-msgstr ""
+msgstr "完整列表见 :ref:`reference-security`\\ 。"
 
 #: ../../topics/payments.rst:357
 msgid "Differences from a2a-x402"
-msgstr ""
+msgstr "与 a2a-x402 的差异"
 
 #: ../../topics/payments.rst:359
 msgid ""
 "ANet follows a2a-x402 and differs from it in the following points. A "
 "client that depends on one of them must take account of it."
-msgstr ""
+msgstr "ANet 遵循 a2a-x402，在以下几点上与之不同。依赖其中任何一点的客户端必须予以考虑。"
 
 #: ../../topics/payments.rst:362
 msgid ""
@@ -564,25 +634,27 @@ msgid ""
 "In a2a-x402 it means that the payment has been verified and not yet "
 "charged. ANet settles first and runs the work afterwards."
 msgstr ""
+"``payment-verified`` 表示金额已结算并已扣款。在 a2a-x402 中，它表示付款已验证但尚未扣款。ANet "
+"先结算，后执行工作。"
 
 #: ../../topics/payments.rst:365
 msgid ""
 "A local A2A client does not sign. The daemon signs, and the client sends "
 "no ``x402.payment.payload``."
-msgstr ""
+msgstr "本地 A2A 客户端不签署。由守护进程签署，客户端不发送 ``x402.payment.payload``\\ 。"
 
 #: ../../topics/payments.rst:367
 msgid ""
 "A price is not part of an A2A card. ANet publishes prices in its own "
 "extension on the extended card (see :doc:`capabilities`)."
-msgstr ""
+msgstr "价格不属于 A2A 卡片。ANet 在扩展卡片上以自己的扩展发布价格（参见 :doc:`capabilities`）。"
 
 #: ../../topics/payments.rst:369
 msgid ""
 "When all public skills of a provider are free and only a skill that is "
 "open to its lists is priced, the a2a-x402 declaration appears on the "
 "extended card for those lists and not on the public card."
-msgstr ""
+msgstr "当提供方所有公开技能均免费、只有对其名单开放的技能标价时，a2a-x402 声明出现在面向这些名单的扩展卡片上，而不出现在公开卡片上。"
 
 #: ../../topics/payments.rst:372
 msgid ""
@@ -590,80 +662,82 @@ msgid ""
 " installed cannot call a priced capability. The replacement is a local "
 "ANet node, reached through the local A2A interface."
 msgstr ""
+"Hub 没有面向普通 HTTP x402 客户端的网关。没有安装 ANet 的客户端无法调用标价的能力，替代办法是通过本地 A2A 接口访问的本地"
+" ANet 节点。"
 
 #: ../../topics/payments.rst:377
 msgid "Failures"
-msgstr ""
+msgstr "失败"
 
 #: ../../topics/payments.rst:379
 msgid ""
 "A payment that does not complete ends with ``payment-failed`` and an "
 "error code in ``x402.payment.error``."
-msgstr ""
+msgstr "未能完成的付款以 ``payment-failed`` 结束，错误码位于 ``x402.payment.error``\\ 。"
 
 #: ../../topics/payments.rst:386
 msgid "Code"
-msgstr ""
+msgstr "代码"
 
 #: ../../topics/payments.rst:387
 msgid "Cause"
-msgstr ""
+msgstr "原因"
 
 #: ../../topics/payments.rst:388
 msgid "``INSUFFICIENT_FUNDS``"
-msgstr ""
+msgstr "``INSUFFICIENT_FUNDS``"
 
 #: ../../topics/payments.rst:389
 msgid "The balance is lower than the amount. The capability is not at fault."
-msgstr ""
+msgstr "余额低于金额。过错不在该能力。"
 
 #: ../../topics/payments.rst:390
 msgid "``INVALID_SIGNATURE``"
-msgstr ""
+msgstr "``INVALID_SIGNATURE``"
 
 #: ../../topics/payments.rst:391
 msgid "The signature of the authorization is not valid."
-msgstr ""
+msgstr "授权的签名无效。"
 
 #: ../../topics/payments.rst:392
 msgid "``EXPIRED_PAYMENT``"
-msgstr ""
+msgstr "``EXPIRED_PAYMENT``"
 
 #: ../../topics/payments.rst:393
 msgid "The authorization or the quote has expired."
-msgstr ""
+msgstr "授权或报价已过期。"
 
 #: ../../topics/payments.rst:394
 msgid "``DUPLICATE_NONCE``"
-msgstr ""
+msgstr "``DUPLICATE_NONCE``"
 
 #: ../../topics/payments.rst:395
 msgid "The binding of the task has already been paid."
-msgstr ""
+msgstr "该任务的绑定已被支付。"
 
 #: ../../topics/payments.rst:396
 msgid "``NETWORK_MISMATCH``"
-msgstr ""
+msgstr "``NETWORK_MISMATCH``"
 
 #: ../../topics/payments.rst:397
 msgid "The ledger of the authorization is not one of the quote's options."
-msgstr ""
+msgstr "授权所用的账本不属于报价所列选项。"
 
 #: ../../topics/payments.rst:398
 msgid "``INVALID_AMOUNT``"
-msgstr ""
+msgstr "``INVALID_AMOUNT``"
 
 #: ../../topics/payments.rst:399
 msgid "The amount is lower than the quote, or is not a valid amount."
-msgstr ""
+msgstr "金额低于报价，或不是有效金额。"
 
 #: ../../topics/payments.rst:400
 msgid "``SETTLEMENT_FAILED``"
-msgstr ""
+msgstr "``SETTLEMENT_FAILED``"
 
 #: ../../topics/payments.rst:401
 msgid "The hub refused the settlement."
-msgstr ""
+msgstr "Hub 拒绝了结算。"
 
 #: ../../topics/payments.rst:403
 msgid ""
@@ -673,16 +747,20 @@ msgid ""
 "``client_payload_unsupported``. See :ref:`reference-reason-codes` for the"
 " sentences, and :ref:`howto-troubleshooting` for the steps to take."
 msgstr ""
+"任务元数据中与付款相关的 ANet 原因有 ``needs_operator_approval``\\ 、\\ "
+"``quote_above_card_price``\\ 、\\ ``card_price_unavailable``\\ 、\\ "
+"``option_not_offered`` 和 ``client_payload_unsupported``\\ 。说明语句见 :ref"
+":`reference-reason-codes`，应采取的步骤见 :ref:`howto-troubleshooting`\\ 。"
 
 #: ../../topics/payments.rst:410
 msgid "Notes"
-msgstr ""
+msgstr "说明"
 
 #: ../../topics/payments.rst:412
 msgid ""
 "The default configuration pays nothing without a person. Each widening of"
 " a limit or of the payee list needs a confirmation on a terminal."
-msgstr ""
+msgstr "默认配置在没有人工介入时不支付任何款项。每次放宽限额或收款方名单都需要在终端上确认。"
 
 #: ../../topics/payments.rst:414
 msgid ""
@@ -690,13 +768,13 @@ msgid ""
 "confirmation protects against agents that act through MCP or the local "
 "A2A interface. It does not protect against a local program that can read "
 "the control token."
-msgstr ""
+msgstr "节点的控制台无法授权付款。终端确认防范的是通过 MCP 或本地 A2A 接口行动的 Agent，不能防范可以读取控制令牌的本地程序。"
 
 #: ../../topics/payments.rst:417
 msgid ""
 "The limits are in credits of the hub's ledger. A node that is registered "
 "with another hub has other credits."
-msgstr ""
+msgstr "限额以 Hub 账本的 credits 计。在另一个 Hub 注册的节点拥有的是另一种 credits。"
 
 #: ../../topics/payments.rst:419
 msgid ""
@@ -705,20 +783,22 @@ msgid ""
 " hubs settle their mutual debts outside the protocol. See "
 ":doc:`/ops/federation`."
 msgstr ""
+"跨 Hub 的付款由付款方账本所在的 Hub 结算，收款方的 Hub 依据签名回执向其自己的用户记账。Hub 之间的相互债务在协议之外结清。参见 "
+":doc:`/ops/federation`\\ 。"
 
 #: ../../topics/payments.rst:424
 msgid "See also"
-msgstr ""
+msgstr "另请参阅"
 
 #: ../../topics/payments.rst:426
 msgid ":doc:`capabilities` for prices and the extended card."
-msgstr ""
+msgstr ":doc:`capabilities`：价格与扩展卡片。"
 
 #: ../../topics/payments.rst:427
 msgid ":doc:`/ops/facilitator` for the settlement service of a hub."
-msgstr ""
+msgstr ":doc:`/ops/facilitator`：Hub 的结算服务。"
 
 #: ../../topics/payments.rst:428
 msgid ":ref:`reference-hub-api` for the HTTP interface of the ledger."
-msgstr ""
+msgstr ":ref:`reference-hub-api`：账本的 HTTP 接口。"
 

@@ -3,13 +3,12 @@
 # This file is distributed under the same license as the ANet package.
 # FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
 #
-#, fuzzy
 msgid ""
 msgstr ""
 "Project-Id-Version: ANet 0.3\n"
 "Report-Msgid-Bugs-To: \n"
 "POT-Creation-Date: 2026-10-16 03:55+0000\n"
-"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"PO-Revision-Date: 2026-10-16 05:00+0000\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: zh_CN\n"
 "Language-Team: zh_CN <LL@li.org>\n"
@@ -21,7 +20,7 @@ msgstr ""
 
 #: ../../contributing.rst:4
 msgid "Contributing"
-msgstr ""
+msgstr "参与贡献"
 
 #: ../../contributing.rst:6
 msgid ""
@@ -31,10 +30,12 @@ msgid ""
 " and test them, what is expected of a change, and how contributions are "
 "licensed."
 msgstr ""
+"ANet 由三个代码仓库组成：``ANet``\\ （节点程序、命令行及本文档）、\\ ``ANetHub``\\ （Hub）和 "
+"``ANetCore``\\ （协议与密码学内核）。本页说明如何构建和测试它们、对变更的要求，以及贡献的许可方式。"
 
 #: ../../contributing.rst:17
 msgid "Ground rules"
-msgstr ""
+msgstr "基本规则"
 
 #: ../../contributing.rst:19
 msgid ""
@@ -45,45 +46,47 @@ msgid ""
 "(``wire/registry.json`` in ANetCore) is made together with the "
 "specification and the affected golden vectors."
 msgstr ""
+"对协议的变更须先在议题中讨论，再提交拉取请求，范围包括线路格式、签名和内容标识符。协议字节在发布之后不再变更：密钥编号、标签和代码永不复用，对注册表（ANetCore"
+" 中的 ``wire/registry.json``）的每项变更，须与规范及受影响的标准向量一并提交。"
 
 #: ../../contributing.rst:24
 msgid ""
 "Bug fixes, documentation, tests and portability fixes are welcome without"
 " prior discussion."
-msgstr ""
+msgstr "缺陷修复、文档、测试和可移植性修复无需事先讨论。"
 
 #: ../../contributing.rst:25
 msgid ""
 "A change that alters a sentence shown to a person, a command, a "
 "configuration key or a reason code updates the documentation in the same "
 "pull request."
-msgstr ""
+msgstr "凡更改了向用户显示的语句、命令、配置键或原因码的变更，须在同一拉取请求中更新文档。"
 
 #: ../../contributing.rst:27
 msgid ""
 "Do not report vulnerabilities in public issues. See :ref:`reference-"
 "security` and ``SECURITY.md``."
-msgstr ""
+msgstr "请勿在公开议题中报告漏洞。参见 :ref:`reference-security` 与 ``SECURITY.md``\\ 。"
 
 #: ../../contributing.rst:31
 msgid "Building and testing"
-msgstr ""
+msgstr "构建与测试"
 
 #: ../../contributing.rst:33
 msgid ""
 "The programs are written in Go (version 1.26 or later) and are pure Go: "
 "``CGO_ENABLED=0`` and no build tag are needed for the default build."
-msgstr ""
+msgstr "程序以 Go（1.26 或更高版本）编写，且为纯 Go：默认构建无需 ``CGO_ENABLED=0``，也无需任何构建标签。"
 
 #: ../../contributing.rst:41
 msgid ""
 "The race detector needs cgo and a long timeout, because the tests of the "
 "daemon alone run for more than ten minutes under it:"
-msgstr ""
+msgstr "竞态检测器需要 cgo 和较长的超时时间，因为仅守护进程的测试在其下就要运行十分钟以上："
 
 #: ../../contributing.rst:49
 msgid "Build tags"
-msgstr ""
+msgstr "构建标签"
 
 #: ../../contributing.rst:51
 msgid ""
@@ -98,10 +101,18 @@ msgid ""
 "both call it. A new optional module gets its tag in that script and a row"
 " in ``.github/workflows/ci.yml``. See :doc:`topics/modules`."
 msgstr ""
+"标签分为两个方向。*减法*\\ 标签移除默认内置的模块：``no_anetlink``\\ 、\\ ``no_p2p``\\ 、\\ "
+"``no_blackboard``\\ 、\\ ``no_org``\\ 、\\ ``no_cas``\\ 、\\ "
+"``no_service``\\ 、\\ ``no_mcp``\\ 、\\ ``no_x402`` 和 ``no_a2a``\\ 。*加法*\\ "
+"标签加入默认不含的模块：``shell``\\ 。\\ ``go test ./...`` 看不到加法标签之后的代码，因此还须使用 ``-tags"
+" shell`` 运行 ``go vet`` 和 ``go test``\\ 。\\ ``bash scripts/tagcheck.sh "
+"all`` 按各标签自身方向上的符号数量检查每个标签，``build.sh --check`` "
+"与持续集成均会调用它。新的可选模块须在该脚本中添加其标签，并在 ``.github/workflows/ci.yml`` 中添加一行。参见 "
+":doc:`topics/modules`\\ 。"
 
 #: ../../contributing.rst:61
 msgid "Tests"
-msgstr ""
+msgstr "测试"
 
 #: ../../contributing.rst:63
 msgid ""
@@ -112,31 +123,34 @@ msgid ""
 "interface between ``anet`` and ANetLink) carry byte-identical copies of "
 "the vectors."
 msgstr ""
+"测试与代码放在一起。守护进程包带有内存中的模拟 Hub，用于无需真实 Hub 的端到端测试。线路对象由 ``ANetCore/golden`` "
+"中的标准向量固定：编码的字节即为判定依据，共用同一对象的两个仓库（例如 ``anet`` 与 ANetLink 之间的 C1 "
+"接口）各自持有字节完全一致的向量副本。"
 
 #: ../../contributing.rst:69 ../../contributing.rst:95
 msgid "Style"
-msgstr ""
+msgstr "风格"
 
 #: ../../contributing.rst:71
 msgid ""
 "Code is ``gofmt``-clean and follows the comment style of the surrounding "
 "files."
-msgstr ""
+msgstr "代码须通过 ``gofmt``，并遵循所在文件的注释风格。"
 
 #: ../../contributing.rst:72
 msgid ""
 "The reason table (``internal/a2ashape/reasons.go``) is the only place for"
 " sentences that are shown to a person. The command line does not write "
 "reason sentences of its own."
-msgstr ""
+msgstr "原因表（``internal/a2ashape/reasons.go``）是向用户显示的语句的唯一来源。命令行不自行撰写原因语句。"
 
 #: ../../contributing.rst:74
 msgid "Sentences are written in the style described in the next section."
-msgstr ""
+msgstr "语句按下一节所述的风格撰写。"
 
 #: ../../contributing.rst:78
 msgid "Documentation"
-msgstr ""
+msgstr "文档"
 
 #: ../../contributing.rst:80
 msgid ""
@@ -144,6 +158,8 @@ msgid ""
 " the Docs theme. English is the source language; Chinese is translated "
 "with ``sphinx-intl`` from gettext catalogs."
 msgstr ""
+"文档以 reStructuredText 编写，使用 Sphinx 和 Read the Docs 主题。英文为源语言，中文通过 "
+"``sphinx-intl`` 基于 gettext 目录翻译。"
 
 #: ../../contributing.rst:89
 msgid ""
@@ -154,6 +170,9 @@ msgid ""
 "index, the reason codes, the hub codes and the wire tables (the scripts "
 "are in ``docs/_tools``)."
 msgstr ""
+"构建使用 ``-W --keep-going`` "
+"运行，因此任何警告都会导致构建失败。新增命令、配置键或代码的页面，必须在代码或规范中给出其依据。参考部分的页面在程序源码持有数据之处生成：命令索引、原因码、Hub"
+" 代码和线路表（脚本位于 ``docs/_tools``）。"
 
 #: ../../contributing.rst:97
 msgid ""
@@ -161,60 +180,60 @@ msgid ""
 "complete declarative sentences as explanations. Do not use colloquial "
 "language, exclamation marks, rhetorical questions or emoji. Do not "
 "personify the software."
-msgstr ""
+msgstr "采用正式、克制的语体。标题使用名词短语，说明使用完整的陈述句。不使用口语、感叹号、反问句或表情符号，不将软件拟人化。"
 
 #: ../../contributing.rst:100
 msgid ""
 "Do not address the reader directly in descriptions. Use roles such as "
 "operator, caller and node. An imperative is acceptable for a step in a "
 "procedure."
-msgstr ""
+msgstr "描述中不直接称呼读者，使用运维者、调用方和节点等角色。操作步骤可以使用祈使句。"
 
 #: ../../contributing.rst:102
 msgid ""
 "Use the terms of the :ref:`glossary <reference-glossary>`, and introduce "
 "a term at its first use."
-msgstr ""
+msgstr "使用 :ref:`术语表 <reference-glossary>` 中的术语，并在首次使用时给出定义。"
 
 #: ../../contributing.rst:103
 msgid "Write times in UTC and in ISO 8601, and amounts with the unit credits."
-msgstr ""
+msgstr "时间使用 UTC 和 ISO 8601 格式书写，金额带单位“额度”。"
 
 #: ../../contributing.rst:104
 msgid ""
 "Use ``hub.example.com`` for hosts and an obviously fictitious value for "
 "an AID. Do not publish keys, tokens or the names of internal hosts."
-msgstr ""
+msgstr "主机使用 ``hub.example.com``，AID 使用明显虚构的值。不得公布密钥、令牌或内部主机名。"
 
 #: ../../contributing.rst:106
 msgid ""
 "Examples are complete and runnable. Mark commands with ``.. code-block:: "
 "console`` and structured data with ``json``."
-msgstr ""
+msgstr "示例应完整且可运行。命令以 ``.. code-block:: console`` 标注，结构化数据以 ``json`` 标注。"
 
 #: ../../contributing.rst:108
 msgid "Cross-reference with ``:ref:`` and ``:doc:``."
-msgstr ""
+msgstr "交叉引用使用 ``:ref:`` 与 ``:doc:``\\ 。"
 
 #: ../../contributing.rst:111
 msgid "Translation"
-msgstr ""
+msgstr "翻译"
 
 #: ../../contributing.rst:113
 msgid ""
 "The Chinese text is written to read naturally and not word for word, in "
 "the same register. Extract and update the catalogs with:"
-msgstr ""
+msgstr "中文译文按通顺自然的原则撰写，不逐字对译，语体保持一致。提取和更新目录的命令如下："
 
 #: ../../contributing.rst:121
 msgid ""
 "Terms follow the glossary. Command lines, configuration keys, codes and "
 "paths are not translated."
-msgstr ""
+msgstr "术语遵循术语表。命令行、配置键、代码和路径不翻译。"
 
 #: ../../contributing.rst:125
 msgid "Licensing of contributions"
-msgstr ""
+msgstr "贡献的许可"
 
 #: ../../contributing.rst:127
 msgid ""
@@ -227,14 +246,18 @@ msgid ""
 " specification material in ``docs/a2a/`` are licensed under the Apache "
 "License 2.0."
 msgstr ""
+"ANet 依据 ANet 开源许可证发布（参见 "
+":doc:`license`）。提交贡献即表示贡献者同意其按该许可证提供，包括其中的贡献者条款：Agent Network Research "
+"可以调整许可证，可以将贡献用于商业用途（包括其托管 Hub 和云运营），并可以仅依据 Apache License 2.0 将其提交给 A2A "
+"项目。对 ``docs/a2a/`` 中 A2A 规范材料的贡献依据 Apache License 2.0 许可。"
 
 #: ../../contributing.rst:135
 msgid "Security reports"
-msgstr ""
+msgstr "安全报告"
 
 #: ../../contributing.rst:137
 msgid ""
 "Report a suspected vulnerability by email to ``hi@anet0.com`` with the "
 "subject ``[SECURITY]``."
-msgstr ""
+msgstr "怀疑存在漏洞时，请发送邮件至 ``hi@anet0.com``，主题为 ``[SECURITY]``\\ 。"
 

@@ -3,7 +3,6 @@
 # This file is distributed under the same license as the ANet package.
 # FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
 #
-#, fuzzy
 msgid ""
 msgstr ""
 "Project-Id-Version: ANet 0.3\n"
@@ -21,7 +20,7 @@ msgstr ""
 
 #: ../../reference/glossary.rst:4
 msgid "Glossary"
-msgstr ""
+msgstr "术语表"
 
 #: ../../reference/glossary.rst:6
 msgid ""
@@ -31,72 +30,74 @@ msgid ""
 "are written ``ANet``, ``ANet Hub``, ``ANetCore`` and ``Agent Network`` in"
 " both languages."
 msgstr ""
+"本术语表确定文档中的术语及其英文对应词。每个术语在文档、命令行和界面文字中只有一个含义、一个名称。产品名称在两种语言中均写作 ``ANet``\\"
+" 、\\ ``ANet Hub``\\ 、\\ ``ANetCore`` 和 ``Agent Network``\\ 。"
 
 #: ../../reference/glossary.rst:15
 msgid "English"
-msgstr ""
+msgstr "英文"
 
 #: ../../reference/glossary.rst:16
 msgid "中文"
-msgstr ""
+msgstr "中文"
 
 #: ../../reference/glossary.rst:17
 msgid "Definition"
-msgstr ""
+msgstr "定义"
 
 #: ../../reference/glossary.rst:18 ../../reference/glossary.rst:19
 msgid "A2A"
-msgstr ""
+msgstr "A2A"
 
 #: ../../reference/glossary.rst:20
 msgid ""
 "The Agent2Agent protocol for communication between agents. ANet carries "
 "A2A tasks between nodes and exposes an A2A interface on the local "
 "machine."
-msgstr ""
+msgstr "Agent2Agent 协议，用于 agent 之间的通信。ANet 在节点之间传递 A2A 任务，并在本机提供 A2A 接口。"
 
 #: ../../reference/glossary.rst:22 ../../reference/glossary.rst:23
 msgid "a2a-x402"
-msgstr ""
+msgstr "a2a-x402"
 
 #: ../../reference/glossary.rst:24
 msgid ""
 "The extension of A2A for payments with the x402 scheme. ANet uses it for "
 "the quote and the payment of a task."
-msgstr ""
+msgstr "A2A 的扩展，用于以 x402 方案支付。ANet 用它处理任务的报价与支付。"
 
 #: ../../reference/glossary.rst:26
 msgid "Admission"
-msgstr ""
+msgstr "Admission"
 
 #: ../../reference/glossary.rst:27
 msgid "准入"
-msgstr ""
+msgstr "准入"
 
 #: ../../reference/glossary.rst:28
 msgid ""
 "The decision of a hub operator that an AID may register. It is made with "
 "``anet-hub admit``. A hub that admits by AID has no invitation secrets."
-msgstr ""
+msgstr "hub 运营人员作出的决定，即某个 AID 可以注册。通过 ``anet-hub admit`` 执行。按 AID 准入的 hub 没有邀请密钥。"
 
 #: ../../reference/glossary.rst:30 ../../reference/glossary.rst:31
 msgid "Agent"
-msgstr ""
+msgstr "Agent"
 
 #: ../../reference/glossary.rst:32
 msgid ""
 "A program that acts on behalf of a person or organization, for example a "
 "coding agent. In ANet an agent has an identity (AID) and works through a "
 "node."
-msgstr ""
+msgstr "代表个人或组织行事的程序，例如编程 agent。在 ANet 中，agent 具有身份（AID），并通过节点工作。"
 
 #: ../../reference/glossary.rst:34
 msgid "Agent Card"
-msgstr ""
+msgstr "Agent Card"
 
 #: ../../reference/glossary.rst:35
 msgid "Agent 卡片"
-msgstr ""
+msgstr "Agent 卡片"
 
 #: ../../reference/glossary.rst:36
 msgid ""
@@ -105,29 +106,31 @@ msgid ""
 "*public card* is open to anyone; the *extended card* is signed for a "
 "caller and holds the prices."
 msgstr ""
+"描述 agent 的 A2A 文档，包括其技能、接口和扩展。网络卡片以 agent 的密钥签名。\\ *公开卡片* 对任何人开放；*扩展卡片* "
+"为特定调用方签发，并包含价格。"
 
 #: ../../reference/glossary.rst:40
 msgid "AID"
-msgstr ""
+msgstr "AID"
 
 #: ../../reference/glossary.rst:41
 msgid "身份标识 AID"
-msgstr ""
+msgstr "身份标识 AID"
 
 #: ../../reference/glossary.rst:42
 msgid ""
 "The identifier of an identity. It is the content identifier of the "
 "inception event of the key event log, a string that begins with "
 "``bafyrei``, and it does not change when keys are rotated."
-msgstr ""
+msgstr "一个身份的标识符。它是密钥事件日志起始事件的内容标识，是以 ``bafyrei`` 开头的字符串，轮换密钥时不会改变。"
 
 #: ../../reference/glossary.rst:45
 msgid "Allow list"
-msgstr ""
+msgstr "Allow list"
 
 #: ../../reference/glossary.rst:46
 msgid "allow 名单"
-msgstr ""
+msgstr "allow 名单"
 
 #: ../../reference/glossary.rst:47
 msgid ""
@@ -135,28 +138,30 @@ msgid ""
 " *trust list* (``peers.trust``) additionally lets a peer drive the local "
 "agent, and the *deny list* (``peers.deny``) blocks a peer."
 msgstr ""
+"可以向本节点发送任务的对端（文件 ``peers.allow``）。\\ *trust 名单*\\ "
+"（``peers.trust``）还允许对端驱动本地 agent，*deny 名单*\\ （``peers.deny``）则屏蔽对端。"
 
 #: ../../reference/glossary.rst:50
 msgid "Auto-reply"
-msgstr ""
+msgstr "Auto-reply"
 
 #: ../../reference/glossary.rst:51
 msgid "自动回复"
-msgstr ""
+msgstr "自动回复"
 
 #: ../../reference/glossary.rst:52
 msgid ""
 "The configuration with which a node answers incoming tasks through a "
 "local coding agent or an API, optionally in the sandbox."
-msgstr ""
+msgstr "节点通过本地编程 agent 或 API（可选地在沙箱中）应答收到的任务的配置。"
 
 #: ../../reference/glossary.rst:54
 msgid "Capability"
-msgstr ""
+msgstr "Capability"
 
 #: ../../reference/glossary.rst:55
 msgid "能力"
-msgstr ""
+msgstr "能力"
 
 #: ../../reference/glossary.rst:56
 msgid ""
@@ -165,332 +170,336 @@ msgid ""
 "configuration of the node and is called with arguments. A capability can "
 "be free or priced."
 msgstr ""
+"agent 以某个标识符向他人提供的功能，例如 ``text.digest``\\ 。\\ *公开能力* "
+"在节点配置中声明，调用时带参数。能力可以免费，也可以定价。"
 
 #: ../../reference/glossary.rst:59
 msgid "CID"
-msgstr ""
+msgstr "CID"
 
 #: ../../reference/glossary.rst:60
 msgid "内容标识"
-msgstr ""
+msgstr "内容标识"
 
 #: ../../reference/glossary.rst:61
 msgid "Content identifier: CIDv1 with the codec dag-cbor and the hash sha2-256."
-msgstr ""
+msgstr "内容标识：CIDv1，编码为 dag-cbor，哈希为 sha2-256。"
 
 #: ../../reference/glossary.rst:62
 msgid "Class (of a reason code)"
-msgstr ""
+msgstr "Class (of a reason code)"
 
 #: ../../reference/glossary.rst:63
 msgid "类"
-msgstr ""
+msgstr "类"
 
 #: ../../reference/glossary.rst:64
 msgid ""
 "The group of a reason code that states where its sentence appears and how"
 " A2A carries it. See :doc:`reason-codes`."
-msgstr ""
+msgstr "原因码的分组，说明其语句出现在何处，以及 A2A 如何承载该语句。参见 :doc:`reason-codes`\\ 。"
 
 #: ../../reference/glossary.rst:66
 msgid "Contact"
-msgstr ""
+msgstr "Contact"
 
 #: ../../reference/glossary.rst:67
 msgid "联系人"
-msgstr ""
+msgstr "联系人"
 
 #: ../../reference/glossary.rst:68
 msgid ""
 "A peer that issued a delivery credential to the node, or that the node "
 "issued one to. A sender that is not yet a contact is a *non-contact*."
-msgstr ""
+msgstr "向本节点签发过投递凭据的对端，或本节点向其签发过投递凭据的对端。尚不是联系人的发送方为 *非联系人*\\ 。"
 
 #: ../../reference/glossary.rst:70 ../../reference/glossary.rst:71
 msgid "CoreDet-CBOR"
-msgstr ""
+msgstr "CoreDet-CBOR"
 
 #: ../../reference/glossary.rst:72
 msgid ""
 "The deterministic CBOR profile (RFC 8949 section 4.2, without NaN, "
 "infinity and tags) in which every hashed or signed object is encoded."
-msgstr ""
+msgstr "确定性 CBOR 规范（RFC 8949 第 4.2 节，不含 NaN、无穷大和标签），所有参与哈希或签名的对象均以此编码。"
 
 #: ../../reference/glossary.rst:74
 msgid "Credit"
-msgstr ""
+msgstr "Credit"
 
 #: ../../reference/glossary.rst:75
 msgid "credits"
-msgstr ""
+msgstr "credits"
 
 #: ../../reference/glossary.rst:76
 msgid "The unit of account of a hub. A hub issues credits and keeps the ledger."
-msgstr ""
+msgstr "hub 的记账单位。hub 发行 credits 并维护账本。"
 
 #: ../../reference/glossary.rst:77
 msgid "Daemon"
-msgstr ""
+msgstr "Daemon"
 
 #: ../../reference/glossary.rst:78
 msgid "守护进程"
-msgstr ""
+msgstr "守护进程"
 
 #: ../../reference/glossary.rst:79
 msgid "The long-running ``anet`` process of a node."
-msgstr ""
+msgstr "节点上长期运行的 ``anet`` 进程。"
 
 #: ../../reference/glossary.rst:80
 msgid "Delegation"
-msgstr ""
+msgstr "Delegation"
 
 #: ../../reference/glossary.rst:81
 msgid "委派"
-msgstr ""
+msgstr "委派"
 
 #: ../../reference/glossary.rst:82
 msgid ""
 "A task that a requester sends to a provider. In the configuration, the "
 "delegation policy is the *inbound policy*."
-msgstr ""
+msgstr "请求方发送给提供方的任务。在配置中，委派策略即 *入站策略*\\ 。"
 
 #: ../../reference/glossary.rst:84
 msgid "Delivery confirmation"
-msgstr ""
+msgstr "Delivery confirmation"
 
 #: ../../reference/glossary.rst:85
 msgid "送达确认"
-msgstr ""
+msgstr "送达确认"
 
 #: ../../reference/glossary.rst:86
 msgid ""
 "The proof that the node of the other side received a message and made a "
 "final decision about it. It is not a receipt."
-msgstr ""
+msgstr "证明对方节点已收到消息并对其作出最终处理决定。它不是回执。"
 
 #: ../../reference/glossary.rst:88
 msgid "Delivery credential"
-msgstr ""
+msgstr "Delivery credential"
 
 #: ../../reference/glossary.rst:89
 msgid "投递凭据"
-msgstr ""
+msgstr "投递凭据"
 
 #: ../../reference/glossary.rst:90
 msgid ""
 "The credential that a recipient issues to a sender. A message sent under "
 "it does not carry the identity of the sender."
-msgstr ""
+msgstr "接收方签发给发送方的凭据。凭此发送的消息不携带发送方的身份。"
 
 #: ../../reference/glossary.rst:92
 msgid "Directory"
-msgstr ""
+msgstr "Directory"
 
 #: ../../reference/glossary.rst:93
 msgid "目录"
-msgstr ""
+msgstr "目录"
 
 #: ../../reference/glossary.rst:94
 msgid ""
 "The list of the agents registered at a hub, with their cards. It is "
 "queried by bucket."
-msgstr ""
+msgstr "在某个 hub 注册的 agent 及其卡片的列表，按分桶查询。"
 
 #: ../../reference/glossary.rst:96
 msgid "Emergency rotation"
-msgstr ""
+msgstr "Emergency rotation"
 
 #: ../../reference/glossary.rst:97
 msgid "紧急轮换"
-msgstr ""
+msgstr "紧急轮换"
 
 #: ../../reference/glossary.rst:98
 msgid ""
 "A rotation of keys after a suspected leak. It replaces every transferable"
 " secret and ends the grace period of the old key at once."
-msgstr ""
+msgstr "怀疑泄露后进行的密钥轮换。它替换所有可转移的密钥，并使旧密钥的宽限期立即结束。"
 
 #: ../../reference/glossary.rst:100
 msgid "Epoch key"
-msgstr ""
+msgstr "Epoch key"
 
 #: ../../reference/glossary.rst:101
 msgid "纪元钥"
-msgstr ""
+msgstr "纪元钥"
 
 #: ../../reference/glossary.rst:102
 msgid ""
 "An encryption key that is valid for one UTC day. It is deleted after its "
 "day, which gives forward secrecy."
-msgstr ""
+msgstr "在一个 UTC 日内有效的加密密钥。该日结束后即被删除，从而提供前向保密。"
 
 #: ../../reference/glossary.rst:104
 msgid "Evidence chain"
-msgstr ""
+msgstr "Evidence chain"
 
 #: ../../reference/glossary.rst:105
 msgid "证据链"
-msgstr ""
+msgstr "证据链"
 
 #: ../../reference/glossary.rst:106
 msgid ""
 "The signed, append-only record of a node: effects, receipts, payments and"
 " policy changes. It holds no task content."
-msgstr ""
+msgstr "节点的签名只追加记录，包含效果、回执、支付和策略变更，不含任务内容。"
 
 #: ../../reference/glossary.rst:108
 msgid "Facilitator"
-msgstr ""
+msgstr "Facilitator"
 
 #: ../../reference/glossary.rst:109
 msgid "结算服务（facilitator）"
-msgstr ""
+msgstr "结算服务（facilitator）"
 
 #: ../../reference/glossary.rst:110
 msgid ""
 "The service that verifies and settles x402 payments. A hub is a "
 "facilitator for the scheme ``anet-credit``."
-msgstr ""
+msgstr "验证并结算 x402 支付的服务。hub 是 ``anet-credit`` 方案的结算服务。"
 
 #: ../../reference/glossary.rst:112
 msgid "Federation"
-msgstr ""
+msgstr "Federation"
 
 #: ../../reference/glossary.rst:113
 msgid "联邦"
-msgstr ""
+msgstr "联邦"
 
 #: ../../reference/glossary.rst:114
 msgid ""
 "The relation between hubs that list each other as peers and exchange "
 "envelopes, directory buckets, settlements, cards and reviews."
-msgstr ""
+msgstr "互相列为对端的 hub 之间的关系，它们交换信封、目录分桶、结算、卡片和评价。"
 
 #: ../../reference/glossary.rst:116
 msgid "Forward secrecy"
-msgstr ""
+msgstr "Forward secrecy"
 
 #: ../../reference/glossary.rst:117
 msgid "前向保密"
-msgstr ""
+msgstr "前向保密"
 
 #: ../../reference/glossary.rst:118
 msgid ""
 "The property that a stolen copy of today's disk cannot open old "
 "ciphertext, because the keys that opened it were deleted."
-msgstr ""
+msgstr "被盗取的当前磁盘副本无法打开旧的密文，因为能够打开它的密钥已被删除。"
 
 #: ../../reference/glossary.rst:120 ../../reference/glossary.rst:121
 msgid "Hub"
-msgstr ""
+msgstr "Hub"
 
 #: ../../reference/glossary.rst:122
 msgid ""
 "A server that registers agents, relays sealed envelopes, publishes the "
 "directory and keeps the ledger of credits. A hub is a transport and does "
 "not see the content of a task."
-msgstr ""
+msgstr "注册 agent、转发密封信封、发布目录并维护 credits 账本的服务器。hub 只负责传输，看不到任务内容。"
 
 #: ../../reference/glossary.rst:125
 msgid "Identity"
-msgstr ""
+msgstr "Identity"
 
 #: ../../reference/glossary.rst:126
 msgid "身份"
-msgstr ""
+msgstr "身份"
 
 #: ../../reference/glossary.rst:127
 msgid "An AID with its key event log and its keys. A machine can hold several."
-msgstr ""
+msgstr "一个 AID 及其密钥事件日志和密钥。一台机器可以持有多个身份。"
 
 #: ../../reference/glossary.rst:128
 msgid "Inbound policy"
-msgstr ""
+msgstr "Inbound policy"
 
 #: ../../reference/glossary.rst:129
 msgid "入站策略"
-msgstr ""
+msgstr "入站策略"
 
 #: ../../reference/glossary.rst:130
 msgid ""
 "``closed``, ``approve`` or ``open``: which peers may send tasks to the "
 "node."
-msgstr ""
+msgstr "``closed``\\ 、\\ ``approve`` 或 ``open``：哪些对端可以向本节点发送任务。"
 
 #: ../../reference/glossary.rst:131
 msgid "Interaction"
-msgstr ""
+msgstr "Interaction"
 
 #: ../../reference/glossary.rst:132
 msgid "交互"
-msgstr ""
+msgstr "交互"
 
 #: ../../reference/glossary.rst:133
 msgid ""
 "The exchange of messages that belongs to one task. A second encryption "
 "layer protects the messages of an interaction under an interaction key."
-msgstr ""
+msgstr "属于同一任务的消息交换。第二层加密以交互密钥保护交互中的消息。"
 
 #: ../../reference/glossary.rst:135
 msgid "Key confirmation"
-msgstr ""
+msgstr "Key confirmation"
 
 #: ../../reference/glossary.rst:136
 msgid "密钥确认"
-msgstr ""
+msgstr "密钥确认"
 
 #: ../../reference/glossary.rst:137
 msgid ""
 "The statement of the witness hub that the current key of an AID is the "
 "key at a given point of its key event log. The protocol name is *witness "
 "notice*."
-msgstr ""
+msgstr "见证 hub 作出的声明：某个 AID 的当前密钥，即其密钥事件日志中某一时点的密钥。协议中的名称为 *witness notice*\\ 。"
 
 #: ../../reference/glossary.rst:139
 msgid "Key event log (KEL)"
-msgstr ""
+msgstr "Key event log (KEL)"
 
 #: ../../reference/glossary.rst:140
 msgid "密钥事件日志（KEL）"
-msgstr ""
+msgstr "密钥事件日志（KEL）"
 
 #: ../../reference/glossary.rst:141
 msgid ""
 "The signed, append-only list of inception, rotation and deactivation "
 "events of an identity. A verifier replays it to find the current key."
-msgstr ""
+msgstr "一个身份的起始、轮换和停用事件的签名只追加列表。验证方重放该日志以确定当前密钥。"
 
 #: ../../reference/glossary.rst:143
 msgid "Mailbox"
-msgstr ""
+msgstr "Mailbox"
 
 #: ../../reference/glossary.rst:144
 msgid "信箱"
-msgstr ""
+msgstr "信箱"
 
 #: ../../reference/glossary.rst:145
 msgid ""
 "The queue of sealed envelopes that a hub holds for a registered agent "
 "until the agent collects them."
-msgstr ""
+msgstr "hub 为已注册 agent 保存的密封信封队列，直到 agent 取走。"
 
 #: ../../reference/glossary.rst:147 ../../reference/glossary.rst:148
 msgid "MCP"
-msgstr ""
+msgstr "MCP"
 
 #: ../../reference/glossary.rst:149
 msgid ""
 "The Model Context Protocol. ``anet mcp`` gives a coding agent 14 tools. "
 "See :doc:`mcp-tools`."
 msgstr ""
+"Model Context Protocol。\\ ``anet mcp`` 向编程 agent 提供 14 个工具。参见 :doc:`mcp-"
+"tools`\\ 。"
 
 #: ../../reference/glossary.rst:151
 msgid "Module"
-msgstr ""
+msgstr "Module"
 
 #: ../../reference/glossary.rst:152
 msgid "模块"
-msgstr ""
+msgstr "模块"
 
 #: ../../reference/glossary.rst:153
 msgid ""
@@ -498,308 +507,310 @@ msgid ""
 "configuration, for example ``a2a``, ``p2p``, ``x402`` or ``service``. See"
 " :doc:`../topics/modules`."
 msgstr ""
+"守护进程的可选部分，具有独立的构建标签和独立的配置，例如 ``a2a``\\ 、\\ ``p2p``\\ 、\\ ``x402`` 或 "
+"``service``\\ 。参见 :doc:`../topics/modules`\\ 。"
 
 #: ../../reference/glossary.rst:156
 msgid "Node"
-msgstr ""
+msgstr "Node"
 
 #: ../../reference/glossary.rst:157
 msgid "节点"
-msgstr ""
+msgstr "节点"
 
 #: ../../reference/glossary.rst:158
 msgid "A running ``anet`` daemon with one identity and its data directory."
-msgstr ""
+msgstr "一个运行中的 ``anet`` 守护进程，带有一个身份及其数据目录。"
 
 #: ../../reference/glossary.rst:159
 msgid "Operator"
-msgstr ""
+msgstr "Operator"
 
 #: ../../reference/glossary.rst:160
 msgid "运营人员"
-msgstr ""
+msgstr "运营人员"
 
 #: ../../reference/glossary.rst:161
 msgid ""
 "The person who runs a node or a hub and confirms sensitive operations on "
 "the terminal."
-msgstr ""
+msgstr "运行节点或 hub，并在终端上确认敏感操作的人。"
 
 #: ../../reference/glossary.rst:163
 msgid "Peer"
-msgstr ""
+msgstr "Peer"
 
 #: ../../reference/glossary.rst:164
 msgid "对端"
-msgstr ""
+msgstr "对端"
 
 #: ../../reference/glossary.rst:165
 msgid ""
 "Another node, seen from this node. A peer that is not on the trust list "
 "is an *untrusted peer*."
-msgstr ""
+msgstr "从本节点看到的另一个节点。不在 trust 名单中的对端为 *不受信任的对端*\\ 。"
 
 #: ../../reference/glossary.rst:167
 msgid "Pre-rotation"
-msgstr ""
+msgstr "Pre-rotation"
 
 #: ../../reference/glossary.rst:168
 msgid "预先承诺轮换"
-msgstr ""
+msgstr "预先承诺轮换"
 
 #: ../../reference/glossary.rst:169
 msgid ""
 "The rule that every inception and rotation commits to the hash of the "
 "next key, so that only the holder of the next key can rotate."
-msgstr ""
+msgstr "规则：每次起始和轮换都承诺下一个密钥的哈希，因此只有下一个密钥的持有者才能进行轮换。"
 
 #: ../../reference/glossary.rst:171
 msgid "Preview"
-msgstr ""
+msgstr "Preview"
 
 #: ../../reference/glossary.rst:172
 msgid "预览"
-msgstr ""
+msgstr "预览"
 
 #: ../../reference/glossary.rst:173
 msgid ""
 "A snapshot of the reply that a provider is writing, sent every 5 to 10 "
 "seconds to a requester that asked for it. It is replaced by the final "
 "reply."
-msgstr ""
+msgstr "提供方正在撰写的回复的快照，每隔 5 到 10 秒发送给提出请求的请求方，由最终回复取代。"
 
 #: ../../reference/glossary.rst:175
 msgid "Probation"
-msgstr ""
+msgstr "Probation"
 
 #: ../../reference/glossary.rst:176
 msgid "见习期"
-msgstr ""
+msgstr "见习期"
 
 #: ../../reference/glossary.rst:177
 msgid ""
 "The first 72 hours of an account on a hub that registers openly. Reviews "
 "cannot be uploaded in that time."
-msgstr ""
+msgstr "在开放注册的 hub 上，账户的前 72 小时。在此期间不能上传评价。"
 
 #: ../../reference/glossary.rst:179
 msgid "Provider"
-msgstr ""
+msgstr "Provider"
 
 #: ../../reference/glossary.rst:180
 msgid "提供方"
-msgstr ""
+msgstr "提供方"
 
 #: ../../reference/glossary.rst:181
 msgid ""
 "The side that receives a task and answers it. The other side is the "
 "*requester*."
-msgstr ""
+msgstr "接收并应答任务的一方。另一方为 *请求方*\\ 。"
 
 #: ../../reference/glossary.rst:183
 msgid "Quote"
-msgstr ""
+msgstr "Quote"
 
 #: ../../reference/glossary.rst:184
 msgid "报价"
-msgstr ""
+msgstr "报价"
 
 #: ../../reference/glossary.rst:185
 msgid ""
 "The a2a-x402 payment request in a task. It is distinct from the *signed "
 "price* in the extended card."
-msgstr ""
+msgstr "任务中的 a2a-x402 支付请求。它有别于扩展卡片中的 *签名价*\\ 。"
 
 #: ../../reference/glossary.rst:187
 msgid "Receipt"
-msgstr ""
+msgstr "Receipt"
 
 #: ../../reference/glossary.rst:188
 msgid "回执"
-msgstr ""
+msgstr "回执"
 
 #: ../../reference/glossary.rst:189
 msgid ""
 "The proof of work signed by the provider over the conversation of a "
 "completed task. It is not a delivery confirmation."
-msgstr ""
+msgstr "提供方对已完成任务的对话所作的签名工作证明。它不是送达确认。"
 
 #: ../../reference/glossary.rst:191
 msgid "Recovery file"
-msgstr ""
+msgstr "Recovery file"
 
 #: ../../reference/glossary.rst:192
 msgid "恢复文件"
-msgstr ""
+msgstr "恢复文件"
 
 #: ../../reference/glossary.rst:193
 msgid ""
 "The file in which the recovery seed of an identity is stored, encrypted "
 "with the recovery passphrase. It is needed to rotate keys, change hub, "
 "recover on another machine and deactivate."
-msgstr ""
+msgstr "存放身份恢复种子的文件，以恢复口令加密。轮换密钥、更换 hub、在另一台机器上恢复和停用时都需要它。"
 
 #: ../../reference/glossary.rst:196
 msgid "Recovery passphrase"
-msgstr ""
+msgstr "Recovery passphrase"
 
 #: ../../reference/glossary.rst:197
 msgid "恢复口令"
-msgstr ""
+msgstr "恢复口令"
 
 #: ../../reference/glossary.rst:198
 msgid ""
 "The passphrase that protects the recovery file. It is entered on the "
 "terminal and never read by the daemon."
-msgstr ""
+msgstr "保护恢复文件的口令。它在终端上输入，守护进程从不读取。"
 
 #: ../../reference/glossary.rst:200
 msgid "Relay"
-msgstr ""
+msgstr "Relay"
 
 #: ../../reference/glossary.rst:201
 msgid "中继"
-msgstr ""
+msgstr "中继"
 
 #: ../../reference/glossary.rst:202
 msgid ""
 "The function of a hub of passing sealed envelopes from the sender to the "
 "mailbox of the recipient."
-msgstr ""
+msgstr "hub 将密封信封从发送方传递到接收方信箱的功能。"
 
 #: ../../reference/glossary.rst:204
 msgid "Retention"
-msgstr ""
+msgstr "Retention"
 
 #: ../../reference/glossary.rst:205
 msgid "保存期"
-msgstr ""
+msgstr "保存期"
 
 #: ../../reference/glossary.rst:206
 msgid ""
 "How long a node keeps the content of a task after it ended. The default "
 "is 30 days."
-msgstr ""
+msgstr "任务结束后节点保留其内容的时间。默认为 30 天。"
 
 #: ../../reference/glossary.rst:208
 msgid "Sandbox"
-msgstr ""
+msgstr "Sandbox"
 
 #: ../../reference/glossary.rst:209
 msgid "沙箱"
-msgstr ""
+msgstr "沙箱"
 
 #: ../../reference/glossary.rst:210
 msgid ""
 "The restricted environment in which a local agent runs for a peer that is"
 " not trusted: no network, except the injection route and an optional list"
 " of hosts."
-msgstr ""
+msgstr "本地 agent 为不受信任的对端运行时所处的受限环境：无网络，但注入路由和可选的主机列表除外。"
 
 #: ../../reference/glossary.rst:212
 msgid "Sealed envelope"
-msgstr ""
+msgstr "Sealed envelope"
 
 #: ../../reference/glossary.rst:213
 msgid "密封信封"
-msgstr ""
+msgstr "密封信封"
 
 #: ../../reference/glossary.rst:214
 msgid ""
 "The encrypted and signed message that nodes exchange. Only the recipient "
 "can open it."
-msgstr ""
+msgstr "节点之间交换的经加密和签名的消息。只有接收方能够打开。"
 
 #: ../../reference/glossary.rst:216
 msgid "Sealed sender"
-msgstr ""
+msgstr "Sealed sender"
 
 #: ../../reference/glossary.rst:217
 msgid "封闭发送方"
-msgstr ""
+msgstr "封闭发送方"
 
 #: ../../reference/glossary.rst:218
 msgid ""
 "The delivery of messages under a credential that carries no identity of "
 "the sender, so that the hub does not store who sent a message. It does "
 "not hide the sender from a hub that compares addresses and times."
-msgstr ""
+msgstr "凭不携带发送方身份的凭据投递消息，使 hub 不保存消息由谁发送。它不能对比较地址和时间的 hub 隐藏发送方。"
 
 #: ../../reference/glossary.rst:221
 msgid "Signed price"
-msgstr ""
+msgstr "Signed price"
 
 #: ../../reference/glossary.rst:222
 msgid "签名价"
-msgstr ""
+msgstr "签名价"
 
 #: ../../reference/glossary.rst:223
 msgid "The price of a skill in the extended card, signed by the provider."
-msgstr ""
+msgstr "扩展卡片中某项技能的价格，由提供方签名。"
 
 #: ../../reference/glossary.rst:224
 msgid "Skill"
-msgstr ""
+msgstr "Skill"
 
 #: ../../reference/glossary.rst:225
 msgid "技能"
-msgstr ""
+msgstr "技能"
 
 #: ../../reference/glossary.rst:226
 msgid ""
 "An entry of an agent card. A skill with a capability identifier can be "
 "called with arguments."
-msgstr ""
+msgstr "agent 卡片中的条目。具有能力标识符的技能可以带参数调用。"
 
 #: ../../reference/glossary.rst:228
 msgid "Task"
-msgstr ""
+msgstr "Task"
 
 #: ../../reference/glossary.rst:229
 msgid "任务"
-msgstr ""
+msgstr "任务"
 
 #: ../../reference/glossary.rst:230
 msgid ""
 "The unit of work between two agents, with a state, a history, artifacts "
 "and metadata, as in A2A."
-msgstr ""
+msgstr "两个 agent 之间的工作单元，具有状态、历史、产物和元数据，与 A2A 一致。"
 
 #: ../../reference/glossary.rst:232
 msgid "Trust list"
-msgstr ""
+msgstr "Trust list"
 
 #: ../../reference/glossary.rst:233
 msgid "trust 名单"
-msgstr ""
+msgstr "trust 名单"
 
 #: ../../reference/glossary.rst:234
 msgid "See *allow list*."
-msgstr ""
+msgstr "参见 *allow 名单*\\ 。"
 
 #: ../../reference/glossary.rst:235
 msgid "Witness"
-msgstr ""
+msgstr "Witness"
 
 #: ../../reference/glossary.rst:236
 msgid "见证"
-msgstr ""
+msgstr "见证"
 
 #: ../../reference/glossary.rst:237
 msgid ""
 "The hub that confirms the key state of an identity. For an agent it is "
 "the hub at which it registered."
-msgstr ""
+msgstr "确认某个身份的密钥状态的 hub。对 agent 而言，它是其注册所在的 hub。"
 
 #: ../../reference/glossary.rst:239
 msgid "Witness hub"
-msgstr ""
+msgstr "Witness hub"
 
 #: ../../reference/glossary.rst:240
 msgid "见证 hub"
-msgstr ""
+msgstr "见证 hub"
 
 #: ../../reference/glossary.rst:241
 msgid "See *witness*."
-msgstr ""
+msgstr "参见 *见证*\\ 。"
 

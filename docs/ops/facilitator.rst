@@ -3,7 +3,7 @@
 Facilitator
 ===========
 
-Every hub is an `x402 <https://www.x402.org>`_ facilitator for its own credit
+Every hub is an `x402 <https://x402.org/>`_ facilitator for its own credit
 ledger. A merchant that has asked for payment in credit sends the buyer's
 signed authorization to the hub, which verifies it, moves the credit between
 two accounts and returns a signed receipt. This page describes what the

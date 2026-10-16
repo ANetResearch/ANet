@@ -3,7 +3,6 @@
 # This file is distributed under the same license as the ANet package.
 # FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
 #
-#, fuzzy
 msgid ""
 msgstr ""
 "Project-Id-Version: ANet 0.3\n"
@@ -21,7 +20,7 @@ msgstr ""
 
 #: ../../reference/config.rst:4
 msgid "Configuration"
-msgstr ""
+msgstr "配置"
 
 #: ../../reference/config.rst:6
 msgid ""
@@ -30,6 +29,8 @@ msgid ""
 "``federation.json`` in its data directory. This page lists every key, its"
 " default and the way to change it."
 msgstr ""
+"节点从其数据目录中的 ``config.json`` 读取配置。hub 读取命令行标志，联邦功能则读取其数据目录中的 "
+"``federation.json``\\ 。本页列出所有配置键、它们的默认值和修改方式。"
 
 #: ../../reference/config.rst:10
 msgid ""
@@ -38,35 +39,35 @@ msgid ""
 "from other information. Internal timings, limits that form a security "
 "boundary and the location of files inside the data directory are "
 "constants and not settings."
-msgstr ""
+msgstr "配置键有意保持很少。只有当某人需要默认值以外的值，且该值无法由其他信息推得时，才会有对应的键。内部时序、构成安全边界的限制，以及数据目录内各文件的位置，都是常量，而不是设置。"
 
 #: ../../reference/config.rst:21
 msgid "How the configuration is changed"
-msgstr ""
+msgstr "配置的修改方式"
 
 #: ../../reference/config.rst:23
 msgid ""
 "``anet init`` writes the defaults and never changes a value that is "
 "already set. Three rules govern the entry points."
-msgstr ""
+msgstr "``anet init`` 写入默认值，且不会更改已设置的值。三条规则适用于各个入口。"
 
 #: ../../reference/config.rst:26
 msgid ""
 "A key that changes trust, spending or identity is changed only through "
 "the command line, and the command asks for confirmation on the terminal. "
 "Without a terminal it refuses with ``tty_required``."
-msgstr ""
+msgstr "改变信任、支出或身份的键只能通过命令行修改，且命令会在终端上请求确认。没有终端时，命令以 ``tty_required`` 拒绝。"
 
 #: ../../reference/config.rst:29
 msgid ""
 "Every other key is edited in ``config.json``. The daemon reads the file "
 "when it starts, so a change takes effect after a restart. A key that has "
 "a command takes effect at once when it is set through that command."
-msgstr ""
+msgstr "其他键都在 ``config.json`` 中编辑。守护进程在启动时读取该文件，因此修改在重启后生效。有对应命令的键，通过该命令设置时立即生效。"
 
 #: ../../reference/config.rst:32
 msgid "The MCP tools never change the configuration."
-msgstr ""
+msgstr "MCP 工具从不修改配置。"
 
 #: ../../reference/config.rst:34
 msgid ""
@@ -76,26 +77,29 @@ msgid ""
 " validation (``config_invalid``). ``anet doctor`` reports removed keys "
 "under ``config.removed`` before the daemon is started."
 msgstr ""
+"``config.json`` 含有已移除的键时，守护进程拒绝启动，并输出语句 ``config_key_removed`` 及替代方式（:ref"
+":`reference-config-removed`）。值未通过校验时（``config_invalid``），守护进程同样拒绝启动。\\ "
+"``anet doctor`` 会在守护进程启动之前，在 ``config.removed`` 下报告已移除的键。"
 
 #: ../../reference/config.rst:45
 msgid ""
 "A complete minimal ``config.json`` after a join looks as follows. Keys "
 "that have their default value need not appear."
-msgstr ""
+msgstr "加入 hub 之后，一份完整的最小 ``config.json`` 如下所示。取默认值的键无需出现。"
 
 #: ../../reference/config.rst:60
 msgid ""
 "The port in ``control_addr`` is an example. ``anet id new`` assigns a "
 "free port."
-msgstr ""
+msgstr "``control_addr`` 中的端口仅为示例。\\ ``anet id new`` 会分配一个空闲端口。"
 
 #: ../../reference/config.rst:64
 msgid "Top-level keys"
-msgstr ""
+msgstr "顶层键"
 
 #: ../../reference/config.rst:66
 msgid "``control_addr``"
-msgstr ""
+msgstr "``control_addr``"
 
 #: ../../reference/config.rst:67
 msgid ""
@@ -103,40 +107,42 @@ msgid ""
 "plane. It differs per identity so that several identities coexist on one "
 "machine. It is written by ``anet id new`` and rarely edited."
 msgstr ""
+"默认值：``127.0.0.1:<assigned>``\\ 。控制平面的监听地址。它随身份而异，使得多个身份可以共存于一台机器。它由 "
+"``anet id new`` 写入，很少需要编辑。"
 
 #: ../../reference/config.rst:71
 msgid "``hub_url``"
-msgstr ""
+msgstr "``hub_url``"
 
 #: ../../reference/config.rst:72
 msgid ""
 "Default: empty. The hub of the node. It is written only by ``anet hub-"
 "register``."
-msgstr ""
+msgstr "默认值：空。节点所属的 hub。仅由 ``anet hub-register`` 写入。"
 
 #: ../../reference/config.rst:74
 msgid "``name``, ``caps``"
-msgstr ""
+msgstr "``name``, ``caps``"
 
 #: ../../reference/config.rst:75
 msgid ""
 "Default: empty. The display name and the capability tags that the "
 "directory shows. Set with ``anet hub-register --name`` and ``--caps``."
-msgstr ""
+msgstr "默认值：空。目录中显示的显示名称和能力标签。通过 ``anet hub-register --name`` 和 ``--caps`` 设置。"
 
 #: ../../reference/config.rst:78
 msgid "``summary``, ``readme``"
-msgstr ""
+msgstr "``summary``, ``readme``"
 
 #: ../../reference/config.rst:79
 msgid ""
 "Default: empty. The self-description of the agent. Set with ``anet "
 "profile set``."
-msgstr ""
+msgstr "默认值：空。agent 的自我描述。通过 ``anet profile set`` 设置。"
 
 #: ../../reference/config.rst:81
 msgid "``no_response_after``"
-msgstr ""
+msgstr "``no_response_after``"
 
 #: ../../reference/config.rst:82
 msgid ""
@@ -148,10 +154,13 @@ msgid ""
 "14 days. Valid values are a Go duration or ``\"0\"``. The delivery line "
 "of a task names the time at which the node gives up."
 msgstr ""
+"默认值：``\"15m\"``\\ 。一个值决定两项限制：委派在以 ``delivery_unconfirmed`` "
+"失败之前可以保持未确认多久，以及对方节点确认之后，对方可以沉默多久，任务才以 ``no_response`` 结束。耗时较长的任务需要更大的值。值"
+" ``\"0\"`` 表示等待完整的 14 天消息生存期。有效值为 Go 时长或 ``\"0\"``\\ 。任务的投递行会指出节点放弃的时间。"
 
 #: ../../reference/config.rst:90
 msgid "``stream_preview``"
-msgstr ""
+msgstr "``stream_preview``"
 
 #: ../../reference/config.rst:91
 msgid ""
@@ -160,10 +169,13 @@ msgid ""
 "preview``; ``with_reasoning`` needs terminal confirmation. See "
 ":doc:`../topics/preview`."
 msgstr ""
+"默认值：``\"off\"``\\ 。本节点作为提供方时是否发送预览。取值为 ``off``\\ 、\\ ``on`` 和 "
+"``with_reasoning``\\ 。通过 ``anet preview`` 设置；``with_reasoning`` "
+"需在终端上确认。参见 :doc:`../topics/preview`\\ 。"
 
 #: ../../reference/config.rst:97
 msgid "``content_retention``"
-msgstr ""
+msgstr "``content_retention``"
 
 #: ../../reference/config.rst:98
 msgid ""
@@ -172,10 +184,13 @@ msgid ""
 "``forever``. Calls to public capabilities keep their content for 7 days "
 "regardless. Set with ``anet retention set``, which asks for confirmation."
 msgstr ""
+"默认值：``\"30d\"``\\ 。任务结束后节点保留任务内容的时间。有效值为写作 ``<N>d`` 的 1 至 3650 天，或 "
+"``forever``\\ 。公开能力的调用无论如何只保留内容 7 天。通过 ``anet retention set`` "
+"设置，该命令会请求确认。"
 
 #: ../../reference/config.rst:103
 msgid "``without``"
-msgstr ""
+msgstr "``without``"
 
 #: ../../reference/config.rst:104
 msgid ""
@@ -188,14 +203,18 @@ msgid ""
 "--with`` (one name is removed). The control plane, MCP and the local A2A "
 "interface have no way to write it. See :doc:`../topics/modules`."
 msgstr ""
+"默认值：未设置。被关闭的模块名称数组。列出的模块不会启动，节点处理其缺席的方式与未编译进来的模块相同。名称必须是已知的模块名称且不得重复；否则文件会以"
+" ``config_invalid`` 校验失败。该键可在 ``config.json`` 中编辑，或通过 ``anet init "
+"--without``\\ （添加名称，从不移除）和 ``anet init --with``\\ （移除一个名称）修改。控制平面、MCP 和本地"
+" A2A 接口都无法写入它。参见 :doc:`../topics/modules`\\ 。"
 
 #: ../../reference/config.rst:117
 msgid "``inbound``"
-msgstr ""
+msgstr "``inbound``"
 
 #: ../../reference/config.rst:119
 msgid "``inbound.policy``"
-msgstr ""
+msgstr "``inbound.policy``"
 
 #: ../../reference/config.rst:120
 msgid ""
@@ -205,6 +224,9 @@ msgid ""
 "anyone. Set with ``anet inbound policy``; loosening needs terminal "
 "confirmation."
 msgstr ""
+"默认值：``closed``\\ 。哪些对端可以发送任务。\\ ``closed`` 只接受 allow "
+"名单上的对端的任务，``approve`` 把其他对端的任务保留到运营人员批准，``open`` 接受任何人的任务。通过 ``anet "
+"inbound policy`` 设置；放宽需在终端上确认。"
 
 #: ../../reference/config.rst:125
 msgid ""
@@ -213,121 +235,123 @@ msgid ""
 "peers``. The queue of tasks that wait for approval holds at most 200 "
 "tasks, at most 3 per peer, for 72 hours. These are constants."
 msgstr ""
+"名单是数据目录中的文件 ``peers.allow``\\ 、\\ ``peers.trust`` 和 ``peers.deny``，通过 "
+"``anet peers`` 管理。等待批准的任务队列最多容纳 200 个任务，每个对端最多 3 个，保留 72 小时。这些都是常量。"
 
 #: ../../reference/config.rst:130
 msgid "``inbound.public_capabilities``"
-msgstr ""
+msgstr "``inbound.public_capabilities``"
 
 #: ../../reference/config.rst:131
 msgid ""
 "Default: ``[]``. The capabilities that this node offers to peers, as an "
 "array of objects. Each object has these keys."
-msgstr ""
+msgstr "默认值：``[]``\\ 。本节点向对端提供的能力，为对象数组。每个对象具有以下键。"
 
 #: ../../reference/config.rst:138 ../../reference/config.rst:194
 #: ../../reference/config.rst:267
 msgid "Key"
-msgstr ""
+msgstr "键"
 
 #: ../../reference/config.rst:139 ../../reference/config.rst:195
 #: ../../reference/config.rst:268
 msgid "Default"
-msgstr ""
+msgstr "默认值"
 
 #: ../../reference/config.rst:140 ../../reference/config.rst:196
 #: ../../reference/config.rst:269
 msgid "Description"
-msgstr ""
+msgstr "说明"
 
 #: ../../reference/config.rst:141
 msgid "``id``"
-msgstr ""
+msgstr "``id``"
 
 #: ../../reference/config.rst:143
 msgid "Required. The capability identifier that callers use."
-msgstr ""
+msgstr "必填。调用方使用的能力标识符。"
 
 #: ../../reference/config.rst:144
 msgid "``per_caller_per_min``"
-msgstr ""
+msgstr "``per_caller_per_min``"
 
 #: ../../reference/config.rst:145
 msgid "60"
-msgstr ""
+msgstr "60"
 
 #: ../../reference/config.rst:146
 msgid "Calls per caller and minute."
-msgstr ""
+msgstr "每个调用方每分钟的调用次数。"
 
 #: ../../reference/config.rst:147
 msgid "``per_caller_per_day``"
-msgstr ""
+msgstr "``per_caller_per_day``"
 
 #: ../../reference/config.rst:148
 msgid "2000"
-msgstr ""
+msgstr "2000"
 
 #: ../../reference/config.rst:149
 msgid "Calls per caller and UTC day."
-msgstr ""
+msgstr "每个调用方每个 UTC 日的调用次数。"
 
 #: ../../reference/config.rst:150
 msgid "``global_per_min``"
-msgstr ""
+msgstr "``global_per_min``"
 
 #: ../../reference/config.rst:151
 msgid "1200"
-msgstr ""
+msgstr "1200"
 
 #: ../../reference/config.rst:152
 msgid "Calls per minute from all callers."
-msgstr ""
+msgstr "所有调用方每分钟的调用次数。"
 
 #: ../../reference/config.rst:153
 msgid "``max_inflight``"
-msgstr ""
+msgstr "``max_inflight``"
 
 #: ../../reference/config.rst:154
 msgid "16"
-msgstr ""
+msgstr "16"
 
 #: ../../reference/config.rst:155
 msgid "Calls running at the same time."
-msgstr ""
+msgstr "同时运行的调用数。"
 
 #: ../../reference/config.rst:156
 msgid "``per_caller_inflight``"
-msgstr ""
+msgstr "``per_caller_inflight``"
 
 #: ../../reference/config.rst:157
 msgid "1"
-msgstr ""
+msgstr "1"
 
 #: ../../reference/config.rst:158
 msgid ""
 "Calls of one caller running at the same time; at least 1 and at most "
 "``max_inflight``."
-msgstr ""
+msgstr "同一调用方同时运行的调用数；至少为 1，至多为 ``max_inflight``\\ 。"
 
 #: ../../reference/config.rst:160
 msgid "``max_args_bytes``"
-msgstr ""
+msgstr "``max_args_bytes``"
 
 #: ../../reference/config.rst:161
 msgid "4096"
-msgstr ""
+msgstr "4096"
 
 #: ../../reference/config.rst:162
 msgid "Largest size of the arguments object."
-msgstr ""
+msgstr "参数对象的最大大小。"
 
 #: ../../reference/config.rst:163
 msgid "``files``"
-msgstr ""
+msgstr "``files``"
 
 #: ../../reference/config.rst:164
 msgid "none"
-msgstr ""
+msgstr "无"
 
 #: ../../reference/config.rst:165
 msgid ""
@@ -337,91 +361,98 @@ msgid ""
 "provided by the ``service`` module. The declared type of a file is not "
 "trusted; the node detects the type from the content."
 msgstr ""
+"调用可以携带的文件：``count``\\ （1 至 8）、\\ ``max_bytes``\\ （1 字节至 64 MiB）和 "
+"``types``\\ （至少一个 Go 函数 ``http.DetectContentType`` 能够检测的内容类型）。该能力必须由 "
+"``service`` 模块提供。文件声明的类型不被信任；节点根据内容检测类型。"
 
 #: ../../reference/config.rst:170
 msgid "``discard``"
-msgstr ""
+msgstr "``discard``"
 
 #: ../../reference/config.rst:171 ../../reference/config.rst:175
 msgid "``false``"
-msgstr ""
+msgstr "``false``"
 
 #: ../../reference/config.rst:172
 msgid ""
 "The node does not keep the request body of a call. This restricts only "
 "the storage of ``anet``, not the behavior of the backend program."
-msgstr ""
+msgstr "节点不保留调用的请求体。这只限制 ``anet`` 的存储，不限制后端程序的行为。"
 
 #: ../../reference/config.rst:174
 msgid "``allow_only``"
-msgstr ""
+msgstr "``allow_only``"
 
 #: ../../reference/config.rst:176
 msgid ""
 "The capability is offered only to peers on the allow list or the trust "
 "list. It does not appear on any card or registry entry that a hub can "
 "read."
-msgstr ""
+msgstr "该能力仅向 allow 名单或 trust 名单上的对端提供。它不会出现在 hub 可以读取的任何卡片或注册条目中。"
 
 #: ../../reference/config.rst:182
 msgid ""
 "The declaration of a capability is described in "
 ":doc:`../topics/capabilities`."
-msgstr ""
+msgstr "能力的声明方式见 :doc:`../topics/capabilities`\\ 。"
 
 #: ../../reference/config.rst:186
 msgid "``auto_reply``"
-msgstr ""
+msgstr "``auto_reply``"
 
 #: ../../reference/config.rst:188
 msgid "The block is absent by default, which means that the auto-reply is off."
-msgstr ""
+msgstr "该块默认不存在，表示自动回复关闭。"
 
 #: ../../reference/config.rst:197
 msgid "``backend``"
-msgstr ""
+msgstr "``backend``"
 
 #: ../../reference/config.rst:198
 msgid "``openai``"
-msgstr ""
+msgstr "``openai``"
 
 #: ../../reference/config.rst:199
 msgid ""
 "``exec`` starts a local coding agent, ``openai`` calls an OpenAI-"
 "compatible API. Set with ``anet autoreply set --backend``."
 msgstr ""
+"``exec`` 启动本地编程 agent，``openai`` 调用兼容 OpenAI 的 API。通过 ``anet autoreply "
+"set --backend`` 设置。"
 
 #: ../../reference/config.rst:201
 msgid "``agent``"
-msgstr ""
+msgstr "``agent``"
 
 #: ../../reference/config.rst:203
 msgid ""
 "Required for ``exec``: ``cursor``, ``claude``, ``codex``, ``opencode``, "
 "``openclaw`` or ``hermes``."
 msgstr ""
+"``exec`` 必填：``cursor``\\ 、\\ ``claude``\\ 、\\ ``codex``\\ 、\\ "
+"``opencode``\\ 、\\ ``openclaw`` 或 ``hermes``\\ 。"
 
 #: ../../reference/config.rst:205
 msgid "``untrusted``"
-msgstr ""
+msgstr "``untrusted``"
 
 #: ../../reference/config.rst:206
 msgid "``off``"
-msgstr ""
+msgstr "``off``"
 
 #: ../../reference/config.rst:207
 msgid ""
 "``off`` or ``sandbox``. Whether tasks of peers that are not trusted are "
 "answered, and in the sandbox."
-msgstr ""
+msgstr "``off`` 或 ``sandbox``\\ 。是否应答不受信任的对端的任务，以及是否在沙箱中应答。"
 
 #: ../../reference/config.rst:209
 msgid "``trusted``"
-msgstr ""
+msgstr "``trusted``"
 
 #: ../../reference/config.rst:210
 msgid "``direct``"
-msgstr ""
+msgstr "``direct``"
 
 #: ../../reference/config.rst:211
 msgid ""
@@ -429,203 +460,207 @@ msgid ""
 "``sandbox`` runs it in the sandbox. Changing from ``sandbox`` to "
 "``direct`` is confirmed on the terminal."
 msgstr ""
+"``direct`` 以节点用户的身份为受信任的对端运行 agent；``sandbox`` 在沙箱中运行。从 ``sandbox`` 改为 "
+"``direct`` 需在终端上确认。"
 
 #: ../../reference/config.rst:214
 msgid "``api_base``, ``model``, ``system_prompt``"
-msgstr ""
+msgstr "``api_base``, ``model``, ``system_prompt``"
 
 #: ../../reference/config.rst:215 ../../reference/config.rst:219
 msgid "empty"
-msgstr ""
+msgstr "空"
 
 #: ../../reference/config.rst:216
 msgid ""
 "Settings of the ``openai`` backend; ``model`` also overrides the model of"
 " an ``exec`` agent."
-msgstr ""
+msgstr "``openai`` 后端的设置；``model`` 同时覆盖 ``exec`` agent 的模型。"
 
 #: ../../reference/config.rst:218
 msgid "``api_key``"
-msgstr ""
+msgstr "``api_key``"
 
 #: ../../reference/config.rst:220
 msgid ""
 "Write-only. Set with ``--api-key-stdin``. The value is not shown by "
 "``anet autoreply show``, the control plane or the logs."
-msgstr ""
+msgstr "只写。通过 ``--api-key-stdin`` 设置。\\ ``anet autoreply show``\\ 、控制平面和日志都不显示该值。"
 
 #: ../../reference/config.rst:222
 msgid "``work_dir``"
-msgstr ""
+msgstr "``work_dir``"
 
 #: ../../reference/config.rst:223
 msgid "a directory in the data directory"
-msgstr ""
+msgstr "数据目录中的一个目录"
 
 #: ../../reference/config.rst:224
 msgid ""
 "Working directory of runs in ``direct`` mode. An invalid path is reported"
 " as ``work_dir_invalid``."
-msgstr ""
+msgstr "``direct`` 模式下运行的工作目录。无效路径报告为 ``work_dir_invalid``\\ 。"
 
 #: ../../reference/config.rst:226
 msgid "``command``"
-msgstr ""
+msgstr "``command``"
 
 #: ../../reference/config.rst:227
 msgid "found on ``PATH``"
-msgstr ""
+msgstr "在 ``PATH`` 中查找"
 
 #: ../../reference/config.rst:228
 msgid "Path of the agent program."
-msgstr ""
+msgstr "agent 程序的路径。"
 
 #: ../../reference/config.rst:229
 msgid "``extra_args``"
-msgstr ""
+msgstr "``extra_args``"
 
 #: ../../reference/config.rst:230 ../../reference/config.rst:243
 msgid "``[]``"
-msgstr ""
+msgstr "``[]``"
 
 #: ../../reference/config.rst:231
 msgid "Additional arguments for the agent program."
-msgstr ""
+msgstr "传给 agent 程序的额外参数。"
 
 #: ../../reference/config.rst:232
 msgid "``openclaw_agent``"
-msgstr ""
+msgstr "``openclaw_agent``"
 
 #: ../../reference/config.rst:233
 msgid "``main``"
-msgstr ""
+msgstr "``main``"
 
 #: ../../reference/config.rst:234
 msgid "The ``--agent`` value for ``openclaw``."
-msgstr ""
+msgstr "``openclaw`` 的 ``--agent`` 值。"
 
 #: ../../reference/config.rst:235
 msgid "``max_history``"
-msgstr ""
+msgstr "``max_history``"
 
 #: ../../reference/config.rst:236 ../../reference/config.rst:247
 msgid "20"
-msgstr ""
+msgstr "20"
 
 #: ../../reference/config.rst:237
 msgid "Conversation turns sent to the backend."
-msgstr ""
+msgstr "发送给后端的对话轮数。"
 
 #: ../../reference/config.rst:238
 msgid "``api_timeout_seconds``"
-msgstr ""
+msgstr "``api_timeout_seconds``"
 
 #: ../../reference/config.rst:239
 msgid "180"
-msgstr ""
+msgstr "180"
 
 #: ../../reference/config.rst:240
 msgid ""
 "Timeout of one backend call. It is also the wall-clock limit of a run in "
 "the sandbox."
-msgstr ""
+msgstr "一次后端调用的超时。它同时是沙箱中一次运行的挂钟时间上限。"
 
 #: ../../reference/config.rst:242
 msgid "``sandbox.egress_allow``"
-msgstr ""
+msgstr "``sandbox.egress_allow``"
 
 #: ../../reference/config.rst:244
 msgid ""
 "Exact host names that sandboxed runs may reach through CONNECT. Every "
 "listed host is an outbound channel. See :doc:`../topics/sandbox`."
 msgstr ""
+"沙箱中的运行可以通过 CONNECT 访问的确切主机名。列出的每个主机都是一条出站通道。参见 :doc:`../topics/sandbox`\\"
+" 。"
 
 #: ../../reference/config.rst:246
 msgid "``sandbox.runs_per_day``"
-msgstr ""
+msgstr "``sandbox.runs_per_day``"
 
 #: ../../reference/config.rst:248
 msgid ""
 "Runs per local calendar day for peers that are not trusted. An invalid "
 "value is reported as ``budget_invalid``."
-msgstr ""
+msgstr "不受信任的对端每个本地日历日的运行次数。无效值报告为 ``budget_invalid``\\ 。"
 
 #: ../../reference/config.rst:250
 msgid "``sandbox.runs_per_peer_per_day``"
-msgstr ""
+msgstr "``sandbox.runs_per_peer_per_day``"
 
 #: ../../reference/config.rst:251
 msgid "5"
-msgstr ""
+msgstr "5"
 
 #: ../../reference/config.rst:252
 msgid "The same limit for one peer."
-msgstr ""
+msgstr "针对单个对端的同一限制。"
 
 #: ../../reference/config.rst:254
 msgid ""
 "The interval at which the daemon looks for tasks (5 seconds) and the cap "
 "of 30 automatic messages per interaction are constants."
-msgstr ""
+msgstr "守护进程查找任务的间隔（5 秒）以及每次交互 30 条自动消息的上限是常量。"
 
 #: ../../reference/config.rst:261
 msgid "``payments``"
-msgstr ""
+msgstr "``payments``"
 
 #: ../../reference/config.rst:270
 msgid "``auto_max``"
-msgstr ""
+msgstr "``auto_max``"
 
 #: ../../reference/config.rst:271 ../../reference/config.rst:274
 #: ../../reference/config.rst:277
 msgid "0"
-msgstr ""
+msgstr "0"
 
 #: ../../reference/config.rst:272
 msgid "Largest amount in credits that the node pays by itself for one task."
-msgstr ""
+msgstr "节点为一个任务自行支付的最大金额，以 credits 计。"
 
 #: ../../reference/config.rst:273
 msgid "``agent_max``"
-msgstr ""
+msgstr "``agent_max``"
 
 #: ../../reference/config.rst:275
 msgid "Largest amount for one payment that a coding agent submits through MCP."
-msgstr ""
+msgstr "编程 agent 通过 MCP 提交的单笔支付的最大金额。"
 
 #: ../../reference/config.rst:276
 msgid "``agent_daily_max``"
-msgstr ""
+msgstr "``agent_daily_max``"
 
 #: ../../reference/config.rst:278
 msgid "Total per day for payments that a coding agent submits."
-msgstr ""
+msgstr "编程 agent 提交的支付的每日总额。"
 
 #: ../../reference/config.rst:279
 msgid "``explicit_max``"
-msgstr ""
+msgstr "``explicit_max``"
 
 #: ../../reference/config.rst:280
 msgid "10"
-msgstr ""
+msgstr "10"
 
 #: ../../reference/config.rst:281
 msgid ""
 "Largest amount for one payment that the operator confirms with ``anet "
 "pay``."
-msgstr ""
+msgstr "运营人员用 ``anet pay`` 确认的单笔支付的最大金额。"
 
 #: ../../reference/config.rst:282
 msgid "``daily_max``"
-msgstr ""
+msgstr "``daily_max``"
 
 #: ../../reference/config.rst:283
 msgid "50"
-msgstr ""
+msgstr "50"
 
 #: ../../reference/config.rst:284
 msgid "Total per day over all payments. Automatic payments count toward it."
-msgstr ""
+msgstr "所有支付的每日总额。自动支付计入其中。"
 
 #: ../../reference/config.rst:286
 msgid ""
@@ -635,10 +670,12 @@ msgid ""
 " list is always in force. A quote that is higher than the price in the "
 "signed extended card of the provider is not paid automatically."
 msgstr ""
+"这五个键只能用 ``anet payments set`` 修改，该命令会请求确认。自动支付的收款方名单是数据目录中的文件 "
+"``payees.allow``，通过 ``anet payees`` 管理。该名单始终有效。高于提供方签名的扩展卡片中价格的报价不会被自动支付。"
 
 #: ../../reference/config.rst:294
 msgid "``modules``"
-msgstr ""
+msgstr "``modules``"
 
 #: ../../reference/config.rst:296
 msgid ""
@@ -646,18 +683,20 @@ msgid ""
 ":doc:`../topics/modules` for the modules that exist and for the build "
 "tags that leave a module out."
 msgstr ""
+"可选模块在 ``modules.<name>`` 下读取其配置。现有的模块以及用于排除模块的构建标签，参见 "
+":doc:`../topics/modules`\\ 。"
 
 #: ../../reference/config.rst:300
 msgid "``modules.a2a``"
-msgstr ""
+msgstr "``modules.a2a``"
 
 #: ../../reference/config.rst:301
 msgid "The local A2A interface and the A2A backends that the node reaches."
-msgstr ""
+msgstr "本地 A2A 接口，以及节点所连接的 A2A 后端。"
 
 #: ../../reference/config.rst:303
 msgid "``backends[]``"
-msgstr ""
+msgstr "``backends[]``"
 
 #: ../../reference/config.rst:304
 msgid ""
@@ -666,52 +705,56 @@ msgid ""
 "listens on a Unix socket also accepts the keys of the *backend policy* "
 "below."
 msgstr ""
+"包含 ``match``\\ （哪些对端或任务使用该后端）、\\ ``url``\\ 、\\ ``token_file``\\ 、\\ "
+"``accept_untrusted`` 和 ``toolless`` 的对象。监听 Unix 套接字的后端还接受下文 *后端策略* 的各个键。"
 
 #: ../../reference/config.rst:309
 msgid "``retry``"
-msgstr ""
+msgstr "``retry``"
 
 #: ../../reference/config.rst:310
 msgid "``max_interval`` (default ``2m``) and ``give_up_after`` (default ``10m``)."
-msgstr ""
+msgstr "``max_interval``\\ （默认 ``2m``）和 ``give_up_after``\\ （默认 ``10m``）。"
 
 #: ../../reference/config.rst:312
 msgid "``modules.anetlink``"
-msgstr ""
+msgstr "``modules.anetlink``"
 
 #: ../../reference/config.rst:313
 msgid ""
 "The connection to an ANetLink process, which serves capabilities through "
 "the C1 interface. The interface runs over a Unix socket only."
-msgstr ""
+msgstr "与 ANetLink 进程的连接，后者通过 C1 接口提供能力。该接口只通过 Unix 套接字运行。"
 
 #: ../../reference/config.rst:316 ../../reference/config.rst:346
 msgid "``socket``"
-msgstr ""
+msgstr "``socket``"
 
 #: ../../reference/config.rst:317
 msgid ""
 "Default: ``$XDG_RUNTIME_DIR/anetlink/c1.sock``. Required when "
 "``XDG_RUNTIME_DIR`` is not set."
-msgstr ""
+msgstr "默认值：``$XDG_RUNTIME_DIR/anetlink/c1.sock``\\ 。未设置 ``XDG_RUNTIME_DIR`` 时必填。"
 
 #: ../../reference/config.rst:320
 msgid ""
 "The keys of the backend policy ``expected_user`` and ``socket_group`` "
 "apply. ``allow_tcp: true`` is refused with ``config_invalid``."
 msgstr ""
+"适用后端策略的键 ``expected_user`` 和 ``socket_group``\\ 。\\ ``allow_tcp: true`` "
+"会以 ``config_invalid`` 拒绝。"
 
 #: ../../reference/config.rst:323
 msgid "``modules.service``"
-msgstr ""
+msgstr "``modules.service``"
 
 #: ../../reference/config.rst:324
 msgid "Capabilities that are served by local HTTP or Unix-socket programs."
-msgstr ""
+msgstr "由本地 HTTP 或 Unix 套接字程序提供的能力。"
 
 #: ../../reference/config.rst:326
 msgid "``capabilities[]``"
-msgstr ""
+msgstr "``capabilities[]``"
 
 #: ../../reference/config.rst:327
 msgid ""
@@ -724,10 +767,18 @@ msgid ""
 "signed extended card only. For a capability that declares ``files``, "
 "``input_modes`` follows from the declaration and must not contradict it."
 msgstr ""
+"包含 ``id``\\ 、\\ ``url``\\ 、\\ ``price``\\ 、\\ ``description``\\ 、\\ "
+"``protocol``\\ 、\\ ``name``\\ 、\\ ``tags``\\ 、\\ ``examples``\\ 、\\ "
+"``input_modes``\\ 、\\ ``output_modes``\\ 、\\ ``timeout_ms`` 和 "
+"``token_file`` 的对象。\\ ``url`` 为 "
+"``unix:///path/to/socket[:/request/path]``\\ （推荐），或带 ``allow_tcp`` 的 "
+"``http(s)://``\\ 。\\ ``price`` 是以 credits "
+"计的金额；没有价格的能力免费。所列价格仅发布在签名的扩展卡片中。对于声明了 ``files`` 的能力，``input_modes`` "
+"由该声明得出，且不得与之矛盾。"
 
 #: ../../reference/config.rst:336
 msgid "``timeout_ms``, ``token_file``"
-msgstr ""
+msgstr "``timeout_ms``, ``token_file``"
 
 #: ../../reference/config.rst:337
 #, python-brace-format
@@ -735,115 +786,117 @@ msgid ""
 "Defaults for all capabilities (the default timeout is 2 minutes). The "
 "token file must have an absolute path, may use ``$VAR`` and ``${VAR}``, "
 "and must not be readable by other users."
-msgstr ""
+msgstr "所有能力的默认值（默认超时为 2 分钟）。令牌文件必须使用绝对路径，可以使用 ``$VAR`` 和 ``${VAR}``，且不得被其他用户读取。"
 
 #: ../../reference/config.rst:343
 msgid "``modules.p2p``"
-msgstr ""
+msgstr "``modules.p2p``"
 
 #: ../../reference/config.rst:344
 msgid "Direct connections between nodes."
-msgstr ""
+msgstr "节点之间的直接连接。"
 
 #: ../../reference/config.rst:347
 msgid "The socket of the peer process."
-msgstr ""
+msgstr "对端进程的套接字。"
 
 #: ../../reference/config.rst:349
 msgid "``advertise``"
-msgstr ""
+msgstr "``advertise``"
 
 #: ../../reference/config.rst:350
 msgid ""
 "Default: empty. The ``host:port`` address that contacts dial to reach the"
 " node directly. It is given only to contacts that are on a list and never"
 " appears on a card that anyone can read."
-msgstr ""
+msgstr "默认值：空。联系人用于直接连接本节点的 ``host:port`` 地址。它只提供给名单上的联系人，从不出现在任何人都能读取的卡片中。"
 
 #: ../../reference/config.rst:354
 msgid "``lan``"
-msgstr ""
+msgstr "``lan``"
 
 #: ../../reference/config.rst:355
 msgid ""
 "Default: ``false``. Permits direct connections to private addresses. Use "
 "it only in a laboratory on one network."
-msgstr ""
+msgstr "默认值：``false``\\ 。允许直接连接到私有地址。仅在同一网络内的实验环境中使用。"
 
 #: ../../reference/config.rst:358
 msgid "``modules.x402``"
-msgstr ""
+msgstr "``modules.x402``"
 
 #: ../../reference/config.rst:359
 msgid ""
 "The payment module has no setting in 0.3. The balance proofs of the hub "
 "are checked automatically every 6 hours."
-msgstr ""
+msgstr "支付模块在 0.3 中没有设置。hub 的余额证明每 6 小时自动检查一次。"
 
 #: ../../reference/config.rst:362
 msgid ""
 "``modules.cas``, ``modules.shell``, ``modules.blackboard``, "
 "``modules.org``"
 msgstr ""
+"``modules.cas``, ``modules.shell``, ``modules.blackboard``, "
+"``modules.org``"
 
 #: ../../reference/config.rst:363
 msgid "Optional modules with their own settings. They are unchanged in 0.3."
-msgstr ""
+msgstr "带有自己设置的可选模块。它们在 0.3 中保持不变。"
 
 #: ../../reference/config.rst:366
 msgid "Backend policy (all Unix-socket backends)"
-msgstr ""
+msgstr "后端策略（所有 Unix 套接字后端）"
 
 #: ../../reference/config.rst:368
 msgid ""
 "A module that connects to a local backend over a Unix socket checks the "
 "user of the process that listens on the socket."
-msgstr ""
+msgstr "通过 Unix 套接字连接本地后端的模块，会检查监听该套接字的进程的用户。"
 
 #: ../../reference/config.rst:371
 msgid "``expected_user``"
-msgstr ""
+msgstr "``expected_user``"
 
 #: ../../reference/config.rst:372
 msgid ""
 "User name or numeric uid that must own the listening process. Not set by "
 "default."
-msgstr ""
+msgstr "必须拥有监听进程的用户名或数字 uid。默认不设置。"
 
 #: ../../reference/config.rst:375
 msgid "``socket_group``"
-msgstr ""
+msgstr "``socket_group``"
 
 #: ../../reference/config.rst:376
 msgid ""
 "Group of the socket. Required when more than one other user may connect. "
 "Not set by default."
-msgstr ""
+msgstr "套接字的组。多于一个其他用户可以连接时必填。默认不设置。"
 
 #: ../../reference/config.rst:379
 msgid "``peer_check``"
-msgstr ""
+msgstr "``peer_check``"
 
 #: ../../reference/config.rst:380
 msgid ""
 "Default: ``\"\"`` (strict). The value ``\"path-only\"`` selects an "
 "explicit degraded mode for platforms where the peer user cannot be read. "
 "Only the directory chain is then checked."
-msgstr ""
+msgstr "默认值：``\"\"``\\ （严格）。值 ``\"path-only\"`` 为无法读取对端用户的平台选择明确的降级模式，此时只检查目录链。"
 
 #: ../../reference/config.rst:384
 msgid "``allow_tcp``"
-msgstr ""
+msgstr "``allow_tcp``"
 
 #: ../../reference/config.rst:385
 msgid ""
 "Not set by default. Permits ``http(s)`` backends on TCP. It is refused "
 "for ``modules.anetlink``."
-msgstr ""
+msgstr "默认不设置。允许基于 TCP 的 ``http(s)`` 后端。对 ``modules.anetlink`` 会被拒绝。"
 
 #: ../../reference/config.rst:390
 msgid "The data directory"
-msgstr ""
+msgstr "数据目录"
 
 #: ../../reference/config.rst:392
 msgid ""
@@ -851,26 +904,28 @@ msgid ""
 "directory named by ``ANET_DATA_DIR`` (see :doc:`cli`). The files that "
 "matter for operation are:"
 msgstr ""
+"数据目录为 ``<home>/``\\ 、\\ ``<home>/ids/<name>/``，或 ``ANET_DATA_DIR`` "
+"所指定的目录（参见 :doc:`cli`）。与运行相关的文件如下："
 
 #: ../../reference/config.rst:399
 msgid "File or directory"
-msgstr ""
+msgstr "文件或目录"
 
 #: ../../reference/config.rst:400
 msgid "Content"
-msgstr ""
+msgstr "内容"
 
 #: ../../reference/config.rst:401
 msgid "``config.json``"
-msgstr ""
+msgstr "``config.json``"
 
 #: ../../reference/config.rst:402
 msgid "The configuration described on this page."
-msgstr ""
+msgstr "本页所述的配置。"
 
 #: ../../reference/config.rst:403
 msgid "``peers.allow``, ``peers.trust``, ``peers.deny``"
-msgstr ""
+msgstr "``peers.allow``, ``peers.trust``, ``peers.deny``"
 
 #: ../../reference/config.rst:404
 msgid ""
@@ -878,42 +933,44 @@ msgid ""
 "them for every decision, so an edit takes effect at the next message "
 "without a restart. A missing file is an empty list."
 msgstr ""
+"对端名单，每行一个 AID，权限模式为 ``0600``\\ "
+"。守护进程在每次决策时读取它们，因此编辑在下一条消息时生效，无需重启。文件缺失等同于空名单。"
 
 #: ../../reference/config.rst:407
 msgid "``payees.allow``"
-msgstr ""
+msgstr "``payees.allow``"
 
 #: ../../reference/config.rst:408
 msgid "The payee list for automatic payments."
-msgstr ""
+msgstr "自动支付的收款方名单。"
 
 #: ../../reference/config.rst:409
 msgid "``interactions.db``"
-msgstr ""
+msgstr "``interactions.db``"
 
 #: ../../reference/config.rst:410
 msgid ""
 "The store of tasks and the evidence chain. The SQLite ``user_version`` is"
 " 3."
-msgstr ""
+msgstr "任务存储和证据链。SQLite 的 ``user_version`` 为 3。"
 
 #: ../../reference/config.rst:411
 msgid "``enc_keys.cbor``"
-msgstr ""
+msgstr "``enc_keys.cbor``"
 
 #: ../../reference/config.rst:412
 msgid "The encryption key ring; the format version ``v`` is 2."
-msgstr ""
+msgstr "加密密钥环；格式版本 ``v`` 为 2。"
 
 #: ../../reference/config.rst:413
 msgid "``modules/<name>/``"
-msgstr ""
+msgstr "``modules/<name>/``"
 
 #: ../../reference/config.rst:414
 msgid ""
 "Private state of a module. The local A2A interface keeps its address in "
 "``a2a_addr.txt`` and its bearer token in ``a2a_token.txt`` there."
-msgstr ""
+msgstr "模块的私有状态。本地 A2A 接口把其地址保存在 ``a2a_addr.txt``，把其持有者令牌保存在 ``a2a_token.txt``\\ 。"
 
 #: ../../reference/config.rst:417
 msgid ""
@@ -921,60 +978,62 @@ msgid ""
 "version 0.2 data with ``identity_v02``, and data of a newer release with "
 "``datadir_too_new``. See :doc:`../upgrading`."
 msgstr ""
+"由更早或更晚的版本写入的数据目录会被拒绝：0.2 版本的数据以 ``identity_v02`` 拒绝，更新版本的数据以 "
+"``datadir_too_new`` 拒绝。参见 :doc:`../upgrading`\\ 。"
 
 #: ../../reference/config.rst:423
 msgid "Environment variables"
-msgstr ""
+msgstr "环境变量"
 
 #: ../../reference/config.rst:429
 msgid "Variable"
-msgstr ""
+msgstr "变量"
 
 #: ../../reference/config.rst:430
 msgid "Effect"
-msgstr ""
+msgstr "作用"
 
 #: ../../reference/config.rst:431
 msgid "``ANET_HOME``"
-msgstr ""
+msgstr "``ANET_HOME``"
 
 #: ../../reference/config.rst:432
 msgid "The home directory that holds the identities. Default ``~/.anet``."
-msgstr ""
+msgstr "保存各身份的 home 目录。默认为 ``~/.anet``\\ 。"
 
 #: ../../reference/config.rst:433
 msgid "``ANET_ID``"
-msgstr ""
+msgstr "``ANET_ID``"
 
 #: ../../reference/config.rst:434
 msgid "Selects the identity, like ``--id``."
-msgstr ""
+msgstr "选择身份，与 ``--id`` 相同。"
 
 #: ../../reference/config.rst:435
 msgid "``ANET_DATA_DIR``"
-msgstr ""
+msgstr "``ANET_DATA_DIR``"
 
 #: ../../reference/config.rst:436
 msgid "Names one raw data directory outside the home layout."
-msgstr ""
+msgstr "指定位于 home 布局之外的一个原始数据目录。"
 
 #: ../../reference/config.rst:437
 msgid "``LC_ALL``, ``LC_MESSAGES``, ``LANG``"
-msgstr ""
+msgstr "``LC_ALL``, ``LC_MESSAGES``, ``LANG``"
 
 #: ../../reference/config.rst:438
 msgid ""
 "Select the language of sentences: Chinese when the first non-empty value "
 "begins with ``zh``, English otherwise."
-msgstr ""
+msgstr "选择语句的语言：第一个非空的值以 ``zh`` 开头时为中文，否则为英文。"
 
 #: ../../reference/config.rst:440
 msgid "``ADMIN_TOKEN``"
-msgstr ""
+msgstr "``ADMIN_TOKEN``"
 
 #: ../../reference/config.rst:441
 msgid "The credential of ``anet-hub-admin``."
-msgstr ""
+msgstr "``anet-hub-admin`` 的凭据。"
 
 #: ../../reference/config.rst:443
 msgid ""
@@ -982,14 +1041,16 @@ msgid ""
 "doctor`` reports it under ``config.removed`` with level ``warn``, and the"
 " daemon does not refuse to start because of it."
 msgstr ""
+"早期版本的变量 ``ANET_INVITE`` 会被忽略。\\ ``anet doctor`` 在 ``config.removed`` 下以 "
+"``warn`` 级别报告它，守护进程不会因此拒绝启动。"
 
 #: ../../reference/config.rst:449
 msgid "Hub configuration"
-msgstr ""
+msgstr "hub 配置"
 
 #: ../../reference/config.rst:452
 msgid "Command-line flags"
-msgstr ""
+msgstr "命令行标志"
 
 #: ../../reference/config.rst:454
 msgid ""
@@ -997,10 +1058,12 @@ msgid ""
 " the scale of the hub are constants. The quota of a single recipient is "
 "raised per AID with ``anet-hub quota``; no global flag exists for it."
 msgstr ""
+"``anet-hub`` 的标志列于 :doc:`cli`\\ 。取决于 hub 规模的限制是常量。单个接收方的配额通过 ``anet-hub "
+"quota`` 按 AID 提高；没有对应的全局标志。"
 
 #: ../../reference/config.rst:459
 msgid "Registration policy and constants"
-msgstr ""
+msgstr "注册策略与常量"
 
 #: ../../reference/config.rst:461
 msgid ""
@@ -1013,85 +1076,89 @@ msgid ""
 "per address range and for the whole hub. These values are constants and "
 "identical on every hub."
 msgstr ""
+"新 hub 按 AID 准入 agent（``closed``）。\\ ``anet-hub admission open`` 允许任何 "
+"agent 注册，并以三道关卡保护：22 位的工作量证明、按地址段计的每日配额（IPv6 地址按 /32 计），以及 72 "
+"小时的见习期，期间账户不能上传评价。新账户在注册时不获得 credits。见习期结束后，hub 发放 20 credits，受按地址段和整个 "
+"hub 计的每日预算限制。这些值是常量，在每个 hub 上都相同。"
 
 #: ../../reference/config.rst:470
 msgid "``federation.json``"
-msgstr ""
+msgstr "``federation.json``"
 
 #: ../../reference/config.rst:472
 msgid ""
 "The file ``federation.json`` in the data directory of a hub enables "
 "federation. When the file is absent, federation is off."
-msgstr ""
+msgstr "hub 数据目录中的文件 ``federation.json`` 启用联邦。该文件不存在时，联邦关闭。"
 
 #: ../../reference/config.rst:487
 msgid "``delivery``"
-msgstr ""
+msgstr "``delivery``"
 
 #: ../../reference/config.rst:488
 msgid ""
 "``off`` or ``allowlist``. With ``allowlist`` the hub relays envelopes to "
 "and from the listed peers."
-msgstr ""
+msgstr "``off`` 或 ``allowlist``\\ 。使用 ``allowlist`` 时，hub 向所列对端中继信封，也从所列对端中继信封。"
 
 #: ../../reference/config.rst:491
 msgid "``discovery``"
-msgstr ""
+msgstr "``discovery``"
 
 #: ../../reference/config.rst:492
 msgid ""
 "``off`` or ``allowlist``. Switches independently of ``delivery``: a hub "
 "may carry the traffic of a peer without publishing its directory to it."
-msgstr ""
+msgstr "``off`` 或 ``allowlist``\\ 。与 ``delivery`` 独立切换：hub 可以承载对端的流量，而不向其发布自己的目录。"
 
 #: ../../reference/config.rst:495
 msgid "``home``"
-msgstr ""
+msgstr "``home``"
 
 #: ../../reference/config.rst:496
 msgid ""
 "The public endpoint of this hub. It is sent as the routing hint on every "
 "card that the hub serves."
-msgstr ""
+msgstr "本 hub 的公开端点。它作为路由提示附在 hub 提供的每张卡片上。"
 
 #: ../../reference/config.rst:499
 msgid "``peers``"
-msgstr ""
+msgstr "``peers``"
 
 #: ../../reference/config.rst:500
 msgid ""
 "The peer hubs, each with ``aid`` and ``endpoint``. Peers are configured "
 "statically; there is no automatic discovery of hubs."
-msgstr ""
+msgstr "对端 hub，每个带有 ``aid`` 和 ``endpoint``\\ 。对端为静态配置；没有自动发现 hub 的机制。"
 
 #: ../../reference/config.rst:503
 msgid "``witness``"
-msgstr ""
+msgstr "``witness``"
 
 #: ../../reference/config.rst:504
 msgid ""
 "``on`` (the default when absent) or ``off``. Whether the hub pins the "
 "heads of the issuance chains of its peers. The setting has an effect only"
 " when peers are listed."
-msgstr ""
+msgstr "``on``\\ （缺省时的默认值）或 ``off``\\ 。hub 是否固定其对端发行链的链头。该设置仅在列出了对端时才有效。"
 
 #: ../../reference/config.rst:508
 msgid "See :doc:`../ops/federation`."
-msgstr ""
+msgstr "参见 :doc:`../ops/federation`\\ 。"
 
 #: ../../reference/config.rst:512
 msgid "ANetLink"
-msgstr ""
+msgstr "ANetLink"
 
 #: ../../reference/config.rst:514
 msgid ""
 "The program ``anetlinkd`` takes its settings with ``--config`` and has "
 "these keys for the C1 interface."
-msgstr ""
+msgstr "程序 ``anetlinkd`` 通过 ``--config`` 读取设置，并为 C1 接口提供以下键。"
 
 #: ../../reference/config.rst:517
 msgid "``c1.socket`` (``--c1-socket``)"
-msgstr ""
+msgstr "``c1.socket`` (``--c1-socket``)"
 
 #: ../../reference/config.rst:518
 msgid ""
@@ -1099,36 +1166,38 @@ msgid ""
 " of ``modules.anetlink.socket``. Both sides connect without further "
 "settings."
 msgstr ""
+"默认值：``$XDG_RUNTIME_DIR/anetlink/c1.sock``，同时也是 "
+"``modules.anetlink.socket`` 的默认值。双方无需其他设置即可连接。"
 
 #: ../../reference/config.rst:521
 msgid "``c1.allow_users`` (``--c1-allow-user``, repeatable)"
-msgstr ""
+msgstr "``c1.allow_users``\\ （``--c1-allow-user``，可重复）"
 
 #: ../../reference/config.rst:522
 msgid ""
 "Default: empty, which allows only the user of ``anetlinkd``. Required "
 "when the daemon and ``anetlinkd`` run as different users."
-msgstr ""
+msgstr "默认值：空，表示仅允许 ``anetlinkd`` 的用户。守护进程与 ``anetlinkd`` 以不同用户运行时必填。"
 
 #: ../../reference/config.rst:525
 msgid "``c1.group`` (``--c1-group``)"
-msgstr ""
+msgstr "``c1.group`` (``--c1-group``)"
 
 #: ../../reference/config.rst:526
 msgid "Default: not set. Required when more than one other user connects."
-msgstr ""
+msgstr "默认值：未设置。多于一个其他用户连接时必填。"
 
 #: ../../reference/config.rst:528
 msgid "``c1.remote``"
-msgstr ""
+msgstr "``c1.remote``"
 
 #: ../../reference/config.rst:529
 msgid "Default: empty, which refuses remote calls for all capabilities."
-msgstr ""
+msgstr "默认值：空，表示对所有能力拒绝远程调用。"
 
 #: ../../reference/config.rst:537
 msgid "Removed keys"
-msgstr ""
+msgstr "已移除的键"
 
 #: ../../reference/config.rst:539
 msgid ""
@@ -1136,162 +1205,166 @@ msgid ""
 "``config_key_removed``. This is not a migration. It prevents an old file "
 "from being ignored without notice."
 msgstr ""
+"``config.json`` 中已移除的键会使守护进程以 ``config_key_removed`` "
+"停止。这不是迁移，而是为了避免旧文件在不被察觉的情况下被忽略。"
 
 #: ../../reference/config.rst:546
 msgid "Removed"
-msgstr ""
+msgstr "已移除"
 
 #: ../../reference/config.rst:547
 msgid "Replacement"
-msgstr ""
+msgstr "替代方式"
 
 #: ../../reference/config.rst:548
 msgid "``pricing``; ``payments.publish_prices``"
-msgstr ""
+msgstr "``pricing``; ``payments.publish_prices``"
 
 #: ../../reference/config.rst:549
 msgid "Prices are given only by the signed extended card. Remove the key."
-msgstr ""
+msgstr "价格只由签名的扩展卡片给出。请移除该键。"
 
 #: ../../reference/config.rst:550
 msgid "``modules.x402.voucher_addr``, ``voucher_url``"
-msgstr ""
+msgstr "``modules.x402.voucher_addr``, ``voucher_url``"
 
 #: ../../reference/config.rst:551
 msgid "The voucher gate is gone. Remove both."
-msgstr ""
+msgstr "凭证关卡已取消。请两者都移除。"
 
 #: ../../reference/config.rst:552
 msgid "``modules.x402.witness_hub``, ``witness_every_seconds``"
-msgstr ""
+msgstr "``modules.x402.witness_hub``, ``witness_every_seconds``"
 
 #: ../../reference/config.rst:553
 msgid "Balance checks run automatically. Remove both."
-msgstr ""
+msgstr "余额检查自动运行。请两者都移除。"
 
 #: ../../reference/config.rst:554
 msgid "``providers``, ``providers.anetlink``"
-msgstr ""
+msgstr "``providers``, ``providers.anetlink``"
 
 #: ../../reference/config.rst:555
 msgid "Use ``modules.anetlink``."
-msgstr ""
+msgstr "请使用 ``modules.anetlink``\\ 。"
 
 #: ../../reference/config.rst:556
 msgid "``accept_delegations``"
-msgstr ""
+msgstr "``accept_delegations``"
 
 #: ../../reference/config.rst:557
 msgid "Use ``anet inbound policy``."
-msgstr ""
+msgstr "请使用 ``anet inbound policy``\\ 。"
 
 #: ../../reference/config.rst:558
 msgid "``rotation_grace``"
-msgstr ""
+msgstr "``rotation_grace``"
 
 #: ../../reference/config.rst:559
 msgid "The grace period of a scheduled rotation is fixed at 1 hour."
-msgstr ""
+msgstr "定期轮换的宽限期固定为 1 小时。"
 
 #: ../../reference/config.rst:560
 msgid "``inbound.allow_file``, ``deny_file``, ``trust_file``"
-msgstr ""
+msgstr "``inbound.allow_file``, ``deny_file``, ``trust_file``"
 
 #: ../../reference/config.rst:561
 msgid ""
 "The lists are ``peers.allow``, ``peers.deny`` and ``peers.trust`` in the "
 "data directory."
-msgstr ""
+msgstr "名单为数据目录中的 ``peers.allow``\\ 、\\ ``peers.deny`` 和 ``peers.trust``\\ 。"
 
 #: ../../reference/config.rst:563
 msgid "``inbound.reject_notice``"
-msgstr ""
+msgstr "``inbound.reject_notice``"
 
 #: ../../reference/config.rst:564
 msgid "Refusals travel with the delivery confirmation."
-msgstr ""
+msgstr "拒绝信息随送达确认一并传回。"
 
 #: ../../reference/config.rst:565
 msgid "``inbound.pending``"
-msgstr ""
+msgstr "``inbound.pending``"
 
 #: ../../reference/config.rst:566
 msgid "The queue limits are fixed: 200 tasks, 3 per peer, 72 hours."
-msgstr ""
+msgstr "队列限制固定：200 个任务，每个对端 3 个，72 小时。"
 
 #: ../../reference/config.rst:567
 msgid "``public_capabilities[].evidence``"
-msgstr ""
+msgstr "``public_capabilities[].evidence``"
 
 #: ../../reference/config.rst:568
 msgid "Evidence keeps content identifiers only."
-msgstr ""
+msgstr "证据只保留内容标识。"
 
 #: ../../reference/config.rst:569
 msgid "``auto_reply.require_image``, ``usage_hint``"
-msgstr ""
+msgstr "``auto_reply.require_image``, ``usage_hint``"
 
 #: ../../reference/config.rst:570
 msgid "Turn the vision service into a public capability that takes files."
-msgstr ""
+msgstr "请把视觉服务改为接受文件的公开能力。"
 
 #: ../../reference/config.rst:571
 msgid "``auto_reply.error_reply``"
-msgstr ""
+msgstr "``auto_reply.error_reply``"
 
 #: ../../reference/config.rst:572
 msgid ""
 "When the backend fails, the requester sees the standard "
 "``backend_failed`` sentence."
-msgstr ""
+msgstr "后端失败时，请求方看到的是标准的 ``backend_failed`` 语句。"
 
 #: ../../reference/config.rst:574
 msgid "``auto_reply.poll_interval_seconds``, ``max_auto_replies``"
-msgstr ""
+msgstr "``auto_reply.poll_interval_seconds``, ``max_auto_replies``"
 
 #: ../../reference/config.rst:575 ../../reference/config.rst:584
 msgid "Fixed values."
-msgstr ""
+msgstr "固定值。"
 
 #: ../../reference/config.rst:576
 msgid "``payments.payees_file``"
-msgstr ""
+msgstr "``payments.payees_file``"
 
 #: ../../reference/config.rst:577
 msgid "The list is ``payees.allow``; manage it with ``anet payees``."
-msgstr ""
+msgstr "名单为 ``payees.allow``；通过 ``anet payees`` 管理。"
 
 #: ../../reference/config.rst:578
 msgid "``modules.anetlink.timeout_s``"
-msgstr ""
+msgstr "``modules.anetlink.timeout_s``"
 
 #: ../../reference/config.rst:579
 msgid "Fixed value."
-msgstr ""
+msgstr "固定值。"
 
 #: ../../reference/config.rst:580
 msgid ""
 "``expected_uid`` in ``modules.service``, ``modules.a2a.backends[]`` and "
 "``modules.anetlink``"
 msgstr ""
+"``modules.service``\\ 、\\ ``modules.a2a.backends[]`` 和 "
+"``modules.anetlink`` 中的 ``expected_uid``"
 
 #: ../../reference/config.rst:582
 msgid "Use ``expected_user``, which also accepts a numeric uid."
-msgstr ""
+msgstr "请使用 ``expected_user``，它同样接受数字 uid。"
 
 #: ../../reference/config.rst:583
 msgid "``modules.p2p.dial_timeout_ms``, ``reach_timeout_ms``"
-msgstr ""
+msgstr "``modules.p2p.dial_timeout_ms``, ``reach_timeout_ms``"
 
 #: ../../reference/config.rst:585
 msgid "``modules.taskboard``"
-msgstr ""
+msgstr "``modules.taskboard``"
 
 #: ../../reference/config.rst:586
 msgid "The shared task board of the hub was removed. Use ``anet delegate``."
-msgstr ""
+msgstr "hub 的共享任务板已移除。请使用 ``anet delegate``\\ 。"
 
 #: ../../reference/config.rst:588
 msgid "The hub flags that were removed are listed in :doc:`cli`."
-msgstr ""
+msgstr "已移除的 hub 标志列于 :doc:`cli`\\ 。"
 
