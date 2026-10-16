@@ -164,6 +164,10 @@ func keysEpochCheck(say func(id, status, key string, args a2ashape.Args), rep *d
 	say("keys.epoch", stUnknown, doctorDaemonDown, nil)
 }
 
+// copyOnWriteProbe is copyOnWriteFS; a test replaces it, so that a result does not depend on the
+// filesystem the test directory is on.
+var copyOnWriteProbe = copyOnWriteFS
+
 // retentionCheck is retention (FS §5.4): the setting in force, a note on a
 // copy-on-write filesystem, and a config.json value that is not a setting.
 func retentionCheck(say func(id, status, key string, args a2ashape.Args), rep *doctorReport, layout daemon.Layout,
@@ -180,7 +184,7 @@ func retentionCheck(say func(id, status, key string, args a2ashape.Args), rep *d
 		return // config.json cannot be read: the config check says so
 	}
 	say("retention", stInfo, "retention.summary", a2ashape.Args{"retention": value})
-	if copyOnWriteFS(layout.Root) {
+	if copyOnWriteProbe(layout.Root) {
 		say("retention", stInfo, "retention.cow", nil)
 	}
 }

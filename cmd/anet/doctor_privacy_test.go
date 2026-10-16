@@ -33,6 +33,8 @@ func privacyFindings(t *testing.T, layout daemon.Layout, st map[string]any, hub 
 	return got
 }
 
+func init() { copyOnWriteProbe = func(string) bool { return false } }
+
 func TestDoctorPrivacyChecks(t *testing.T) {
 	t.Setenv("LANG", "C")
 	layout := daemon.NewLayout(t.TempDir())
