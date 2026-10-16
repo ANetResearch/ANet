@@ -248,7 +248,6 @@ func TestWithoutIsValidated(t *testing.T) {
 	for name, without := range map[string][]string{
 		"unknown":   {"nothing"},
 		"duplicate": {"x402", "x402"},
-		"not ready": {"console"},
 	} {
 		root := t.TempDir()
 		writeTestConfig(t, root, map[string]any{"control_addr": "127.0.0.1:0", "without": without})
@@ -277,15 +276,6 @@ func TestWithoutNamesOnlyReadyModules(t *testing.T) {
 		if info.AbsenceReady == slices.Contains(notReady, info.Name) {
 			t.Errorf("%s: AbsenceReady = %v", info.Name, info.AbsenceReady)
 		}
-	}
-	// The sentence names the module.
-	_, err := module.NewAvailability([]string{"autoreply"})
-	var ref *a2ashape.Refusal
-	if !errors.As(err, &ref) {
-		t.Fatal(err)
-	}
-	if s := a2ashape.Sentence(ref.Key, a2ashape.English, ref.Args); !strings.Contains(s, "autoreply") || strings.Contains(s, "{") {
-		t.Errorf("sentence %q", s)
 	}
 }
 

@@ -67,6 +67,7 @@ var (
 	_ module.TurnHost           = hostAutoReply{}
 	_ module.OwnEvidenceHost    = hostAutoReply{}
 	_ module.ModuleConfigHost   = hostAutoReply{}
+	_ module.PreviewHost        = hostPreview{}
 )
 
 // newModuleHost is the Host of the module called name, with the state that
@@ -75,17 +76,19 @@ func newModuleHost(d *Daemon, name string) (module.Host, *hostState) {
 	st := &hostState{}
 	b := moduleHost{d: d, name: name, st: st}
 	has := func(g module.Grant) bool { return grantedTo(name, g) }
-	inbound, signer, transport, sensitive := has(module.GrantInboundTaskHost), has(module.GrantProxyCardSigner),
-		has(module.GrantTransportHost), has(module.GrantSensitivePaths)
+	inbound, signer, transport, sensitive, preview := has(module.GrantInboundTaskHost), has(module.GrantProxyCardSigner),
+		has(module.GrantTransportHost), has(module.GrantSensitivePaths), has(module.GrantPreviewHost)
 	turns, ownEv, cfgw := has(module.GrantTurnHost), has(module.GrantOwnEvidenceHost), has(module.GrantModuleConfigHost)
 	switch {
-	case inbound && signer && !transport && !sensitive && !turns && !ownEv && !cfgw:
+	case inbound && signer && !transport && !sensitive && !preview && !turns && !ownEv && !cfgw:
 		return hostA2A{b, inboundTaskPart{d}, proxySignerPart{d}}, st
-	case transport && !inbound && !signer && !sensitive && !turns && !ownEv && !cfgw:
+	case transport && !inbound && !signer && !sensitive && !preview && !turns && !ownEv && !cfgw:
 		return hostTransport{b, transportPart{d}}, st
-	case sensitive && turns && ownEv && cfgw && !inbound && !signer && !transport:
+	case sensitive && turns && ownEv && cfgw && !inbound && !signer && !transport && !preview:
 		return hostAutoReply{b, turnPart{d}, evidencePart{d, name}, configPart{d, name}, sensitivePart{d}}, st
-	case !inbound && !signer && !transport && !sensitive && !turns && !ownEv && !cfgw:
+	case preview && !inbound && !signer && !transport && !sensitive && !turns && !ownEv && !cfgw:
+		return hostPreview{b, previewPart{d}}, st
+	case !inbound && !signer && !transport && !sensitive && !preview && !turns && !ownEv && !cfgw:
 		return hostBase{b}, st
 	}
 	// A row the combinations above do not cover is a bug in this file;
