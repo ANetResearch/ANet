@@ -3,7 +3,7 @@ module github.com/ANetResearch/ANet
 go 1.26.6
 
 require (
-	github.com/ANetResearch/ANetCore v0.16.0-rc.3
+	github.com/ANetResearch/ANetCore v0.15.1-0.20261016164039-82f5c9a4b1d4
 	github.com/a2aproject/a2a-go/v2 v2.6.0
 	github.com/ipfs/go-cid v0.6.2
 	github.com/modelcontextprotocol/go-sdk v1.7.0

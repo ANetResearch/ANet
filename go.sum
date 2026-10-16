@@ -1,5 +1,5 @@
-github.com/ANetResearch/ANetCore v0.16.0-rc.3 h1:Qfa20VUAUp59//ha16Dx14qXbD4YjjjGKABcDzOhjaA=
-github.com/ANetResearch/ANetCore v0.16.0-rc.3/go.mod h1:FrU7HLvemqe6ZWbwR/j1YhDCyNriCMi/45z/XjVl/Y0=
+github.com/ANetResearch/ANetCore v0.15.1-0.20261016164039-82f5c9a4b1d4 h1:FaEBwVAkTuV7aHYPAiL79QGah9Rs0wxiCd77aXivjzc=
+github.com/ANetResearch/ANetCore v0.15.1-0.20261016164039-82f5c9a4b1d4/go.mod h1:FrU7HLvemqe6ZWbwR/j1YhDCyNriCMi/45z/XjVl/Y0=
 github.com/a2aproject/a2a-go/v2 v2.6.0 h1:QflB0gHxOP0o5quvA/h9EbYgfOsmRsSmFkeBYtKdwwk=
 github.com/a2aproject/a2a-go/v2 v2.6.0/go.mod h1:rvFIb0sBJl2qmJRYU2fQxI6hhIQksmGGMEhT/uRwWww=
 github.com/dustin/go-humanize v1.0.1 h1:GzkhY7T5VNhEkwH0PVJgjz+fX1rhBrR7pRT3mDkpeCY=
