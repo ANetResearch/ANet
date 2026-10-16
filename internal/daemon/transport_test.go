@@ -377,7 +377,7 @@ func outerEnvelope(t testing.TB, to string, kind uint64) []byte {
 // count (DLV-W-11b, §2.8), where /status.delivery.counters reads it.
 func TestATransportsMalformedConfirmationIsCounted(t *testing.T) {
 	d := newTestDaemon(t, "", false)
-	var th module.TransportHost = moduleHost{d}
+	var th module.TransportHost = p2pHost(d)
 	before := counter(d, "dack-bad-frame")
 	th.NoteBadDAck()
 	th.NoteBadDAck()

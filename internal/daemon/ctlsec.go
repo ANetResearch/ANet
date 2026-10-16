@@ -106,19 +106,25 @@ var publicRoutes = map[string]bool{
 type routeMux struct {
 	*http.ServeMux
 	patterns []string
+	// guard, when set, wraps each handler as it is registered (the daemon's
+	// moduleRouteGuard: a route the name table gives to a module answers
+	// module_absent while that module is not available).
+	guard func(pattern string, h http.Handler) http.Handler
 }
 
 func newRouteMux() *routeMux { return &routeMux{ServeMux: http.NewServeMux()} }
 
 // HandleFunc registers h for pattern and records the pattern.
 func (m *routeMux) HandleFunc(pattern string, h func(http.ResponseWriter, *http.Request)) {
-	m.patterns = append(m.patterns, pattern)
-	m.ServeMux.HandleFunc(pattern, h)
+	m.Handle(pattern, http.HandlerFunc(h))
 }
 
 // Handle registers h for pattern and records the pattern.
 func (m *routeMux) Handle(pattern string, h http.Handler) {
 	m.patterns = append(m.patterns, pattern)
+	if m.guard != nil {
+		h = m.guard(pattern, h)
+	}
 	m.ServeMux.Handle(pattern, h)
 }
 
@@ -143,6 +149,7 @@ func (d *Daemon) secureControlPlane(auth *ctlAuth, api *routeMux) *controlPlane 
 	api.HandleFunc("POST /console/switch", d.hConsoleSwitch)
 
 	top := newRouteMux()
+	top.guard = d.moduleRouteGuard
 	top.HandleFunc("GET /console", d.consoleHandler())
 	top.HandleFunc("GET /ping", d.pingHandler(auth))
 	top.HandleFunc("POST /console/session", d.hConsoleSession(cs))

@@ -1096,3 +1096,20 @@ func (i bearer) Before(ctx context.Context, req *a2aclient.Request) (context.Con
 	}
 	return ctx, nil, nil
 }
+
+// LocalPaths implements module.LocalPaths: the sockets of the backends and
+// their token files, which a sandbox must never be able to open (K-5).
+func (m *Module) LocalPaths() []string {
+	var out []string
+	for _, b := range m.cfg.Backends {
+		if b.TokenFile != "" {
+			out = append(out, b.TokenFile)
+		}
+		if t, err := backendconn.Parse(b.URL); err == nil && t.Unix() {
+			out = append(out, t.Socket)
+		}
+	}
+	return out
+}
+
+var _ module.LocalPaths = (*Module)(nil)

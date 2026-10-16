@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/ANetResearch/ANet/module"
 	"testing"
 	"time"
 
@@ -318,10 +319,10 @@ func TestP2PAndPayPlacement(t *testing.T) {
 			t.Fatalf("%s: pay written as false", c.name)
 		}
 	}
-	if got := p2pAdvertise(Config{Modules: ModulesConfig{"p2p": json.RawMessage(`{"advertise":"` + addr + `","lan":false}`)}}); got != addr {
+	if got := p2pAdvertise(Config{Modules: ModulesConfig{"p2p": json.RawMessage(`{"advertise":"` + addr + `","lan":false}`)}}, module.Availability{}); got != addr {
 		t.Fatalf("p2pAdvertise %q", got)
 	}
-	if got := p2pAdvertise(Config{}); got != "" {
+	if got := p2pAdvertise(Config{}, module.Availability{}); got != "" {
 		t.Fatalf("p2pAdvertise without the module: %q", got)
 	}
 	// pay is whether this node prices any capability it serves.

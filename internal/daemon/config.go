@@ -8,11 +8,13 @@ import (
 	"net"
 	"os"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
+	"github.com/ANetResearch/ANet/module"
 )
 
 // Config is the daemon's persisted configuration (config.json). v0.1 is centralized: the daemon is a
@@ -39,6 +41,14 @@ type Config struct {
 	Readme  string `json:"readme,omitempty"`  // longer markdown description
 	// Modules configures optional subsystems by name (see module.Module).
 	Modules ModulesConfig `json:"modules,omitempty"`
+	// Without names the optional modules this node turns off (MOD-P5): a
+	// module in the list is not built, not registered and not started, and
+	// everything that depends on it answers module_absent. Empty is the
+	// default. Only an offline command writes it (`anet init --without`,
+	// `--with`): no control route, MCP tool or local A2A method does, and a
+	// write the daemon makes of this file takes the value from the disk, not
+	// from memory (updateConfig).
+	Without []string `json:"without,omitempty"`
 	// Inbound is the inbound policy (A2A-DESIGN §5.1): who may delegate to
 	// this node, who may drive its local agents, and which capabilities are
 	// public. A config without the block is given the defaults of
@@ -307,6 +317,16 @@ func (d *Daemon) updateConfig(change func(*Config) error, apply func(*Config)) (
 	d.cfgWrite.Lock()
 	defer d.cfgWrite.Unlock()
 	next := d.config()
+	// K-2: what the kernel does not own comes from the disk. `without` and
+	// the blocks the kernel does not parse (modules.*, auto_reply) are
+	// whatever config.json says now, not what this process read at start; a
+	// kernel write changes its own keys and carries the rest through, so
+	// that a hand edit made while the daemon runs is not undone by the next
+	// peers or policy write. An unreadable file refuses the write rather
+	// than overwrite what could not be read.
+	if err := d.carryDiskConfig(&next); err != nil {
+		return Config{}, err
+	}
 	if err := change(&next); err != nil {
 		return Config{}, err
 	}
@@ -317,6 +337,131 @@ func (d *Daemon) updateConfig(change func(*Config) error, apply func(*Config)) (
 	apply(&d.cfg)
 	d.mu.Unlock()
 	return next, nil
+}
+
+// carryDiskConfig sets what the kernel does not own in next — `without` and
+// the blocks it does not parse — to what config.json says now (K-2). The
+// caller holds cfgWrite and calls it before it changes its own keys; every
+// write of config.json the daemon makes does (updateConfig, and the policy,
+// limit and hub writes beside it).
+func (d *Daemon) carryDiskConfig(next *Config) error {
+	disk, err := readConfigFile(d.layout)
+	if err != nil {
+		return err
+	}
+	if disk != nil {
+		next.Without, next.Modules, next.AutoReply = disk.Without, disk.Modules, disk.AutoReply
+	}
+	return nil
+}
+
+// readConfigFile is config.json as it is on disk now; nil when there is none.
+// It does not create the file (LoadConfig does).
+func readConfigFile(l Layout) (*Config, error) {
+	b, err := os.ReadFile(l.ConfigPath())
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("anet: read config: %w", err)
+	}
+	var c Config
+	if err := json.Unmarshal(b, &c); err != nil {
+		return nil, fmt.Errorf("anet: parse config %s: %w", l.ConfigPath(), err)
+	}
+	return &c, nil
+}
+
+// WithoutInFile is the `without` list of config.json as it is on disk now,
+// without creating the file. The CLI asks it before it contacts the daemon
+// (MOD-F3); an absent file has none. A list that does not decode is an
+// error: a CLI that cannot tell what is turned off does not guess.
+func WithoutInFile(l Layout) ([]string, error) {
+	c, err := readConfigFile(l)
+	if err != nil || c == nil {
+		return nil, err
+	}
+	return c.Without, nil
+}
+
+// AvailabilityOf is the Availability value of a configuration: its `without`
+// list over what this binary contains. A list that does not validate gives
+// the value with nothing turned off; the start check says why it is invalid.
+func AvailabilityOf(c Config) module.Availability {
+	av, err := module.NewAvailability(c.Without)
+	if err != nil {
+		return module.Availability{}
+	}
+	return av
+}
+
+// ModuleRefusals are the problems of a configuration that concern the
+// optional modules, one refusal each: an invalid `without`, a block for a
+// module that does not exist or whose block is not under modules, and a
+// block for a module that is not available (MOD-F1). The same list is what
+// the daemon refuses to start with, what `anet up` and the daemon log say,
+// and what doctor's modules row says.
+func ModuleRefusals(c Config) []*a2ashape.Refusal {
+	var out []*a2ashape.Refusal
+	av, err := module.NewAvailability(c.Without)
+	if err != nil {
+		if r, ok := err.(*a2ashape.Refusal); ok {
+			out = append(out, r)
+		}
+		av = module.Availability{}
+	}
+	names := make([]string, 0, len(c.Modules))
+	for n := range c.Modules {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	for _, n := range names {
+		info, ok := module.Lookup(n)
+		switch {
+		case !ok && removedModuleBlock(n):
+			// A block of a module that no longer exists is config_key_removed,
+			// said once by the removed-settings check.
+		case !ok:
+			out = append(out, a2ashape.Refuse("config_invalid", a2ashape.Args{"key": "modules." + cleanKey(n),
+				"rule": ruleText("没有这个模块", "there is no such module")}))
+		case info.ConfigKey == "":
+			out = append(out, a2ashape.Refuse("config_invalid", a2ashape.Args{"key": "modules." + n,
+				"rule": ruleText("这个模块没有配置块", "this module takes no configuration block")}))
+		case info.ConfigKey != "modules."+n:
+			out = append(out, a2ashape.Refuse("config_invalid", a2ashape.Args{"key": "modules." + n,
+				"rule": "top_level_key", "m": n}))
+		default:
+			if r := av.Absent(n, "configured"); r != nil {
+				r.Args["key"] = info.ConfigKey
+				out = append(out, r)
+			}
+		}
+	}
+	if c.AutoReply != nil {
+		if r := av.Absent("autoreply", "configured"); r != nil {
+			r.Args["key"] = "auto_reply"
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// removedModuleBlock reports a modules.<name> block that ux §2.3 removed.
+func removedModuleBlock(name string) bool {
+	for _, r := range removedSettings {
+		if r.key == "modules."+name {
+			return true
+		}
+	}
+	return false
+}
+
+// cleanKey shortens a name found in a file for a sentence.
+func cleanKey(s string) string {
+	if r := []rune(s); len(r) > 32 {
+		return string(r[:32]) + "…"
+	}
+	return s
 }
 
 // --- What the daemon refuses to start with (ux UX-D3, §2.3) ---
@@ -522,7 +667,7 @@ func CheckConfigForStart(l Layout) error {
 			refusals = append(refusals, RemovedSettingRefusal(f))
 		}
 	}
-	if len(configChecks) > 0 {
+	{
 		var c Config
 		var m map[string]any
 		if err := json.Unmarshal(raw, &c); err != nil {
@@ -531,6 +676,7 @@ func CheckConfigForStart(l Layout) error {
 		if err := json.Unmarshal(raw, &m); err != nil {
 			return fmt.Errorf("anet: parse config %s: %w", l.ConfigPath(), err)
 		}
+		refusals = append(refusals, ModuleRefusals(c)...) // MOD-F1, K-2
 		for _, check := range configChecks {
 			if r := check(c, m); r != nil {
 				refusals = append(refusals, r)

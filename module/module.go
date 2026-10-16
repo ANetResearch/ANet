@@ -129,9 +129,11 @@ type Host interface {
 	// with the policy, and refuses a later policy write that would.
 	DeclareUntrustedBackend()
 
-	// StateDir is a directory the named module may keep its own files in:
-	// <data dir>/modules/<module>/, created 0700 when first asked for. It
-	// returns "" for a name that is not a plain directory name, and for a
+	// StateDir is a directory this module may keep its own files in:
+	// <data dir>/modules/<module>/, created 0700 when first asked for. The
+	// directory is decided by the name this Host is bound to, never by an
+	// argument: a module cannot ask for another module's. It returns ""
+	// when the name table does not grant StateDir to the module, and for a
 	// directory that cannot be made private to this user (a symbolic link,
 	// another uid's); a module that needs one does not start without it.
 	//
@@ -144,7 +146,12 @@ type Host interface {
 	// state, which pushes that state into the kernel. A directory per
 	// module keeps each one's files apart; it is not a boundary between
 	// modules, which share a process.
-	StateDir(module string) string
+	StateDir() string
+
+	// Available reports whether another module is available here: compiled
+	// into this binary and not turned off in `without`. Every Host answers
+	// it, from the daemon's own Availability value (K-1).
+	Available(name string) bool
 
 	// TaskSeam hands over the tasks this node starts as a requester, in
 	// their A2A form: sending a task to a remote agent, reading, listing,
@@ -163,6 +170,53 @@ type Host interface {
 	// that policy is enforced, rather than through PaymentSeam, which
 	// would let the module sign without asking it.
 	TaskSeam() (TaskSeam, bool)
+}
+
+// ErrNotGranted is what a Host answers when the module it is bound to was
+// not granted what it asked for (RecordEvidence of a type outside the
+// module's EvidenceTypes, or of anet.policy.*, among them).
+var ErrNotGranted = errors.New("module: this module is not granted that")
+
+// ControlHandler is implemented by a module that answers control-plane
+// routes the name table registers to it (K-3). The kernel owns the route
+// table, the bearer authentication, the body limit and the error body; it
+// hands the module only the requests for its own routes, and only while the
+// module is available. A route is never a console session route: it is
+// bearer-only.
+//
+// status is the HTTP status of the answer; resp is encoded as JSON unless
+// it is already a []byte or json.RawMessage; an error that is an
+// *a2ashape.Refusal is answered as the refusal's body (UX-R9).
+type ControlHandler interface {
+	HandleControl(ctx context.Context, route string, body []byte) (status int, resp any, err error)
+}
+
+// StatusContributor is implemented by a module that adds a member to
+// /status (K-4). The kernel collects the members; it takes only the keys the
+// name table lists for the module's name (StatusKeys), drops every other and
+// reports the drop. SI5 contributes the module's values to the SI-5 map the
+// same way.
+type StatusContributor interface {
+	StatusMember() (key string, v any)
+	SI5() map[string]any
+}
+
+// LocalPaths is implemented by a module that owns endpoints on this
+// machine: a Unix socket, a token file. The kernel gathers them into the
+// sensitive-path list (SensitivePathsHost), the part of the sandbox's
+// never-bind list that depends on which modules are available.
+type LocalPaths interface {
+	LocalPaths() []string
+}
+
+// SensitivePathsHost is the optional Host interface that hands over the
+// paths a sandbox must never bind: the data directory, the control and local
+// A2A tokens, the runtime directories, the default C1 socket, and what the
+// available modules declare through LocalPaths. Read only. Granted to
+// autoreply alone: a list of where this node keeps its secrets is itself
+// something a smaller grant should not see.
+type SensitivePathsHost interface {
+	SensitivePaths() []string
 }
 
 // Task, TaskEvent and TaskPage are the kernel's A2A projection
@@ -827,6 +881,24 @@ func Compiled() []string {
 	return out
 }
 
+// absentConfigured is the refusal for a configuration block of a module that
+// is not available: module_absent.configured, the same sentence at start,
+// in the daemon log and in doctor (MOD-F1).
+func absentConfigured(av Availability, name string) error {
+	reason := av.Absence(name)
+	if reason == "" {
+		reason = AbsentNotCompiled
+	}
+	info, _ := Lookup(name)
+	key := info.ConfigKey
+	if key == "" {
+		key = "modules." + name
+	}
+	args := AbsentArgs(name, reason)
+	args["key"] = key
+	return a2ashape.Refuse("module_absent.configured", args)
+}
+
 // BuildOne instantiates a single registered module from its config
 // block, for callers that want one rather than the set.
 //
@@ -843,7 +915,7 @@ func BuildOne(name string, cfg []byte) (Module, error) {
 			return r.factory(cfg)
 		}
 	}
-	return nil, fmt.Errorf("module %q is not compiled into this build", name)
+	return nil, absentConfigured(Availability{}, name)
 }
 
 // Build instantiates every compiled-in module that is configured.
@@ -851,7 +923,13 @@ func BuildOne(name string, cfg []byte) (Module, error) {
 // A configured module that is not compiled in is an error, not a no-op. The
 // alternative is a daemon that reads `"p2p": {...}` from a config, silently
 // ignores it, and leaves an operator wondering why nothing is peering.
-func Build(cfg map[string][]byte) ([]Module, error) {
+func Build(cfg map[string][]byte) ([]Module, error) { return BuildWith(Availability{}, cfg) }
+
+// BuildWith is Build for the modules an Availability value lets run: a
+// module that is turned off is not built (its factory is not called), and a
+// configuration block for a module that is not available is the refusal
+// module_absent.configured (MOD-F1), whichever way it is absent.
+func BuildWith(av Availability, cfg map[string][]byte) ([]Module, error) {
 	regMu.Lock()
 	regs := append([]registration(nil), registry...)
 	regMu.Unlock()
@@ -860,6 +938,12 @@ func Build(cfg map[string][]byte) ([]Module, error) {
 	var out []Module
 	for _, r := range regs {
 		known[r.name] = true
+		if !av.Available(r.name) {
+			if _, ok := cfg[r.name]; ok {
+				return nil, absentConfigured(av, r.name)
+			}
+			continue
+		}
 		m, err := r.factory(cfg[r.name])
 		if err != nil {
 			return nil, fmt.Errorf("module %q: %w", r.name, err)
@@ -868,30 +952,33 @@ func Build(cfg map[string][]byte) ([]Module, error) {
 			out = append(out, m)
 		}
 	}
+	names := make([]string, 0, len(cfg))
 	for name := range cfg {
-		if !known[name] {
-			// The hint has to name the tag that actually governs this
-			// module. An additive module is missing because nobody asked
-			// for it, not because somebody removed it.
-			// Three different reasons a name in "modules" is not a module
-			// here, and they send an operator to three different places.
-			if declaredCompiled(name) {
-				// Compiled in, but not a Module — it has no config block at
-				// all. Saying "not compiled into this build" would be false,
-				// and pointing at no_%s would send them to remove a tag that
-				// is not the reason.
-				return nil, fmt.Errorf(
-					"%q is part of this build but is not configured under \"modules\": "+
-						"it is reached as a subcommand (anet %s), and takes no config block",
-					name, name)
-			}
-			hint := fmt.Sprintf("built with no_%s?", name)
-			if optInName(name) {
-				hint = fmt.Sprintf("it needs -tags %s, which the default build does not use", name)
-			}
-			return nil, fmt.Errorf(
-				"module %q is configured but not compiled into this build (%s)", name, hint)
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		if known[name] {
+			continue
 		}
+		info, ok := Lookup(name)
+		if !ok {
+			return nil, a2ashape.Refuse("config_invalid", a2ashape.Args{"key": "modules." + clip(name),
+				"rule": ruleText("没有这个模块", "there is no such module")})
+		}
+		// A name of the table that is not a registration here. Its block is
+		// either not under modules at all (autoreply and preview keep their
+		// historical top-level keys, MOD-P3; mcp and console take none), or
+		// the module is not in this binary.
+		switch {
+		case info.ConfigKey == "":
+			return nil, a2ashape.Refuse("config_invalid", a2ashape.Args{"key": "modules." + name,
+				"rule": ruleText("这个模块没有配置块", "this module takes no configuration block")})
+		case info.ConfigKey != "modules."+name:
+			return nil, a2ashape.Refuse("config_invalid", a2ashape.Args{"key": "modules." + name,
+				"rule": "top_level_key", "m": name})
+		}
+		return nil, absentConfigured(av, name)
 	}
 	return out, nil
 }

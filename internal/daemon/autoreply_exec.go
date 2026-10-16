@@ -45,6 +45,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
+	"github.com/ANetResearch/ANet/internal/anethome"
 	"github.com/ANetResearch/ANetCore/anetcid"
 	"github.com/ANetResearch/ANetCore/delegation"
 )
@@ -1321,7 +1322,7 @@ func (d *Daemon) sandboxNeverBind() []string {
 	never := []string{d.layout.Root, AnetHome(), legacyRuntimeDir(), filepath.Join("/run/user", fmt.Sprint(os.Getuid())),
 		execWorkRoot()}
 	if x := os.Getenv("XDG_RUNTIME_DIR"); x != "" {
-		never = append(never, x, filepath.Join(x, "anetlink", "c1.sock"))
+		never = append(never, x, anethome.DefaultC1Socket())
 	}
 	never = append(never, anetlinkSockets(d.config())...)
 	// The operator's work_dir is where a trusted peer's agent works unconfined (LEC SB-8): no sandboxed
@@ -1352,7 +1353,7 @@ func anetlinkSockets(cfg Config) []string {
 			return []string{mc.Socket}
 		}
 	}
-	if def := anetlinkDefaultSocket(); def != "" {
+	if def := anethome.DefaultC1Socket(); def != "" {
 		return []string{def}
 	}
 	return nil

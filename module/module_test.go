@@ -75,8 +75,11 @@ func TestConfiguredButCompiledOutIsAnError(t *testing.T) {
 	if err == nil {
 		t.Fatal("configuring a module that is not in the build must be refused")
 	}
-	if !strings.Contains(err.Error(), "no_p2p") {
-		t.Errorf("the error should name the tag that would explain it: %v", err)
+	// The sentence is module_absent.configured: it names the key, the
+	// module and how to get it, in the one wording every entrance uses.
+	if got := err.Error(); !strings.Contains(got, "modules.p2p") || !strings.Contains(got, "does not include the direct delivery module (p2p)") ||
+		!strings.Contains(got, "install.sh") {
+		t.Errorf("the error should be module_absent.configured: %v", err)
 	}
 }
 
@@ -94,8 +97,8 @@ func TestConfiguringAnOptInModuleNamesTheTagThatWouldAddIt(t *testing.T) {
 	if err == nil {
 		t.Fatal("configuring a module that is not in the build must be refused")
 	}
-	if !strings.Contains(err.Error(), "-tags shell") {
-		t.Errorf("the error must name the tag that would add it: %v", err)
+	if !strings.Contains(err.Error(), "install.sh --shell") {
+		t.Errorf("the error must say how the module is added: %v", err)
 	}
 	if strings.Contains(err.Error(), "no_shell") {
 		t.Errorf("it must not point at a subtractive tag that does not exist: %v", err)
@@ -117,14 +120,11 @@ func TestConfiguringACompiledInNonModuleExplainsItself(t *testing.T) {
 		t.Fatal("a name that takes no config block must still be refused")
 	}
 	msg := err.Error()
-	if strings.Contains(msg, "not compiled into this build") {
+	if strings.Contains(msg, "does not include") || strings.Contains(msg, "no_mcp") {
 		t.Errorf("the message says it is absent, and it is not: %v", err)
 	}
-	if strings.Contains(msg, "no_mcp") {
-		t.Errorf("the message points at a tag that is not the reason: %v", err)
-	}
-	if !strings.Contains(msg, "subcommand") {
-		t.Errorf("the message should say how it IS reached: %v", err)
+	if !strings.Contains(msg, "modules.mcp") || !strings.Contains(msg, "no configuration block") {
+		t.Errorf("the message should say the module takes no block: %v", err)
 	}
 }
 

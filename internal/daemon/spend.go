@@ -437,6 +437,9 @@ func (d *Daemon) SetSpendLimits(set map[string]uint64) error {
 	d.cfgWrite.Lock()
 	defer d.cfgWrite.Unlock()
 	next := d.config()
+	if err := d.carryDiskConfig(&next); err != nil {
+		return err
+	}
 	var cur PaymentsConfig
 	if next.Payments != nil {
 		cur = *next.Payments

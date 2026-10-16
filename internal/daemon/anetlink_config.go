@@ -12,27 +12,14 @@ package daemon
 // checks only read config.json.
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
+	"github.com/ANetResearch/ANet/internal/anethome"
 	"github.com/ANetResearch/ANet/internal/backendconn"
 )
 
 func init() { configChecks = append(configChecks, checkANetLinkConfig) }
-
-// anetlinkDefaultSocket is modules.anetlink.socket when the block leaves it out:
-// $XDG_RUNTIME_DIR/anetlink/c1.sock, anetlinkd's own default (provider/anetlink.DefaultSocket says the
-// same; TestTheDaemonKnowsANetLinksDefaultSocket holds them together). "" when XDG_RUNTIME_DIR is not
-// set.
-func anetlinkDefaultSocket() string {
-	rd := os.Getenv("XDG_RUNTIME_DIR")
-	if rd == "" {
-		return ""
-	}
-	return filepath.Join(rd, "anetlink", "c1.sock")
-}
 
 // checkANetLinkConfig is the ConfigCheck of modules.anetlink: the block is an object, allow_tcp is not
 // true, and socket is an absolute path a Unix socket can have, or left out where XDG_RUNTIME_DIR gives
@@ -53,7 +40,7 @@ func checkANetLinkConfig(_ Config, raw map[string]any) *a2ashape.Refusal {
 	}
 	s, present := block["socket"]
 	if !present || s == nil || s == "" {
-		if anetlinkDefaultSocket() == "" {
+		if anethome.DefaultC1Socket() == "" {
 			return configInvalid("modules.anetlink.socket", ruleText(
 				"没有 XDG_RUNTIME_DIR 时没有缺省值，须写明 anetlinkd 所用 socket 的绝对路径（它的 --c1-socket）",
 				"there is no default without XDG_RUNTIME_DIR, so give the absolute path of the socket anetlinkd serves (its --c1-socket)"))

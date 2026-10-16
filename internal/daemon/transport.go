@@ -206,21 +206,23 @@ func (d *Daemon) awaitReady(ctx context.Context) error {
 	return errNotReady
 }
 
-var _ module.TransportHost = moduleHost{}
+// transportPart is the TransportHost grant (hostgrants.go): with the base
+// Host it is module.TransportHost.
+type transportPart struct{ d *Daemon }
 
 // Inbound on moduleHost so a transport module reaches it through the same
 // narrow Host every other module gets.
-func (h moduleHost) Inbound() module.Inbound { return h.d.Inbound() }
+func (h transportPart) Inbound() module.Inbound { return h.d.Inbound() }
 
 // RegisterTransport lets a transport module add its path.
-func (h moduleHost) RegisterTransport(t module.Transport) { h.d.RegisterTransport(t) }
+func (h transportPart) RegisterTransport(t module.Transport) { h.d.RegisterTransport(t) }
 
 // counterDAckBadFrame counts answers to a direct send whose delivery
 // confirmation was malformed (not base64url, or not 80 bytes).
 const counterDAckBadFrame = "dack-bad-frame"
 
 // NoteBadDAck lets a transport module count a malformed confirmation.
-func (h moduleHost) NoteBadDAck() { h.d.count(counterDAckBadFrame) }
+func (h transportPart) NoteBadDAck() { h.d.count(counterDAckBadFrame) }
 
 // noteQuietPeer reports a recipient that has stopped collecting its mail.
 //

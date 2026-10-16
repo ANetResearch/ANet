@@ -899,7 +899,6 @@ func (d *Daemon) keepLocalCommit(req joinRequest) error {
 // (AD-3: running hub-register again retries at once).
 func (d *Daemon) adoptJoinTarget(req joinRequest, hubAID string, caps []string) (string, error) {
 	var prevHub string
-	var adopted *AutoReplyConfig
 	set := func(c *Config) {
 		c.HubURL = req.Hub
 		if req.Name != "" {
@@ -909,24 +908,14 @@ func (d *Daemon) adoptJoinTarget(req joinRequest, hubAID string, caps []string) 
 			c.Caps = caps
 		}
 	}
+	// updateConfig carries `without` and the blocks the kernel does not own
+	// (modules.*, auto_reply) over from the disk (K-2), so a block hand-added
+	// while this daemon ran is not lost by this write.
 	_, err := d.updateConfig(func(c *Config) error {
 		prevHub = c.HubURL
 		set(c)
-		// Don't clobber an auto_reply block hand-added to config.json after
-		// this daemon started (its in-memory cfg would not know it): adopt
-		// the on-disk value before writing back.
-		if c.AutoReply == nil {
-			if prev, err := LoadConfig(d.layout); err == nil && prev.AutoReply != nil {
-				c.AutoReply, adopted = prev.AutoReply, prev.AutoReply
-			}
-		}
 		return nil
-	}, func(live *Config) {
-		set(live)
-		if adopted != nil && live.AutoReply == nil {
-			live.AutoReply = adopted
-		}
-	})
+	}, set)
 	if err != nil {
 		return prevHub, err
 	}

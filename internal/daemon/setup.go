@@ -392,6 +392,7 @@ var SI5Keys = []string{
 	"payments.agent_max",
 	"payments.agent_daily_max",
 	"payments.payees",
+	"without",
 }
 
 // si5DefaultText states each key's fresh-install value for reports.
@@ -405,6 +406,7 @@ var si5DefaultText = map[string]string{
 	"payments.agent_max":          "0",
 	"payments.agent_daily_max":    "0",
 	"payments.payees":             "empty",
+	"without":                     "empty",
 }
 
 // SI5 returns the value of every SI-5 key and the keys whose value differs
@@ -431,6 +433,7 @@ func (st PolicyState) SI5() (values map[string]any, changed []string) {
 		"payments.agent_max":          st.Payments.AgentMax,
 		"payments.agent_daily_max":    st.Payments.AgentDailyMax,
 		"payments.payees":             nonNil(st.Payees),
+		"without":                     nonNil(st.Config.Without),
 	}
 	safe := map[string]bool{
 		"inbound.policy":              st.Inbound.Policy == PolicyClosed,
@@ -442,6 +445,7 @@ func (st PolicyState) SI5() (values map[string]any, changed []string) {
 		"payments.agent_max":          st.Payments.AgentMax == 0,
 		"payments.agent_daily_max":    st.Payments.AgentDailyMax == 0,
 		"payments.payees":             len(st.Payees) == 0,
+		"without":                     len(st.Config.Without) == 0,
 	}
 	for _, k := range SI5Keys {
 		if !safe[k] {

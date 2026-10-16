@@ -296,6 +296,7 @@ func (d *Daemon) ControlHandler(token string) http.Handler {
 	auth := &ctlAuth{token: token}
 	d.ctlAuth.Store(auth)
 	api := newRouteMux()
+	api.guard = d.moduleRouteGuard
 	api.HandleFunc("GET /status", d.hStatus)
 	api.HandleFunc("POST /status", d.hStatus)
 	api.HandleFunc("POST /identity/status", d.hIdentityStatus)
@@ -620,6 +621,10 @@ func (d *Daemon) hStatus(w http.ResponseWriter, r *http.Request) {
 	if ar := cfg.AutoReply; ar != nil {
 		out["auto_reply"] = autoReplyView(ar)
 	}
+	// Which optional modules this binary contains and which the
+	// configuration turned off (K-4), then what the started modules add.
+	out["build"] = d.statusBuild()
+	d.statusMembers(out)
 	// The hub join state (LEC §2.3.3): what the node is waiting for, and
 	// the one command, if any, that moves it on.
 	out["hub"] = d.HubView()
