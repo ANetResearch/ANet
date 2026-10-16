@@ -176,7 +176,7 @@ func addTaskTools(s *mcp.Server, c Control) {
 		Description: "Send an A2A message: `to` an agent's AID starts a new task; `task_id` continues " +
 			"one (answer a question the other side asked, or add to the task). The message is " +
 			"`text`, optionally with `files`, or a deterministic skill call: `skill` (a capability " +
-			"id from the agent's card) with `args`. It is signed under this node's identity, so the " +
+			"id from the agent's card) with `args`, and `files` when the card's skill takes files. It is signed under this node's identity, so the " +
 			"request is attributable to you and cannot be repudiated, and it is end-to-end encrypted " +
 			"to the agent. The call waits up to timeout_seconds (default 30) for the task to finish " +
 			"or to need you, then returns the Task as it is; a task still working is normal — call " +

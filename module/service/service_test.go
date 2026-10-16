@@ -139,12 +139,14 @@ func TestUnreachableIsNotFailed(t *testing.T) {
 	}))
 	defer bad.Close()
 	reg2 := start(t, `{"allow_tcp":true,"capabilities":[{"id":"y.do","url":"`+bad.URL+`"}]}`)
-	eff2 := invoke(t, reg2, "y.do", nil)
-	if eff2.Status != effect.Failed {
-		t.Errorf("a service that refused is FAILED, got %s", eff2.Status)
+	p2, _ := reg2.Resolve("y.do")
+	_, err := p2.Invoke(context.Background(), provider.Call{Capability: "y.do"})
+	var ref *provider.RefusalError
+	if !errors.As(err, &ref) || ref.Reason != "backend_failed" {
+		t.Errorf("a service that refused without a code is backend_failed, got %v", err)
 	}
-	if !strings.Contains(eff2.Message, "too large") {
-		t.Errorf("the service's own reason must survive: %q", eff2.Message)
+	if strings.Contains(err.Error(), "too large") {
+		t.Errorf("the service's own words stay in the log: %q", err)
 	}
 }
 
@@ -445,17 +447,138 @@ func TestBusyIsUnavailable(t *testing.T) {
 	for code, want := range map[int]effect.Status{
 		http.StatusServiceUnavailable:  effect.Unavailable,
 		http.StatusTooManyRequests:     effect.Unavailable,
-		http.StatusUnprocessableEntity: effect.Failed,
-		http.StatusUnauthorized:        effect.Failed,
+		http.StatusUnprocessableEntity: effect.Unavailable, // a refusal: the daemon ends the task as the reason says
+		http.StatusUnauthorized:        effect.Unavailable,
 		http.StatusInternalServerError: effect.Failed,
 	} {
 		svc := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			http.Error(w, "no", code)
 		}))
 		reg := start(t, `{"allow_tcp":true,"capabilities":[{"id":"x.do","url":"`+svc.URL+`"}]}`)
-		if eff := invoke(t, reg, "x.do", nil); eff.Status != want {
+		p, _ := reg.Resolve("x.do")
+		eff, _ := p.Invoke(context.Background(), provider.Call{Capability: "x.do"})
+		if eff.Status != want {
 			t.Errorf("HTTP %d: %s, want %s", code, eff.Status, want)
 		}
 		svc.Close()
+	}
+}
+
+// CUX-F21: without files the body is the args object, as it was; with
+// files it is {"args", "files"} and the args hold no "$" key.
+func TestServiceBodyWithFiles(t *testing.T) {
+	var raw []byte
+	svc := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ = io.ReadAll(r.Body)
+		_, _ = w.Write([]byte(`{"n":2}`))
+	}))
+	defer svc.Close()
+	reg := start(t, `{"allow_tcp":true,"capabilities":[{"id":"face.compare","url":"`+svc.URL+`"}]}`)
+	p, _ := reg.Resolve("face.compare")
+
+	if _, err := p.Invoke(context.Background(), provider.Call{Capability: "face.compare", Args: map[string]any{"k": "v"}}); err != nil {
+		t.Fatal(err)
+	}
+	if string(raw) != `{"k":"v"}` {
+		t.Fatalf("a call without files sent %s", raw)
+	}
+
+	call := provider.Call{Capability: "face.compare",
+		Args:  map[string]any{"k": "v", "$files": []any{map[string]any{"name": "a.jpg"}}},
+		Files: []provider.File{{Name: "a.jpg", Mime: "image/jpeg", Data: []byte("AAA")}, {Name: "b.png", Mime: "image/png", Data: []byte{0, 1, 2}}}}
+	if _, err := p.Invoke(context.Background(), call); err != nil {
+		t.Fatal(err)
+	}
+	var got struct {
+		Args  map[string]any `json:"args"`
+		Files []struct {
+			Name    string `json:"name"`
+			Mime    string `json:"mime"`
+			DataB64 string `json:"data_b64"`
+		} `json:"files"`
+	}
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("%v: %s", err, raw)
+	}
+	if len(got.Args) != 1 || got.Args["k"] != "v" {
+		t.Errorf("args %v: want k only, no $ key", got.Args)
+	}
+	if len(got.Files) != 2 || got.Files[0].Name != "a.jpg" || got.Files[0].Mime != "image/jpeg" ||
+		got.Files[0].DataB64 != "QUFB" || got.Files[1].DataB64 != "AAEC" {
+		t.Errorf("files %+v", got.Files)
+	}
+}
+
+// A "$" key with no files is not sent: the daemon refuses it before this.
+func TestServiceRefusesAReservedKeyWithoutFiles(t *testing.T) {
+	called := false
+	svc := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { called = true }))
+	defer svc.Close()
+	reg := start(t, `{"allow_tcp":true,"capabilities":[{"id":"x.do","url":"`+svc.URL+`"}]}`)
+	p, _ := reg.Resolve("x.do")
+	if _, err := p.Invoke(context.Background(), provider.Call{Capability: "x.do", Args: map[string]any{"$x": 1}}); err == nil || called {
+		t.Fatalf("err=%v called=%v", err, called)
+	}
+}
+
+// CUX-F22: a 4xx names its reason as {"error": code}, repeated when it has
+// the form of CORE-K19 and backend_failed otherwise; 503 and 429 are
+// UNAVAILABLE with Retry-After rounded up to a tier (seal.RetryBucket).
+func TestServiceErrorMapping(t *testing.T) {
+	cases := []struct {
+		name   string
+		status int
+		header string
+		body   string
+		reason string
+		verb   bool
+		retry  uint32
+	}{
+		{"code repeated", 422, "", `{"error":"no_face_found"}`, "no_face_found", true, 0},
+		{"code with capital", 400, "", `{"error":"NoFace"}`, "backend_failed", false, 0},
+		{"code too long", 400, "", `{"error":"` + strings.Repeat("a", 31) + `"}`, "backend_failed", false, 0},
+		{"code with a space", 400, "", `{"error":"no face"}`, "backend_failed", false, 0},
+		{"not json", 404, "", `<html>`, "backend_failed", false, 0},
+		{"no error member", 400, "", `{"message":"x"}`, "backend_failed", false, 0},
+		{"503 with seconds", 503, "7", `{"error":"overloaded"}`, "busy", false, 15},
+		{"429 with seconds", 429, "1", ``, "busy", false, 1},
+		{"429 over an hour", 429, "99999", ``, "busy", false, 3600},
+		{"503 without a header", 503, "", ``, "busy", false, 5},
+		{"503 with junk", 503, "soon", ``, "busy", false, 5},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			svc := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				if c.header != "" {
+					w.Header().Set("Retry-After", c.header)
+				}
+				w.WriteHeader(c.status)
+				_, _ = w.Write([]byte(c.body))
+			}))
+			defer svc.Close()
+			reg := start(t, `{"allow_tcp":true,"capabilities":[{"id":"x.do","url":"`+svc.URL+`"}]}`)
+			p, _ := reg.Resolve("x.do")
+			eff, err := p.Invoke(context.Background(), provider.Call{Capability: "x.do"})
+			var ref *provider.RefusalError
+			if !errors.As(err, &ref) {
+				t.Fatalf("err = %v, want a refusal (effect %+v)", err, eff)
+			}
+			if ref.Reason != c.reason || ref.Verbatim != c.verb || ref.RetryAfterS != c.retry {
+				t.Errorf("got %q verbatim=%v retry=%d, want %q %v %d", ref.Reason, ref.Verbatim, ref.RetryAfterS, c.reason, c.verb, c.retry)
+			}
+			if eff.Status != effect.Unavailable {
+				t.Errorf("status %s", eff.Status)
+			}
+		})
+	}
+}
+
+// CUX-F15: the module takes files for the capabilities it serves.
+func TestServiceIsAFileReceiver(t *testing.T) {
+	reg := start(t, `{"allow_tcp":true,"capabilities":[{"id":"x.do","url":"http://127.0.0.1:1/"}]}`)
+	p, _ := reg.Resolve("x.do")
+	fr, ok := p.(provider.FileReceiver)
+	if !ok || !fr.AcceptsFiles("x.do") || fr.AcceptsFiles("y.do") {
+		t.Fatalf("FileReceiver %v", ok)
 	}
 }
