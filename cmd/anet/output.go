@@ -132,9 +132,9 @@ func answerLines(out []byte, task bool, lang a2ashape.Language, now time.Time) [
 		if t.Status.State == a2ashape.TaskStateFailed || t.Status.State == a2ashape.TaskStateRejected {
 			reasonLine = messageText(t.Status.Message)
 		}
-		// v030-todo(RC-5): line 1 is also the sentence of one message the other side refused while
-		// the task goes on (ux §1.1 class M: that message's anet.reason, its placeholder text), once
-		// the Message projection carries it.
+		if reasonLine == "" {
+			reasonLine = refusedMessageLine(t, lang)
+		}
 		add("task.reason", reasonLine)
 		if s, ok := deliveryLine(t, lang, now); ok {
 			add("task.delivery", s)
@@ -164,12 +164,32 @@ func answerLines(out []byte, task bool, lang a2ashape.Language, now time.Time) [
 	return lines
 }
 
+// refusedMessageLine is line 1 for a task that goes on although the other
+// side refused one message of it (ux §1.1 class M): the sentence of that
+// message's anet.reason, when the reason table has one.
+func refusedMessageLine(t a2ashape.Task, lang a2ashape.Language) string {
+	if t.Status.State.Terminal() {
+		return ""
+	}
+	for i := len(t.History) - 1; i >= 0; i-- {
+		code, _ := t.History[i].Metadata[a2ashape.KeyReason].(string)
+		if code == "" {
+			continue
+		}
+		if r, ok := a2ashape.Lookup(code); !ok || r.Code != code {
+			return ""
+		}
+		peer, _ := t.Metadata[a2ashape.KeyPeerAID].(string)
+		return a2ashape.Sentence(code, lang, a2ashape.Args{"peer": peer})
+	}
+	return ""
+}
+
 // deliveryLine is line 2 of UX-C2, the delivery of the latest message this
-// node sent on the task, when it is pending or unconfirmed.
-//
-// v030-todo(RC-5): a2ashape.DeliveryLine(task, lang, nowMS) (DLV-L-2), once
-// the projection carries anet.delivery.
-var deliveryLine = func(t a2ashape.Task, lang a2ashape.Language, now time.Time) (string, bool) { return "", false }
+// node sent on the task, when it is pending or unconfirmed (DLV-L-2).
+var deliveryLine = func(t a2ashape.Task, lang a2ashape.Language, now time.Time) (string, bool) {
+	return a2ashape.DeliveryLine(t, lang, now.UnixMilli())
+}
 
 // keptLine is line 4 of UX-C2, task.kept_until of an ended task: the
 // projection's anet.content_expires_at and the retention it implies

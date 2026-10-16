@@ -81,8 +81,9 @@ func (d *Daemon) taskView(ix *interactions.Interaction, o viewOpts) (a2ashape.Ta
 	}
 	// The x402 part of the status as the payment flow derives it from its
 	// own columns (A2A-DESIGN §8.2, §11.5); the projection places it.
+	opt.NoResponseAfter, _ = d.config().noResponseAfter()
 	t := a2ashape.Project(a2ashape.Source{Interaction: ix, Messages: msgs, Attachments: atts,
-		Payment: d.PaymentStatusMeta(ix)}, opt)
+		Payment: d.PaymentStatusMeta(ix), Outbox: d.outboxMsgs(ix.ID)}, opt)
 	if t.Metadata == nil {
 		// Project always sets it; callers add keys (anet.wait) to it.
 		t.Metadata = map[string]any{}

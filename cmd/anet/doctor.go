@@ -592,15 +592,13 @@ func collectDoctor(layout daemon.Layout, env doctorEnv) (*doctorReport, error) {
 	rep.Tasks.Configured = strings.TrimSpace(cfg.NoResponseAfter) != ""
 	if after, ok := cfg.NoResponseAfterValue(); !ok {
 		rep.Tasks.NoResponseAfter = cfg.NoResponseAfter
-		add("tasks.no_response", stFail, fmt.Sprintf("no_response_after %q is not a duration; the daemon refuses to start", cfg.NoResponseAfter),
-			`write a Go duration such as "15m", or "0" to turn it off`)
+		say("tasks.no_response", stFail, "config_invalid", a2ashape.Args{"key": "no_response_after", "rule": "a Go duration such as \"15m\", or \"0\" to turn it off"})
 	} else if rep.Tasks.NoResponseAfter = after.String(); after == 0 {
-		add("tasks.no_response", stInfo, "no_response_after is 0: a task a peer never answers — one that refused it without "+
-			"telling, past its refusal-notice limit — stays submitted for ever", "")
+		say("tasks.no_response", stInfo, "no_response_after.off", nil)
 	} else {
-		add("tasks.no_response", stOK, fmt.Sprintf("a task this node sends that hears nothing from its peer for %s after delivery "+
-			"fails (anet.reason=no_response, effect UNVERIFIED); a later answer is still recorded (no_response_after)", after), "")
+		say("tasks.no_response", stOK, "no_response_after.set", a2ashape.Args{"limit": after})
 	}
+	deliveryOutboxCheck(say, rep, env, layout, lang) // doctor_delivery.go
 
 	// Sender privacy (sealed-sender §5.4) and p2p.lan.
 	senderPrivacyChecks(say, add, rep, env, layout, cfg) // doctor_sender.go

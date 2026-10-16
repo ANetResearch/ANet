@@ -76,6 +76,11 @@ func reasonText(st interactions.State, reason string) string {
 // show (UX-T1). Anything else is "<state>: <reason>" (P4).
 func (p *projector) endText(reason string, retryMS any) string {
 	st := p.ix.State
+	if st == interactions.StateFailed {
+		if t := p.abandonText(reason); t != "" {
+			return t
+		}
+	}
 	r, ok := Lookup(reason)
 	if st != interactions.StateRejected || !ok || r.Code != reason || r.Class&ClassR == 0 || r.NoSentence {
 		return reasonText(st, reason)

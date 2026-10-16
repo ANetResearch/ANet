@@ -197,7 +197,7 @@ func TestPaymentStatusMessagesHaveText(t *testing.T) {
 }
 
 // P4 and the metadata-only rows: an ended task with no message but a reason
-// says "<state>: <reason>", and a status row with no body says what its
+// says "<state>: <reason>" (undeliverable: its sentence), and a status row with no body says what its
 // metadata records instead of being an empty text part.
 func TestReasonsBecomeText(t *testing.T) {
 	st := openStore(t)
@@ -209,7 +209,8 @@ func TestReasonsBecomeText(t *testing.T) {
 	task, err := a2ashape.ProjectStored(st, ix, a2ashape.Options{Artifacts: true})
 	must(t, err)
 	sdk := contract(t, task)
-	if got := firstText(sdk); got != "failed: undeliverable" {
+	// undeliverable has one neutral sentence and no variant (DLV-S-35, DLV-A-3).
+	if got := firstText(sdk); got != a2ashape.Sentence("undeliverable", a2ashape.Lang(), nil) {
 		t.Fatalf("failed with a reason reads %q", got)
 	}
 

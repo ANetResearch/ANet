@@ -200,6 +200,11 @@ type Interaction struct {
 	// half the TaskDoc carried, and the salt of requester_commit. Nil once
 	// spent (HPP PAY-V6, PAY-V9).
 	ReviewSeed, ReviewRSalt []byte
+	// ReasonVariant and ReasonArg are the variant of the reason a delivery
+	// abandonment failed the task with, and its sentence's arguments as a
+	// JSON object (DLV-S-35); both empty otherwise.
+	ReasonVariant string
+	ReasonArg     string
 	// PeerKEL and PeerKeys hold the requester's KEL and SignedEncKeySet for
 	// a public or public_cap interaction, whose peer is not recorded in
 	// peer_identity (A2A-DESIGN §3.8). They are deleted when the
@@ -491,7 +496,12 @@ var interactionSchema = []string{
 	   -- seed of the review key and the salt of requester_commit. NULL on a
 	   -- task that is not an outbound delegation and once they are spent.
 	   review_seed BLOB,
-	   review_rsalt BLOB
+	   review_rsalt BLOB,
+	   -- Why a task a delivery abandonment failed says what it says (DLV-S-35):
+	   -- the variant of delivery_unconfirmed and the arguments of its sentence
+	   -- (JSON), written in the abandonment's transaction; '' for every other task.
+	   reason_variant TEXT NOT NULL DEFAULT '',
+	   reason_arg TEXT NOT NULL DEFAULT ''
 	 )`,
 	// The per-interaction conversation log.
 	`CREATE TABLE message (
@@ -929,7 +939,7 @@ func (s *Store) SetReview(id string, review []byte) error {
 // ixColumns is the shared SELECT column list for scanning an Interaction (keep in sync with scanRows).
 const ixColumns = `seq,id,role,peer_aid,goal,state,state_at,state_seq,request_cid,request_doc,result_cid,result,receipt,review,
 receipt_verified,end_req_by,end_acc_by,context_id,trust,is_capability,task_nonce,pay_state,pay_required,pay_auth_ids,
-pay_payload,pay_receipts,quote_expires_at,peer_kel,peer_keys,result_meta,peer_rk,pay_note,review_seed,review_rsalt,created_at,updated_at`
+pay_payload,pay_receipts,quote_expires_at,peer_kel,peer_keys,result_meta,peer_rk,pay_note,review_seed,review_rsalt,reason_variant,reason_arg,created_at,updated_at`
 
 // Get returns one interaction by id.
 func (s *Store) Get(id string) (*Interaction, error) {
@@ -1638,7 +1648,7 @@ func scanRows(sc scanner) (*Interaction, error) {
 		&ix.RequestCID, &ix.RequestDoc, &ix.ResultCID, &ix.Result, &ix.Receipt, &ix.Review,
 		&verified, &ix.EndReqBy, &ix.EndAccBy, &ix.ContextID, &ix.Trust, &capFlag, &ix.TaskNonce,
 		&ix.PayState, &ix.PayRequired, &authIDs, &ix.PayPayload, &ix.PayReceipts, &ix.QuoteExpiresAt,
-		&ix.PeerKEL, &ix.PeerKeys, &ix.ResultMeta, &ix.PeerRK, &ix.PayNote, &ix.ReviewSeed, &ix.ReviewRSalt, &ix.CreatedAt, &ix.UpdatedAt); err != nil {
+		&ix.PeerKEL, &ix.PeerKeys, &ix.ResultMeta, &ix.PeerRK, &ix.PayNote, &ix.ReviewSeed, &ix.ReviewRSalt, &ix.ReasonVariant, &ix.ReasonArg, &ix.CreatedAt, &ix.UpdatedAt); err != nil {
 		return nil, err
 	}
 	ix.Role = Role(role)
