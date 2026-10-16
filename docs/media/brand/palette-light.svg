@@ -1,0 +1,120 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="760" viewBox="0 0 1200 760" role="img" aria-labelledby="t d">
+<title id="t">ANet palette (light)</title>
+<desc id="d">Tech gray, black, white and signal red. Graphite gray ramp 50-950, red ramp 50-950 anchored on the logo red #E93024, and the status treatments: success neutral, warning red signal, failure solid red.</desc>
+<!-- Status icons: Lucide v1.51.0 (ISC; some derive from Feather, MIT). License notices: docs/media/icons/LICENSES/lucide.txt -->
+<rect x="0.5" y="0.5" width="1199" height="759" rx="20" fill="#FFFFFF" stroke="#E4E6E9"/>
+<defs><pattern id="g" width="24" height="24" patternUnits="userSpaceOnUse"><circle cx="12" cy="12" r="0.9" fill="#111316" fill-opacity="0.1"/></pattern><clipPath id="c"><rect x="0.5" y="0.5" width="1199" height="759" rx="20"/></clipPath></defs>
+<rect x="0" y="0" width="1200" height="120" fill="url(#g)" clip-path="url(#c)"/>
+<g transform="translate(48 40)"><path d="M10 0h34l-10 56H0z" fill="#E93024"/><path d="M50 0h10l-10 56H40z" fill="#E93024" fill-opacity="0.45"/></g>
+<text x="128" y="74" font-family="'Archivo', 'IBM Plex Sans', -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="34" font-weight="800" font-style="italic" letter-spacing="0.5" fill="#111316">ANet palette</text>
+<text x="128" y="98" font-family="'IBM Plex Sans', -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="17" fill="#52565C">Tech gray · Black · White · Signal red — red only marks what matters</text>
+<text x="1152" y="74" text-anchor="end" font-family="'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace" font-size="16" fill="#52565C">LIGHT THEME</text>
+<line x1="48" y1="132" x2="1152" y2="132" stroke="#E4E6E9"/>
+<rect x="48" y="156" width="264" height="132" rx="14" fill="#0A0B0D" stroke="#E4E6E9"/>
+<text x="68" y="194" font-family="'IBM Plex Sans', -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="21" font-weight="600" fill="#FFFFFF">Carbon</text>
+<text x="68" y="220" font-family="'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace" font-size="17" fill="#FFFFFF">#0A0B0D</text>
+<text x="68" y="268" font-family="'IBM Plex Sans', -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="15" fill="#FFFFFF" fill-opacity="0.82">black · ink · dark canvas</text>
+<rect x="328" y="156" width="264" height="132" rx="14" fill="#FFFFFF" stroke="#E4E6E9"/>
+<text x="348" y="194" font-family="'IBM Plex Sans', -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="21" font-weight="600" fill="#0A0B0D">Paper</text>
+<text x="348" y="220" font-family="'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace" font-size="17" fill="#0A0B0D">#FFFFFF</text>
+<text x="348" y="268" font-family="'IBM Plex Sans', -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="15" fill="#0A0B0D" fill-opacity="0.82">white · light canvas</text>
+<rect x="608" y="156" width="264" height="132" rx="14" fill="#6F747A" stroke="#E4E6E9"/>
+<text x="628" y="194" font-family="'IBM Plex Sans', -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="21" font-weight="600" fill="#FFFFFF">Graphite</text>
+<text x="628" y="220" font-family="'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace" font-size="17" fill="#FFFFFF">#6F747A</text>
+<text x="628" y="268" font-family="'IBM Plex Sans', -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="15" fill="#FFFFFF" fill-opacity="0.82">gray 500 · secondary marks</text>
+<rect x="888" y="156" width="264" height="132" rx="14" fill="#E93024" stroke="#E4E6E9"/>
+<text x="908" y="194" font-family="'IBM Plex Sans', -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="21" font-weight="600" fill="#0A0B0D">Signal red</text>
+<text x="908" y="220" font-family="'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace" font-size="17" fill="#0A0B0D">#E93024</text>
+<text x="908" y="268" font-family="'IBM Plex Sans', -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="15" fill="#0A0B0D" fill-opacity="0.82">red 500 · logo red, accents</text>
+<text x="48" y="328" font-family="'IBM Plex Sans', -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="16" font-weight="600" fill="#52565C" letter-spacing="1.2">GRAPHITE  ·  TECH GRAY</text>
+<rect x="48.0" y="340" width="94.9" height="84" rx="10" fill="#F9FAFB" stroke="#F2F4F6"/>
+<text x="58.0" y="366" font-family="'IBM Plex Sans', -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="16" font-weight="600" fill="#0A0B0D">50</text>
+<text x="58.0" y="412" font-family="'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace" font-size="13.5" fill="#0A0B0D">#F9FAFB</text>
+<rect x="148.9" y="340" width="94.9" height="84" rx="10" fill="#F2F4F6" stroke="#F2F4F6"/>
+<text x="158.9" y="366" font-family="'IBM Plex Sans', -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="16" font-weight="600" fill="#0A0B0D">100</text>
+<text x="158.9" y="412" font-family="'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace" font-size="13.5" fill="#0A0B0D">#F2F4F6</text>
+<rect x="249.8" y="340" width="94.9" height="84" rx="10" fill="#E4E6E9" stroke="#F2F4F6"/>
+<text x="259.8" y="366" font-family="'IBM Plex Sans', -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="16" font-weight="600" fill="#0A0B0D">200</text>
+<text x="259.8" y="412" font-family="'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace" font-size="13.5" fill="#0A0B0D">#E4E6E9</text>
+<rect x="350.7" y="340" width="94.9" height="84" rx="10" fill="#D1D4D7" stroke="#F2F4F6"/>
+<text x="360.7" y="366" font-family="'IBM Plex Sans', -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="16" font-weight="600" fill="#0A0B0D">300</text>
+<text x="360.7" y="412" font-family="'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace" font-size="13.5" fill="#0A0B0D">#D1D4D7</text>
+<rect x="451.6" y="340" width="94.9" height="84" rx="10" fill="#A1A5AA" stroke="#F2F4F6"/>
+<text x="461.6" y="366" font-family="'IBM Plex Sans', -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="16" font-weight="600" fill="#0A0B0D">400</text>
+<text x="461.6" y="412" font-family="'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace" font-size="13.5" fill="#0A0B0D">#A1A5AA</text>
+<rect x="552.5" y="340" width="94.9" height="84" rx="10" fill="#6F747A" stroke="#F2F4F6"/>
+<text x="562.5" y="366" font-family="'IBM Plex Sans', -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="16" font-weight="600" fill="#FFFFFF">500</text>
+<text x="562.5" y="412" font-family="'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace" font-size="13.5" fill="#FFFFFF">#6F747A</text>
+<rect x="653.5" y="340" width="94.9" height="84" rx="10" fill="#52565C" stroke="#F2F4F6"/>
+<text x="663.5" y="366" font-family="'IBM Plex Sans', -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="16" font-weight="600" fill="#FFFFFF">600</text>
+<text x="663.5" y="412" font-family="'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace" font-size="13.5" fill="#FFFFFF">#52565C</text>
+<rect x="754.4" y="340" width="94.9" height="84" rx="10" fill="#3D4146" stroke="#F2F4F6"/>
+<text x="764.4" y="366" font-family="'IBM Plex Sans', -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="16" font-weight="600" fill="#FFFFFF">700</text>
+<text x="764.4" y="412" font-family="'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace" font-size="13.5" fill="#FFFFFF">#3D4146</text>
+<rect x="855.3" y="340" width="94.9" height="84" rx="10" fill="#292C30" stroke="#F2F4F6"/>
+<text x="865.3" y="366" font-family="'IBM Plex Sans', -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="16" font-weight="600" fill="#FFFFFF">800</text>
+<text x="865.3" y="412" font-family="'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace" font-size="13.5" fill="#FFFFFF">#292C30</text>
+<rect x="956.2" y="340" width="94.9" height="84" rx="10" fill="#1A1C1F" stroke="#F2F4F6"/>
+<text x="966.2" y="366" font-family="'IBM Plex Sans', -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="16" font-weight="600" fill="#FFFFFF">900</text>
+<text x="966.2" y="412" font-family="'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace" font-size="13.5" fill="#FFFFFF">#1A1C1F</text>
+<rect x="1057.1" y="340" width="94.9" height="84" rx="10" fill="#111316" stroke="#F2F4F6"/>
+<text x="1067.1" y="366" font-family="'IBM Plex Sans', -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="16" font-weight="600" fill="#FFFFFF">950</text>
+<text x="1067.1" y="412" font-family="'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace" font-size="13.5" fill="#FFFFFF">#111316</text>
+<text x="48" y="458" font-family="'IBM Plex Sans', -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="16" font-weight="600" fill="#52565C" letter-spacing="1.2">SIGNAL RED  ·  500 = LOGO RED</text>
+<rect x="48.0" y="470" width="94.9" height="84" rx="10" fill="#FFF3F1" stroke="#F2F4F6"/>
+<text x="58.0" y="496" font-family="'IBM Plex Sans', -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="16" font-weight="600" fill="#0A0B0D">50</text>
+<text x="58.0" y="542" font-family="'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace" font-size="13.5" fill="#0A0B0D">#FFF3F1</text>
+<rect x="148.9" y="470" width="94.9" height="84" rx="10" fill="#FFE4E0" stroke="#F2F4F6"/>
+<text x="158.9" y="496" font-family="'IBM Plex Sans', -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="16" font-weight="600" fill="#0A0B0D">100</text>
+<text x="158.9" y="542" font-family="'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace" font-size="13.5" fill="#0A0B0D">#FFE4E0</text>
+<rect x="249.8" y="470" width="94.9" height="84" rx="10" fill="#FFCCC4" stroke="#F2F4F6"/>
+<text x="259.8" y="496" font-family="'IBM Plex Sans', -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="16" font-weight="600" fill="#0A0B0D">200</text>
+<text x="259.8" y="542" font-family="'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace" font-size="13.5" fill="#0A0B0D">#FFCCC4</text>
+<rect x="350.7" y="470" width="94.9" height="84" rx="10" fill="#FFA79A" stroke="#F2F4F6"/>
+<text x="360.7" y="496" font-family="'IBM Plex Sans', -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="16" font-weight="600" fill="#0A0B0D">300</text>
+<text x="360.7" y="542" font-family="'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace" font-size="13.5" fill="#0A0B0D">#FFA79A</text>
+<rect x="451.6" y="470" width="94.9" height="84" rx="10" fill="#FE6E5D" stroke="#F2F4F6"/>
+<text x="461.6" y="496" font-family="'IBM Plex Sans', -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="16" font-weight="600" fill="#0A0B0D">400</text>
+<text x="461.6" y="542" font-family="'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace" font-size="13.5" fill="#0A0B0D">#FE6E5D</text>
+<rect x="552.5" y="470" width="94.9" height="84" rx="10" fill="#E93024" stroke="#F2F4F6"/>
+<text x="562.5" y="496" font-family="'IBM Plex Sans', -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="16" font-weight="600" fill="#0A0B0D">500</text>
+<text x="562.5" y="542" font-family="'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace" font-size="13.5" fill="#0A0B0D">#E93024</text>
+<rect x="549.5" y="467" width="100.9" height="90" rx="12" fill="none" stroke="#111316" stroke-width="2"/>
+<rect x="653.5" y="470" width="94.9" height="84" rx="10" fill="#C9241B" stroke="#F2F4F6"/>
+<text x="663.5" y="496" font-family="'IBM Plex Sans', -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="16" font-weight="600" fill="#FFFFFF">600</text>
+<text x="663.5" y="542" font-family="'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace" font-size="13.5" fill="#FFFFFF">#C9241B</text>
+<rect x="754.4" y="470" width="94.9" height="84" rx="10" fill="#A71913" stroke="#F2F4F6"/>
+<text x="764.4" y="496" font-family="'IBM Plex Sans', -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="16" font-weight="600" fill="#FFFFFF">700</text>
+<text x="764.4" y="542" font-family="'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace" font-size="13.5" fill="#FFFFFF">#A71913</text>
+<rect x="855.3" y="470" width="94.9" height="84" rx="10" fill="#84160F" stroke="#F2F4F6"/>
+<text x="865.3" y="496" font-family="'IBM Plex Sans', -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="16" font-weight="600" fill="#FFFFFF">800</text>
+<text x="865.3" y="542" font-family="'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace" font-size="13.5" fill="#FFFFFF">#84160F</text>
+<rect x="956.2" y="470" width="94.9" height="84" rx="10" fill="#63130D" stroke="#F2F4F6"/>
+<text x="966.2" y="496" font-family="'IBM Plex Sans', -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="16" font-weight="600" fill="#FFFFFF">900</text>
+<text x="966.2" y="542" font-family="'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace" font-size="13.5" fill="#FFFFFF">#63130D</text>
+<rect x="1057.1" y="470" width="94.9" height="84" rx="10" fill="#3D0B07" stroke="#F2F4F6"/>
+<text x="1067.1" y="496" font-family="'IBM Plex Sans', -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="16" font-weight="600" fill="#FFFFFF">950</text>
+<text x="1067.1" y="542" font-family="'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace" font-size="13.5" fill="#FFFFFF">#3D0B07</text>
+<text x="48" y="588" font-family="'IBM Plex Sans', -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="16" font-weight="600" fill="#52565C" letter-spacing="1.2">STATES  ·  QUIET WHEN FINE, RED WHEN IT MATTERS</text>
+<rect x="48.0" y="600" width="209.6" height="56" rx="12" fill="#F2F4F6" stroke="#D1D4D7" stroke-width="1.5"/>
+<g transform="translate(64.0 616) scale(1.0000)" fill="none" stroke="#111316" stroke-width="2.000" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m16 9-5.5 5.5L8 12"/></g>
+<text x="100.0" y="635" font-family="'IBM Plex Sans', -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="17" font-weight="600" fill="#111316">Delivered</text>
+<text x="50.0" y="682" font-family="'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace" font-size="13" fill="#52565C">success</text>
+<rect x="271.6" y="600" width="209.6" height="56" rx="12" fill="#FFFFFF" stroke="#D1D4D7" stroke-width="1.5"/>
+<g transform="translate(287.6 616) scale(1.0000)" fill="none" stroke="#52565C" stroke-width="2.000" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></g>
+<text x="323.6" y="635" font-family="'IBM Plex Sans', -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="17" font-weight="600" fill="#52565C">Queued</text>
+<text x="273.6" y="682" font-family="'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace" font-size="13" fill="#52565C">info</text>
+<rect x="495.2" y="600" width="209.6" height="56" rx="12" fill="#FFF3F1" stroke="#FFA79A" stroke-width="1.5"/>
+<g transform="translate(511.2 616) scale(1.0000)" fill="none" stroke="#C9241B" stroke-width="2.000" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></g>
+<text x="547.2" y="635" font-family="'IBM Plex Sans', -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="17" font-weight="600" fill="#111316">Unconfirmed</text>
+<text x="497.2" y="682" font-family="'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace" font-size="13" fill="#52565C">warning</text>
+<rect x="718.8" y="600" width="209.6" height="56" rx="12" fill="#C9241B" stroke="#C9241B" stroke-width="1.5"/>
+<g transform="translate(734.8 616) scale(1.0000)" fill="none" stroke="#FFFFFF" stroke-width="2.000" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/></g>
+<text x="770.8" y="635" font-family="'IBM Plex Sans', -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="17" font-weight="600" fill="#FFFFFF">Rejected</text>
+<text x="720.8" y="682" font-family="'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace" font-size="13" fill="#52565C">danger</text>
+<rect x="942.4" y="600" width="209.6" height="56" rx="12" fill="#FFF3F1" stroke="#FFCCC4" stroke-width="1.5"/>
+<g transform="translate(958.4 616) scale(1.0000)" fill="none" stroke="#A71913" stroke-width="2.000" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></g>
+<text x="994.4" y="635" font-family="'IBM Plex Sans', -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="17" font-weight="600" fill="#A71913">End-to-end</text>
+<text x="944.4" y="682" font-family="'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace" font-size="13" fill="#52565C">accent</text>
+<text x="48" y="736" font-family="'IBM Plex Sans', -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" fill="#52565C">All text pairs ≥ 4.5:1, UI marks ≥ 3:1 (WCAG 2.2 AA). Status is never colour alone: each state carries its icon.</text>
+</svg>

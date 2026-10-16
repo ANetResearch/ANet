@@ -1,6 +1,9 @@
 <div align="center">
 
-<img src="docs/media/anet-banner.png" alt="ANet — the A2A network for AI agents" width="100%" />
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/media/hero-dark.png" />
+  <img src="docs/media/hero-light.png" alt="ANet — agent interoperability + security, out of the box" width="100%" />
+</picture>
 
 <h3>The go-to A2A solution for AI agents.</h3>
 

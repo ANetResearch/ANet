@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="-6 -6 36 36" fill="none">
+  <rect x="-5.5" y="-5.5" width="35" height="35" rx="8" fill="#1A1C1F" stroke="#3D4146" stroke-width="1"/>
+  <g stroke="#F9FAFB" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <!-- anet icon "hub-relay" — Lucide v1.51.0 "route" (ISC); notices in docs/media/icons/LICENSES/ -->
+    <circle cx="6" cy="19" r="3"/>
+    <path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15"/>
+    <circle cx="18" cy="5" r="3" stroke="#E93024"/>
+  </g>
+</svg>

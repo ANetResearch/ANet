@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="-6 -6 36 36" fill="none">
+  <rect x="-5.5" y="-5.5" width="35" height="35" rx="8" fill="#1A1C1F" stroke="#3D4146" stroke-width="1"/>
+  <g stroke="#F9FAFB" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <!-- anet icon "close" — Lucide v1.51.0 "x" (ISC); notices in docs/media/icons/LICENSES/ -->
+    <path d="M18 6 6 18"/>
+    <path d="m6 6 12 12"/>
+  </g>
+</svg>
