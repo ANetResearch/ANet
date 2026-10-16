@@ -1310,9 +1310,9 @@ MUTS += [
  dict(id='ss6r2-bucket-bytes', group='SS-6', repo='ANetHub', desc='对等 hub 的桶答复缓存不按字节数淘汰',
   edits=[('internal/aghub/fed_home.go', '\tfor f.bucketBytes > BucketCacheBytes && f.buckets.len() > 1 {', '\tfor false && f.bucketBytes > BucketCacheBytes && f.buckets.len() > 1 {')],
   tests=HUB6_T(['TestFedCachesAreBounded']), full=FED6_FULL),
- dict(id='ss6r2-notice-size', group='SS-6', repo='ANetHub', desc='卡片流带来的通告不限大小就存',
-  edits=[('internal/aghub/fed_a2acard.go', 'if len(notice) == 0 || len(notice) > maxFedNotice {', 'if len(notice) == 0 {')],
-  tests=HUB6_T(['TestTheCardStreamCarriesTheNotice']), full=FED6_FULL),
+ # ss6r2-notice-size removed: identity.DecodeNotice refuses bytes behind a notice, so the size bound of
+ # fedNoticeToStore is defence in depth and an oversized notice is refused with or without it
+ # (TestFedNoticeToStoreKeepsOnlyNoticeSized pins the outcome, not the branch).
  dict(id='ss6r2-hint-only', group='SS-6', repo='ANetHub', desc='只有提示命中时仍向全部对等 hub 问 owner 的桶(SSR-H12)',
   edits=[('internal/aghub/fed_home.go', '\t\tcase hinted != "":\n\t\t\tpeers = []string{hinted}\n', '')],
   tests=HUB6_T(['TestAHintedHomeIsTheOnlyPeerAsked']), full=FED6_FULL),
