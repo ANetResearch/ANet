@@ -34,7 +34,7 @@ func LoadOrGenerateIdentity(l Layout) (*identity.Controller, error) {
 		}
 		c, rerr := identity.Restore(b)
 		if rerr != nil {
-			return nil, fmt.Errorf("anet: restore identity %s: %w", l.IdentityPath(), rerr)
+			return nil, invalidIdentityFileRefusal(l.IdentityPath())
 		}
 		return c, nil
 	}
@@ -107,7 +107,7 @@ var identityFileTagPrefix = strings.TrimRight(identity.IdentityFileType, "012345
 // checkIdentityFileForStart is the identity file's part of CheckDataDirForStart: an identity file
 // of anet 0.2 or earlier is refused with identity_v02, one a newer anet wrote with
 // datadir_too_new, before anything is written. It only reads. A missing file passes (the start
-// incepts one); a damaged one is left to the start, which says what is wrong with it.
+// incepts one); a damaged one is identity_file_invalid.
 func checkIdentityFileForStart(l Layout) error {
 	b, err := os.ReadFile(l.IdentityPath())
 	switch {
@@ -119,6 +119,13 @@ func checkIdentityFileForStart(l Layout) error {
 		return oldDataDirRefusal()
 	case identityFileIsNewer(b):
 		return newerDataDirRefusal()
+	}
+	// One that is neither old nor new and does not read is damaged: one sentence, with the way out,
+	// before anything is written (ux §1.4 E2, identity_file_invalid).
+	if c, err := identity.Restore(b); err != nil {
+		return invalidIdentityFileRefusal(l.IdentityPath())
+	} else if c != nil {
+		return nil
 	}
 	return nil
 }

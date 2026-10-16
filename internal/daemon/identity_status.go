@@ -13,7 +13,6 @@ package daemon
 
 import (
 	"errors"
-	"fmt"
 	"net/http"
 	"os"
 	"time"
@@ -316,11 +315,18 @@ func ReadIdentityStatus(l Layout, lang a2ashape.Language) (IdentityStatus, error
 	}
 	c, err := identity.Restore(b)
 	if err != nil {
-		return IdentityStatus{}, fmt.Errorf("anet: identity %s: %w", l.IdentityPath(), err)
+		return IdentityStatus{}, invalidIdentityFileRefusal(l.IdentityPath())
 	}
 	d := &Daemon{layout: l, self: c, started: time.Now()}
 	if n, err := readKeyStateNoticeFile(l); err == nil && n != nil {
-		d.idGate.noteNotice(n, "")
+		// The notice is a file the hub's answer was saved in; it counts only
+		// when it verifies for this KEL against the hub KEL this data
+		// directory holds (KEL C-51), read from the store without opening it
+		// for writing. One that does not verify is no notice.
+		hubKELs := func(aid string) ([]identity.SignedEvent, bool) { return offlineHubKEL(l, aid) }
+		if identity.VerifyNotice(n.Wire, c.Accepted(), hubKELs, uint64(time.Now().UnixMilli())) == nil {
+			d.idGate.noteNotice(n, "")
+		}
 	}
 	if r, err := loadJoinRecord(l); err == nil {
 		d.join.rec = r

@@ -278,6 +278,8 @@ func TestRegistrationPublishesTheCardAndRepeatsItUnchanged(t *testing.T) {
 	}
 
 	// A restart keeps the issued card, so it too is unchanged.
+	// The first process has ended: a data directory has one daemon (KEL-10).
+	d.Close()
 	d2, err := New(d.layout)
 	if err != nil {
 		t.Fatal(err)
