@@ -257,3 +257,10 @@ func grantedTo(name string, g module.Grant) bool {
 	i, ok := rowOf(name)
 	return ok && i.Granted(g)
 }
+
+// setJoinHooks replaces the join hooks of a running daemon. Tests only.
+func (d *Daemon) setJoinHooks(h JoinHooks) {
+	d.join.mu.Lock()
+	d.join.hooks = h
+	d.join.mu.Unlock()
+}

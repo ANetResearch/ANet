@@ -106,8 +106,11 @@ func TestIdentityStatusSaysEachState(t *testing.T) {
 	}
 
 	d, srv, fh := witnessedNode(t, true)
-	now := uint64(time.Now().UnixMilli())
-	d.setClock(func() uint64 { return now })
+	// The clock is read by the daemon's background loops while this test
+	// moves it, so it is a sharedClock, not a captured variable.
+	clk := newSharedClock(uint64(time.Now().UnixMilli()))
+	now := clk.now()
+	d.setClock(clk.fn())
 	n, _, _ := d.idGate.read()
 	s = identityStatusOf(t, d)
 	rot := d.self.Accepted()[1].Event
@@ -123,12 +126,14 @@ func TestIdentityStatusSaysEachState(t *testing.T) {
 		"now": time.UnixMilli(int64(now))})
 
 	now = n.Body.ObservedAt + NoticeResealAge + minuteMS
+	clk.set(now)
 	s = identityStatusOf(t, d)
 	checkSaid(t, "aging", s, IdentityOK, reasonConfirmAging, a2ashape.Args{"dur": time.Duration(NoticeResealAge+minuteMS) * time.Millisecond})
 	if s.Notice == nil || s.Notice.AgeS != (NoticeResealAge+minuteMS)/1000 {
 		t.Fatalf("aging: notice %+v", s.Notice)
 	}
 	now = n.Body.ObservedAt + NoticeStopLine + minuteMS
+	clk.set(now)
 	checkSaid(t, "stale", identityStatusOf(t, d), IdentityNoticeStale, reasonNoticeStale,
 		a2ashape.Args{"dur": time.Duration(NoticeStopLine+minuteMS) * time.Millisecond})
 
@@ -221,7 +226,7 @@ func localSeedJoin(t *testing.T) (d *Daemon, rs [32]byte, srvURL string, fh *fak
 	fh.notices = true
 	fh.mu.Unlock()
 	d, _ = joinDaemon(t)
-	d.join.hooks = witnessJoinHooks{d}
+	d.setJoinHooks(witnessJoinHooks{d})
 	rs = newSeed(t)
 	digest, err := identity.NextDigest(rs, d.AID(), 2)
 	if err != nil {

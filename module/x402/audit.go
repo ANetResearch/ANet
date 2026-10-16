@@ -63,6 +63,9 @@ const (
 	// proofKeptFor is how long the hub keeps an epoch's leaves, counted from
 	// the epoch record's publication (HPP §2.3).
 	proofKeptFor = 14 * dayMillis
+	// epochTimeSlack is the clock difference tolerated between the hub's
+	// record time and the end of the day it covers, or this node's clock.
+	epochTimeSlack = 10 * 60 * 1000
 	// auditEvery is the pace of the automatic check (PAY-S9).
 	auditEvery = 6 * time.Hour
 	// maxEpochs bounds what one audit reads of the chain.
@@ -238,6 +241,27 @@ func (m *Module) verifyChain(chain []epochView, hubAID string) (problems []Findi
 				problems = append(problems, chainFinding(p))
 			}
 			sound = false
+		}
+		// The hub writes each record's time, and the 14-day rule below trusts
+		// it: a time that precedes the end of the day the epoch covers, runs
+		// backwards along the chain or lies in the future would let a hub age
+		// a new epoch out of the audit.
+		now := time.Now().UnixMilli()
+		for i := 0; i < len(chain) && sound; i++ {
+			ts, why := chain[i].rec.Timestamp, ""
+			switch {
+			case ts < chain[i].closeMS()-epochTimeSlack:
+				why = "is older than the end of the last day it covers"
+			case i > 0 && ts < chain[i-1].rec.Timestamp:
+				why = "is older than the epoch before it"
+			case ts > now+epochTimeSlack:
+				why = "is in the future"
+			}
+			if why != "" {
+				problems = append(problems, chainFinding(fmt.Sprintf(
+					"seq %d: the time the hub wrote %s", chain[i].Seq, why)))
+				sound = false
+			}
 		}
 		// One epoch per day, in order: a day covered twice, or backwards, is
 		// not a supply history.
@@ -769,9 +793,42 @@ func entryTime(led *ledgerView) (int64, bool) {
 	return parseStamp(led.Entries[0].At)
 }
 
+// auditErrorsBeforeAFinding is how many passes in a row (six hours apart)
+// the hub must answer a balance-proof read with an error before doctor says so.
+const auditErrorsBeforeAFinding = 2
+
+// noteAuditError counts the passes that ended because the hub answered the
+// read of a balance proof with an error (not because it could not be
+// reached); a pass that checked resets it. A hub that keeps failing this read
+// is a hub whose books cannot be checked, whatever the reason, and that must
+// not look the same as a hub that checks out.
+func (m *Module) noteAuditError(err error) {
+	m.auditMu2.Lock()
+	defer m.auditMu2.Unlock()
+	if err == nil {
+		m.auditErrs, m.auditErrAt = 0, 0
+		return
+	}
+	var hs *hubStatusError
+	if !errors.As(err, &hs) {
+		return // the hub was not reached: that says nothing about its books
+	}
+	m.auditErrs++
+	m.auditErrAt = time.Now().UnixMilli()
+}
+
 // AuditSummary is the last result of the check for doctor's payments.audit:
-// the newest row of the proof chain.
+// the newest row of the proof chain, or, when the hub keeps answering the
+// read of a proof with an error, that.
 func (m *Module) AuditSummary() any {
+	m.auditMu2.Lock()
+	errs, errAt := m.auditErrs, m.auditErrAt
+	m.auditMu2.Unlock()
+	if errs >= auditErrorsBeforeAFinding {
+		f := Finding{Code: "proof_unavailable", Level: levelFail, Args: map[string]any{"time": errAt},
+			Detail: "the hub keeps answering the read of a balance proof with an error"}
+		return map[string]any{"result": "proof_unavailable", "checked_at": errAt, "close": errAt, "finding": f}
+	}
 	rows := m.liab.all(m.hubAID())
 	if len(rows) == 0 {
 		return nil
@@ -823,8 +880,10 @@ func (m *Module) auditPass(ctx context.Context, seen string) string {
 	rep, err := m.audit(ctx)
 	if err != nil {
 		log.Printf("anet: checking the hub's balance proofs: %v", err)
+		m.noteAuditError(err)
 		return seen
 	}
+	m.noteAuditError(nil)
 	for _, f := range rep.Findings {
 		log.Printf("anet: balance-proof check: %s (%s)", f.Code, f.Detail)
 	}

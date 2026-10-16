@@ -41,6 +41,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -485,8 +486,14 @@ func (d *Daemon) settleTaskPayment(ctx context.Context, ixID string, first bool)
 	// task holds. A facilitator that answered with somebody else's
 	// settlement has not settled this one.
 	if st.Receipt != "" {
-		facts, _ := p.VerifyReceipt(st.Receipt, ix.PeerAID)
-		if len(ix.PayAuthIDs) == 0 || facts.AuthID != ix.PayAuthIDs[0] {
+		facts, signed := p.VerifyReceipt(st.Receipt, ix.PeerAID)
+		quoted, _ := strconv.ParseUint(req.Amount, 10, 64)
+		// Signed by the hub, for this task's authorization, to this node,
+		// for at least the quote and on the network quoted: a receipt that
+		// names the right authorization but pays someone else or less is
+		// not this task's payment.
+		if !signed || len(ix.PayAuthIDs) == 0 || facts.AuthID != ix.PayAuthIDs[0] ||
+			facts.Payee != req.PayTo || facts.Amount < quoted || facts.Network != req.Network {
 			d.paymentFailed(ctx, ixID, paySubmitted, payment.ReasonSettlementFailed, "", "the facilitator's receipt is for another payment",
 				failureReceipt(payment.ReasonSettlementFailed, req.Network))
 			return false

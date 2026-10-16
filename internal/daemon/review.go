@@ -368,8 +368,15 @@ func (d *Daemon) uploadReviewRow(ctx context.Context, hub string, row interactio
 		d.reviewStored(ctx, hub, row, ix, resp.Attestation)
 		return true
 	case hubReason(err) == "review_exists":
-		d.reviewStored(ctx, hub, row, ix, "")
-		return true
+		// The hub holds a review of this interaction, and does not say whose.
+		// It is this node's own when an earlier upload was stored and its
+		// answer lost; it is a stranger's when the provider signed a second
+		// receipt for the same interaction naming another requester. The
+		// node cannot tell, so it does not record the review as stored
+		// (that would be written to the chain, and said to the user, as a
+		// success); it is given up and doctor reports it.
+		d.giveUpReview(row.IX, "the hub already holds a review of this interaction and this node cannot confirm it is its own")
+		return false
 	case reviewFutile(hubReason(err)):
 		d.giveUpReview(row.IX, "the hub refused it: "+hubReason(err))
 		return false

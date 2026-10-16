@@ -207,8 +207,10 @@ func TestAReviewNotUploadedInSevenDaysIsGivenUp(t *testing.T) {
 	}
 }
 
-// A hub that already holds the review counts as done; the inputs are spent either way.
-func TestAReviewTheHubAlreadyHoldsIsDone(t *testing.T) {
+// A hub that answers review_exists does not say whose review it holds (the provider can sign several
+// receipts for one interaction, naming other requesters): the node cannot confirm it is its own, so
+// the review is given up and said so, not recorded as stored.
+func TestAReviewTheHubHoldsAnotherOfIsNotRecordedAsStored(t *testing.T) {
 	url, req, _, id := reviewableTask(t)
 	fh := fakeHubAt(t, url)
 	if _, err := req.SubmitReview(id, 4, "fine"); err != nil {
@@ -220,11 +222,14 @@ func TestAReviewTheHubAlreadyHoldsIsDone(t *testing.T) {
 	if err := req.ix.RetryReview(id, 0); err != nil {
 		t.Fatal(err)
 	}
-	if n := req.uploadDueReviews(context.Background()); n != 1 {
-		t.Fatalf("uploaded %d, want the review counted done", n)
+	if n := req.uploadDueReviews(context.Background()); n != 0 {
+		t.Fatalf("uploaded %d, want none counted done", n)
 	}
-	if ix := mustIX(t, req, id); len(ix.ReviewSeed) != 0 || len(ix.ReviewRSalt) != 0 {
-		t.Fatal("the review inputs outlived a review the hub holds")
+	if rows, _ := req.ix.PendingReviews(); len(rows) != 0 {
+		t.Fatalf("still queued: %+v", rows)
+	}
+	if req.reviewsGivenUp.Load() != 1 {
+		t.Fatalf("given up %d, want 1 (doctor reports it)", req.reviewsGivenUp.Load())
 	}
 }
 

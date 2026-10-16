@@ -98,7 +98,7 @@ func checkNoRecoveryFileOpened(t *testing.T) {
 	fh.notices = true
 	fh.mu.Unlock()
 	d, _ := joinDaemon(t)
-	d.join.hooks = witnessJoinHooks{d}
+	d.setJoinHooks(witnessJoinHooks{d})
 	aid := d.AID()
 	tail := aid[len(aid)-12:]
 	local := filepath.Join(d.layout.Root, "recovery_local.anetrec")

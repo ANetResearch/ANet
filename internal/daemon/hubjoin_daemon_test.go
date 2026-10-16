@@ -34,7 +34,7 @@ func joinDaemon(t *testing.T) (*Daemon, *fakeJoinHooks) {
 		t.Fatal(err)
 	}
 	hooks := newFakeJoinHooks(kel)
-	d.join.hooks = hooks
+	d.setJoinHooks(hooks)
 	return d, hooks
 }
 
@@ -555,7 +555,7 @@ func TestTheRelayLoopWaitsForRegistration(t *testing.T) {
 	// The join designates the hub the witness, whose notice then confirms
 	// the identity: polling is what the gate lets through first (KEL D-1).
 	d.regMu.Lock()
-	d.join.hooks = witnessJoinHooks{d}
+	d.setJoinHooks(witnessJoinHooks{d})
 	d.regMu.Unlock()
 	// The gate is held open: what keeps the loop from polling while the
 	// node waits for admission must be the loop's own wait, not a gate

@@ -57,6 +57,15 @@ type hubJoin struct {
 	waitHook atomic.Pointer[func(nextAttemptAt int64)]
 }
 
+// joinHooks are the join hooks now in force. Read under the join lock because
+// a test replaces them (setJoinHooks) while the join loop of a daemon it
+// started may be attempting.
+func (d *Daemon) joinHooks() JoinHooks {
+	d.join.mu.Lock()
+	defer d.join.mu.Unlock()
+	return d.join.hooks
+}
+
 // initJoin loads the join record of the configured hub (New). A record of
 // another hub than config.json names, or one that cannot be read, is
 // replaced by a fresh one for the configured hub: config.json's hub_url is
@@ -288,7 +297,7 @@ func (d *Daemon) attemptLocked(ctx context.Context, hubURL, name string, caps []
 	}
 	env := joinEnv{
 		hub:       &httpJoinHub{d: d, hubURL: hubURL, name: name, caps: caps, ownKEL: kelB},
-		hooks:     d.join.hooks,
+		hooks:     d.joinHooks(),
 		hubURL:    hubURL,
 		hubAID:    hubAID,
 		aid:       d.AID(),
