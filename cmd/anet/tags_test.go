@@ -29,7 +29,6 @@ var (
 	repoRoot    = filepath.Join("..", "..")
 	pluggableRE = regexp.MustCompile(`(?m)^\s*- "([a-z0-9_,]+)"\s*$`)
 	optinRE     = regexp.MustCompile(`(?m)^\s*tag: \[([^\]]*)\]\s*$`)
-	profileRE   = regexp.MustCompile(`(?m)^\s*\[([a-z]+)\]="([a-z0-9_,]+)"`)
 )
 
 // tagLists reads SUBTRACTIVE and ADDITIVE from scripts/tagcheck.sh.
@@ -178,22 +177,8 @@ func TestCIChecksEveryTagOnARowOfItsOwn(t *testing.T) {
 	if !built[canon(strings.Join(all, ","))] {
 		t.Errorf("no pluggable row removes every subtractive module at once (%s)", strings.Join(all, ","))
 	}
-	// The profiles scripts/onboard.sh builds are the shipping variants of
-	// docs/DISTRIBUTIONS-zh.md. `min` was the all-out row until no_a2a
-	// joined that row, and then no row built it.
-	ob, err := os.ReadFile(filepath.Join(repoRoot, "scripts", "onboard.sh"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	profiles := profileRE.FindAllSubmatch(ob, -1)
-	if len(profiles) == 0 {
-		t.Fatal(`scripts/onboard.sh has no [<profile>]="<tags>" lines`)
-	}
-	for _, p := range profiles {
-		if !built[canon(string(p[2]))] {
-			t.Errorf("the %s profile scripts/onboard.sh builds (%s) is no pluggable row", p[1], p[2])
-		}
-	}
+	// The tiers scripts/onboard.sh builds come from `tagcheck.sh recipes`,
+	// whose rows are in the pluggable job (TestRecipesMatchCI).
 
 	m := optinRE.FindSubmatch(b)
 	if m == nil {

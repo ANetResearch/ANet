@@ -35,6 +35,7 @@ import (
 	"github.com/ANetResearch/ANet/internal/daemon"
 	"github.com/ANetResearch/ANet/internal/localpeer"
 	"github.com/ANetResearch/ANet/internal/loopguard"
+	"github.com/ANetResearch/ANet/internal/version"
 	"github.com/ANetResearch/ANet/module"
 )
 
@@ -114,6 +115,7 @@ func main() {
 		// a module is in the list because its init() ran, which happened
 		// because the linker kept it.
 		fmt.Printf("modules: %s\n", compiledModulesReport())
+		fmt.Printf("variant: %s\n", variantReport())
 	case "mcp":
 		// Serves over stdio, so it must not share the process with
 		// anything that prints: a stray line on stdout is a protocol
@@ -165,6 +167,15 @@ func main() {
 	default:
 		fail(runClient(layout, cmd, rest, explicit))
 	}
+}
+
+// variantReport is the released build this binary says it is, and "none"
+// for a build from source (version.Variant is stamped by build-release.sh).
+func variantReport() string {
+	if version.Variant == "" {
+		return "none"
+	}
+	return version.Variant
 }
 
 // compiledModulesReport renders the module list `anet version` prints.
@@ -1137,7 +1148,7 @@ var knownFlags = map[string][]string{
 	"mcp":      {},
 	"version":  {},
 	"update":   {"check", "base"},
-	"init":     {"json"},
+	"init":     {"json", "without", "with"},
 	"doctor":   {"json", "apparmor-profile"},
 	"audit":    {"since", "peer", "interaction", "type", "json", "export"},
 
