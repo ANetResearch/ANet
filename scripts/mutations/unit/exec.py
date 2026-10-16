@@ -614,7 +614,7 @@ MUTS += [
  dict(
   id='m-cn-key', group='LEC 2.3.4', repo='ANet',
   desc='/autoreply 的应答带出已存的 api_key(只改 sandbox 的请求合并了当前配置)',
-  edits=[('internal/daemon/control_api.go', '\t\tview = autoReplyView(cfg)\n', '\t\tview = cfg\n')],
+  edits=[('module/autoreply/autoreply_control.go', '\t\tview = v\n', '\t\tview = cfg\n')],
   tests=[(DAEMON, 'TestAutoReplyAnswerHasNoKey')],
   full=[DAEMON],
  ),
@@ -867,7 +867,7 @@ MUTS += [
  dict(
   id='m-av-1', group='AV-8', repo='ANet',
   desc='/autoreply 与 /status 回显 key',
-  edits=[('internal/daemon/control_api.go', '"api_key_set": ar.APIKey != ""}', '"api_key_set": ar.APIKey != "", "api_key": ar.APIKey}')],
+  edits=[('module/autoreply/autoreply_status.go', '"api_key_set": ar.APIKey != ""}', '"api_key_set": ar.APIKey != "", "api_key": ar.APIKey}')],
   tests=[(DAEMON, 'TestAutoReplyNeverShowsTheKey')],
   full=[DAEMON],
  ),
@@ -943,7 +943,7 @@ MUTS += [
  dict(
   id='m-av-8', group='AV-8', repo='ANet',
   desc='/autoreply 接受空 key(清掉已设的 key)',
-  edits=[('internal/daemon/control_api.go', '\t\tif strings.TrimSpace(key) == "" {\n\t\t\treturn nil, a2ashape.Refuse("api_key_empty", nil)\n\t\t}',
+  edits=[('module/autoreply/autoreply_config.go', '\t\tif strings.TrimSpace(key) == "" {\n\t\t\treturn nil, a2ashape.Refuse("api_key_empty", nil)\n\t\t}',
           '\t\tif false && strings.TrimSpace(key) == "" {\n\t\t\treturn nil, a2ashape.Refuse("api_key_empty", nil)\n\t\t}')],
   tests=[(DAEMON, 'TestAutoReplyRefusesAnEmptyKey')],
   full=[DAEMON],
@@ -951,7 +951,7 @@ MUTS += [
  dict(
   id='m-av-8b', group='AV-8', repo='ANet',
   desc='/autoreply 不合并:请求里没给的成员被清空',
-  edits=[('internal/daemon/control_api.go', '\tbase := map[string]json.RawMessage{}\n\tif cur != nil {',
+  edits=[('module/autoreply/autoreply_config.go', '\tbase := map[string]json.RawMessage{}\n\tif cur != nil {',
           '\tbase := map[string]json.RawMessage{}\n\tif false && cur != nil {')],
   tests=[(DAEMON, 'TestAutoReplyMergesWhatItNames')],
   full=[DAEMON],
@@ -959,7 +959,7 @@ MUTS += [
  dict(
   id='m-av-8c', group='§2.3.4', repo='ANet',
   desc='/autoreply 接受大小写不同的成员名(JSON 解码不分大小写)',
-  edits=[('internal/daemon/control_api.go', '\t\tft, ok := fields[k]\n', '\t\tft, ok := fields[strings.ToLower(k)]\n')],
+  edits=[('module/autoreply/autoreply_config.go', '\t\tft, ok := fields[k]\n', '\t\tft, ok := fields[strings.ToLower(k)]\n')],
   tests=[(DAEMON, 'TestAutoReplyRefusesWhatCannotRun')],
   full=[DAEMON],
  ),
@@ -987,14 +987,14 @@ MUTS += [
  dict(
   id='m-av-8d', group='§2.3.4', repo='ANet',
   desc='/autoreply 的读取、合并与保存不串行(同时发出的两项设置互相覆盖)',
-  edits=[('internal/daemon/control_api.go', '\td.autoReplyWrite.Lock()\n\tdefer d.autoReplyWrite.Unlock()\n', '')],
+  edits=[('module/autoreply/autoreply.go', '\tm.write.Lock()\n\tdefer m.write.Unlock()\n', '')],
   tests=[(DAEMON, 'TestAutoReplySettingsSentAtOnceAllLand')],
   full=[DAEMON],
  ),
  dict(
   id='m-av-8e', group='§2.3.4', repo='ANet',
   desc='/autoreply 的 off 不是布尔值时当作 false(自动回复仍在运行)',
-  edits=[('internal/daemon/control_api.go', 'if raw, ok := members["off"]; ok && string(raw) != "null" && json.Unmarshal(raw, &off) != nil {',
+  edits=[('module/autoreply/autoreply_control.go', 'if raw, ok := members["off"]; ok && string(raw) != "null" && json.Unmarshal(raw, &off) != nil {',
           'if raw, ok := members["off"]; ok && false && json.Unmarshal(raw, &off) != nil {')],
   tests=[(DAEMON, 'TestAutoReplyOffIsABoolean')],
   full=[DAEMON],
@@ -1002,7 +1002,7 @@ MUTS += [
  dict(
   id='m-av-8f', group='§2.3.4', repo='ANet',
   desc='/autoreply 只在顶层核对成员名(设置块里大小写不同的成员被已存的值静默覆盖)',
-  edits=[('internal/daemon/control_api.go', '\t\t\tif bad := inexactMember(ft, sub); bad != "" {', '\t\t\tif bad := inexactMember(ft, sub); false && bad != "" {')],
+  edits=[('module/autoreply/autoreply_config.go', '\t\t\tif bad := inexactMember(ft, sub); bad != "" {', '\t\t\tif bad := inexactMember(ft, sub); false && bad != "" {')],
   tests=[(DAEMON, 'TestAutoReplyMemberNamesAreExactAtEveryDepth')],
   full=[DAEMON],
  ),
