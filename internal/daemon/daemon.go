@@ -298,6 +298,11 @@ type Daemon struct {
 // New builds the daemon: load config + identity, open the interactions store, and (if a Hub is
 // configured) start the relay poll loop. It does not block; call Close to stop.
 func New(layout Layout) (*Daemon, error) {
+	// A directory a running daemon holds is in use: say so before reading
+	// its store, which is changing (KEL-10). The check creates nothing.
+	if DataLockHeld(layout) {
+		return nil, ErrDataLockHeld
+	}
 	// A data directory an earlier or a newer anet wrote is refused before
 	// anything is written to it (FS-S1, core CORE-V4).
 	if err := CheckDataDirForStart(layout); err != nil {

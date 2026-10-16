@@ -42,6 +42,7 @@ POST /peers/deny	kernel
 POST /peers/list	kernel
 POST /peers/remove	kernel
 POST /peers/trust	kernel
+POST /preview	kernel
 POST /profile	kernel
 POST /pull	kernel
 POST /reconcile	x402
@@ -52,10 +53,12 @@ POST /review	kernel
 POST /shutdown	kernel
 POST /status	kernel
 POST /tasks/cancel	kernel
+POST /tasks/events	kernel
 POST /tasks/get	kernel
 POST /tasks/list	kernel
 POST /tasks/pay	x402
 POST /tasks/pay-manual	x402
+POST /tasks/preview	kernel
 POST /tasks/reply	kernel
 POST /tasks/send	kernel
 POST /tasks/wait	kernel

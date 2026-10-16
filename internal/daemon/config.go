@@ -419,6 +419,9 @@ func ModuleRefusals(c Config) []*a2ashape.Refusal {
 	sort.Strings(names)
 	for _, n := range names {
 		info, ok := module.Lookup(n)
+		if _, test := rowOf(n); test && !ok {
+			continue // a fake module of this package's tests (moduleRowForTest)
+		}
 		switch {
 		case !ok && removedModuleBlock(n):
 			// A block of a module that no longer exists is config_key_removed,
@@ -619,6 +622,15 @@ func (e *ConfigRefusal) Sentences(lang a2ashape.Language) []string {
 	out := make([]string, len(e.Refusals))
 	for i, r := range e.Refusals {
 		out[i] = a2ashape.Sentence(r.Key, lang, r.Args)
+	}
+	return out
+}
+
+// Unwrap lists the refusals, so that errors.As finds the first of them.
+func (e *ConfigRefusal) Unwrap() []error {
+	out := make([]error, len(e.Refusals))
+	for i, r := range e.Refusals {
+		out[i] = r
 	}
 	return out
 }
