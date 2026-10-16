@@ -591,7 +591,7 @@ func relayError(w http.ResponseWriter, err error) {
 	if sr, ok := isSpendRefusal(err); ok {
 		// §8.6: a spending-policy refusal is 403 with its code, on every
 		// route that signs, as on /tasks/pay.
-		writeJSON(w, http.StatusForbidden, map[string]string{"error": err.Error(), "reason": sr.Code})
+		writeSpendRefusal(w, sr, "", err)
 		return
 	}
 	code := http.StatusBadRequest
@@ -1644,7 +1644,7 @@ func (d *Daemon) hRedeemCredit(w http.ResponseWriter, r *http.Request) {
 	}
 	if sr, ok := isSpendRefusal(err); ok {
 		// §8.6: refused by the spending policy, as on every signing route.
-		writeJSON(w, http.StatusForbidden, map[string]any{"error": err.Error(), "reason": sr.Code})
+		writeSpendRefusal(w, sr, "", err)
 		return
 	}
 	if err != nil {

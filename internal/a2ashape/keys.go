@@ -69,6 +69,19 @@ const (
 	// the control plane's /tasks/* and MCP; it never travels to a peer
 	// (CORE-K17) and does not change the task.
 	KeyIdentityNote = "anet.identity_note"
+	// KeyPaymentNote is the payment sentence of a task this node started
+	// (ux §1.4 D1–D3, core §2.13): the snapshot of its latest payment
+	// decision (pay_note) rendered by PaymentNote, the very words the CLI's
+	// payment line, MCP and the local A2A interface's status.message show
+	// (UX-G3, SI-79). Present from the first decision on.
+	KeyPaymentNote = "anet.payment_note"
+	// KeyNext is the one command the task's reason asks the person to run,
+	// placeholders filled (core §2.13 revision 7): the next step of the row
+	// of anet.reason — with the sentence variant the projection shows, the
+	// payment note's for a task waiting on a payment — when that row's
+	// next_kind is command. The CLI prints it on its "→" line; it never
+	// guesses a variant itself.
+	KeyNext = "anet.next"
 	// KeyDeduplicated marks the answer to a local client's retry of a
 	// message it sent: the task its first attempt made, and nothing was
 	// sent again (correctness-ux CUX-D3). Its value is true; it is on that

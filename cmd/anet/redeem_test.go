@@ -31,7 +31,7 @@ func redeemDaemon(t *testing.T, hubAID string) (*client, func() []string, func()
 		}
 		mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"explicit_max":10,"daily_max":50,"spent_24h":3,"hub":"https://hub.example","hub_aid":"` +
+		_, _ = w.Write([]byte(`{"explicit_max":10,"daily_max":50,"spent_today":3,"left_today":47,"hub":"https://hub.example","hub_aid":"` +
 			hubAID + `","verified":true}`))
 	}))
 	t.Cleanup(srv.Close)

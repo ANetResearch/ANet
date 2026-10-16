@@ -139,13 +139,13 @@ func answerLines(out []byte, task bool, lang a2ashape.Language, now time.Time) [
 		if s, ok := deliveryLine(t, lang, now); ok {
 			add("task.delivery", s)
 		}
-		note, _ := t.Metadata[keyPaymentNote].(string)
+		note, _ := t.Metadata[a2ashape.KeyPaymentNote].(string)
 		add("task.payment", note)
 		if s, ok := keptLine(t, lang, now); ok {
 			add("task.kept", s)
 		}
 		if reasonLine != "" || note != "" {
-			next = reasonNext(t, lang)
+			next = reasonNext(t)
 		}
 	}
 	warning, _ := top["warning"].(string)
@@ -164,10 +164,6 @@ func answerLines(out []byte, task bool, lang a2ashape.Language, now time.Time) [
 	return lines
 }
 
-// keyPaymentNote is the task's payment sentence (core §2.13, HPP): the
-// payment line of UX-C2.
-const keyPaymentNote = "anet.payment_note"
-
 // deliveryLine is line 2 of UX-C2, the delivery of the latest message this
 // node sent on the task, when it is pending or unconfirmed.
 //
@@ -181,41 +177,13 @@ var deliveryLine = func(t a2ashape.Task, lang a2ashape.Language, now time.Time) 
 // retention, task.kept_until.
 var keptLine = func(t a2ashape.Task, lang a2ashape.Language, now time.Time) (string, bool) { return "", false }
 
-// reasonNext is the next step of a task's reason (a quote's payment is one:
-// needs_operator_approval says to run anet pay): the reason's command, with
-// the task and its peer filled in. A code whose sentences differ in their
-// command by variant (needs_operator_approval with manual_limit: first
-// anet payments set) has none here, since the task does not say which
-// variant its sentence is; nor has a command that needs a value the task
-// does not give.
-//
-// v030-todo(PAY-12): the variant of the payment sentence (the pay_note
-// snapshot) for the payment line's command.
-func reasonNext(t a2ashape.Task, lang a2ashape.Language) string {
-	code, _ := t.Metadata[a2ashape.KeyReason].(string)
-	if code == "" {
-		return ""
-	}
-	args := a2ashape.Args{"task": t.ID}
-	if p, _ := t.Metadata[a2ashape.KeyPeerAID].(string); p != "" {
-		args["peer"] = p
-	}
-	key, template := "", ""
-	for _, r := range a2ashape.Rows() {
-		if r.Code != code {
-			continue
-		}
-		switch {
-		case key == "":
-			key, template = r.Key(), r.Next
-		case r.Next != template:
-			return ""
-		}
-	}
-	if key == "" || template == "" {
-		return ""
-	}
-	return a2ashape.Next(key, lang, args)
+// reasonNext is the next step of a task's reason line or payment line: the
+// projection's anet.next, the command of the row its sentence came from,
+// with the task and its values filled in (core §2.13 revision 7). The CLI
+// does not work one out: the daemon knows which variant its sentence is.
+func reasonNext(t a2ashape.Task) string {
+	next, _ := t.Metadata[a2ashape.KeyNext].(string)
+	return next
 }
 
 // messageText is the text of a message's text parts, one after another.

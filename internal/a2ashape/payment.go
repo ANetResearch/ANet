@@ -66,14 +66,14 @@ func PaymentRefusalDetail(reason string) string {
 	return reason
 }
 
-// A payment the spending policy did not allow at the agent tier (A2A-DESIGN
-// §8.3, §8.6): a local client's payment-submitted above agent_max or
-// agent_daily_max, or to a payee not on the list. Nothing was signed or
+// A payment the agent tier did not make (HPP PAY-D2, PAY-D3): a local
+// client's payment-submitted that decidePay left to a person — above
+// agent_max or the agent's left today, a payee not on the list, a quote
+// above the price the payee signed or with none. Nothing was signed or
 // sent, and it is not an error: the task still waits, input-required, now
-// for the operator, with anet.reason needs_operator_approval and a status
-// message that says who has to act and how (`anet pay <task>` on a
-// terminal). The quote's own keys stay, so an a2a-x402 client still sees
-// what is asked.
+// for the operator, with the decision's anet.reason and its sentence as
+// the status message (ux §1.4 D1). The quote's own keys stay, so an
+// a2a-x402 client still sees what is asked.
 
 // PaymentHold returns t answering a payment decision the operator has to
 // make: status.message is an agent message with text, keeping the x402
@@ -102,57 +102,20 @@ func PaymentHold(t Task, msgID, reason, text string) Task {
 }
 
 // IsPaymentHold reports an answer made by PaymentHold: a task that still
-// waits and whose status message gives the operator's decision as the
-// reason. The local A2A interface ends a stream on it, as on a refusal:
-// nothing was sent, and nothing follows until the operator acts.
+// waits and whose status message gives a payment decision left to a person
+// as the reason (ux §1.4 D1: needs_operator_approval and its variants,
+// quote_above_card_price, card_price_unavailable). The local A2A interface
+// ends a stream on it, as on a refusal: nothing was sent, and nothing
+// follows until the operator acts.
+//
+// A client that did not activate a2a-x402 is told the same (HPP PAY-D9):
+// the reason, status.message and anet.payment_note are the decision's own,
+// word for word what the CLI and MCP show.
 func IsPaymentHold(t Task) bool {
 	m := t.Status.Message
 	if t.Status.State != TaskStateInputRequired || m == nil {
 		return false
 	}
-	switch m.Metadata[KeyReason] {
-	case x402a2a.ReasonNeedsOperatorApproval, x402a2a.ReasonExtensionNotActivated:
-		return true
-	}
-	return false
-}
-
-// WithoutX402Extension says a task's reason as a local A2A client that did
-// not activate a2a-x402 is told it (§8.7): a quote above the automatic
-// tier waits with anet.reason payment_extension_not_activated rather than
-// needs_operator_approval — such a client cannot answer the quote itself
-// until it activates the extension (the operator still can). The metadata
-// maps are copied, not changed. Anything else is returned as it is.
-func WithoutX402Extension(t Task) Task {
-	t.Metadata, _ = unactivatedReason(t.Metadata)
-	if m := t.Status.Message; m != nil {
-		if md, changed := unactivatedReason(m.Metadata); changed {
-			cp := *m
-			cp.Metadata = md
-			t.Status.Message = &cp
-		}
-	}
-	return t
-}
-
-// StatusWithoutX402Extension is WithoutX402Extension for a stream's status
-// update.
-func StatusWithoutX402Extension(su TaskStatusUpdateEvent) TaskStatusUpdateEvent {
-	t := WithoutX402Extension(Task{Status: su.Status, Metadata: su.Metadata})
-	su.Status, su.Metadata = t.Status, t.Metadata
-	return su
-}
-
-// unactivatedReason is md with needs_operator_approval said as
-// payment_extension_not_activated, copied when it changes.
-func unactivatedReason(md map[string]any) (map[string]any, bool) {
-	if md[KeyReason] != x402a2a.ReasonNeedsOperatorApproval {
-		return md, false
-	}
-	out := make(map[string]any, len(md))
-	for k, v := range md {
-		out[k] = v
-	}
-	out[KeyReason] = x402a2a.ReasonExtensionNotActivated
-	return out, true
+	r, _ := m.Metadata[KeyReason].(string)
+	return r != "" && PayNoteWaits(r)
 }

@@ -11,8 +11,8 @@ import (
 
 // The payee list routes (A2A-DESIGN §8.6): add and remove edit the file
 // AdmitSpend reads, keep what else it holds, record every change as
-// anet.policy.changed, refuse what is not an AID, and refuse to edit a list
-// that is turned off rather than write a file nothing reads.
+// anet.policy.changed and refuse what is not an AID. The list is always
+// payees.allow and always on (N-UX1).
 func TestPayeeListRoutes(t *testing.T) {
 	p := newPlane(t)
 	d := p.d
@@ -33,15 +33,23 @@ func TestPayeeListRoutes(t *testing.T) {
 		}
 		return st
 	}
-	if st := list(); !st.Enabled || st.File != defaultPayeesFile || len(st.Payees) != 0 {
+	if st := list(); st.Path != d.peerFile("payees.allow") || len(st.Payees) != 0 || st.Error != "" {
 		t.Fatalf("a fresh node's payee list: %+v", st)
 	}
-	path := d.peerFile(defaultPayeesFile)
+	path := d.peerFile(payeesFile)
 	if err := os.WriteFile(path, []byte("# who we pay\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := d.AdmitSpend(aid, 1, module.PurposeTaskManual); err == nil {
+	// The list binds the automatic and the agent tier; a person's own
+	// payment is not bound by it (N-UX1, HPP PAY-D7).
+	d.mu.Lock()
+	d.cfg.Payments = &PaymentsConfig{AutoMax: 5, AgentMax: 5, AgentDailyMax: 50}
+	d.mu.Unlock()
+	if err := d.AdmitSpend(aid, 1, module.PurposeTaskAuto); err == nil {
 		t.Fatal("a payee not on the list was admitted")
+	}
+	if err := d.AdmitSpend(aid, 1, module.PurposeTaskManual); err != nil {
+		t.Fatalf("the manual tier is not bound by the payee list: %v", err)
 	}
 	_, prior := d.ledger.Evidence(EvidenceQuery{EventType: EvPolicyChanged})
 	if code, out := call("/payees/add", `{"aid":"`+aid+`"}`); code != 200 || out["changed"] != true {
@@ -53,7 +61,7 @@ func TestPayeeListRoutes(t *testing.T) {
 	if st := list(); strings.Join(st.Payees, ",") != aid {
 		t.Fatalf("after add: %+v", st)
 	}
-	if err := d.AdmitSpend(aid, 1, module.PurposeTaskManual); err != nil {
+	if err := d.AdmitSpend(aid, 1, module.PurposeTaskAgent); err != nil {
 		t.Fatalf("a payee on the list: %v", err)
 	}
 	_, recs := d.ledger.Evidence(EvidenceQuery{EventType: EvPolicyChanged})
@@ -75,17 +83,6 @@ func TestPayeeListRoutes(t *testing.T) {
 		if code, _ := call("/payees/add", body); code != 400 {
 			t.Errorf("add %s: %d, want 400", body, code)
 		}
-	}
-	// The list turned off: nothing to edit, and nothing is written.
-	off := ""
-	if err := d.SetSpendLimits(nil, &off); err != nil {
-		t.Fatal(err)
-	}
-	if code, out := call("/payees/add", `{"aid":"`+aid+`"}`); code != 409 || !strings.Contains(out["error"].(string), "--payees-file") {
-		t.Fatalf("add to a list that is off: %d %v", code, out)
-	}
-	if st := list(); st.Enabled || st.File != "" {
-		t.Fatalf("list off: %+v", st)
 	}
 }
 

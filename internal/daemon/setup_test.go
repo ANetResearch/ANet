@@ -55,8 +55,8 @@ func TestInitWritesTheSafeDefaultsExplicitlyAndIsIdempotent(t *testing.T) {
 			t.Errorf("payments.%s = %#v, want an explicit 0", k, pay[k])
 		}
 	}
-	if pay["payees_file"] != defaultPayeesFile {
-		t.Errorf("payments.payees_file = %v", pay["payees_file"])
+	if _, ok := pay["payees_file"]; ok {
+		t.Errorf("init wrote payments.payees_file, a removed key (the list is always payees.allow)")
 	}
 	if _, ok := cfg["auto_reply"]; ok {
 		t.Error("init wrote an auto_reply block, which turns the auto-reply loop on")
@@ -135,7 +135,6 @@ func TestInitOnlyAddsMissingKeys(t *testing.T) {
 		"payments.auto_max":     {pay["auto_max"], json.Number("7")},
 		"payments.agent_max":    {pay["agent_max"], json.Number("0")},
 		"payments.explicit_max": {pay["explicit_max"], json.Number("10")},
-		"payments.payees_file":  {pay["payees_file"], defaultPayeesFile},
 		"auto_reply.untrusted":  {ar["untrusted"], UntrustedOff},
 		"auto_reply.model":      {ar["model"], "m"},
 	}

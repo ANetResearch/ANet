@@ -1,0 +1,28 @@
+{
+  "input": {
+    "tier": "auto",
+    "amount": 3,
+    "capability": "translate",
+    "signed_price": null,
+    "price_why": "timeout",
+    "single": 5,
+    "left": 6,
+    "manual_single": 10,
+    "manual_left": 6,
+    "spent_today": 44,
+    "payees_readable": true,
+    "payee_listed": true
+  },
+  "snapshot": {
+    "code": "card_price_unavailable",
+    "amount": 3,
+    "tier": "auto",
+    "single": 5,
+    "left": 6,
+    "why": "timeout",
+    "peer": "bafyreixtplpft7v4seh2kvj72ceuvw75efr6edt4sywb5wkh7d6kx2wxyz",
+    "at": "2026-10-10T09:30:00Z"
+  },
+  "zh": "报价 3 credits，但没有对方签名的价格（对方暂时没有回应），没有自动付款；确认要付请执行 anet pay t_9f3c。",
+  "en": "Quoted 3 credits, but there is no price signed by the other side (the other side did not answer), so nothing was paid automatically; to pay anyway run anet pay t_9f3c."
+}

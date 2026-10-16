@@ -1053,9 +1053,7 @@ func (d *Daemon) editPeerFile(list, aid string, add bool) (changed bool, err err
 		name = peersTrustFile
 	case ListPayees:
 		// The spending policy's payee list (payees.go), kept like these.
-		if name = d.config().Payments.limits().PayeesFile; name == "" {
-			return false, ErrPayeesOff
-		}
+		name = payeesFile
 	default:
 		return false, fmt.Errorf("anet: unknown peer list %q", list)
 	}

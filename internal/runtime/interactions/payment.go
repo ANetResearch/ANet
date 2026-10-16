@@ -1,8 +1,8 @@
 package interactions
 
 // payment.go writes the x402 columns of an interaction (A2A-DESIGN §4.1,
-// §8): pay_state, pay_required, pay_auth_ids, pay_payload, pay_receipts and
-// quote_expires_at.
+// §8): pay_state, pay_required, pay_auth_ids, pay_payload, pay_receipts,
+// quote_expires_at and pay_note.
 //
 // The payment columns are not the task state. A receipt that arrives for a
 // task already canceled here is still a fact about money this node paid,
@@ -44,6 +44,8 @@ type PayUpdate struct {
 	// JSON object to it.
 	Receipts   []byte
 	AddReceipt []byte
+	// Note replaces pay_note, the payment decision's snapshot (HPP PAY-U5).
+	Note []byte
 }
 
 // PayState is a pointer to s, for PayUpdate.State.
@@ -139,10 +141,14 @@ func (t *Tx) SetPayment(id string, u PayUpdate) (bool, error) {
 		}
 		receipts = b
 	}
+	note := cur.PayNote
+	if u.Note != nil {
+		note = u.Note
+	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	_, err = t.tx.Exec(`UPDATE interaction SET pay_state=?, pay_required=?, quote_expires_at=?, pay_auth_ids=?,
-	   pay_payload=?, pay_receipts=?, updated_at=? WHERE id=?`,
-		state, required, expires, idsJSON, payload, receipts, now, id)
+	   pay_payload=?, pay_receipts=?, pay_note=?, updated_at=? WHERE id=?`,
+		state, required, expires, idsJSON, payload, receipts, note, now, id)
 	if err != nil {
 		return false, err
 	}

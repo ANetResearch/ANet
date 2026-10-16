@@ -52,7 +52,7 @@ func recordingDaemon(t *testing.T) (*client, func() []string) {
 		mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"status":"ok","pending":[{"interaction_id":"ix_1","requester":"bafyreipeer000000000","bytes":12}],` +
-			`"auto_max":0,"agent_max":0,"agent_daily_max":0,"explicit_max":10,"daily_max":50,"spent_24h":3,` +
+			`"auto_max":0,"agent_max":0,"agent_daily_max":0,"explicit_max":10,"daily_max":50,"spent_today":3,"left_today":47,` +
 			`"hub":"https://hub.example","hub_aid":"bafyreihub00000000000",` +
 			`"thread":{"role":"outbound","messages":[{"metadata":{"x402.payment.required":{"x402Version":2,"accepts":[` +
 			`{"scheme":"anet-credit","network":"hub:bafyreihub","amount":"5","asset":"credit","payTo":"bafyreipeer000000000"}]}}}]}}`))

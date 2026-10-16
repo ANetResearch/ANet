@@ -35,6 +35,10 @@ type fakeSeam struct {
 	// waiting as the kernel says a quote above the automatic tier waits
 	// (anet.reason needs_operator_approval).
 	quote map[string]any
+	// quoteReason and quoteNote, when set, are the decision the kernel took
+	// on the quote (HPP PAY-D1): its anet.reason and its sentence, which is
+	// both status.message and anet.payment_note.
+	quoteReason, quoteNote string
 	// hold answers payment-submitted as the kernel does above the agent
 	// tier: the task, still waiting, told the operator decides (§8.3).
 	hold bool
@@ -196,13 +200,21 @@ func (f *fakeSeam) Send(ctx context.Context, peer string, req module.TaskSend) (
 		f.tasks[id] = ft
 		f.setState(ft, a2ashape.TaskStateSubmitted, nil)
 		if f.quote != nil {
+			text, reason := "payment required", x402a2a.ReasonNeedsOperatorApproval
+			if f.quoteNote != "" {
+				text, reason = f.quoteNote, f.quoteReason
+			}
 			q := a2ashape.Message{ID: "quote-" + id, Role: a2ashape.RoleAgent, TaskID: id, ContextID: ctxID,
-				Parts:    []a2ashape.Part{a2ashape.TextPart("payment required")},
-				Metadata: map[string]any{a2ashape.KeyX402Status: a2ashape.PaymentRequired, a2ashape.KeyX402Required: f.quote}}
+				Parts: []a2ashape.Part{a2ashape.TextPart(text)},
+				Metadata: map[string]any{a2ashape.KeyX402Status: a2ashape.PaymentRequired, a2ashape.KeyX402Required: f.quote,
+					a2ashape.KeyReason: reason}}
 			f.setState(ft, a2ashape.TaskStateInputRequired, &q)
 			ft.t.Metadata[a2ashape.KeyX402Status] = a2ashape.PaymentRequired
 			ft.t.Metadata[a2ashape.KeyX402Required] = f.quote
-			ft.t.Metadata[a2ashape.KeyReason] = x402a2a.ReasonNeedsOperatorApproval
+			ft.t.Metadata[a2ashape.KeyReason] = reason
+			if f.quoteNote != "" {
+				ft.t.Metadata[a2ashape.KeyPaymentNote] = f.quoteNote
+			}
 			t := copyTask(ft.t)
 			f.mu.Unlock()
 			return t, nil

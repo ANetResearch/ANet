@@ -1,0 +1,27 @@
+{
+  "input": {
+    "tier": "auto",
+    "amount": 5,
+    "capability": "translate",
+    "signed_price": 3,
+    "single": 5,
+    "left": 6,
+    "manual_single": 10,
+    "manual_left": 6,
+    "spent_today": 44,
+    "payees_readable": true,
+    "payee_listed": true
+  },
+  "snapshot": {
+    "code": "quote_above_card_price",
+    "amount": 5,
+    "price": 3,
+    "tier": "auto",
+    "single": 5,
+    "left": 6,
+    "peer": "bafyreixtplpft7v4seh2kvj72ceuvw75efr6edt4sywb5wkh7d6kx2wxyz",
+    "at": "2026-10-10T09:30:00Z"
+  },
+  "zh": "报价 5 credits，高于对方签名的价格 3 credits，没有自动付款；确认要付请执行 anet pay t_9f3c。",
+  "en": "Quoted 5 credits, above the 3 credits the other side signed, so nothing was paid automatically; to pay anyway run anet pay t_9f3c."
+}

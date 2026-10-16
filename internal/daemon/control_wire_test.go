@@ -69,7 +69,7 @@ func TestControlWireFields(t *testing.T) {
 		{route: "/tasks/events delivery", todo: "v030-todo(RC-5)"},
 		{route: "/identity/status", req: reflect.TypeFor[struct{}](), resp: reflect.TypeFor[IdentityStatus]()},
 		{route: "/hub-register", alt: "joined", req: reflect.TypeFor[hubRegisterReq](), resp: reflect.TypeFor[hubRegisterResp]()},
-		{route: "/payments/status", resp: reflect.TypeFor[SpendStatus](), todo: "v030-todo(PAY-12)"},
+		{route: "/payments/status", resp: reflect.TypeFor[SpendStatus]()},
 		// One entry of /agents/list, and /agents/card: key_state is KEL's.
 		{route: "/agents/card", resp: reflect.TypeFor[module.RemoteAgent]()},
 		{route: "/agents/list", resp: reflect.TypeFor[module.RemoteAgent]()},

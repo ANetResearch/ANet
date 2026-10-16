@@ -1,0 +1,26 @@
+{
+  "input": {
+    "tier": "agent",
+    "amount": 3,
+    "capability": "translate",
+    "signed_price": 3,
+    "single": 0,
+    "left": 6,
+    "manual_single": 10,
+    "manual_left": 6,
+    "spent_today": 44,
+    "payees_readable": true,
+    "payee_listed": true
+  },
+  "snapshot": {
+    "code": "needs_operator_approval.off",
+    "amount": 3,
+    "tier": "agent",
+    "single": 0,
+    "left": 6,
+    "peer": "bafyreixtplpft7v4seh2kvj72ceuvw75efr6edt4sywb5wkh7d6kx2wxyz",
+    "at": "2026-10-10T09:30:00Z"
+  },
+  "zh": "报价 3 credits；agent 付款没有开启（额度为 0），没有付款；请执行 anet pay t_9f3c。",
+  "en": "Quoted 3 credits; agent payment is off (limit 0), so nothing was paid; run anet pay t_9f3c."
+}

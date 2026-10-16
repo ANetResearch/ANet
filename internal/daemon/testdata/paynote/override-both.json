@@ -1,0 +1,29 @@
+{
+  "input": {
+    "tier": "auto",
+    "amount": 30,
+    "capability": "translate",
+    "signed_price": 3,
+    "single": 5,
+    "left": 6,
+    "manual_single": 10,
+    "manual_left": 6,
+    "spent_today": 44,
+    "payees_readable": true,
+    "payee_listed": true
+  },
+  "snapshot": {
+    "code": "needs_operator_approval.manual_limit",
+    "amount": 30,
+    "price": 3,
+    "tier": "auto",
+    "single": 10,
+    "left": 6,
+    "key": "explicit_max=30 daily_max",
+    "value": 74,
+    "peer": "bafyreixtplpft7v4seh2kvj72ceuvw75efr6edt4sywb5wkh7d6kx2wxyz",
+    "at": "2026-10-10T09:30:00Z"
+  },
+  "zh": "报价 30 credits，也超出人工付款上限（单笔 ≤10，今日剩 6），没有付款；请先执行 anet payments set explicit_max=30 daily_max=74，再执行 anet pay t_9f3c。",
+  "en": "Quoted 30 credits, above even the manual limit (≤10 per payment, 6 left today), so nothing was paid; run anet payments set explicit_max=30 daily_max=74, then anet pay t_9f3c."
+}

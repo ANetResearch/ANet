@@ -293,7 +293,7 @@ MUTS = [
   id='si5-5', group='SI-5', repo='ANet',
   desc='defaultPayments: auto_max=5',
   edits=[
-   ('internal/daemon/spend.go', 'return PaymentsConfig{ExplicitMax: &em, DailyMax: &dm, PayeesFile: &pf}', 'return PaymentsConfig{AutoMax: 5, ExplicitMax: &em, DailyMax: &dm, PayeesFile: &pf}'),
+   ('internal/daemon/spend.go', 'return PaymentsConfig{ExplicitMax: &em, DailyMax: &dm}', 'return PaymentsConfig{AutoMax: 5, ExplicitMax: &em, DailyMax: &dm}'),
   ],
   tests=[('ANet:./internal/daemon', 'TestAFreshInstallIsClosed|TestInitWritesTheSafeDefaultsExplicitlyAndIsIdempotent|TestInitOnlyAddsMissingKeys|TestPaymentsBlockDefaults|TestAConfigWithoutPaymentsIsGivenTheDefaults'), ('ANet:./cmd/anet', 'TestAFreshInitIsSafeByDoctorJSON|TestDoctorReportsEachSI5KeyThatChanged')],
   full=['ANet:./internal/daemon', 'ANet:./cmd/anet'],
@@ -302,7 +302,7 @@ MUTS = [
   id='si5-6', group='SI-5', repo='ANet',
   desc='defaultPayments: agent_max=5',
   edits=[
-   ('internal/daemon/spend.go', 'return PaymentsConfig{ExplicitMax: &em, DailyMax: &dm, PayeesFile: &pf}', 'return PaymentsConfig{AgentMax: 5, ExplicitMax: &em, DailyMax: &dm, PayeesFile: &pf}'),
+   ('internal/daemon/spend.go', 'return PaymentsConfig{ExplicitMax: &em, DailyMax: &dm}', 'return PaymentsConfig{AgentMax: 5, ExplicitMax: &em, DailyMax: &dm}'),
   ],
   tests=[('ANet:./internal/daemon', 'TestAFreshInstallIsClosed|TestInitWritesTheSafeDefaultsExplicitlyAndIsIdempotent|TestInitOnlyAddsMissingKeys|TestPaymentsBlockDefaults|TestAConfigWithoutPaymentsIsGivenTheDefaults'), ('ANet:./cmd/anet', 'TestAFreshInitIsSafeByDoctorJSON|TestDoctorReportsEachSI5KeyThatChanged')],
   full=['ANet:./internal/daemon', 'ANet:./cmd/anet'],
@@ -311,27 +311,27 @@ MUTS = [
   id='si5-7', group='SI-5', repo='ANet',
   desc='defaultPayments: agent_daily_max=20',
   edits=[
-   ('internal/daemon/spend.go', 'return PaymentsConfig{ExplicitMax: &em, DailyMax: &dm, PayeesFile: &pf}', 'return PaymentsConfig{AgentDailyMax: 20, ExplicitMax: &em, DailyMax: &dm, PayeesFile: &pf}'),
+   ('internal/daemon/spend.go', 'return PaymentsConfig{ExplicitMax: &em, DailyMax: &dm}', 'return PaymentsConfig{AgentDailyMax: 20, ExplicitMax: &em, DailyMax: &dm}'),
   ],
   tests=[('ANet:./internal/daemon', 'TestAFreshInstallIsClosed|TestInitWritesTheSafeDefaultsExplicitlyAndIsIdempotent|TestInitOnlyAddsMissingKeys|TestPaymentsBlockDefaults|TestAConfigWithoutPaymentsIsGivenTheDefaults'), ('ANet:./cmd/anet', 'TestAFreshInitIsSafeByDoctorJSON|TestDoctorReportsEachSI5KeyThatChanged')],
   full=['ANet:./internal/daemon', 'ANet:./cmd/anet'],
  ),
  dict(
   id='si5-8', group='SI-5', repo='ANet',
-  desc='defaultPayments: payees_file 为空串(收款方白名单关闭)',
+  desc='收款方白名单关闭(AdmitSpend 不查 payees.allow;N-UX1 之后名单总是启用,PAY-12 改锚)',
   edits=[
-   ('internal/daemon/spend.go', 'em, dm, pf := uint64(defaultExplicitMax), uint64(defaultDailyMax), defaultPayeesFile', 'em, dm, pf := uint64(defaultExplicitMax), uint64(defaultDailyMax), ""'),
+   ('internal/daemon/spend.go', '\t\tif !payees[payTo] {\n\t\t\treturn refuse(SpendRefusal{Code: SpendPayeeNotAllowed}', '\t\tif false && !payees[payTo] {\n\t\t\treturn refuse(SpendRefusal{Code: SpendPayeeNotAllowed}'),
   ],
-  tests=[('ANet:./internal/daemon', 'TestAFreshInstallIsClosed|TestInitWritesTheSafeDefaultsExplicitlyAndIsIdempotent|TestInitOnlyAddsMissingKeys|TestPaymentsBlockDefaults|TestAConfigWithoutPaymentsIsGivenTheDefaults'), ('ANet:./cmd/anet', 'TestAFreshInitIsSafeByDoctorJSON|TestDoctorReportsEachSI5KeyThatChanged')],
+  tests=[('ANet:./internal/daemon', 'TestTheSpendingPolicyTiers|TestPayeeListRoutes')],
   full=['ANet:./internal/daemon', 'ANet:./cmd/anet'],
  ),
  dict(
   id='si5-9', group='SI-5', repo='ANet',
-  desc='PaymentsConfig.limits: 无 payments 块时收款方白名单关闭',
+  desc='收款方名单不在 payees.allow(读写另一个文件,全新安装的空名单不再是它;PAY-12 改锚)',
   edits=[
-   ('internal/daemon/spend.go', 'l := SpendLimits{ExplicitMax: defaultExplicitMax, DailyMax: defaultDailyMax, PayeesFile: defaultPayeesFile}', 'l := SpendLimits{ExplicitMax: defaultExplicitMax, DailyMax: defaultDailyMax, PayeesFile: ""}'),
+   ('internal/daemon/spend.go', '\tpayeesFile         = "payees.allow"', '\tpayeesFile         = "payees.list"'),
   ],
-  tests=[('ANet:./internal/daemon', 'TestAFreshInstallIsClosed|TestInitWritesTheSafeDefaultsExplicitlyAndIsIdempotent|TestInitOnlyAddsMissingKeys|TestPaymentsBlockDefaults|TestAConfigWithoutPaymentsIsGivenTheDefaults'), ('ANet:./cmd/anet', 'TestAFreshInitIsSafeByDoctorJSON|TestDoctorReportsEachSI5KeyThatChanged')],
+  tests=[('ANet:./internal/daemon', 'TestPayeeListRoutes'), ('ANet:./cmd/anet', 'TestAFreshInitIsSafeByDoctorJSON')],
   full=['ANet:./internal/daemon', 'ANet:./cmd/anet'],
  ),
  dict(

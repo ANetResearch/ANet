@@ -122,10 +122,10 @@ const (
 	ReasonOptionNotOffered         = "option_not_offered"         // the chosen option is not a quoted one (§8.7)
 	ReasonRailNotPayable           = "rail_not_payable"           // the chosen option settles where this node holds no credit (§8.7, an internal note item)
 	ReasonProviderBusy             = "provider_busy"              // no long-call slot; nothing was settled
-	ReasonNeedsOperatorApproval    = "needs_operator_approval"    // the quote is above the automatic tier
-	// ReasonExtensionNotActivated: a local client that did not activate
-	// a2a-x402 is shown a quote above the automatic tier (§8.7).
-	ReasonExtensionNotActivated = "payment_extension_not_activated"
+	// ReasonNeedsOperatorApproval: the quote waits for a person (ux D1;
+	// the variant of the payment sentence says why). Every client is told
+	// it, whether or not it activated a2a-x402 (HPP PAY-D9).
+	ReasonNeedsOperatorApproval = "needs_operator_approval"
 	// ReasonTaskNonceRequired: a priced capability call whose TaskDoc
 	// carries no anet.nonce is rejected; its payment could not be bound to
 	// it (§2 X4, an internal note item).

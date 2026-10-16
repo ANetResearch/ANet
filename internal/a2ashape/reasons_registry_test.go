@@ -157,7 +157,7 @@ func TestCodesKeptFromTheUserHaveNoRow(t *testing.T) {
 		"internal", "unauthorized", "key_retired", "ts_stale", "replayed", "expired", "bad_exp", "not_peer",
 		"source_rate", "unknown_destination", "not_witness", "auto_failed", "receipt_too_old",
 		"caller_unwitnessed", "provider_busy", "quota_global_per_min", "max_inflight", "task_nonce_required",
-		"peer_refused_key_state", "prepay_removed", "payment_extension_not_activated",
+		"peer_refused_key_state", "prepay_removed",
 		"recovery_setup_required", "access_revoked", "home_unknown", "stopped_elsewhere", "publishing",
 		"admission_required", "pow_required", "registration_quota", "kel_fork", "kel_rollback",
 		"kel_ts_out_of_window", "aid_deactivated", "witness_not_this_hub", "kel_invalid",
