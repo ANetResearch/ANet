@@ -67,7 +67,7 @@
 # a paid call settled at the hub and a call to the official agent, each carrying its own random
 # canary. After two admin harvest/snapshot periods, the hub's data directory (WAL as the run left it),
 # the admin's, the tap's record of everything the hub was sent and answered, the hub's and the admin's
-# HTTP responses (/agents/{aid}, /fed/v1/reviews, /api/sessions*, …) and their logs are searched for
+# HTTP responses (/agents/{aid}, /fed/v3/reviews, /api/sessions*, …) and their logs are searched for
 # the canaries as raw bytes, hex and base64 (every alignment): no hit may be found; then the hub's
 # weekly backup is taken (deploy/hub-db-roll.sh) and its data directory searched again. The same search over
 # the recipients' own data must find them (so the search can see what it looks for), the recipients
@@ -693,24 +693,16 @@ canary_sweep(){
   rm -rf "$d"; mkdir -p "$d"
   hubget(){ n=$((n + 1)); printf '%s %s\n' "$(fetch_to "$d/hub-$n.body" "$HUB_URL$1")" "$1" >> "$d/index.txt"; }
   for p in / /llms.txt /healthz /stats /graph /agents /a2a/v1/agents /p2p/peers /x402/supported /x402/supply \
-           /x402/issuance /x402/issuance/head /x402/witnesses /fed/v1/cards /fed/v2/cards; do
+           /x402/issuance /x402/issuance/head /x402/witnesses; do
     hubget "$p"
   done
-  code=$(fetch_to "$d/fed-reviews.body" "$HUB_URL/fed/v1/reviews")
-  printf '%s /fed/v1/reviews\n' "$code" >> "$d/index.txt"
-  for aid in "$REQ_AID" "$PROV_AID" "$STR_AID" "${CR_AID:-}" "${CP_AID:-}" "${OFF_AID:-}"; do
-    [ -n "$aid" ] || continue
-    for p in "" /card /kel /reputation /p2p /jwks.json; do hubget "/agents/$aid$p"; done
-    hubget "/a2a/v1/agents/$aid/card"
+  # The peer streams are signed (/fed/v3/*) since sealed-sender 7.4: unsigned, none of them may answer 200,
+  # and the retired anonymous routes are gone.
+  for p in /fed/v1/reviews /fed/v1/cards /fed/v2/cards /fed/v3/cards /fed/v3/reviews; do
+    code=$(fetch_to "$d/fed-stream-$(printf %s "$p" | tr / _).body" "$HUB_URL$p")
+    printf '%s %s\n' "$code" "$p" >> "$d/index.txt"
+    [ "$code" != 200 ] && ok "$p does not answer an unsigned request ($code)" || no "$p answered 200 to an unsigned request"
   done
-  # Key sets only for the canary nodes: the hub rate-limits key lookups per client address.
-  for aid in "${CR_AID:-}" "${CP_AID:-}" "${OFF_AID:-}"; do [ -n "$aid" ] && hubget "/agents/$aid/keys"; done
-  # The review stream must answer and carry the canary task's review, or its zero hits mean nothing.
-  [ "$code" = 200 ] && python3 -c '
-import json, sys
-sys.exit(0 if (json.load(open(sys.argv[1])).get("reviews") or []) else 1)' "$d/fed-reviews.body" 2>/dev/null \
-    && ok "the hub's review stream (/fed/v1/reviews) answers and carries the review" \
-    || no "the hub's review stream answered $code without the review: $(head -c 160 "$d/fed-reviews.body" 2>/dev/null)"
   if [ "${HAVE_ADMIN:-0}" = 1 ]; then
     # /discover and /vision included: their vector-search client points at this run's dead address
     # (DEAD_ADDR), so they answer from the lexical fallback and reach nothing outside the run.
@@ -875,7 +867,7 @@ esac
                    || echo "  devices:  none (anetlink not configured, 1/11 skipped)"
 
 # For section C the hub federates its directory with a second hub (discovery only, no delivery, no
-# witnessing), so that /fed/v1/reviews — the review stream peers copy from it, one of the SI-1
+# witnessing), so that /fed/v3/reviews — the review stream peers copy from it, one of the SI-1
 # surfaces — answers at all: without a discovery peer it is refused and would pass for having nothing.
 # The second hub is only a peer identity at an address; it pulls nothing.
 mkdir -p "$RUN/hub"
@@ -886,9 +878,9 @@ if [ "$CANARY" != 0 ]; then
   if [ -n "$HUB2_AID" ]; then
     printf '{"delivery":"off","discovery":"allowlist","witness":"off","home":"%s","peers":[{"aid":"%s","endpoint":"http://%s"}]}\n' \
       "$HUB_URL" "$HUB2_AID" "$HUB2_ADDR" > "$RUN/hub/federation.json"
-    echo "  federation: discovery peer $HUB2_AID at $HUB2_ADDR (for /fed/v1/reviews)"
+    echo "  federation: discovery peer $HUB2_AID at $HUB2_ADDR (for /fed/v3/reviews)"
   else
-    note "the federation peer hub did not come up: /fed/v1/reviews will be refused ($(tail -1 "$RUN/hub2.log"))"
+    note "the federation peer hub did not come up: /fed/v3/reviews will be refused ($(tail -1 "$RUN/hub2.log"))"
   fi
 fi
 

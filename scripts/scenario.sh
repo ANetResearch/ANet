@@ -859,9 +859,10 @@ print("yes" if "peers" in r and "combined" in r and "concentration" in r else "n
 note=$(echo "$rep" | python3 -c 'import sys,json;print(len(json.load(sys.stdin).get("note","")))' 2>/dev/null)
 [ "${note:-0}" -gt 40 ] && ok "合并值旁边写明了它不能证明什么(peer 可自建账号刷评价)" \
   || no "合并评分没有附带告诫"
-strm=$(curl -sf -m 10 "$HUB2/fed/v1/reviews?cursor=0" | python3 -c '
-import sys,json;d=json.load(sys.stdin);print("ok" if "reviews" in d and "cursor" in d else "bad")' 2>/dev/null)
-[ "$strm" = "ok" ] && ok "hub2 开着信誉同步流(带游标,拉取式)" || no "信誉同步流不可用"
+# The anonymous /fed/v1/reviews stream is gone (sealed-sender 7.4): the stream is peer-signed at /fed/v3/reviews,
+# so an unsigned GET must not return it.
+strm=$(curl -s -o /dev/null -w '%{http_code}' -m 10 "$HUB2/fed/v3/reviews?cursor=0")
+case "$strm" in 200) no "信誉同步流对匿名请求开放(/fed/v3/reviews 答 200)" ;; *) ok "信誉同步流只对签名的对端开放(匿名 GET 答 $strm)" ;; esac
 
 # ── 8. two hubs: the other hub's agent, the key cache, money, cancels ──
 # A2A-DESIGN §17:联调行 scenario.sh 与补充用例 C2、C25、C32、C34;支付负面用例对应 SI-9 / §8.4 / §8.5。
@@ -1376,7 +1377,7 @@ xhub_local_provider(){
   [ "$listed" = 0 ] && ok "hub1 的目录里没有 P(hub-local;8.5 目录同步之后以 Q 作对照再查)" \
     || no "hub1 的目录里 P 出现 $listed 次(? = 读不了列表)"
   keys=$(curl -s -m 20 --noproxy '*' "$HUB1/agents/$P/keys" | jget aid)
-  [ "$keys" = "$P" ] && ok "hub1 却能给出 P 的加密密钥(来自向 X2 的 /fed/v2/keys 查询;8.6 关掉查询即 404)" \
+  [ "$keys" = "$P" ] && ok "hub1 却能给出 P 的加密密钥(来自向 X2 的目录桶查询 /fed/v3/directory:bucket)" \
     || no "hub1 给不出 P 的密钥"
 
   # Only named peers: R2 is not on P's list yet. It can reach P (the keys come the same way) and is
@@ -1712,7 +1713,14 @@ print(("Q" if sys.argv[1] in ags else "") + ("P" if sys.argv[2] in ags else ""))
 
 # ── 8.6 ─────────────────────────────────────────────────────────
 xhub_c32(){
-  hd "8.6  C32 mutation:两个 hub 关掉 /fed/v2/keys 查询(-test-no-fed-key-lookup)"
+  hd "8.6  C32 mutation: retired under sealed-sender 7.4"
+  # The /fed/v2/keys lookup this section switched off is gone: a key set reaches a hub-local provider's
+  # contacts through the directory bucket query (/fed/v3/directory:bucket), and -test-no-fed-key-lookup is a
+  # removed hub flag. The 7.4 counterpart of this mutation lives in the unit lists (ANetHub
+  # scripts/mutations, unit/sealed_sender.py, group SS-6), not here. Kept below for reference only.
+  note "C32 is retired in this script (sealed-sender 7.4, no fed key lookup to switch off); run the SS-6 unit mutations instead"
+  return 0
+  # shellcheck disable=SC2317
   local reply out ix mark hmark kc age
   hmark=$(wc -l <"$ROOT/hub.log")
   hubs_restart -test-no-fed-key-lookup || { no "两个 hub 带开关重启失败: $(tail -2 "$ROOT/hub.log")"; return; }
