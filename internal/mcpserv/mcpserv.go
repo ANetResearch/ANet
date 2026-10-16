@@ -35,11 +35,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-
-	"github.com/ANetResearch/ANet/internal/a2ashape"
 )
 
 // Control is the daemon's local control plane, as much of it as the tools
@@ -65,30 +62,15 @@ type DaemonError struct {
 	Reason string
 }
 
-// Error is the daemon's own sentence, which is written for a human and
-// reads correctly to a model, followed by the names a program would act
-// on.
+// Error is the control plane's `error`, word for word (ux UX-M4): the
+// sentence is written for a human and reads correctly to a model, so the
+// tool adds nothing to it. Status, Code and Reason stay on the value for a
+// program to act on.
 func (e *DaemonError) Error() string {
-	msg := e.Message
-	if msg == "" {
-		msg = fmt.Sprintf("daemon returned %d", e.Status)
+	if e.Message == "" {
+		return fmt.Sprintf("daemon returned %d", e.Status)
 	}
-	if e.Message != "" && isReasonCode(e.Reason) {
-		// A refusal of the reason table (ux UX-R9): the tool error is the
-		// control plane's sentence, nothing added (UX-M4, LEC MC-2).
-		return msg
-	}
-	var tags []string
-	if e.Code != "" && !strings.Contains(msg, e.Code) {
-		tags = append(tags, e.Code)
-	}
-	if e.Reason != "" && !strings.Contains(msg, e.Reason) {
-		tags = append(tags, "reason: "+e.Reason)
-	}
-	if len(tags) > 0 {
-		msg += " [" + strings.Join(tags, "; ") + "]"
-	}
-	return msg
+	return e.Message
 }
 
 // statusOf is the HTTP status of a daemon refusal, 0 for any other error.
@@ -184,14 +166,4 @@ func endsTask() *mcp.ToolAnnotations {
 // spends is a tool that spends this node's credit.
 func spends() *mcp.ToolAnnotations {
 	return &mcp.ToolAnnotations{DestructiveHint: ptr(true), OpenWorldHint: ptr(true)}
-}
-
-// isReasonCode reports whether code is a code of the reason table, whose
-// sentence the control plane already wrote.
-func isReasonCode(code string) bool {
-	if code == "" {
-		return false
-	}
-	r, ok := a2ashape.Lookup(code)
-	return ok && r.Code == code
 }

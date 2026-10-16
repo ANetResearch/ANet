@@ -70,6 +70,11 @@ func TestAFreshInitIsSafeByDoctorJSON(t *testing.T) {
 		"payments.agent_max":          func(v any) bool { return v == float64(0) },
 		"payments.agent_daily_max":    func(v any) bool { return v == float64(0) },
 		"payments.payees":             emptyList,
+		"payments.explicit_max":       func(v any) bool { return v == float64(10) },
+		"payments.daily_max":          func(v any) bool { return v == float64(50) },
+		"stream_preview":              func(v any) bool { return v == "off" },
+		"content_retention":           func(v any) bool { return v == "30d" },
+		"modules.p2p.lan":             func(v any) bool { return v == false },
 	}
 	for _, k := range daemon.SI5Keys {
 		check, ok := want[k]
@@ -138,6 +143,16 @@ func TestDoctorReportsEachSI5KeyThatChanged(t *testing.T) {
 		"payments.agent_max":       cfgEdit(func(m map[string]any) { block(m, "payments")["agent_max"] = 1 }),
 		"payments.agent_daily_max": cfgEdit(func(m map[string]any) { block(m, "payments")["agent_daily_max"] = 1 }),
 		"payments.payees":          listFile("payees.allow"),
+		"payments.explicit_max":    cfgEdit(func(m map[string]any) { block(m, "payments")["explicit_max"] = 11 }),
+		"payments.daily_max":       cfgEdit(func(m map[string]any) { block(m, "payments")["daily_max"] = 51 }),
+		"stream_preview":           cfgEdit(func(m map[string]any) { m["stream_preview"] = "on" }),
+		"content_retention":        cfgEdit(func(m map[string]any) { m["content_retention"] = "7d" }),
+		"modules.p2p.lan":          cfgEdit(func(m map[string]any) {
+			if _, ok := m["modules"].(map[string]any); !ok {
+				m["modules"] = map[string]any{}
+			}
+			block(m, "modules")["p2p"] = map[string]any{"lan": true}
+		}),
 	}
 	for _, key := range daemon.SI5Keys {
 		mut, ok := mutations[key]

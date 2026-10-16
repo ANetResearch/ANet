@@ -442,12 +442,19 @@ type SpendStatus struct {
 // tier are both off. The CLI, MCP's get_balance.limits.summary and
 // /payments/status.summary carry this same sentence.
 func (st SpendStatus) LimitsSummary(lang a2ashape.Language) string {
+	said := st.limitsSaid()
+	return a2ashape.Sentence(said.Key, lang, said.Args)
+}
+
+// limitsSaid is the sentence key and arguments of LimitsSummary, for the
+// status summary's payments line.
+func (st SpendStatus) limitsSaid() a2ashape.Said {
 	key := "limits_summary"
 	if st.AutoMax == 0 && st.AgentMax == 0 {
 		key += ".off"
 	}
-	return a2ashape.Sentence(key, lang, a2ashape.Args{"auto_max": st.AutoMax, "agent_max": st.AgentMax,
-		"agent_left": st.AgentLeftToday, "explicit_max": st.ExplicitMax, "left": st.LeftToday, "n": st.Payees})
+	return a2ashape.Said{Key: key, Args: a2ashape.Args{"auto_max": st.AutoMax, "agent_max": st.AgentMax,
+		"agent_left": st.AgentLeftToday, "explicit_max": st.ExplicitMax, "left": st.LeftToday, "n": st.Payees}}
 }
 
 // tierLeft is what a tier may still pay today (HPP §0.3).

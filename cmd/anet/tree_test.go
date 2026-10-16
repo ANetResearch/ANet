@@ -141,7 +141,7 @@ func TestHelpFollowsTheLanguage(t *testing.T) {
 	for _, e := range commonEntries() {
 		short[e.use] = true
 	}
-	for _, c := range []string{"up [name] [--all]", "status", "doctor [--json]", "find [query] [--cap id] [--json]"} {
+	for _, c := range []string{"up [name] [--all]", "status [--json]", "doctor [--json]", "find [query] [--cap id] [--json]"} {
 		if !short[c] {
 			t.Errorf("anet help does not list %q", c)
 		}

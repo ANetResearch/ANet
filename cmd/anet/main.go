@@ -394,8 +394,7 @@ func probeLocalDaemon(layout daemon.Layout) (bool, error) {
 func runDaemonDetached(layout daemon.Layout) error {
 	up, perr := probeLocalDaemon(layout)
 	if up {
-		fmt.Printf("anet daemon already running (data dir %s)\n", layout.Root)
-		return runClient(layout, "status", nil, true)
+		return runUpSummary(layout)
 	}
 	if errors.Is(perr, localpeer.ErrNotOurs) {
 		// Somebody else holds this identity's control port while its daemon is down. The token was not
@@ -439,7 +438,6 @@ func runDaemonDetached(layout daemon.Layout) error {
 	if err := c.Start(); err != nil {
 		return fmt.Errorf("start daemon: %w", err)
 	}
-	pid := c.Process.Pid
 	// Keep the handle and reap in the background instead of releasing it.
 	//
 	// The child is already in its own session, so it outlives this process
@@ -462,15 +460,8 @@ func runDaemonDetached(layout daemon.Layout) error {
 	deadline := time.Now().Add(8 * time.Second)
 	for time.Now().Before(deadline) {
 		if localDaemonUp(layout) {
-			name := daemon.IdentityNameForDir(layout.Root)
-			label := ""
-			if name != "" {
-				label = " [" + name + "]"
-			}
-			fmt.Printf("anet daemon started%s (pid %d, data dir %s) — stop it anytime with `anet stop%s`\n\n",
-				label, pid, layout.Root, stopHint(name))
 			reportA2APortConflict(layout)
-			return runClient(layout, "status", nil, true)
+			return runUpSummary(layout)
 		}
 		select {
 		case werr := <-died:
@@ -1144,7 +1135,7 @@ var knownFlags = map[string][]string{
 	"retention": {"json"},
 
 	// through the control plane
-	"status":       {},
+	"status":       {"json"},
 	"hub-register": {"name", "caps", "recovery-file", "new-recovery"}, // --token, --token-file, --accept-delegations: cli_removed (removed.go)
 	"hub-leave":    {},
 	"peers":        {"json"},
@@ -1276,7 +1267,7 @@ func runClient(layout daemon.Layout, cmd string, rest []string, explicit bool) e
 	}
 	switch cmd {
 	case "status":
-		return c.do("/status", nil)
+		return runStatus(c, rest)
 	case "stop", "down":
 		return stopDaemon(layout, explicit)
 	case "hub-register":

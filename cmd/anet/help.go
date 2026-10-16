@@ -44,7 +44,7 @@ func helpSections() []helpSection {
 			{"up [name] [--all]", "在后台启动节点（关掉终端也继续运行）", "start the node in the background (it outlives this shell)", true},
 			{"daemon [--detach]", "在前台运行节点；--detach 同 anet up", "run the node in the foreground; --detach is anet up", false},
 			{"stop [name] [--all]", "停止节点（数据目录保留；也可写 anet down）", "stop the node (the data directory stays; also: anet down)", false},
-			{"status", "本节点的状态", "this node's state", true},
+			{"status [--json]", "本节点的状态：身份、hub、接单、付款与隐私各一行（--json 为完整状态）", "this node's state, one line each for identity, hub, inbound, payments and privacy (--json: the full status)", true},
 			{"doctor [--json]", "本节点被设成了什么样、哪些门开着（只读数据目录）", "what this node is set up to do and which doors are open (reads the data directory only)", true},
 			{"doctor --apparmor-profile", "打印让 bubblewrap 在 Ubuntu 上建用户命名空间的 AppArmor profile（只输出，不写文件）", "print the AppArmor profile that lets bubblewrap make user namespaces on Ubuntu (prints only, writes no file)", false},
 			{"logs [N|--all]", "daemon 日志的末尾 N 行", "the last N lines of the daemon log", false},

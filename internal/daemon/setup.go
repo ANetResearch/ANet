@@ -26,6 +26,8 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+
+	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 )
 
 // InitChange is one thing InitLayout did or found.
@@ -392,6 +394,12 @@ var SI5Keys = []string{
 	"payments.agent_max",
 	"payments.agent_daily_max",
 	"payments.payees",
+	// ux §2.7 (UX-D5).
+	"payments.explicit_max",
+	"payments.daily_max",
+	"stream_preview",
+	"content_retention",
+	"modules.p2p.lan",
 }
 
 // si5DefaultText states each key's fresh-install value for reports.
@@ -405,6 +413,11 @@ var si5DefaultText = map[string]string{
 	"payments.agent_max":          "0",
 	"payments.agent_daily_max":    "0",
 	"payments.payees":             "empty",
+	"payments.explicit_max":       "10",
+	"payments.daily_max":          "50",
+	"stream_preview":              streamPreviewOff,
+	"content_retention":           "30d",
+	"modules.p2p.lan":             "false",
 }
 
 // SI5 returns the value of every SI-5 key and the keys whose value differs
@@ -421,6 +434,13 @@ func (st PolicyState) SI5() (values map[string]any, changed []string) {
 	for _, c := range st.Inbound.PublicCapabilities {
 		caps = append(caps, c.ID)
 	}
+	var p2p struct {
+		LAN bool `json:"lan"`
+	}
+	if raw, ok := st.Config.Modules["p2p"]; ok {
+		_ = json.Unmarshal(raw, &p2p)
+	}
+	p2pLAN := p2p.LAN
 	values = map[string]any{
 		"inbound.policy":              st.Inbound.Policy,
 		"peers.allow":                 nonNil(st.Allow),
@@ -431,6 +451,11 @@ func (st PolicyState) SI5() (values map[string]any, changed []string) {
 		"payments.agent_max":          st.Payments.AgentMax,
 		"payments.agent_daily_max":    st.Payments.AgentDailyMax,
 		"payments.payees":             nonNil(st.Payees),
+		"payments.explicit_max":       st.Payments.ExplicitMax,
+		"payments.daily_max":          st.Payments.DailyMax,
+		"stream_preview":              st.Config.streamPreview(),
+		"content_retention":           st.Config.contentRetention().String(),
+		"modules.p2p.lan":             p2pLAN,
 	}
 	safe := map[string]bool{
 		"inbound.policy":              st.Inbound.Policy == PolicyClosed,
@@ -442,6 +467,11 @@ func (st PolicyState) SI5() (values map[string]any, changed []string) {
 		"payments.agent_max":          st.Payments.AgentMax == 0,
 		"payments.agent_daily_max":    st.Payments.AgentDailyMax == 0,
 		"payments.payees":             len(st.Payees) == 0,
+		"payments.explicit_max":       st.Payments.ExplicitMax == defaultExplicitMax,
+		"payments.daily_max":          st.Payments.DailyMax == defaultDailyMax,
+		"stream_preview":              st.Config.streamPreview() == streamPreviewOff,
+		"content_retention":           st.Config.contentRetention() == interactions.DefaultRetention(),
+		"modules.p2p.lan":             !p2pLAN,
 	}
 	for _, k := range SI5Keys {
 		if !safe[k] {

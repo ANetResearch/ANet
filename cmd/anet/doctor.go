@@ -558,11 +558,13 @@ func collectDoctor(layout daemon.Layout, env doctorEnv) (*doctorReport, error) {
 
 	// Payments (§8.6).
 	rep.Payments, rep.Payees = st.Payments, st.Payees
-	p := st.Payments
-	payDetail := fmt.Sprintf("auto_max %d; agent_max %d, agent_daily_max %d; explicit_max %d, daily_max %d; "+
-		"payee list %d entries (%s)", p.AutoMax, p.AgentMax, p.AgentDailyMax, p.ExplicitMax, p.DailyMax,
-		len(st.Payees), st.PayeesPath)
-	add("payments", stOK, payDetail, "")
+	var spend map[string]any
+	if rs, ok := runtimeStatusQuiet(env, rep, layout); ok {
+		spend, _ = rs["payments"].(map[string]any)
+	}
+	paymentsCheck(say, st, spend)
+	capabilitiesChecks(say, st)
+	previewCheck(say, cfg)
 	paymentsCardCheck(say, add, rep, env, layout) // doctor_payments.go
 	paymentsAuditCheck(say, add, rep, env, layout)
 	haveProbation := false // hubCheck already told it from the join record
@@ -738,6 +740,17 @@ func runtimeStatus(env doctorEnv, rep *doctorReport, say func(id, status, key st
 		}
 	}
 	say(id, stUnknown, doctorDaemonDown, nil)
+	return nil, false
+}
+
+// runtimeStatusQuiet is runtimeStatus without the unknown finding: for a
+// check that has an answer without the daemon and only refines it with one.
+func runtimeStatusQuiet(env doctorEnv, rep *doctorReport, layout daemon.Layout) (map[string]any, bool) {
+	if rep.Control.Running && env.status != nil {
+		if st, err := env.status(rep.Control.Addr, layout.ControlTokenPath()); err == nil {
+			return st, true
+		}
+	}
 	return nil, false
 }
 
