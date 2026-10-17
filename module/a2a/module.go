@@ -48,6 +48,7 @@ import (
 	"time"
 
 	"github.com/ANetResearch/ANet/internal/anethome"
+	"github.com/ANetResearch/ANet/internal/localpeer"
 	"github.com/ANetResearch/ANet/module"
 )
 
@@ -95,10 +96,11 @@ type Config struct {
 type Module struct {
 	cfg Config
 
-	mu   sync.Mutex
-	srv  *http.Server
-	ln   net.Listener
-	done chan struct{}
+	mu      sync.Mutex
+	srv     *http.Server
+	ln      net.Listener
+	done    chan struct{}
+	stopped bool // Stop or the end of ctx came; a late bind is closed again
 }
 
 // Name is the module's stable name; -tags no_a2a removes it.
@@ -111,6 +113,9 @@ func (m *Module) Name() string { return name }
 // SendMessage, an open stream — derives from it (BaseContext), so none of
 // them holds the shutdown open.
 func (m *Module) Start(ctx context.Context, h module.Host) error {
+	m.mu.Lock()
+	m.stopped = false
+	m.mu.Unlock()
 	// Declared first, before anything can be forwarded, so the kernel's
 	// configuration check sees it (A2A-DESIGN §5.1).
 	if m.cfg.declaresUntrusted() {
@@ -137,12 +142,73 @@ func (m *Module) Start(ctx context.Context, h module.Host) error {
 	ln, fresh, err := listen(dir)
 	var taken *portTakenError
 	if errors.As(err, &taken) {
+		if !listenerHolds(taken.addr) {
+			// Nothing listens there: the port is the local end of a connection
+			// (an outgoing loopback connection takes its source port from the
+			// same range). Nobody can have received the token on it, and the
+			// port frees itself when that connection ends, so the interface
+			// waits for it instead of staying down.
+			go m.awaitPort(ctx, h, seam, dir, token, hadToken, taken)
+			return nil
+		}
 		portTaken(dir, taken)
 		return nil // the rest of the node runs; see portTaken
 	}
 	if err != nil {
 		return fmt.Errorf("a2a: %w", err)
 	}
+	return m.serve(ctx, h, seam, dir, token, hadToken, ln, fresh)
+}
+
+// Waiting for a recorded port that only a connection holds: the bind is
+// tried again every portRetryEvery for up to portRetryFor. A listener that
+// appears on the port meanwhile, or a port still held at the end, is a
+// conflict (portTaken).
+var (
+	portRetryEvery = 2 * time.Second
+	portRetryFor   = 5 * time.Minute
+)
+
+// listenerHolds reports whether a listening socket holds addr. Where the
+// socket table cannot be read it answers true, so the caller treats the
+// holder as a possible other user (portTaken).
+func listenerHolds(addr string) bool {
+	uids, err := localpeer.ListenerUIDs(addr)
+	return err != nil || len(uids) > 0
+}
+
+func (m *Module) awaitPort(ctx context.Context, h module.Host, seam module.TaskSeam, dir, token string, hadToken bool, taken *portTakenError) {
+	log.Printf("anet: a2a: %s is in use by a connection, not a listener; the local A2A interface starts when it is free", taken.addr)
+	t := time.NewTicker(portRetryEvery)
+	defer t.Stop()
+	deadline := time.Now().Add(portRetryFor)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+		ln, fresh, err := listen(dir)
+		var again *portTakenError
+		switch {
+		case err == nil:
+			if err := m.serve(ctx, h, seam, dir, token, hadToken, ln, fresh); err != nil {
+				log.Printf("anet: a2a: %v", err)
+			}
+			return
+		case !errors.As(err, &again):
+			log.Printf("anet: a2a: %v", err)
+			return
+		case listenerHolds(again.addr) || time.Now().After(deadline):
+			portTaken(dir, again)
+			return
+		}
+	}
+}
+
+// serve runs the interface on ln until ctx ends.
+func (m *Module) serve(ctx context.Context, h module.Host, seam module.TaskSeam, dir, token string, hadToken bool, ln net.Listener, fresh bool) error {
+	var err error
 	if fresh && hadToken {
 		// A new port while clients hold the token for another one: they go
 		// on sending it to the old port, where anybody may be listening by
@@ -171,6 +237,12 @@ func (m *Module) Start(ctx context.Context, h module.Host) error {
 	}
 	done := make(chan struct{})
 	m.mu.Lock()
+	if m.stopped {
+		// Stop came first (a port awaited in the background bound late).
+		m.mu.Unlock()
+		_ = ln.Close()
+		return nil
+	}
 	m.srv, m.ln, m.done = srv, ln, done
 	m.mu.Unlock()
 	go func() {
@@ -238,6 +310,7 @@ func (m *Module) shutdown() {
 	m.mu.Lock()
 	srv, done := m.srv, m.done
 	m.srv = nil
+	m.stopped = true
 	m.mu.Unlock()
 	if srv == nil {
 		return
