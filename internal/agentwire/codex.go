@@ -4,6 +4,7 @@ package agentwire
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -31,6 +32,19 @@ func codexConfig(o *Options) string   { return filepath.Join(codexHome(o), "conf
 func codexAgentsMD(o *Options) string { return filepath.Join(codexHome(o), "AGENTS.md") }
 
 func (codexTool) configPath(o *Options) string { return codexConfig(o) }
+
+// wireNotes warns about AGENTS.override.md: Codex reads it instead of
+// AGENTS.md when it exists in the global directory
+// (https://developers.openai.com/codex/guides/agents-md), so the guide block
+// wire wrote would never reach the model.
+func (codexTool) wireNotes(o *Options, st Status) []string {
+	ov := filepath.Join(codexHome(o), "AGENTS.override.md")
+	if _, err := os.Stat(realPath(ov)); err != nil {
+		return nil
+	}
+	return []string{short(o, ov) + " 存在:Codex 优先读取它而不是 AGENTS.md,anet 写入 AGENTS.md 的指引不会生效;" +
+		"把指引并入该文件,或移走它"}
+}
 
 func (codexTool) detected(o *Options) bool {
 	return onPath(o, "codex") || dirExists(codexHome(o))
