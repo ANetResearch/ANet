@@ -28,7 +28,7 @@ A release is made of four components, each with its own number.
      - The protocol and cryptography kernel (Go module). ``ANet`` and ``ANetHub`` require the same
        version in their ``go.mod``.
    * - ``anet``
-     - 0.3.1
+     - 0.3.2
      - The node program: daemon, command line, MCP server and local interfaces.
    * - ANetHub
      - 0.3.1
