@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"testing"
 
 	"github.com/ANetResearch/ANet/module"
 	"github.com/ANetResearch/ANet/module/autoreply"
@@ -77,4 +78,32 @@ func (d *Daemon) SetAutoReply(cfg *AutoReplyConfig) error {
 
 func (d *Daemon) hAutoReply(w http.ResponseWriter, r *http.Request) {
 	d.moduleRoute("autoreply", "POST /autoreply")(w, r)
+}
+
+// Budget is the budget member for n.
+var Budget = autoreply.Budget
+
+// SandboxBudget is the budgets in force.
+type SandboxBudget = autoreply.SandboxBudget
+
+// sandboxBudgetOf is the budgets the running auto-reply module holds.
+func sandboxBudgetOf(t testing.TB, d *Daemon) SandboxBudget {
+	t.Helper()
+	for _, m := range d.modules {
+		if b, ok := m.(interface{ SandboxBudget() SandboxBudget }); ok && m.Name() == "autoreply" {
+			return b.SandboxBudget()
+		}
+	}
+	t.Fatal("the auto-reply module is not running")
+	return SandboxBudget{}
+}
+
+// arModule is the auto-reply module the daemon runs, nil when the node has none.
+func arModule(d *Daemon) module.Module {
+	for _, m := range d.modules {
+		if m.Name() == "autoreply" {
+			return m
+		}
+	}
+	return nil
 }

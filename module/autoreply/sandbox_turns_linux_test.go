@@ -2,7 +2,7 @@
 
 package autoreply
 
-// The real-bubblewrap turn tests of MOD-4's mod4_pending set, on the module's stand-in node (T-1 EXE F-2).
+// The real-bubblewrap turn tests, on the module's stand-in node (T-1 EXE F-2).
 // They fail (not skip) where the sandbox cannot start, like the other sandbox integration tests.
 
 import (

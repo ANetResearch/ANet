@@ -2,7 +2,7 @@ package autoreply
 
 // autoreply_turns_test.go — the turn-level tests of the budget, the gate, the refusals and the sandbox work
 // directories, written for the module's own stand-in node (turnfx_test.go) when MOD-4 moved the module out
-// of internal/daemon and the daemon-fixture versions stayed behind in the mod4_pending files (T-1 EXE F-2).
+// of internal/daemon (T-1 EXE F-2).
 // Each keeps the name and the rule number of the test it replaces.
 
 import (

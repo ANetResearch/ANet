@@ -717,3 +717,26 @@ func TestKernelReadsOnlyAllowedModuleBlocks(t *testing.T) {
 		}
 	}
 }
+
+// K-5: the sensitive paths hold the kernel's fixed part, the default C1 socket whatever the availability of
+// anetlink, and the paths available modules declare. (The sandbox's never-bind list is built from them by the
+// auto-reply module: module/autoreply, TestNeverBindHoldsTheDefaultC1Socket.)
+func TestSensitivePaths(t *testing.T) {
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	for _, without := range [][]string{nil, {"anetlink"}} {
+		d := startWith(t, map[string]any{"without": without}, nil)
+		d.modules = append(d.modules, fakeLocalPaths{"/var/run/svc-test.sock"})
+		got := d.sensitivePaths()
+		for _, want := range []string{d.layout.Root, d.layout.ControlTokenPath(), "/var/run/svc-test.sock"} {
+			if !slices.Contains(got, want) {
+				t.Errorf("without=%v: %q missing from %v", without, want, got)
+			}
+		}
+		if s := os.Getenv("XDG_RUNTIME_DIR"); !slices.Contains(got, s) {
+			t.Errorf("without=%v: %q missing", without, s)
+		}
+		if !slices.ContainsFunc(got, func(p string) bool { return strings.HasSuffix(p, "anetlink/c1.sock") }) {
+			t.Errorf("without=%v: the default C1 socket is not in the list: %v", without, got)
+		}
+	}
+}

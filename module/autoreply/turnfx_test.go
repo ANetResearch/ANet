@@ -37,6 +37,10 @@ type fxIx struct {
 	refusals   int
 	ended      int
 	working    int
+	denied     bool              // the peer is on the deny list: nothing is owed and nothing goes out
+	files      map[string][]byte // attachment bytes by cid, as TurnAttachment reads them
+	previewed  bool              // the round asked for previews and the node grants them
+	offers     []string          // what the module offered to the preview sink, oldest first
 }
 
 type fakeTurnHost struct {
@@ -89,7 +93,7 @@ func (h *fakeTurnHost) UpdateModuleConfig(fn func(old json.RawMessage) (json.Raw
 }
 
 func (h *fakeTurnHost) owed(x *fxIx) bool {
-	if x.state == "rejected" || x.state == "completed" {
+	if x.state == "rejected" || x.state == "completed" || x.denied {
 		return false
 	}
 	ms := x.turn.Messages
@@ -178,11 +182,37 @@ func (h *fakeTurnHost) EndTurn(_ context.Context, ix string) error {
 	return nil
 }
 
-func (h *fakeTurnHost) TurnAttachment(string, string) ([]byte, error) {
+func (h *fakeTurnHost) TurnAttachment(ix, cid string) ([]byte, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if x := h.ixs[ix]; x != nil {
+		if b, ok := x.files[cid]; ok {
+			return b, nil
+		}
+	}
 	return nil, fmt.Errorf("no attachment")
 }
 
-func (h *fakeTurnHost) PreviewTurn(string) (module.PreviewSink, bool) { return nil, false }
+// fxSink is the preview sink of one interaction of the stand-in node.
+type fxSink struct {
+	h  *fakeTurnHost
+	ix string
+}
+
+func (s fxSink) Offer(text, _ string) {
+	s.h.mu.Lock()
+	defer s.h.mu.Unlock()
+	s.h.ixs[s.ix].offers = append(s.h.ixs[s.ix].offers, text)
+}
+
+func (h *fakeTurnHost) PreviewTurn(ix string) (module.PreviewSink, bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if x := h.ixs[ix]; x != nil && x.previewed {
+		return fxSink{h, ix}, true
+	}
+	return nil, false
+}
 
 var _ module.TurnHost = (*fakeTurnHost)(nil)
 var _ module.OwnEvidenceHost = (*fakeTurnHost)(nil)
@@ -327,4 +357,26 @@ func (fx *turnFx) trust(ix string, trusted bool) {
 	fx.h.mu.Lock()
 	defer fx.h.mu.Unlock()
 	fx.h.ixs[ix].turn.Trusted = trusted
+}
+
+// deny puts the peer of ix on the deny list, or takes it off.
+func (fx *turnFx) deny(ix string, denied bool) {
+	fx.h.mu.Lock()
+	defer fx.h.mu.Unlock()
+	fx.h.ixs[ix].denied = denied
+}
+
+// previewed makes the round of ix one that asked for previews, or not.
+func (fx *turnFx) previewed(ix string, on bool) {
+	fx.h.mu.Lock()
+	defer fx.h.mu.Unlock()
+	fx.h.ixs[ix].previewed = on
+}
+
+// wakeLoop signals the host's Wake channel, as an inbound message does.
+func (fx *turnFx) wakeLoop() {
+	select {
+	case fx.h.wake <- struct{}{}:
+	default:
+	}
 }

@@ -7,11 +7,9 @@ package daemon
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -225,54 +223,4 @@ func TestPreviewToggleRepublishesCard(t *testing.T) {
 	if _, err := d.SetStreamPreview("on"); err != nil {
 		t.Fatal(err)
 	}
-}
-
-// --- the openai stream (CUX-P5) ---
-
-// sseFixtures are recorded streams of three servers' dialects, each with
-// the non-streamed answer the same server gives for the same text.
-var sseFixtures = []struct {
-	name, stream, whole string
-}{
-	{"deepseek", "data: {\"choices\":[{\"delta\":{\"role\":\"assistant\",\"content\":\"\"}}]}\n\n" +
-		"data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"Let me think. \"}}]}\n\n" +
-		"data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"The user asks.\"}}]}\n\n" +
-		"data: {\"choices\":[{\"delta\":{\"content\":\"Hello\"}}]}\n\n" +
-		"data: {\"choices\":[{\"delta\":{\"content\":\", \"}}]}\n\n" +
-		"data: {\"choices\":[{\"delta\":{\"content\":\"world.\\n\"},\"finish_reason\":\"stop\"}]}\n\n" +
-		"data: [DONE]\n\n", "Hello, world.\n"},
-	{"qwen", ": keep-alive\n\n" +
-		"data:{\"choices\":[{\"delta\":{\"reasoning\":\"hmm\"},\"finish_reason\":null}]}\n\n" +
-		"data:{\"choices\":[{\"delta\":{\"content\":\"  你好，\"},\"finish_reason\":null}]}\n\n" +
-		"data:{\"choices\":[{\"delta\":{\"content\":\"世界\"},\"finish_reason\":\"stop\"}]}\n\n" +
-		"data: not json\n\ndata:{\"choices\":[]}\n\ndata:[DONE]\n\n", "  你好，世界"},
-	{"ollama", "data: {\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"A \"},\"finish_reason\":null}]}\r\n\r\n" +
-		"data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"yellow circle <<ANET_TASK_DONE>>\"},\"finish_reason\":null}]}\r\n\r\n" +
-		"data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"\"},\"finish_reason\":\"stop\"}]}\r\n\r\n" +
-		"data: [DONE]\r\n\r\n", "A yellow circle <<ANET_TASK_DONE>>"},
-}
-
-// openAIStreamServer answers /chat/completions as a server would: JSON for
-// a plain call, the fixture as SSE when stream is asked.
-func openAIStreamServer(t *testing.T, stream string, whole string, status int) (*httptest.Server, *atomic.Int64, *atomic.Int64) {
-	t.Helper()
-	var plain, streamed atomic.Int64
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var req map[string]any
-		_ = json.NewDecoder(r.Body).Decode(&req)
-		if status != 0 {
-			http.Error(w, "model exploded", status)
-			return
-		}
-		if req["stream"] == true {
-			streamed.Add(1)
-			w.Header().Set("Content-Type", "text/event-stream")
-			fmt.Fprint(w, stream)
-			return
-		}
-		plain.Add(1)
-		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []map[string]any{{"message": map[string]any{"content": whole}}}})
-	}))
-	t.Cleanup(srv.Close)
-	return srv, &plain, &streamed
 }

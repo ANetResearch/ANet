@@ -8,9 +8,6 @@ import (
 	"testing"
 )
 
-// Tests that drive the auto-reply module through its unexported API or through the daemon fixtures of the
-// old package. They are not compiled until they are ported to module/autoreply (see the MOD-4 notes).
-
 func (r denyDuring) Reply(ctx context.Context, rc replyContext, turns []chatTurn) (string, error) {
 	r.deny()
 	return r.inner.Reply(ctx, rc, turns)
