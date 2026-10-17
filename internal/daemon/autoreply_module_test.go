@@ -456,10 +456,14 @@ func TestInboundTasksReachTheBackendOnlyFromTrustedPeers(t *testing.T) {
 	if err := peerA.SendMessage(ctx, a2, "ask no more: the red one", nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := prov.pollOnce(ctx); err != nil {
-		t.Fatal(err)
-	}
-	waitUntil(t, "the follow-up to reach the backend", func() bool { return len(backend.snapshot()) == 4 })
+	// The send is handed to the hub asynchronously, so the provider polls until the message has arrived
+	// rather than once.
+	waitUntil(t, "the follow-up to reach the backend", func() bool {
+		if err := prov.pollOnce(ctx); err != nil {
+			t.Fatal(err)
+		}
+		return len(backend.snapshot()) == 4
+	})
 	if n := api.calls.Load(); n != 2 {
 		t.Fatalf("auto-reply called for a follow-up the backend has (%d calls)", n)
 	}
