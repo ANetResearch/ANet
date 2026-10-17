@@ -115,6 +115,8 @@ are in :ref:`reference-config-removed` and in the section on removed commands of
      - ``modules.anetlink``.
    * - ``rotation_grace``
      - Fixed at 1 hour.
+   * - ``anet autoreply set --max-auto-replies``, ``--poll-interval``
+     - Fixed values; remove the options (refused with ``cli_removed`` from 0.3.1).
 
 Behavior that differs
 ~~~~~~~~~~~~~~~~~~~~~
@@ -128,6 +130,10 @@ Behavior that differs
 * The commands ``find``, ``delegate``, ``message`` and ``task`` print JSON on standard output
   and readable lines on standard error. A script that parsed the earlier combined output has to
   read standard output only.
+* ``auto_reply.api_base`` must use ``https://``, or ``http://`` on the loopback interface;
+  any other address is refused with ``api_base_insecure``. A model service that is reachable
+  only over plain HTTP on a private network needs a TLS endpoint, or a forwarder that listens on
+  the loopback interface of the node's host.
 * Nodes and hubs of 0.2 and 0.3 cannot talk to each other.
 
 
