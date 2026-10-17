@@ -1047,3 +1047,30 @@ func TestDirectoryKELStopsAtACursorThatDoesNotMove(t *testing.T) {
 		t.Fatalf("a cursor that does not move: %v after %d pages", err, asked)
 	}
 }
+
+// XHUB: an agent that joined its hub after the node's own hub kept the peer
+// hub's bucket is found on the first lookup: an answer without the agent is
+// asked for again past the hub's cache, once.
+func TestFreshlyJoinedPeerIsFoundPastTheHubsCache(t *testing.T) {
+	ctx := context.Background()
+	srvA, srvB := newFakeHub(t), newFakeHub(t)
+	hB := fakeHubAt(t, srvB.URL)
+	setFake(t, srvA.URL, func(h *fakeHub) { h.peers = []*fakeHub{hB}; h.peersStale = true })
+	req := newTestDaemon(t, srvA.URL, false)
+	prov := newTestDaemon(t, srvB.URL, true)
+	if err := req.RegisterWithHub(ctx, srvA.URL, "Req", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := prov.RegisterWithHub(ctx, srvB.URL, "Prov", nil); err != nil {
+		t.Fatal(err)
+	}
+	m, v := req.resolvePeer(ctx, prov.AID(), resolveOpts{need: needKeys})
+	if v != verdictFound || m.Home != hB.self.AID() {
+		t.Fatalf("a peer behind a hub whose cache lacks it: %v %v", v, m.Err)
+	}
+	var fresh int
+	setFake(t, srvA.URL, func(h *fakeHub) { fresh = h.freshQueries })
+	if fresh != 1 {
+		t.Fatalf("%d queries past the hub's cache, want 1", fresh)
+	}
+}

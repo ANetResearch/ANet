@@ -520,9 +520,12 @@ func (d *Daemon) bucketPeer(ctx context.Context, aid string, o resolveOpts, now 
 		return m, verdictUnavailable
 	}
 	opened, failed := hubapi.OpenEntries(aid, h, ans.entries)
-	if cached && len(opened) == 0 {
-		// A bucket kept from earlier does not hold the agent: it may have
-		// registered since. Asked again before concluding anything.
+	asked := o.bypass && !cached
+	if len(opened) == 0 && !asked {
+		// An answer that does not hold the agent is not taken as the
+		// hub's last word: a kept bucket may predate its registration, and
+		// the hub's own copy of a peer hub's bucket may too (XHUB). Asked
+		// again once, with the caches of both bypassed.
 		if ans, _, err = d.bucketOf(ctx, hub, h, true); err != nil {
 			m.Err = err
 			return m, verdictUnavailable
@@ -734,7 +737,11 @@ func (d *Daemon) bucketOf(ctx context.Context, hub string, h []byte, bypass bool
 				return a, true, nil
 			}
 		}
-		a, err := d.peers.bucketFlights.do(key, func() (*bucketAnswer, error) { return d.fetchBucket(ctx, hub, prefix, bits) })
+		fkey := key
+		if bypass {
+			fkey += "\x00fresh"
+		}
+		a, err := d.peers.bucketFlights.do(fkey, func() (*bucketAnswer, error) { return d.fetchBucket(ctx, hub, prefix, bits, bypass) })
 		var narrow *bucketTooNarrowError
 		if errors.As(err, &narrow) && attempt == 0 {
 			d.count(cntDirBucketNarrow)
@@ -766,7 +773,7 @@ func (e *bucketTooNarrowError) Error() string {
 // self check (SSR-D15a): a bucket narrower than the whole directory that,
 // all pages together, holds fewer than 32 entries and is not partial makes
 // every later query to this hub one bit wider.
-func (d *Daemon) fetchBucket(ctx context.Context, hub string, prefix []byte, bits int) (*bucketAnswer, error) {
+func (d *Daemon) fetchBucket(ctx context.Context, hub string, prefix []byte, bits int, fresh bool) (*bucketAnswer, error) {
 	a := &bucketAnswer{bits: bits, prefix: prefix}
 	cursor := ""
 	for page := 0; ; page++ {
@@ -782,6 +789,11 @@ func (d *Daemon) fetchBucket(ctx context.Context, hub string, prefix []byte, bit
 			return nil, err
 		}
 		req.Header.Set("Content-Type", "application/json")
+		if fresh {
+			// The hub asks its peer hubs again rather than answer from
+			// what it kept; a hub that does not know the header ignores it.
+			req.Header.Set("Cache-Control", "no-cache")
+		}
 		rep := d.hubExchange(req, hub, hubapi.DirectoryBucketPath, -1)
 		if rep.Status == 0 {
 			if rep.Local {
