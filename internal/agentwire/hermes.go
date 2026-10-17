@@ -22,15 +22,21 @@ import (
 // a2a_agents entries that point Hermes' own A2A client at this node's local
 // A2A interface (A2A-DESIGN §13.1, §11.1).
 //
-// The MCP entry runs the binary directly. Hermes quarantines an MCP entry
-// that starts a shell interpreter with network or persistence side effects
-// (its mcp_security.py), so `sh -c "anet mcp"` would be written and then
-// disabled on Hermes' next start (an internal note §7.2).
+// The MCP entry runs the binary directly, with no shell in between.
 //
 // An a2a_agents entry carries the local A2A bearer token (a2a_token.txt,
 // X5). The file is therefore kept 0600 — Hermes itself narrows it to that
 // on most systems — and unwire takes the tokens out with the entries.
 type hermesTool struct{}
+
+// wireNotes: with --a2a the a2a toolset is still off for the CLI until the
+// operator enables it (https://hermes-agent.nousresearch.com/docs/user-guide/messaging/a2a).
+func (hermesTool) wireNotes(o *Options, st Status) []string {
+	if len(o.A2A) == 0 {
+		return nil
+	}
+	return []string{"Hermes 的 a2a 工具集默认关闭:运行 `hermes tools enable a2a --platform cli` 后,a2a_call 才可见"}
+}
 
 func (hermesTool) name() string { return ToolHermes }
 

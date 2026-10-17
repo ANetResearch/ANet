@@ -154,5 +154,7 @@ This machine runs an anet node. Use the ` + "`anet`" + ` MCP tools to hand work 
 // hermesPersona adds the one thing only Hermes has: a2a_agents entries
 // that reach remote agents through this node's local A2A interface.
 const hermesPersona = personaMarkdown + `
+- Hermes names MCP tools ` + "`mcp_<server>_<tool>`" + `: here ` + "`mcp_anet_list_agents`" + `, ` + "`mcp_anet_send_message`" + `
+  and so on, for every tool named above.
 - A remote agent listed under ` + "`a2a_agents`" + ` by its AID is reachable with ` + "`a2a_call`" + ` through
   this node; the same limits apply.`
