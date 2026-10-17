@@ -202,6 +202,9 @@ var seeds = map[string]map[string]string{
 			"  \"mcp\": {\n    \"other\": {\n      \"type\": \"remote\",\n      \"url\": \"https://example.com/mcp\"\n    }\n  }\n}\n",
 		".config/opencode/AGENTS.md": "# opencode rules\n",
 	},
+	ToolWorkBuddy: {
+		".workbuddy/mcp.json": "{\n  \"mcpServers\": {\n    \"other\": {\n      \"command\": \"other-mcp\",\n      \"args\": []\n    }\n  }\n}\n",
+	},
 	ToolHermes: {
 		".hermes/config.yaml": "model:\n  default: claude-sonnet\n\nmcp_servers:\n  filesystem:\n    command: \"npx\"\n" +
 			"    args: [\"-y\", \"@modelcontextprotocol/server-filesystem\", \"/tmp\"]\n\ndisplay:\n  compact: true\n",
@@ -211,11 +214,12 @@ var seeds = map[string]map[string]string{
 
 // wiredFiles are the files wire must leave anet's entry in, per tool.
 var wiredFiles = map[string][]string{
-	ToolClaude:   {".claude.json", ".claude/skills/anet/SKILL.md"},
-	ToolCodex:    {".codex/config.toml", ".codex/AGENTS.md"},
-	ToolCursor:   {".cursor/mcp.json"},
-	ToolOpenCode: {".config/opencode/opencode.json", ".config/opencode/AGENTS.md"},
-	ToolHermes:   {".hermes/config.yaml", ".hermes/SOUL.md"},
+	ToolClaude:    {".claude.json", ".claude/skills/anet/SKILL.md"},
+	ToolCodex:     {".codex/config.toml", ".codex/AGENTS.md"},
+	ToolCursor:    {".cursor/mcp.json"},
+	ToolOpenCode:  {".config/opencode/opencode.json", ".config/opencode/AGENTS.md"},
+	ToolHermes:    {".hermes/config.yaml", ".hermes/SOUL.md"},
+	ToolWorkBuddy: {".workbuddy/mcp.json"},
 }
 
 // Every tool, from the operator's existing configuration: wire writes an
@@ -324,6 +328,16 @@ func checkWired(t *testing.T, h *host, tool string) {
 		if e.Command != testBin || !sameStrings(e.Args, []string{"mcp"}) || e.Env["ANET_DATA_DIR"] != h.data {
 			t.Fatalf("cursor entry: %+v", e)
 		}
+	case ToolWorkBuddy:
+		var f struct {
+			MCPServers map[string]map[string]any `json:"mcpServers"`
+		}
+		mustJSON(t, h.read(".workbuddy/mcp.json"), &f)
+		e := f.MCPServers["anet"]
+		env, _ := e["env"].(map[string]any)
+		if e["command"] != testBin || len(e) != 3 || env["ANET_DATA_DIR"] != h.data {
+			t.Fatalf("workbuddy entry: %+v", e)
+		}
 	case ToolOpenCode:
 		var f struct {
 			MCP map[string]opencodeEntry `json:"mcp"`
@@ -409,7 +423,7 @@ func TestWireAllSkipsToolsThatAreNotInstalled(t *testing.T) {
 		got[r.Tool] = r.Status
 	}
 	want := map[string]Status{ToolClaude: Skipped, ToolCodex: Written, ToolCursor: Skipped,
-		ToolOpenCode: Written, ToolHermes: Skipped}
+		ToolOpenCode: Written, ToolHermes: Skipped, ToolWorkBuddy: Skipped}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("statuses %v, want %v", got, want)
 	}
@@ -947,15 +961,17 @@ func TestGoldenEntries(t *testing.T) {
 	cursorWant, _ := marshalIndented(cursorTool{}.server(&o).want)
 	opencodeWant, _ := marshalIndented(opencodeTool{}.server(&o).want)
 	claudeWant, _ := marshalIndented(claudeWant(&o))
+	workbuddyWant, _ := marshalIndented(workbuddyTool{}.server(&o).want)
 	cases := map[string]string{
 		"codex.toml": joinLines(codexBlock(&o)),
 		"hermes-mcp.yaml": joinLines(indentLines(append(append([]string{hermesMCP.begin}, hermesMCPBody(&o)...),
 			hermesMCP.markers.end), 2)),
 		"hermes-a2a.yaml": joinLines(indentLines(append(append([]string{hermesA2A.begin},
 			hermesA2ABody(ep, o.A2A)...), hermesA2A.markers.end), 2)),
-		"cursor.json":   cursorWant,
-		"opencode.json": opencodeWant,
-		"claude.json":   claudeWant,
+		"cursor.json":    cursorWant,
+		"opencode.json":  opencodeWant,
+		"claude.json":    claudeWant,
+		"workbuddy.json": workbuddyWant,
 	}
 	for name, got := range cases {
 		path := filepath.Join("testdata", name+".golden")
@@ -986,4 +1002,58 @@ func marshalIndented(v any) (string, error) {
 	}
 	out, err := obj.render(nil)
 	return string(out), err
+}
+
+// WorkBuddy: the file is merged, not replaced; a foreign anet entry is a
+// conflict; a JSONC file is refused with the entry to add by hand; unwire
+// removes only anet's own entry; no guide file and no timeout are written;
+// the note names the official page.
+func TestWorkBuddyMergeConflictAndUnwire(t *testing.T) {
+	h := newHost(t)
+	h.write(".workbuddy/mcp.json", seeds[ToolWorkBuddy][".workbuddy/mcp.json"], 0o640)
+	r := one(t, h.wire(ToolWorkBuddy), Written)
+	if m := h.mode(".workbuddy/mcp.json"); m != 0o640 {
+		t.Fatalf("mode %o, want 0640 kept", m)
+	}
+	if !strings.Contains(h.read(".workbuddy/mcp.json"), `"other"`) {
+		t.Fatal("the other server was dropped")
+	}
+	if strings.Contains(h.read(".workbuddy/mcp.json"), "timeout") {
+		t.Fatal("no timeout is written: the user-level file is not documented to honour it")
+	}
+	if got := keys(h.snapshot()); len(got) != 1 {
+		t.Fatalf("wire wrote files besides mcp.json: %v", got)
+	}
+	if !strings.Contains(strings.Join(r.Notes, "\n"), "workbuddy.cn/docs") {
+		t.Fatalf("notes %v lack the official link", r.Notes)
+	}
+	if r := one(t, h.wire(ToolWorkBuddy), UpToDate); len(r.Notes) != 0 {
+		t.Fatalf("an up-to-date wire repeats the note: %v", r.Notes)
+	}
+
+	// unwire keeps other servers.
+	one(t, h.unwire(ToolWorkBuddy), Removed)
+	if got := h.read(".workbuddy/mcp.json"); got != seeds[ToolWorkBuddy][".workbuddy/mcp.json"] {
+		t.Fatalf("unwire did not restore the file:\n%s", got)
+	}
+
+	// A foreign entry named anet is never touched, by wire or unwire.
+	foreign := "{\n  \"mcpServers\": {\n    \"anet\": {\n      \"command\": \"/opt/other/server\"\n    }\n  }\n}\n"
+	h.write(".workbuddy/mcp.json", foreign, 0o644)
+	r = one(t, h.wire(ToolWorkBuddy), Conflict)
+	if r.OK() || h.read(".workbuddy/mcp.json") != foreign {
+		t.Fatal("a conflict must leave the file alone")
+	}
+	one(t, h.unwire(ToolWorkBuddy), NotWired)
+	if h.read(".workbuddy/mcp.json") != foreign {
+		t.Fatal("unwire removed an entry anet did not write")
+	}
+
+	// A file that is not plain JSON is refused, with the entry to add by hand.
+	jsonc := "{\n  // mine\n  \"mcpServers\": {}\n}\n"
+	h.write(".workbuddy/mcp.json", jsonc, 0o644)
+	r = one(t, h.wire(ToolWorkBuddy), Failed)
+	if !strings.Contains(r.Err.Error(), `"mcpServers"`) || h.read(".workbuddy/mcp.json") != jsonc {
+		t.Fatalf("unsafe file: err %v", r.Err)
+	}
 }

@@ -2,7 +2,7 @@
 
 // Package agentwire registers this node's MCP server, and the short
 // operating guide that goes with it, in the coding agents installed on this
-// machine: Claude Code, Codex, Cursor, opencode and Hermes
+// machine: Claude Code, Codex, Cursor, opencode, Hermes and WorkBuddy
 // (A2A-DESIGN §13.1, `anet agents wire|unwire`).
 //
 // Everything it writes points at `anet mcp`, so it carries the same build
@@ -50,6 +50,8 @@ const (
 	ToolCursor   = "cursor"
 	ToolOpenCode = "opencode"
 	ToolHermes   = "hermes"
+	// ToolWorkBuddy is Tencent's WorkBuddy desktop app.
+	ToolWorkBuddy = "workbuddy"
 )
 
 // A2AAddrFile and A2ATokenFile are the local A2A interface's state files,
@@ -183,7 +185,7 @@ func (r Result) OK() bool { return r.Status != Conflict && r.Status != Failed }
 
 // Tools lists the supported tools in the order results are reported.
 func Tools() []string {
-	return []string{ToolClaude, ToolCodex, ToolCursor, ToolOpenCode, ToolHermes}
+	return []string{ToolClaude, ToolCodex, ToolCursor, ToolOpenCode, ToolHermes, ToolWorkBuddy}
 }
 
 // tool is one supported coding agent.
@@ -201,6 +203,13 @@ type tool interface {
 	configPath(o *Options) string
 }
 
+// noter is implemented by a tool that has something to tell the operator
+// after wire that the plan itself cannot express: a file the tool reads
+// first that hides anet's, or a step the tool needs that anet cannot take.
+type noter interface {
+	wireNotes(o *Options, st Status) []string
+}
+
 func toolByName(name string) (tool, bool) {
 	switch name {
 	case ToolClaude:
@@ -213,6 +222,8 @@ func toolByName(name string) (tool, bool) {
 		return opencodeTool{}, true
 	case ToolHermes:
 		return hermesTool{}, true
+	case ToolWorkBuddy:
+		return workbuddyTool{}, true
 	}
 	return nil, false
 }
@@ -284,7 +295,11 @@ func Wire(o Options, names []string, all bool) ([]Result, error) {
 			r.Notes = append(r.Notes, "未检测到该工具,按要求照写")
 		}
 		changes, err := t.planWire(&o)
-		out = append(out, finish(&o, r, changes, nil, err, Written, UpToDate))
+		r = finish(&o, r, changes, nil, err, Written, UpToDate)
+		if n, ok := t.(noter); ok && (r.Status == Written || r.Status == UpToDate) {
+			r.Notes = append(r.Notes, n.wireNotes(&o, r.Status)...)
+		}
+		out = append(out, r)
 	}
 	if implicit {
 		if r, found := legacyOpenClaw(&o); found {

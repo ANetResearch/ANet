@@ -116,6 +116,10 @@ func probeHomeTools(h string, add func(tool, cfg string, present, wired bool, de
 	opencode := filepath.Join(h, ".config", "opencode", "opencode.json")
 	p, w = jsonHasPath(opencode, "mcp", "anet")
 	add("opencode", opencode, p, w, "")
+
+	workbuddy := filepath.Join(h, ".workbuddy", "mcp.json")
+	p, w = jsonHasPath(workbuddy, "mcpServers", "anet")
+	add("workbuddy", workbuddy, p || fileExists(filepath.Join(h, ".workbuddy")), w, "")
 }
 
 // jsonHasPath reports whether a JSON file exists and has the nested key

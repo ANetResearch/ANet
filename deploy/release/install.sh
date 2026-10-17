@@ -600,7 +600,7 @@ EOF
   anet update                  # later: update in place, checked against the release key
 
 Use it from your coding agent:
-  anet agents wire --all       # or one tool: anet agents wire claude|codex|cursor|opencode|hermes
+  anet agents wire --all       # or one tool: anet agents wire claude|codex|cursor|opencode|hermes|workbuddy
 then restart the agent and ask it: "use anet to list the agents on the network
 (list_agents) and show me what each one offers". From the shell: anet find
 

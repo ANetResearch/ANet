@@ -144,11 +144,15 @@ type stdioEntry struct {
 	Env     map[string]string `json:"env,omitempty"`
 }
 
-func (t cursorTool) server(o *Options) jsonServer {
+func (t cursorTool) server(o *Options) jsonServer { return t.serverAt(o, t.configPath(o)) }
+
+// serverAt is the stdio entry in the mcpServers member of the file at path;
+// WorkBuddy's mcp.json takes the same one.
+func (cursorTool) serverAt(o *Options, path string) jsonServer {
 	want := stdioEntry{Command: o.Bin, Args: []string{"mcp"}, Env: mcpEnv(o)}
 	snippet, _ := json.MarshalIndent(map[string]any{"mcpServers": map[string]any{"anet": want}}, "", "  ")
 	return jsonServer{
-		path: t.configPath(o), container: "mcpServers", want: want, mode: 0o644,
+		path: path, container: "mcpServers", want: want, mode: 0o644,
 		matches: func(raw json.RawMessage) bool {
 			var e stdioEntry
 			return decodeLoose(raw, &e) && e.Command == want.Command &&
@@ -304,4 +308,59 @@ func (t opencodeTool) planUnwire(o *Options) ([]change, []string, error) {
 		changes = append(changes, *p)
 	}
 	return changes, notes, nil
+}
+
+// WorkBuddy: ~/.workbuddy/mcp.json, the user-level file of the MCP guide
+// (https://www.workbuddy.cn/docs/workbuddy/From-Beginner-to-Expert-Guide/Function-Description/MCP-Guide).
+// The entry is the plain stdio form the guide shows. Nothing else is written:
+//
+//   - No operating guide. The guide documents no user-level instruction
+//     file, so the MCP server's own initialize instructions are all there is.
+//   - No timeout. The connector documentation gives 30000 ms as the default
+//     and the guide does not say a user-level entry honours the field.
+//   - No environment variable for the directory: the documentation names none.
+//
+// There is no CLI to find on PATH, so the app counts as installed when
+// ~/.workbuddy exists.
+type workbuddyTool struct{}
+
+const workbuddyDocs = "https://www.workbuddy.cn/docs/workbuddy/From-Beginner-to-Expert-Guide/Function-Description/MCP-Guide"
+
+func (workbuddyTool) name() string { return ToolWorkBuddy }
+
+func workbuddyDir(o *Options) string { return filepath.Join(o.Home, ".workbuddy") }
+
+func (workbuddyTool) configPath(o *Options) string {
+	return filepath.Join(workbuddyDir(o), "mcp.json")
+}
+
+func (workbuddyTool) detected(o *Options) bool { return dirExists(workbuddyDir(o)) }
+
+func (t workbuddyTool) server(o *Options) jsonServer {
+	// The same shape as Cursor's entry: command, args, env.
+	return cursorTool{}.serverAt(o, t.configPath(o))
+}
+
+func (t workbuddyTool) planWire(o *Options) ([]change, error) {
+	c, err := t.server(o).planWire(o)
+	if err != nil || c == nil {
+		return nil, err
+	}
+	return []change{*c}, nil
+}
+
+func (t workbuddyTool) planUnwire(o *Options) ([]change, []string, error) {
+	c, notes, err := t.server(o).planUnwire(o)
+	if err != nil || c == nil {
+		return nil, notes, err
+	}
+	return []change{*c}, notes, nil
+}
+
+func (workbuddyTool) wireNotes(o *Options, st Status) []string {
+	if st != Written {
+		return nil
+	}
+	return []string{"WorkBuddy 的重载方式与工具调用超时(默认 30 秒)以官方文档为准:" + workbuddyDocs +
+		";anet 只写了 MCP 条目,没有写指引文件"}
 }
