@@ -27,7 +27,7 @@ type jsonServer struct {
 	manual string
 }
 
-func (s jsonServer) load(o *Options) ([]byte, *jsonObject, *jsonObject, error) {
+func (s jsonServer) load(o *Options, removing bool) ([]byte, *jsonObject, *jsonObject, error) {
 	cur, err := readMaybe(realPath(s.path))
 	if err != nil {
 		return nil, nil, nil, err
@@ -36,6 +36,11 @@ func (s jsonServer) load(o *Options) ([]byte, *jsonObject, *jsonObject, error) {
 	if err != nil {
 		// opencode accepts JSONC; anet's editor does not keep comments, so
 		// it stops rather than silently dropping them.
+		if removing {
+			// There is nothing to add by hand when removing: the manual
+			// entry would tell the operator to do the opposite.
+			return nil, nil, nil, fail("wire_json_invalid", "path", short(o, s.path))
+		}
 		e := fail("wire_not_plain_json", "path", short(o, s.path))
 		e.Detail = s.manual
 		return nil, nil, nil, e
@@ -51,7 +56,7 @@ func (s jsonServer) load(o *Options) ([]byte, *jsonObject, *jsonObject, error) {
 }
 
 func (s jsonServer) planWire(o *Options) (*change, error) {
-	cur, root, servers, err := s.load(o)
+	cur, root, servers, err := s.load(o, false)
 	if err != nil {
 		return nil, err
 	}
@@ -77,7 +82,7 @@ func (s jsonServer) planWire(o *Options) (*change, error) {
 }
 
 func (s jsonServer) planUnwire(o *Options) (*change, []Msg, error) {
-	cur, root, servers, err := s.load(o)
+	cur, root, servers, err := s.load(o, true)
 	if err != nil || cur == nil {
 		return nil, nil, err
 	}

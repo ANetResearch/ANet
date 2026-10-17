@@ -1057,3 +1057,16 @@ func TestWorkBuddyMergeConflictAndUnwire(t *testing.T) {
 		t.Fatalf("unsafe file: err %v", r.Err)
 	}
 }
+
+// Unwire of a file anet cannot parse names the file and asks for a repair; it
+// does not hand out the entry to add, which would be the opposite of the task.
+func TestUnwireOfUnparsableJSONGivesNothingToAdd(t *testing.T) {
+	h := newHost(t)
+	cfg := "{bad\n"
+	h.write(".cursor/mcp.json", cfg, 0o644)
+	r := one(t, h.unwire(ToolCursor), Failed)
+	m, _ := AsMsg(r.Err)
+	if m.Key != "wire_json_invalid" || m.Detail != "" || h.read(".cursor/mcp.json") != cfg {
+		t.Fatalf("%v\n%s", r.Err, h.read(".cursor/mcp.json"))
+	}
+}
