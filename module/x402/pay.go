@@ -288,10 +288,14 @@ func (m *Module) settle(ctx context.Context, raw []byte, req payment.PaymentRequ
 
 // VerifyReceipt checks a hub settlement receipt and reports what it says.
 //
-// The signer is pinned to OUR hub rather than read off the object: a
-// receipt naming its own signer proves only that somebody signed it. The
-// payer is pinned too, because a receipt for somebody else's payment
-// verifies perfectly and means nothing here.
+// The signer is pinned to the hub whose ledger the receipt's network names
+// rather than read off the object: a receipt naming its own signer proves
+// only that somebody signed it. That is this node's own hub for a payment
+// on its ledger. For a payment on another hub's ledger (a payer of another
+// hub, settled there and passed on by this node's hub) it is that hub, under
+// the key history this node pinned for it from its own hub; a hub it holds
+// no history of is not believed. The payer is pinned too, because a receipt
+// for somebody else's payment verifies perfectly and means nothing here.
 func (m *Module) VerifyReceipt(receiptB64, expectPayer string) (module.ReceiptFacts, bool) {
 	var facts module.ReceiptFacts
 	raw, err := base64.StdEncoding.DecodeString(receiptB64)
@@ -311,7 +315,15 @@ func (m *Module) VerifyReceipt(receiptB64, expectPayer string) (module.ReceiptFa
 	if err != nil {
 		return facts, false
 	}
-	if rec.Verify(kel, hubAID, time.Now().UnixMilli()) != nil {
+	signer := hubAID
+	if ledger, ok := strings.CutPrefix(rec.Network, "hub:"); ok && ledger != "" && ledger != hubAID {
+		pk, held := m.seam.PeerHubKEL(ledger)
+		if !held || len(pk) == 0 {
+			return facts, false
+		}
+		signer, kel = ledger, pk
+	}
+	if rec.Verify(kel, signer, time.Now().UnixMilli()) != nil {
 		return facts, false
 	}
 	return facts, rec.Payer == expectPayer

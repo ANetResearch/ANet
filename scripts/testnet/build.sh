@@ -74,7 +74,7 @@ main(){
     if [ -d "$anet_root/tools/a2aprobe" ]; then
       # joint-a2a.sh: the a2a-go client, and the Hermes contract as a test binary (hosts have no go).
       go_build "$anet_root" ./tools/a2aprobe    "$dir/a2aprobe"        "$arch" ""          plain
-      go_test_bin "$anet_root" ./internal/a2ashape "$dir/a2ashape-hermes.test" "$arch"
+      go_test_bin "$anet_root" ./internal/a2ashape/stored "$dir/a2ashape-hermes.test" "$arch"
     fi
     go_build "$hub_root"  ./cmd/anet-hub        "$dir/anet-hub"        "$arch" "$hub_tags" hub
     go_build "$hub_root"  ./cmd/anet-hub-admin  "$dir/anet-hub-admin"  "$arch" "$hub_tags" hub

@@ -608,6 +608,14 @@ type PaymentSeam interface {
 	// changed, so the check is worth making again; the hub's history may
 	// only ever extend what is pinned (KEL H-34, CORE-L8).
 	RefreshHubIdentity() bool
+	// PeerHubKEL is the key history of another hub, one this node's hub
+	// federates with, as the node pinned it from its hub's GET /hub/kels (it
+	// asks again, at most once a minute, when it holds none). A payee whose
+	// hub is not the ledger hub of a payment gets the settlement receipt the
+	// ledger hub signed, and is only able to check it against that hub's
+	// history. ok is false when the node holds none: the receipt is then not
+	// verified, and is not taken for a settlement.
+	PeerHubKEL(aid string) (kel []identity.SignedEvent, ok bool)
 }
 
 // EvidenceAt is the member ReadEvidence adds to each payload it returns: the

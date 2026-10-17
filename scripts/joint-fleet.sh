@@ -264,12 +264,28 @@ api "$J/w-${W_NAMES[0]}" "${W_PORTS[0]}" /autoreply \
 FIX=$(api "$CTRL_HOME" "$CTRL_PORT" /delegate \
       "{\"provider\":\"${W_AID[0]}\",\"goal\":\"WILL-FAIL\"}" \
       | python3 -c 'import sys,json;print(json.load(sys.stdin).get("interaction_id",""))')
-FR=$(wait_reply "$FIX" 40)
+# Since 0.3 a backend that fails or says nothing is reported to the delegator as a status message
+# with anet.reason=backend_failed and no body, and the task stays input-required: the reply is
+# neither a success text nor absent, so the delegator can tell a failure from a hang.
+reason_of(){ # reason_of <interaction id>: the anet.reason of the provider's last status message
+  api "$CTRL_HOME" "$CTRL_PORT" /threads '{}' | python3 -c "
+import sys,json
+for t in json.load(sys.stdin).get('threads') or []:
+    if t.get('interaction_id')=='$1':
+        out=''
+        for m in t.get('messages') or []:
+            if m.get('from')=='them':
+                out=(m.get('metadata') or {}).get('anet.reason','') or ('TEXT:'+(m.get('body') or ''))
+        print(out)
+" 2>/dev/null
+}
+wait_reason(){ local i r; for i in $(seq 1 "$2"); do r=$(reason_of "$1"); [ -n "$r" ] && { printf '%s' "$r"; return 0; }; sleep 1; done; return 1; }
+FR=$(wait_reason "$FIX" 40)
 case "$FR" in
-  *AGENT-FAILED-HERE*) ok "agent 失败时回的是配置好的失败说明,不是空答复" ;;
-  *FLEET-OK*)          no "失败被当成了成功" ;;
-  "")                  no "agent 失败时什么都没回(派活方无从区分卡住与失败)" ;;
-  *)                   ok "agent 失败时回了一条可辨认的说明"; ;;
+  backend_failed)  ok "agent 失败时派活方收到 backend_failed,不是成功答复,也不是空白" ;;
+  *FLEET-OK*)      no "失败被当成了成功" ;;
+  "")              no "agent 失败时什么都没回(派活方无从区分卡住与失败)" ;;
+  *)               no "agent 失败时回了意外的内容: $FR" ;;
 esac
 
 api "$J/w-${W_NAMES[0]}" "${W_PORTS[0]}" /autoreply \
@@ -277,11 +293,11 @@ api "$J/w-${W_NAMES[0]}" "${W_PORTS[0]}" /autoreply \
 SIX=$(api "$CTRL_HOME" "$CTRL_PORT" /delegate \
       "{\"provider\":\"${W_AID[0]}\",\"goal\":\"WILL-BE-SILENT\"}" \
       | python3 -c 'import sys,json;print(json.load(sys.stdin).get("interaction_id",""))')
-SR=$(wait_reply "$SIX" 40)
+SR=$(wait_reason "$SIX" 40)
 case "$SR" in
-  *AGENT-SAID-NOTHING*) ok "agent 一声不吭也走失败路径,而不是回一条空答复" ;;
-  "")                   no "agent 静默时派活方什么也收不到" ;;
-  *)                    ok "agent 静默时回了一条可辨认的说明" ;;
+  backend_failed)  ok "agent 一声不吭也走失败路径(backend_failed),而不是回一条空答复" ;;
+  "")              no "agent 静默时派活方什么也收不到" ;;
+  *)               no "agent 静默时回了意外的内容: $SR" ;;
 esac
 
 hd "6/7  证据面:干完的活留在两边的链上"
@@ -318,12 +334,24 @@ done
 [ "$ASTATE" = completed ] && ok "委派方的 end 之后任务在两边都是 completed(provider 单方完成)" \
   || no "委派方的 end 之后任务状态是 ${ASTATE:-空},应为 completed"
 
-# 撤销:把 worker 从 hub 摘掉,控制端就不该再找得到它
-api "$J/w-${W_NAMES[2]}" "${W_PORTS[2]}" /hub-leave '{}' >/dev/null
-sleep 2
-LEFT=$(api "$CTRL_HOME" "$CTRL_PORT" /agents/list '{"skill":"code.write","include_uncarded":true}' \
-       | python3 -c 'import sys,json;print(len(json.load(sys.stdin).get("agents") or []))')
-[ "$LEFT" = 2 ] && ok "worker 退出后即刻从目录消失(3 → 2)" || no "退出后目录仍有 $LEFT 个,应为 2"
+# 撤销:把 worker 从 hub 摘掉,控制端就不该再找得到它。hub-leave 对见证 hub 被拒(witness_hub_leave),
+# 所以由 hub 运营方撤销准入,hub 同时注销该账户。
+# 窗口内注册的账户不在准入名单上,先按 AID 列入;窗口先关上,否则被注销的节点会经开放窗口自行重新注册。
+./anet-hub admit --data "$J/hub" --window off >/dev/null 2>&1
+./anet-hub admit --data "$J/hub" "${W_AID[2]}" >/dev/null 2>&1
+./anet-hub admissions revoke --data "$J/hub" "${W_AID[2]}" >/dev/null 2>&1
+LEFT=3
+for _ in 1 2 3 4 5 6; do
+  sleep 2
+  LEFT=$(api "$CTRL_HOME" "$CTRL_PORT" /agents/list '{"skill":"code.write","include_uncarded":true}' \
+         | python3 -c 'import sys,json;print(len(json.load(sys.stdin).get("agents") or []))')
+  [ "$LEFT" = 2 ] && break
+done
+# 再停一轮:仍是 2 才说明它没有自行回来。
+sleep 8
+LEFT2=$(api "$CTRL_HOME" "$CTRL_PORT" /agents/list '{"skill":"code.write","include_uncarded":true}' \
+        | python3 -c 'import sys,json;print(len(json.load(sys.stdin).get("agents") or []))')
+[ "$LEFT" = 2 ] && [ "$LEFT2" = 2 ] && ok "worker 被撤销准入后从目录消失且不再回来(3 → 2)" || no "撤销后目录仍有 $LEFT/$LEFT2 个,应为 2"
 
 hd "7/7  MCP:编码工具把这张网络当自己的工具用"
 # mcpserv 的单元测试对着 fake Control 验工具表的形状。这里验的是另一件事:

@@ -517,9 +517,8 @@ jobs:
   # to ignore it.
   scenario:
     runs-on: ubuntu-latest
-    # Not gating in 0.3.0: this lab script still drives the 0.2 flow (registration, directory
-    # queries by AID, card routes). It is brought to 0.3 in a later release.
-    continue-on-error: true
+    # Section 8 waits out the daemon's ten-minute key cache once; the whole run takes about half an hour.
+    timeout-minutes: 60
     env:
       CGO_ENABLED: "0"
     steps:
@@ -552,9 +551,6 @@ jobs:
   # and network, and what is under test here is the anet side.
   fleet:
     runs-on: ubuntu-latest
-    # Not gating in 0.3.0: this lab script still drives the 0.2 flow (registration, directory
-    # queries by AID, card routes). It is brought to 0.3 in a later release.
-    continue-on-error: true
     env:
       CGO_ENABLED: "0"
       HUB_SRC: ${{ github.workspace }}/.hub
@@ -579,13 +575,8 @@ jobs:
   # delegation shows that the CallerAID reaching Invoke is the caller's
   # verified identity. Self-contained: builds a -tags shell daemon and the
   # hub, runs on loopback.
-  #
-  # continue-on-error until the joint scripts are settled on the test host,
-  # where all joint runs are validated together; then it gates like the
-  # jobs above.
   joint-shell:
     runs-on: ubuntu-latest
-    continue-on-error: true
     env:
       CGO_ENABLED: "0"
       HUB_SRC: ${{ github.workspace }}/.hub

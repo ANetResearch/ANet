@@ -645,3 +645,33 @@ func TestKeyStateFreshStale(t *testing.T) {
 		t.Errorf("seven hours on: %v key_state %q, want stale", err, ra.KeyState)
 	}
 }
+
+// The payment module checks a settlement receipt of another hub's ledger under that hub's key history, which
+// the node holds from its hub's /hub/kels: the seam asks for it once when it holds none, and says nothing for
+// a hub the list does not carry.
+func TestThePaymentSeamHandsOnAPeerHubsKeyHistory(t *testing.T) {
+	srv := newFakeHub(t)
+	h := fakeHubAt(t, srv.URL)
+	d := newTestDaemon(t, srv.URL, false)
+	p, err := identitytest.Hub()
+	if err != nil {
+		t.Fatal(err)
+	}
+	seam := paymentSeam{d: d}
+	if _, ok := seam.PeerHubKEL(p.AID()); ok {
+		t.Fatal("a key history nobody listed was handed on")
+	}
+	if _, ok := seam.PeerHubKEL(""); ok {
+		t.Fatal("an empty AID was answered")
+	}
+	h.setHubKEL(p.AID(), p.KEL())
+	// The earlier question used this minute's read of the list; a node that holds nothing asks again on its own
+	// schedule, so the entry is read through the sync the loop makes.
+	if _, err := d.syncHubKELs(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	kel, ok := seam.PeerHubKEL(p.AID())
+	if !ok || len(kel) != len(p.KEL()) {
+		t.Fatalf("the listed hub's history: ok=%v, %d events", ok, len(kel))
+	}
+}

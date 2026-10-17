@@ -246,25 +246,34 @@ cap(){
 # thread_end <node> <interaction_id> — wait until the node's task is terminal; print "state reason",
 # the reason being the anet.reason of the last status message that carried one.
 thread_end(){
-  local t i st
+  local t i st k
   for ((i = 0; i < 60; i++)); do
     t=$(ctl "$1" /thread "{\"interaction_id\":\"$2\"}")
     st=$(printf '%s' "$t" | jget thread state)
     case "$st" in completed|failed|canceled|rejected) break ;; esac
     sleep 0.5
   done
+  # The reason a refusal carries is on the task (/tasks/get metadata anet.reason); a message of the thread can
+  # carry one too (a provider's status). Either is the answer, the task's first.
+  k=$(ctl "$1" /tasks/get "{\"task_id\":\"$2\"}" | python3 -c '
+import sys, json
+try:
+    md = json.load(sys.stdin).get("metadata")
+except Exception:
+    md = None
+print(md.get("anet.reason", "") if isinstance(md, dict) else "")' 2>/dev/null)
   printf '%s' "$t" | python3 -c '
 import sys, json
 try:
     t = json.load(sys.stdin).get("thread") or {}
 except Exception:
     t = {}
-reason = ""
+reason = sys.argv[1]
 for m in t.get("messages") or []:
     md = m.get("metadata")
-    if isinstance(md, dict) and md.get("anet.reason"):
+    if not reason and isinstance(md, dict) and md.get("anet.reason"):
         reason = md["anet.reason"]
-print(t.get("state", ""), reason)'
+print(t.get("state", ""), reason)' "$k"
 }
 # in_inbox <interaction_id> — the provider's inbox entry for that id as "trust", "absent" when there
 # is none, or "unreadable" when the inbox could not be read (a provider that is down has an empty
@@ -474,18 +483,21 @@ crp, cpp, offp, offsvc, crc, cpc, ofc, tap, cpurl, cptok = sys.argv[1:11]
 def write(p, c):
     with open(p, "w") as f:
         json.dump(c, f, indent=1)
-write(crp, {"control_addr": crc, "hub_url": tap, "name": "canary-requester",
-            "payments": {"auto_max": 5, "agent_max": 0, "agent_daily_max": 20, "explicit_max": 10,
+write(crp, {"control_addr": crc, "name": "canary-requester",
+            "payments": {"auto_max": 5, "agent_max": 5, "agent_daily_max": 20, "explicit_max": 10,
                          "daily_max": 50}})
 svc = {"token_file": cptok, "capabilities": [
     {"id": "canary.echo", "url": cpurl, "timeout_ms": 5000,
      "description": "echo (joint.sh SI-1 canary)"},
     {"id": "canary.echo.paid", "url": cpurl, "price": 3, "timeout_ms": 5000,
      "description": "echo for 3 credits (joint.sh SI-1 canary)"}]}
-write(cpp, {"control_addr": cpc, "hub_url": tap, "name": "canary-provider", "modules": {"service": svc}})
+# The priced capability is public: an automatic payment needs the price signed in the provider's card, and a
+# card lists public capabilities only (canary.echo stays private, to the requester on the allow list).
+write(cpp, {"control_addr": cpc, "name": "canary-provider", "modules": {"service": svc},
+            "inbound": {"policy": "closed", "public_capabilities": [{"id": "canary.echo.paid"}]}})
 off = json.load(open(offsvc))
 for _pc in off.get("inbound", {}).get("public_capabilities", []): _pc.pop("evidence", None)
-off.update({"control_addr": ofc, "hub_url": tap, "name": "canary-official"})
+off.update({"control_addr": ofc, "name": "canary-official"})
 write(offp, off)
 PY
   A2A_OFF=16
@@ -499,15 +511,20 @@ PY
   done
   CR_AID=$("$FIX" aid --home "$CR/.anet"); CP_AID=$("$FIX" aid --home "$CP/.anet"); OFF_AID=$("$FIX" aid --home "$OFF/.anet")
   [ -n "$CR_AID" ] && [ -n "$CP_AID" ] && [ -n "$OFF_AID" ] || { no "the canary nodes have no identities"; return 1; }
-  "$BIN/anet-hub" --data "$RUN/hub" grant "$CR_AID" --amount 100 --reason joint >/dev/null 2>&1
   peer_allow "$CP/.anet" "$CR_AID"
   _peer_add "$CR/.anet/payees.allow" "$CP_AID"
+  # The nodes join at the tap (it forwards to the hub) as they are: a config that already named a hub would make
+  # this a switch of hubs, which 0.3 allows only with a key rotation.
   r1=$(ctl cr /hub-register "{\"hub\":\"$TAP_URL\",\"name\":\"canary-requester\"}" | jget status)
   r2=$(ctl cp /hub-register "{\"hub\":\"$TAP_URL\",\"name\":\"canary-provider\"}" | jget status)
   r3=$(ctl off /hub-register "{\"hub\":\"$TAP_URL\",\"name\":\"canary-official\"}" | jget status)
   [ "$r1 $r2 $r3" = "registered registered registered" ] \
     && ok "canary requester, provider and official agent registered, through the tap" \
     || { no "canary registrations: requester '$r1', provider '$r2', official '$r3'"; return 1; }
+  # A new account holds no credit and may not upload a review during its probation; the operator admits the
+  # three by AID (they are registered now), which ends it, and the requester gets the credit the paid call spends.
+  for _a in "$CR_AID" "$CP_AID" "$OFF_AID"; do "$BIN/anet-hub" admit --data "$RUN/hub" "$_a" >/dev/null 2>&1; done
+  "$BIN/anet-hub" admit --data "$RUN/hub" "$CR_AID" --grant 100 >/dev/null 2>&1
   printf '  canary requester %s\n  canary provider  %s\n  official agent   %s\n' "$CR_AID" "$CP_AID" "$OFF_AID"
 
   # The official agent in the admin: a registry entry and nothing more (A2A-DESIGN §9, §15, [C39]).
@@ -594,9 +611,32 @@ PY
   v=$(ctl cp /visibility '{"visibility":"federated"}' | jget visibility)
   [ "$v" = federated ] && ok "the canary provider publishes as federated, so its reviews reach the review stream" \
     || no "the canary provider's visibility was not set: '${v:-none}'"
+  # A review is signed at once and uploaded at a random time within six hours (PAY-V9). The run moves the due
+  # time of this one queued row to now in the requester's own store, which is what the wait would do, and
+  # the outbox is looked at every minute; the upload then crosses the tap like everything else.
   R=$(ctl cr /review "{\"interaction_id\":\"${T:-none}\",\"rating\":5,\"comment\":\"joint canary run\"}")
-  [ "$(printf '%s' "$R" | jget uploaded)" = True ] && ok "the requester's review of it went to the hub" \
-    || no "the review was not uploaded: $(printf '%s' "$R" | head -c 200)"
+  [ "$(printf '%s' "$R" | jget status)" = queued ] && ok "the requester's review of it is signed and queued for a random time within six hours" \
+    || no "the review was not queued: $(printf '%s' "$R" | head -c 200)"
+  python3 - "$CR/.anet/interactions/interactions.db" "${T:-none}" <<'PY'
+import sqlite3, sys
+db = sqlite3.connect(sys.argv[1], timeout=30)
+n = db.execute("UPDATE review_outbox SET due_at=1 WHERE ix=?", (sys.argv[2],)).rowcount
+db.commit()
+sys.exit(0 if n == 1 else 1)
+PY
+  [ $? = 0 ] || no "the queued review is not in the requester's outbox"
+  nrev=0
+  for ((i = 0; i < 90; i++)); do
+    nrev=$(curl -s -m 10 "$HUB_URL/agents/$CP_AID/reputation" | python3 -c '
+import sys, json
+try:
+    print(json.load(sys.stdin).get("local", {}).get("reviews", 0))
+except Exception:
+    print(0)')
+    [ "${nrev:-0}" -ge 1 ] && break
+    sleep 2
+  done
+  [ "${nrev:-0}" -ge 1 ] && ok "and then uploaded: the hub holds it" || no "the review did not reach the hub within three minutes"
 
   # A capability call, a paid one, and one to the official agent, each with a canary in its arguments;
   # the echo brings the arguments back, which is the recipient's backend having read them.
@@ -706,6 +746,14 @@ canary_sweep(){
            /x402/issuance /x402/issuance/head /x402/witnesses; do
     hubget "$p"
   done
+  # Each canary node's own pages at the hub: the agent (with its reviews), its key history, keys, reputation and
+  # card. They are the per-account answers SI-1 names.
+  for aid in "$REQ_AID" "$PROV_AID" "$STR_AID" "${CR_AID:-}" "${CP_AID:-}" "${OFF_AID:-}"; do
+    [ -n "$aid" ] || continue
+    for p in "/agents/$aid" "/agents/$aid/kel" "/agents/$aid/keys" "/agents/$aid/reputation" "/a2a/v1/agents/$aid/card"; do
+      hubget "$p"
+    done
+  done
   # The peer streams are signed (/fed/v3/*) since sealed-sender 7.4: unsigned, none of them may answer 200,
   # and the retired anonymous routes are gone.
   for p in /fed/v1/reviews /fed/v1/cards /fed/v2/cards /fed/v3/cards /fed/v3/reviews; do
@@ -771,8 +819,26 @@ PY
   surface "$ph" logs "the hub's and the admin's output" "$RUN/hub.log" "$RUN/admin.log"
   surface "$ph" peer "the federation peer hub" "$RUN/hub2" "$RUN/hub2.log"
   if [ "${2:-}" = controls ]; then
-    control provider "the provider's own data" --want goal --want chat --want capability-args "$CP/.anet"
-    control requester "the requester's own data" --want question --want answer --want paid-args --want official-args "$CR/.anet"
+    # The recipients keep a task's content encrypted at rest, so their data directories hold no canary in the
+    # clear to find: the daemon reads it back (asserted above, thread_has) and the search is shown to see what it
+    # looks for on files that do hold them in the clear — the attachments each recipient pulled to disk, and a
+    # sample file with the other canaries as text and as base64.
+    control provider "the files the provider pulled" --want attachment-up "$CAN/pull-cp"
+    control requester "the files the requester pulled" --want attachment-down "$CAN/pull-cr"
+    python3 - "$CANARIES" "$CAN/control-sample" <<'PY'
+import base64, os, sys
+os.makedirs(sys.argv[2], exist_ok=True)
+rows = [l.rstrip("\n").split("\t", 1) for l in open(sys.argv[1]) if "\t" in l]
+with open(os.path.join(sys.argv[2], "text.txt"), "w") as t, open(os.path.join(sys.argv[2], "b64.txt"), "w") as b:
+    for i, (label, value) in enumerate(rows):
+        if i % 2 == 0:
+            t.write(label + " " + value + "\n")
+        else:
+            b.write(base64.b64encode(("x" * (i % 3) + value).encode()).decode() + "\n")
+PY
+    control sample "a file holding the canaries as text and as base64" \
+      --want goal --want question --want chat --want answer --want capability-args --want paid-args --want official-args \
+      --want attachment-up --want attachment-down "$CAN/control-sample"
   fi
 }
 
@@ -1125,13 +1191,14 @@ hd "6/11  a stranger is refused — closed is the default, not a setting"
 # list: §5.2 row 6 refuses it with anet.reason=not_accepting, the same answer a denied peer gets,
 # and the delegation never reaches the provider's inbox.
 POL=$(pc /peers/list '{}' | jget policy)
-[ "$POL" = closed ] && [ "$(printf '%s' "$REG_P" | jget inbound_policy)" = closed ] \
+[ "$POL" = closed ] && [ "$(pc /status '{}' | jget inbound_policy)" = closed ] \
   && ok "the provider runs the default inbound policy, closed" \
   || no "the provider's inbound policy is '${POL:-unreadable}', expected closed"
 GOAL="joint stranger task $(rand)"
 SIX=$(sc /delegate "{\"provider\":\"$PROV_AID\",\"goal\":\"$GOAL\"}" | jget interaction_id)
 if [ -n "$SIX" ]; then
   read -r SST SREASON <<<"$(thread_end str "$SIX")"
+
   [ "$SST" = rejected ] && ok "the stranger's task came back rejected" \
     || no "the stranger's task is '${SST:-unknown}', expected rejected"
   [ "$SREASON" = not_accepting ] && ok "with anet.reason=not_accepting" \
