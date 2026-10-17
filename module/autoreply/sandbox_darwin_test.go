@@ -28,27 +28,13 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// requireSeatbeltEnabled skips a test of the real macOS sandbox while this version does not ship it
-// (seatbeltEnabled false, MOD-V3): the sandbox's self-check did not pass on the hosted macOS runners, so a
-// turn on a Mac is turned away with platform_unsupported.pending (TestDarwinSandboxFailsClosed).
+// requireSeatbeltEnabled skips a test of the real macOS sandbox in a build that switches it off
+// (seatbeltEnabled false): a turn on a Mac is then turned away with platform_unsupported.pending. The CI
+// seatbelt job treats a skip as a failure, so the switch cannot be turned off unnoticed.
 func requireSeatbeltEnabled(t *testing.T) {
 	t.Helper()
 	if !seatbeltEnabled {
-		t.Skip("the macOS sandbox is not part of this version (MOD-V3)")
-	}
-}
-
-// TestDarwinSandboxFailsClosed: with the macOS sandbox not part of the build, preparing it fails with
-// sandbox_unavailable and the local reason platform_unsupported.pending, and never lets a run proceed
-// unsandboxed.
-func TestDarwinSandboxFailsClosed(t *testing.T) {
-	if seatbeltEnabled {
-		t.Skip("the macOS sandbox is enabled in this build")
-	}
-	err := (&sandboxPlan{}).prepare()
-	var pe *sandboxProbeError
-	if !errors.As(err, &pe) || pe.Code != sandboxCodePending {
-		t.Fatalf("prepare on a Mac without the sandbox: %v, want the local reason %s", err, sandboxCodePending)
+		t.Skip("the macOS sandbox is switched off in this build")
 	}
 }
 

@@ -212,8 +212,8 @@ Sandbox
    The sandbox runs on Linux and, with Seatbelt, on macOS; on Windows use WSL2.
    The supported Linux hosts are Debian 12 (bubblewrap 0.8) and Ubuntu 24.04 with
    the AppArmor profile that ``anet doctor --apparmor-profile`` prints. On macOS,
-   a build in which Seatbelt is not enabled, and a host on which the self-check
-   fails, turn away sandboxed turns with ``sandbox_unavailable``. See
+   a host on which the self-check fails turns away sandboxed turns with
+   ``sandbox_unavailable``; version 0.3.0 has no macOS sandbox. See
    :doc:`../topics/sandbox` and :ref:`reference-security`.
 
 Clocks
