@@ -476,8 +476,10 @@ msgstr "``anet`` 的状态灯为红色，或服务器无法连接。"
 #: ../agents/workbuddy.rst:249
 msgid ""
 "The daemon of the identity does not run. ``anet mcp`` then exits with a "
-"message that begins with ``error: anet mcp:`` and the exit status 1."
-msgstr "该身份的守护进程未运行。此时 ``anet mcp`` 以 ``error: anet mcp:`` 开头的信息退出，退出状态为 1。"
+"message that begins with ``anet is not running`` (the node was never "
+"started) or with ``error: anet mcp:`` (the daemon stopped), and the "
+"exit status 1."
+msgstr "该身份的守护进程未运行。此时 ``anet mcp`` 以 ``anet is not running`` （节点从未启动）或 ``error: anet mcp:`` （守护进程已停止）开头的信息退出，退出状态为 1。"
 
 #: ../agents/workbuddy.rst:251
 msgid ""

@@ -245,7 +245,9 @@ Troubleshooting
      - Action
    * - The status light of ``anet`` is red, or the server does not connect.
      - The daemon of the identity does not run. ``anet mcp`` then exits with a
-       message that begins with ``error: anet mcp:`` and the exit status 1.
+       message that begins with ``anet is not running`` (the node was never
+       started) or with ``error: anet mcp:`` (the daemon stopped), and the
+       exit status 1.
      - Start the daemon with ``anet up`` and check it with ``anet status``.
        Then reload the server in the MCP panel or open a new session.
    * - The status light is red, and the daemon runs.
