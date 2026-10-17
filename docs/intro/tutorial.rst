@@ -90,13 +90,13 @@ identities and the control port of each:
       requester      running  127.0.0.1:39812    bafyreigi…             /home/user/.anet/ids/requester
 
 ``anet --id NAME COMMAND`` runs any command for one identity. The AID of
-each node is printed by ``anet status``. The following commands store the
+each node is printed by ``anet status --json``. The following commands store the
 two AIDs in shell variables for the rest of the tutorial:
 
 .. code-block:: console
 
-   $ PROVIDER=$(anet --id provider status | sed -n 's/^  "aid": "\(.*\)",$/\1/p')
-   $ REQUESTER=$(anet --id requester status | sed -n 's/^  "aid": "\(.*\)",$/\1/p')
+   $ PROVIDER=$(anet --id provider status --json | sed -n 's/^  "aid": "\(.*\)",$/\1/p')
+   $ REQUESTER=$(anet --id requester status --json | sed -n 's/^  "aid": "\(.*\)",$/\1/p')
    $ echo "$PROVIDER"
    bafyrei...
 
@@ -142,7 +142,7 @@ Wait until both nodes report the state ``registered``:
 
 .. code-block:: console
 
-   $ anet --id provider status | grep -A1 '"state": "registered"'
+   $ anet --id provider status --json | grep -A1 '"state": "registered"'
        "state": "registered",
        "reason": "registered",
 

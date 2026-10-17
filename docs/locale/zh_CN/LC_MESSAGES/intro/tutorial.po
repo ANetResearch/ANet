@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ANet 0.3\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-16 14:35+0000\n"
+"POT-Creation-Date: 2026-10-17 09:36+0000\n"
 "PO-Revision-Date: 2026-10-16 05:00+0000\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: zh_CN\n"
@@ -16,7 +16,7 @@ msgstr ""
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"Generated-By: Babel 2.10.3\n"
+"Generated-By: Babel 2.18.0\n"
 
 #: ../../intro/tutorial.rst:5
 msgid "Tutorial"
@@ -150,11 +150,11 @@ msgstr "每条命令都以新节点的状态结束。``hub`` 行说明尚未加�
 #: ../../intro/tutorial.rst:92
 msgid ""
 "``anet --id NAME COMMAND`` runs any command for one identity. The AID of "
-"each node is printed by ``anet status``. The following commands store the"
-" two AIDs in shell variables for the rest of the tutorial:"
+"each node is printed by ``anet status --json``. The following commands "
+"store the two AIDs in shell variables for the rest of the tutorial:"
 msgstr ""
-"``anet --id NAME COMMAND`` 为某一个身份运行任意命令。每个节点的 AID 由 ``anet status`` "
-"输出。以下命令将两个 AID 存入 shell 变量，供本教程其余部分使用："
+"``anet --id NAME COMMAND`` 为某一个身份运行任意命令。每个节点的 AID 由 ``anet status "
+"--json`` 输出。以下命令将两个 AID 存入 shell 变量，供本教程其余部分使用："
 
 #: ../../intro/tutorial.rst:106
 msgid "Register both nodes with a hub"
