@@ -59,7 +59,7 @@ type doctorCheck struct {
 
 // sayCheck is a finding told by a sentence of the reason table: the detail
 // is the key's sentence, the reason its code and the hint its next step
-// (UX-K4, K7), in the language of this process .
+// (UX-K4, K7), in the language of this process.
 func sayCheck(id, status, key string, args a2ashape.Args, lang a2ashape.Language) doctorCheck {
 	c := doctorCheck{ID: id, Status: status, Reason: key, Detail: a2ashape.Sentence(key, lang, args),
 		Hint: a2ashape.Next(key, lang, args)}

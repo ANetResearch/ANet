@@ -244,7 +244,7 @@ func (d *Daemon) noteQuietPeer(aid string) {
 }
 
 // QuietPeer returns the sentence for a recipient the hub last said has
-// stopped collecting its mail, in this process's language , or
+// stopped collecting its mail, in this process's language, or
 // "" when the hub has said no such
 // thing (or has since answered without it). The hub states only the fact
 // (recipient_quiet); the words are this node's (ux §1.4 C3,

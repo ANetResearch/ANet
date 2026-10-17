@@ -434,7 +434,7 @@ func egressArg(s string) string {
 	return s
 }
 
-// egressSentence is the refusal sentence of code in this process's language .
+// egressSentence is the refusal sentence of code in this process's language.
 func egressSentence(lang a2ashape.Language, code string, args a2ashape.Args) string {
 	return a2ashape.Sentence(code, lang, args)
 }
