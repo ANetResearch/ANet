@@ -739,10 +739,12 @@ func TestActiveContactRevalidatedOncePer24h(t *testing.T) {
 	twoDays := uint64(row.KeysCheckedAt) + activeRecheckMS + 60*1000
 	q = queryCount(h)
 	send(twoDays, "a day after the recheck")
-	waitUntil(t, "the second recheck", func() bool { return queryCount(h) == q+1 })
+	// A miss is followed by one query past the caches (XHUB), so the
+	// recheck makes two.
+	waitUntil(t, "the second recheck", func() bool { return queryCount(h) == q+2 })
 	time.Sleep(50 * time.Millisecond)
 	send(twoDays+3600*1000, "an hour after a recheck that found nothing")
-	noNewQuery(t, h, q+1, "a send an hour after a recheck that found nothing")
+	noNewQuery(t, h, q+2, "a send an hour after a recheck that found nothing")
 	if again, _ := req.ix.PeerIdentity(prov.AID()); again.KeysCheckedAt != row.KeysCheckedAt || again.KeySetSeq != newSeq {
 		t.Fatal("a recheck that found nothing changed the stored record")
 	}
