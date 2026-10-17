@@ -41,6 +41,10 @@ var removedCommands = []removedCLI{
 	{cmd: "evidence", what: "anet evidence", instead: "evidence"},
 	{cmd: "autoreply", flag: "require-image", what: "anet autoreply set --require-image", instead: "require_image"},
 	{cmd: "auto-reply", flag: "require-image", what: "anet auto-reply set --require-image", instead: "require_image"},
+	{cmd: "autoreply", flag: "max-auto-replies", what: "anet autoreply set --max-auto-replies", instead: "fixed_auto_reply"},
+	{cmd: "auto-reply", flag: "max-auto-replies", what: "anet auto-reply set --max-auto-replies", instead: "fixed_auto_reply"},
+	{cmd: "autoreply", flag: "poll-interval", what: "anet autoreply set --poll-interval", instead: "fixed_auto_reply"},
+	{cmd: "auto-reply", flag: "poll-interval", what: "anet auto-reply set --poll-interval", instead: "fixed_auto_reply"},
 	{cmd: "payments", flag: "payees-file", what: "anet payments set --payees-file", instead: "payments_payees_file"},
 }
 

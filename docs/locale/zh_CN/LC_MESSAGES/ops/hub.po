@@ -535,6 +535,16 @@ msgstr "准入"
 
 #: ../../ops/hub.rst:306
 msgid ""
+"The mode can be set before the hub's first start, for example in a "
+"container image or a provisioning script: ``anet-hub --data <dir> "
+"admission open --init`` creates the hub data in an existing, empty data "
+"directory and sets the mode. Without ``--init`` the command refuses a "
+"directory that holds no hub data."
+msgstr ""
+"准入模式可在 hub 首次启动之前设置，例如在容器镜像或部署脚本中：``anet-hub --data <目录> admission open "
+"--init`` 在一个已存在的空数据目录中创建 hub 数据并设置模式。不加 ``--init`` 时，该命令拒绝没有 hub 数据的目录。"
+
+msgid ""
 "Admission decides which identities may register. It has two modes, shown "
 "and changed with ``anet-hub admission``."
 msgstr "准入决定哪些身份可以注册。它有两种模式,可通过 ``anet-hub admission`` 查看和更改。"

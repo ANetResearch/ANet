@@ -37,9 +37,10 @@ func removedInvocation(r removedCLI) []string {
 }
 
 func TestRemovedCommandsAreRefusedBeforeTheDaemon(t *testing.T) {
-	// ux §4.3 has 14 removed commands and flags (api-key aside); autoreply is also spelled auto-reply.
-	if len(removedCommands) != 15 {
-		t.Fatalf("ux §4.3 has 14 removed commands and flags (api-key aside) and one alias spelling, the table %d", len(removedCommands))
+	// ux §4.3 has 14 removed commands and flags (api-key aside); 0.3.1 adds the two auto-reply flags whose
+	// values became fixed; each auto-reply flag is also spelled under auto-reply.
+	if len(removedCommands) != 19 {
+		t.Fatalf("ux §4.3 has 14 removed commands and flags (api-key aside), 0.3.1 two more, and three alias spellings, the table %d", len(removedCommands))
 	}
 	for _, lang := range []string{"C", "zh_CN.UTF-8"} {
 		for _, r := range removedCommands {
@@ -118,7 +119,7 @@ func TestRemovedCommandsHaveTheirPhrases(t *testing.T) {
 	}
 	for _, id := range []string{"x402_authorize", "delegate_pay", "profile_pricing", "hub_register_token",
 		"hub_register_accept_delegations", "p2p_advertise", "accept", "accept_end", "install", "evidence",
-		"payments_payees_file", "require_image"} {
+		"payments_payees_file", "require_image", "fixed_auto_reply"} {
 		if !used[id] {
 			t.Errorf("phrase %s is no removed entry's", id)
 		}

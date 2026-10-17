@@ -329,6 +329,11 @@ changed with ``anet-hub admission``.
 Changing the mode affects new registrations only. Registered nodes remain
 registered.
 
+The mode can be set before the hub's first start, for example in a container
+image or a provisioning script: ``anet-hub --data <dir> admission open --init``
+creates the hub data in an existing, empty data directory and sets the mode.
+Without ``--init`` the command refuses a directory that holds no hub data.
+
 Admitting an identity
 ~~~~~~~~~~~~~~~~~~~~~
 

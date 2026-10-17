@@ -144,7 +144,10 @@ Control interface
    subscriber that joins while a preview exists receives the current one first.
    The event ``delivery`` holds ``delivery``, ``detail``, ``wait`` and the
    sentence ``text``. An idle stream writes a comment line every 20 seconds. The
-   stream ends with the final state of the task. The route needs the control
+   stream ends with the final state of the task. A task whose reply has arrived
+   stays in ``input-required`` until the requester ends it (``POST /end``), so a
+   client that needs only the reply stops reading at the ``task`` event that
+   carries it. The route needs the control
    token. MCP and the console do not offer it. A task that is no longer on the
    node is answered with ``no_local_task``.
 

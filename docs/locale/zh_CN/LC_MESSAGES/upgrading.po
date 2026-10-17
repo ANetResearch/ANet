@@ -224,6 +224,12 @@ msgstr "``rotation_grace``"
 msgid "Fixed at 1 hour."
 msgstr "固定为 1 小时。"
 
+msgid "``anet autoreply set --max-auto-replies``, ``--poll-interval``"
+msgstr "``anet autoreply set --max-auto-replies``、``--poll-interval``"
+
+msgid "Fixed values; remove the options (refused with ``cli_removed`` from 0.3.1)."
+msgstr "已改为固定值，请删掉这两个参数（自 0.3.1 起以 ``cli_removed`` 拒绝）。"
+
 #: ../../upgrading.rst:123
 msgid "Behavior that differs"
 msgstr "行为差异"
@@ -263,6 +269,16 @@ msgstr ""
 "JSON，在标准错误输出可读行。解析早期合并输出的脚本需改为只读取标准输出。"
 
 #: ../../upgrading.rst:134
+msgid ""
+"``auto_reply.api_base`` must use ``https://``, or ``http://`` on the "
+"loopback interface; any other address is refused with "
+"``api_base_insecure``. A model service that is reachable only over plain "
+"HTTP on a private network needs a TLS endpoint, or a forwarder that "
+"listens on the loopback interface of the node's host."
+msgstr ""
+"``auto_reply.api_base`` 必须使用 ``https://``，或环回接口上的 ``http://``；其他地址以 "
+"``api_base_insecure`` 拒绝。只能经私有网络上明文 HTTP 访问的模型服务，需要提供 TLS 端点，或在节点所在主机的环回接口上设置转发。"
+
 msgid "Nodes and hubs of 0.2 and 0.3 cannot talk to each other."
 msgstr "0.2 与 0.3 的节点和 Hub 之间无法通信。"
 

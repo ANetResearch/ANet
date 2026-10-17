@@ -893,6 +893,8 @@ var phraseSets = map[string]map[string]phrasePair{
 			"the vision service is now a public capability that takes files; remove this flag and use files in public_capabilities"},
 		"payments_payees_file": {"付款名单固定在数据目录的 payees.allow，请改用 anet payees 管理",
 			"the payee list lives in payees.allow in the data directory; use anet payees to manage it"},
+		"fixed_auto_reply": {"自动回复的轮询间隔与回复次数上限已改为固定值，请删掉这个参数",
+			"the auto-reply poll interval and reply cap are now fixed; remove this flag"},
 	},
 	// ux §2.3: what to do instead of a removed setting.
 	"config_instead": {
