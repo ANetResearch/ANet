@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ANet 0.3\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-16 14:35+0000\n"
+"POT-Creation-Date: 2026-10-17 18:43+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: zh_CN\n"
@@ -405,7 +405,7 @@ msgstr "路由"
 msgid "Signer"
 msgstr "签名方"
 
-#: ../../reference/_generated/hub-reasons.inc:9
+#: ../../reference/_generated/hub-reasons.inc:10
 #: ../../reference/_generated/relayauth-actions.inc:11
 msgid "Status"
 msgstr "状态"
@@ -806,7 +806,7 @@ msgid "``sid``, ``exp``, ``enc``, ``ct``"
 msgstr "``sid``, ``exp``, ``enc``, ``ct``"
 
 #: ../../reference/_generated/hub-endpoints.inc:17
-#: ../../reference/_generated/hub-reasons.inc:16
+#: ../../reference/_generated/hub-reasons.inc:22
 msgid "``admission_required``"
 msgstr "``admission_required``"
 
@@ -855,7 +855,7 @@ msgid "``acked``, ``stored``"
 msgstr "``acked``, ``stored``"
 
 #: ../../reference/_generated/hub-endpoints.inc:32
-#: ../../reference/_generated/hub-reasons.inc:24
+#: ../../reference/_generated/hub-reasons.inc:36
 msgid "``bad_ack_item``"
 msgstr "``bad_ack_item``"
 
@@ -896,7 +896,7 @@ msgid "``revoked``, ``total``"
 msgstr "``revoked``, ``total``"
 
 #: ../../reference/_generated/hub-endpoints.inc:42
-#: ../../reference/_generated/hub-reasons.inc:160
+#: ../../reference/_generated/hub-reasons.inc:274
 msgid "``revocation_list_full``"
 msgstr "``revocation_list_full``"
 
@@ -1032,7 +1032,7 @@ msgid "``aid``, ``kel``, ``registered``"
 msgstr "``aid``, ``kel``, ``registered``"
 
 #: ../../reference/_generated/hub-endpoints.inc:82
-#: ../../reference/_generated/hub-reasons.inc:192
+#: ../../reference/_generated/hub-reasons.inc:330
 msgid "``unknown_aid``"
 msgstr "``unknown_aid``"
 
@@ -1084,7 +1084,7 @@ msgstr ""
 "[``h``, ``sum``, ``side``], ``ledger_hw``, ``record``"
 
 #: ../../reference/_generated/hub-endpoints.inc:112
-#: ../../reference/_generated/hub-reasons.inc:120
+#: ../../reference/_generated/hub-reasons.inc:204
 msgid "``proof_unavailable``"
 msgstr "``proof_unavailable``"
 
@@ -1147,7 +1147,7 @@ msgid "``GET /x402/resource/*``"
 msgstr "``GET /x402/resource/*``"
 
 #: ../../reference/_generated/hub-endpoints.inc:157
-#: ../../reference/_generated/hub-reasons.inc:52
+#: ../../reference/_generated/hub-reasons.inc:85
 msgid "``gateway_removed``"
 msgstr "``gateway_removed``"
 
@@ -1507,7 +1507,7 @@ msgid "x402 SettlementResponse"
 msgstr "x402 SettlementResponse"
 
 #: ../../reference/_generated/hub-fed-endpoints.inc:32
-#: ../../reference/_generated/hub-reasons.inc:168
+#: ../../reference/_generated/hub-reasons.inc:288
 msgid "``source_rate``"
 msgstr "``source_rate``"
 
@@ -1525,7 +1525,7 @@ msgstr ""
 
 #: ../../reference/_generated/hub-fed-endpoints.inc:37
 #: ../../reference/_generated/hub-fed-endpoints.inc:42
-#: ../../reference/_generated/hub-reasons.inc:108
+#: ../../reference/_generated/hub-reasons.inc:183
 msgid "``not_peer``"
 msgstr "``not_peer``"
 
@@ -1549,35 +1549,101 @@ msgstr "原因码"
 
 #: ../../reference/hub-api.rst:330
 msgid ""
-"Every code that a hub returns, with its HTTP status. The sentence is the "
-"default; a route may state a more specific one."
-msgstr "hub 返回的每个原因码及其 HTTP 状态。语句为默认语句；路由可以给出更具体的语句。"
+"Every code that a hub returns, with the first version of the hub that "
+"returned it and its HTTP status. The sentence is the default; a route may"
+" state a more specific one. A hub code is a stable interface under the "
+"same rules as a node code (see :ref:`reason-codes-lifecycle`): its "
+"meaning never changes, and it is never renamed or reused. A node reports "
+"a refusal of the hub as ``hub_refused`` with the hub code, "
+"``[hub_refused:<hub code>]``."
+msgstr ""
+"hub 返回的每一个码，附该代码首次由 hub 返回的版本及其 HTTP 状态。语句是默认值，具体路由可以给出更具体的语句。hub "
+"代码与节点代码一样是稳定接口，遵守同样的规则（见 :ref:`reason-codes-"
+"lifecycle`）：含义不会改变，也不会被改名或复用。节点把 hub 的拒绝报告为带 hub 代码的 ``hub_refused``，即 "
+"``[hub_refused:<hub code>]``。"
 
 #: ../../reference/_generated/hub-reasons.inc:8
 msgid "Code"
 msgstr "原因码"
 
-#: ../../reference/_generated/hub-reasons.inc:10
+#: ../../reference/_generated/hub-reasons.inc:9
+msgid "Since"
+msgstr "起始版本"
+
+#: ../../reference/_generated/hub-reasons.inc:11
 msgid "Extra members"
 msgstr "额外成员"
 
-#: ../../reference/_generated/hub-reasons.inc:11
+#: ../../reference/_generated/hub-reasons.inc:12
 msgid "Default sentence"
 msgstr "默认语句"
 
-#: ../../reference/_generated/hub-reasons.inc:12
+#: ../../reference/_generated/hub-reasons.inc:15
 msgid "``access_invalid``"
 msgstr "``access_invalid``"
 
-#: ../../reference/_generated/hub-reasons.inc:13
+#: ../../reference/_generated/hub-reasons.inc:16
+#: ../../reference/_generated/hub-reasons.inc:23
+#: ../../reference/_generated/hub-reasons.inc:30
+#: ../../reference/_generated/hub-reasons.inc:37
+#: ../../reference/_generated/hub-reasons.inc:44
+#: ../../reference/_generated/hub-reasons.inc:51
+#: ../../reference/_generated/hub-reasons.inc:58
+#: ../../reference/_generated/hub-reasons.inc:65
+#: ../../reference/_generated/hub-reasons.inc:72
+#: ../../reference/_generated/hub-reasons.inc:79
+#: ../../reference/_generated/hub-reasons.inc:86
+#: ../../reference/_generated/hub-reasons.inc:93
+#: ../../reference/_generated/hub-reasons.inc:100
+#: ../../reference/_generated/hub-reasons.inc:107
+#: ../../reference/_generated/hub-reasons.inc:114
+#: ../../reference/_generated/hub-reasons.inc:121
+#: ../../reference/_generated/hub-reasons.inc:128
+#: ../../reference/_generated/hub-reasons.inc:135
+#: ../../reference/_generated/hub-reasons.inc:142
+#: ../../reference/_generated/hub-reasons.inc:149
+#: ../../reference/_generated/hub-reasons.inc:156
+#: ../../reference/_generated/hub-reasons.inc:163
+#: ../../reference/_generated/hub-reasons.inc:170
+#: ../../reference/_generated/hub-reasons.inc:177
+#: ../../reference/_generated/hub-reasons.inc:184
+#: ../../reference/_generated/hub-reasons.inc:191
+#: ../../reference/_generated/hub-reasons.inc:198
+#: ../../reference/_generated/hub-reasons.inc:205
+#: ../../reference/_generated/hub-reasons.inc:212
+#: ../../reference/_generated/hub-reasons.inc:219
+#: ../../reference/_generated/hub-reasons.inc:226
+#: ../../reference/_generated/hub-reasons.inc:233
+#: ../../reference/_generated/hub-reasons.inc:240
+#: ../../reference/_generated/hub-reasons.inc:247
+#: ../../reference/_generated/hub-reasons.inc:254
+#: ../../reference/_generated/hub-reasons.inc:261
+#: ../../reference/_generated/hub-reasons.inc:268
+#: ../../reference/_generated/hub-reasons.inc:275
+#: ../../reference/_generated/hub-reasons.inc:282
+#: ../../reference/_generated/hub-reasons.inc:289
+#: ../../reference/_generated/hub-reasons.inc:296
+#: ../../reference/_generated/hub-reasons.inc:303
+#: ../../reference/_generated/hub-reasons.inc:310
+#: ../../reference/_generated/hub-reasons.inc:317
+#: ../../reference/_generated/hub-reasons.inc:324
+#: ../../reference/_generated/hub-reasons.inc:331
+#: ../../reference/_generated/hub-reasons.inc:338
+#: ../../reference/_generated/hub-reasons.inc:345
+#: ../../reference/_generated/hub-reasons.inc:352
+#: ../../reference/_generated/hub-reasons.inc:359
+msgid "0.3.0"
+msgstr "0.3.0"
+
 #: ../../reference/_generated/hub-reasons.inc:17
-#: ../../reference/_generated/hub-reasons.inc:109
-#: ../../reference/_generated/hub-reasons.inc:113
-#: ../../reference/_generated/hub-reasons.inc:117
+#: ../../reference/_generated/hub-reasons.inc:24
+#: ../../reference/_generated/hub-reasons.inc:185
+#: ../../reference/_generated/hub-reasons.inc:192
+#: ../../reference/_generated/hub-reasons.inc:199
 msgid "403"
 msgstr "403"
 
-#: ../../reference/_generated/hub-reasons.inc:15
+#: ../../reference/_generated/hub-reasons.inc:19
 msgid ""
 "The delivery credential in X-ANet-Access was not accepted; use a current "
 "one from the recipient, or send without one."
@@ -1585,11 +1651,11 @@ msgstr ""
 "The delivery credential in X-ANet-Access was not accepted; use a current "
 "one from the recipient, or send without one."
 
-#: ../../reference/_generated/hub-reasons.inc:18
+#: ../../reference/_generated/hub-reasons.inc:25
 msgid "``aid``"
 msgstr "``aid``"
 
-#: ../../reference/_generated/hub-reasons.inc:19
+#: ../../reference/_generated/hub-reasons.inc:26
 msgid ""
 "This hub admits AIDs one by one; ask its operator to run: anet-hub admit "
 "<AID>."
@@ -1597,16 +1663,16 @@ msgstr ""
 "This hub admits AIDs one by one; ask its operator to run: anet-hub admit "
 "<AID>."
 
-#: ../../reference/_generated/hub-reasons.inc:20
+#: ../../reference/_generated/hub-reasons.inc:29
 msgid "``aid_deactivated``"
 msgstr "``aid_deactivated``"
 
-#: ../../reference/_generated/hub-reasons.inc:21
-#: ../../reference/_generated/hub-reasons.inc:53
+#: ../../reference/_generated/hub-reasons.inc:31
+#: ../../reference/_generated/hub-reasons.inc:87
 msgid "410"
 msgstr "410"
 
-#: ../../reference/_generated/hub-reasons.inc:23
+#: ../../reference/_generated/hub-reasons.inc:33
 msgid ""
 "This identity is deactivated and cannot register again; create a new "
 "identity to come back."
@@ -1614,26 +1680,26 @@ msgstr ""
 "This identity is deactivated and cannot register again; create a new "
 "identity to come back."
 
-#: ../../reference/_generated/hub-reasons.inc:25
-#: ../../reference/_generated/hub-reasons.inc:29
-#: ../../reference/_generated/hub-reasons.inc:33
-#: ../../reference/_generated/hub-reasons.inc:37
-#: ../../reference/_generated/hub-reasons.inc:41
+#: ../../reference/_generated/hub-reasons.inc:38
 #: ../../reference/_generated/hub-reasons.inc:45
-#: ../../reference/_generated/hub-reasons.inc:49
-#: ../../reference/_generated/hub-reasons.inc:61
-#: ../../reference/_generated/hub-reasons.inc:69
-#: ../../reference/_generated/hub-reasons.inc:77
-#: ../../reference/_generated/hub-reasons.inc:85
+#: ../../reference/_generated/hub-reasons.inc:52
+#: ../../reference/_generated/hub-reasons.inc:59
+#: ../../reference/_generated/hub-reasons.inc:66
+#: ../../reference/_generated/hub-reasons.inc:73
+#: ../../reference/_generated/hub-reasons.inc:80
+#: ../../reference/_generated/hub-reasons.inc:101
+#: ../../reference/_generated/hub-reasons.inc:115
 #: ../../reference/_generated/hub-reasons.inc:129
-#: ../../reference/_generated/hub-reasons.inc:149
-#: ../../reference/_generated/hub-reasons.inc:157
-#: ../../reference/_generated/hub-reasons.inc:201
-#: ../../reference/_generated/hub-reasons.inc:209
+#: ../../reference/_generated/hub-reasons.inc:143
+#: ../../reference/_generated/hub-reasons.inc:220
+#: ../../reference/_generated/hub-reasons.inc:255
+#: ../../reference/_generated/hub-reasons.inc:269
+#: ../../reference/_generated/hub-reasons.inc:346
+#: ../../reference/_generated/hub-reasons.inc:360
 msgid "400"
 msgstr "400"
 
-#: ../../reference/_generated/hub-reasons.inc:27
+#: ../../reference/_generated/hub-reasons.inc:40
 msgid ""
 "An ack item is malformed (an id is required, handle and dack go together,"
 " at most 1000 items); fix it and send again."
@@ -1641,11 +1707,11 @@ msgstr ""
 "An ack item is malformed (an id is required, handle and dack go together,"
 " at most 1000 items); fix it and send again."
 
-#: ../../reference/_generated/hub-reasons.inc:28
+#: ../../reference/_generated/hub-reasons.inc:43
 msgid "``bad_envelope``"
 msgstr "``bad_envelope``"
 
-#: ../../reference/_generated/hub-reasons.inc:31
+#: ../../reference/_generated/hub-reasons.inc:47
 msgid ""
 "The body is not a sealed envelope this hub accepts, or it does not match "
 "X-ANet-Access; seal it again with anet 0.3.0 or later."
@@ -1653,11 +1719,11 @@ msgstr ""
 "The body is not a sealed envelope this hub accepts, or it does not match "
 "X-ANet-Access; seal it again with anet 0.3.0 or later."
 
-#: ../../reference/_generated/hub-reasons.inc:32
+#: ../../reference/_generated/hub-reasons.inc:50
 msgid "``bad_exp``"
 msgstr "``bad_exp``"
 
-#: ../../reference/_generated/hub-reasons.inc:35
+#: ../../reference/_generated/hub-reasons.inc:54
 msgid ""
 "The envelope's expiry time is further ahead than this hub accepts; seal "
 "it again with a nearer expiry."
@@ -1665,11 +1731,11 @@ msgstr ""
 "The envelope's expiry time is further ahead than this hub accepts; seal "
 "it again with a nearer expiry."
 
-#: ../../reference/_generated/hub-reasons.inc:36
+#: ../../reference/_generated/hub-reasons.inc:57
 msgid "``bad_request``"
 msgstr "``bad_request``"
 
-#: ../../reference/_generated/hub-reasons.inc:39
+#: ../../reference/_generated/hub-reasons.inc:61
 msgid ""
 "This request is not in a form this hub accepts; fix the client (or update"
 " anet) and send again."
@@ -1677,11 +1743,11 @@ msgstr ""
 "This request is not in a form this hub accepts; fix the client (or update"
 " anet) and send again."
 
-#: ../../reference/_generated/hub-reasons.inc:40
+#: ../../reference/_generated/hub-reasons.inc:64
 msgid "``bad_status_query``"
 msgstr "``bad_status_query``"
 
-#: ../../reference/_generated/hub-reasons.inc:43
+#: ../../reference/_generated/hub-reasons.inc:68
 msgid ""
 "A status check takes 1 to 64 items with a 16-byte rid and handle, all for"
 " one hub; fix the query and send again."
@@ -1689,15 +1755,15 @@ msgstr ""
 "A status check takes 1 to 64 items with a 16-byte rid and handle, all for"
 " one hub; fix the query and send again."
 
-#: ../../reference/_generated/hub-reasons.inc:44
+#: ../../reference/_generated/hub-reasons.inc:71
 msgid "``bucket_too_narrow``"
 msgstr "``bucket_too_narrow``"
 
-#: ../../reference/_generated/hub-reasons.inc:46
+#: ../../reference/_generated/hub-reasons.inc:74
 msgid "``max_bits``"
 msgstr "``max_bits``"
 
-#: ../../reference/_generated/hub-reasons.inc:47
+#: ../../reference/_generated/hub-reasons.inc:75
 msgid ""
 "The directory query asks for more prefix bits than this hub serves; query"
 " again with at most max_bits bits."
@@ -1705,11 +1771,11 @@ msgstr ""
 "The directory query asks for more prefix bits than this hub serves; query"
 " again with at most max_bits bits."
 
-#: ../../reference/_generated/hub-reasons.inc:48
+#: ../../reference/_generated/hub-reasons.inc:78
 msgid "``expired``"
 msgstr "``expired``"
 
-#: ../../reference/_generated/hub-reasons.inc:51
+#: ../../reference/_generated/hub-reasons.inc:82
 msgid ""
 "The envelope's expiry time has passed, so this hub does not carry it; "
 "seal a new one."
@@ -1717,7 +1783,7 @@ msgstr ""
 "The envelope's expiry time has passed, so this hub does not carry it; "
 "seal a new one."
 
-#: ../../reference/_generated/hub-reasons.inc:55
+#: ../../reference/_generated/hub-reasons.inc:89
 msgid ""
 "The hub gateway was removed in 0.3.0; install anet and call through its "
 "local A2A interface, where anet signs the payment for you: send payment-"
@@ -1727,15 +1793,15 @@ msgstr ""
 "local A2A interface, where anet signs the payment for you: send payment-"
 "submitted without x402.payment.payload."
 
-#: ../../reference/_generated/hub-reasons.inc:56
+#: ../../reference/_generated/hub-reasons.inc:92
 msgid "``home_unreachable``"
 msgstr "``home_unreachable``"
 
-#: ../../reference/_generated/hub-reasons.inc:57
+#: ../../reference/_generated/hub-reasons.inc:94
 msgid "502"
 msgstr "502"
 
-#: ../../reference/_generated/hub-reasons.inc:59
+#: ../../reference/_generated/hub-reasons.inc:96
 msgid ""
 "The recipient's hub did not answer; send again after the seconds in "
 "Retry-After."
@@ -1743,11 +1809,11 @@ msgstr ""
 "The recipient's hub did not answer; send again after the seconds in "
 "Retry-After."
 
-#: ../../reference/_generated/hub-reasons.inc:60
+#: ../../reference/_generated/hub-reasons.inc:99
 msgid "``identity_headers_not_allowed``"
 msgstr "``identity_headers_not_allowed``"
 
-#: ../../reference/_generated/hub-reasons.inc:63
+#: ../../reference/_generated/hub-reasons.inc:103
 msgid ""
 "This route is anonymous; send the request without the X-ANet-AID, X-ANet-"
 "Seq and X-ANet-Sig headers."
@@ -1755,15 +1821,15 @@ msgstr ""
 "This route is anonymous; send the request without the X-ANet-AID, X-ANet-"
 "Seq and X-ANet-Sig headers."
 
-#: ../../reference/_generated/hub-reasons.inc:64
+#: ../../reference/_generated/hub-reasons.inc:106
 msgid "``internal``"
 msgstr "``internal``"
 
-#: ../../reference/_generated/hub-reasons.inc:65
+#: ../../reference/_generated/hub-reasons.inc:108
 msgid "500"
 msgstr "500"
 
-#: ../../reference/_generated/hub-reasons.inc:67
+#: ../../reference/_generated/hub-reasons.inc:110
 msgid ""
 "This hub failed to handle the request; try again later, and tell the "
 "hub's operator if it keeps failing."
@@ -1771,11 +1837,11 @@ msgstr ""
 "This hub failed to handle the request; try again later, and tell the "
 "hub's operator if it keeps failing."
 
-#: ../../reference/_generated/hub-reasons.inc:68
+#: ../../reference/_generated/hub-reasons.inc:113
 msgid "``invite_removed``"
 msgstr "``invite_removed``"
 
-#: ../../reference/_generated/hub-reasons.inc:71
+#: ../../reference/_generated/hub-reasons.inc:117
 msgid ""
 "Hubs no longer use invites; register without one and send the admit "
 "command to the operator."
@@ -1783,19 +1849,19 @@ msgstr ""
 "Hubs no longer use invites; register without one and send the admit "
 "command to the operator."
 
-#: ../../reference/_generated/hub-reasons.inc:72
+#: ../../reference/_generated/hub-reasons.inc:120
 msgid "``kel_fork``"
 msgstr "``kel_fork``"
 
-#: ../../reference/_generated/hub-reasons.inc:73
-#: ../../reference/_generated/hub-reasons.inc:81
-#: ../../reference/_generated/hub-reasons.inc:93
-#: ../../reference/_generated/hub-reasons.inc:97
-#: ../../reference/_generated/hub-reasons.inc:153
+#: ../../reference/_generated/hub-reasons.inc:122
+#: ../../reference/_generated/hub-reasons.inc:136
+#: ../../reference/_generated/hub-reasons.inc:157
+#: ../../reference/_generated/hub-reasons.inc:164
+#: ../../reference/_generated/hub-reasons.inc:262
 msgid "409"
 msgstr "409"
 
-#: ../../reference/_generated/hub-reasons.inc:75
+#: ../../reference/_generated/hub-reasons.inc:124
 msgid ""
 "The key history conflicts with the one this hub holds for this AID; the "
 "identity has diverged, so retrying will not help."
@@ -1803,11 +1869,11 @@ msgstr ""
 "The key history conflicts with the one this hub holds for this AID; the "
 "identity has diverged, so retrying will not help."
 
-#: ../../reference/_generated/hub-reasons.inc:76
+#: ../../reference/_generated/hub-reasons.inc:127
 msgid "``kel_invalid``"
 msgstr "``kel_invalid``"
 
-#: ../../reference/_generated/hub-reasons.inc:79
+#: ../../reference/_generated/hub-reasons.inc:131
 msgid ""
 "The key history does not verify; send the identity's full, unmodified key"
 " history."
@@ -1815,11 +1881,11 @@ msgstr ""
 "The key history does not verify; send the identity's full, unmodified key"
 " history."
 
-#: ../../reference/_generated/hub-reasons.inc:80
+#: ../../reference/_generated/hub-reasons.inc:134
 msgid "``kel_rollback``"
 msgstr "``kel_rollback``"
 
-#: ../../reference/_generated/hub-reasons.inc:83
+#: ../../reference/_generated/hub-reasons.inc:138
 msgid ""
 "The key history is older than the one this hub holds for this AID; send "
 "the full, current history."
@@ -1827,11 +1893,11 @@ msgstr ""
 "The key history is older than the one this hub holds for this AID; send "
 "the full, current history."
 
-#: ../../reference/_generated/hub-reasons.inc:84
+#: ../../reference/_generated/hub-reasons.inc:141
 msgid "``kel_ts_out_of_window``"
 msgstr "``kel_ts_out_of_window``"
 
-#: ../../reference/_generated/hub-reasons.inc:87
+#: ../../reference/_generated/hub-reasons.inc:145
 msgid ""
 "A new key event's time is too far from this hub's clock; correct the "
 "system clock and sign the event again."
@@ -1839,19 +1905,19 @@ msgstr ""
 "A new key event's time is too far from this hub's clock; correct the "
 "system clock and sign the event again."
 
-#: ../../reference/_generated/hub-reasons.inc:88
+#: ../../reference/_generated/hub-reasons.inc:148
 msgid "``key_retired``"
 msgstr "``key_retired``"
 
-#: ../../reference/_generated/hub-reasons.inc:89
-#: ../../reference/_generated/hub-reasons.inc:145
-#: ../../reference/_generated/hub-reasons.inc:165
-#: ../../reference/_generated/hub-reasons.inc:185
-#: ../../reference/_generated/hub-reasons.inc:189
+#: ../../reference/_generated/hub-reasons.inc:150
+#: ../../reference/_generated/hub-reasons.inc:248
+#: ../../reference/_generated/hub-reasons.inc:283
+#: ../../reference/_generated/hub-reasons.inc:318
+#: ../../reference/_generated/hub-reasons.inc:325
 msgid "401"
 msgstr "401"
 
-#: ../../reference/_generated/hub-reasons.inc:91
+#: ../../reference/_generated/hub-reasons.inc:152
 msgid ""
 "The request is signed with a key the signer has since rotated away from; "
 "sign it again with the current key."
@@ -1859,15 +1925,15 @@ msgstr ""
 "The request is signed with a key the signer has since rotated away from; "
 "sign it again with the current key."
 
-#: ../../reference/_generated/hub-reasons.inc:92
+#: ../../reference/_generated/hub-reasons.inc:155
 msgid "``keys_rollback``"
 msgstr "``keys_rollback``"
 
-#: ../../reference/_generated/hub-reasons.inc:94
+#: ../../reference/_generated/hub-reasons.inc:158
 msgid "``stored_seq``"
 msgstr "``stored_seq``"
 
-#: ../../reference/_generated/hub-reasons.inc:95
+#: ../../reference/_generated/hub-reasons.inc:159
 msgid ""
 "The key set is not newer than the one this hub holds (stored_seq); "
 "publish one with a higher sequence number."
@@ -1875,11 +1941,11 @@ msgstr ""
 "The key set is not newer than the one this hub holds (stored_seq); "
 "publish one with a higher sequence number."
 
-#: ../../reference/_generated/hub-reasons.inc:96
+#: ../../reference/_generated/hub-reasons.inc:162
 msgid "``kid_stale``"
 msgstr "``kid_stale``"
 
-#: ../../reference/_generated/hub-reasons.inc:99
+#: ../../reference/_generated/hub-reasons.inc:166
 msgid ""
 "The envelope is sealed to an encryption key the recipient no longer "
 "publishes; fetch its current keys and seal it again."
@@ -1887,15 +1953,15 @@ msgstr ""
 "The envelope is sealed to an encryption key the recipient no longer "
 "publishes; fetch its current keys and seal it again."
 
-#: ../../reference/_generated/hub-reasons.inc:100
+#: ../../reference/_generated/hub-reasons.inc:169
 msgid "``mailbox_full``"
 msgstr "``mailbox_full``"
 
-#: ../../reference/_generated/hub-reasons.inc:101
+#: ../../reference/_generated/hub-reasons.inc:171
 msgid "507"
 msgstr "507"
 
-#: ../../reference/_generated/hub-reasons.inc:103
+#: ../../reference/_generated/hub-reasons.inc:173
 msgid ""
 "The recipient's mailbox on this hub is full; send again after the seconds"
 " in Retry-After."
@@ -1903,263 +1969,263 @@ msgstr ""
 "The recipient's mailbox on this hub is full; send again after the seconds"
 " in Retry-After."
 
-#: ../../reference/_generated/hub-reasons.inc:104
+#: ../../reference/_generated/hub-reasons.inc:176
 msgid "``not_found``"
 msgstr "``not_found``"
 
-#: ../../reference/_generated/hub-reasons.inc:105
-#: ../../reference/_generated/hub-reasons.inc:121
-#: ../../reference/_generated/hub-reasons.inc:133
-#: ../../reference/_generated/hub-reasons.inc:193
-#: ../../reference/_generated/hub-reasons.inc:197
+#: ../../reference/_generated/hub-reasons.inc:178
+#: ../../reference/_generated/hub-reasons.inc:206
+#: ../../reference/_generated/hub-reasons.inc:227
+#: ../../reference/_generated/hub-reasons.inc:332
+#: ../../reference/_generated/hub-reasons.inc:339
 msgid "404"
 msgstr "404"
 
-#: ../../reference/_generated/hub-reasons.inc:107
-msgid ""
-"This hub has no such route or resource; check the method, the path and "
-"the identifiers in it."
-msgstr ""
-"This hub has no such route or resource; check the method, the path and "
-"the identifiers in it."
-
-#: ../../reference/_generated/hub-reasons.inc:111
-msgid ""
-"This hub does not federate with yours; ask both operators to add each "
-"other as peers."
-msgstr ""
-"This hub does not federate with yours; ask both operators to add each "
-"other as peers."
-
-#: ../../reference/_generated/hub-reasons.inc:112
-msgid "``pow_required``"
-msgstr "``pow_required``"
-
-#: ../../reference/_generated/hub-reasons.inc:114
-msgid "``challenge``"
-msgstr "``challenge``"
-
-#: ../../reference/_generated/hub-reasons.inc:115
-msgid ""
-"Registration here needs a proof of work; solve the challenge in this "
-"response and register again."
-msgstr ""
-"Registration here needs a proof of work; solve the challenge in this "
-"response and register again."
-
-#: ../../reference/_generated/hub-reasons.inc:116
-msgid "``probation``"
-msgstr "``probation``"
-
-#: ../../reference/_generated/hub-reasons.inc:119
-msgid "New accounts cannot upload reviews during probation; retry after it ends."
-msgstr "New accounts cannot upload reviews during probation; retry after it ends."
-
-#: ../../reference/_generated/hub-reasons.inc:123
-msgid ""
-"No balance proof is kept for that period (proofs are kept for 14 days); "
-"fetch a newer period."
-msgstr ""
-"No balance proof is kept for that period (proofs are kept for 14 days); "
-"fetch a newer period."
-
-#: ../../reference/_generated/hub-reasons.inc:124
-msgid "``rate_limited``"
-msgstr "``rate_limited``"
-
-#: ../../reference/_generated/hub-reasons.inc:125
-#: ../../reference/_generated/hub-reasons.inc:137
-#: ../../reference/_generated/hub-reasons.inc:141
-#: ../../reference/_generated/hub-reasons.inc:161
-#: ../../reference/_generated/hub-reasons.inc:169
-#: ../../reference/_generated/hub-reasons.inc:173
-msgid "429"
-msgstr "429"
-
-#: ../../reference/_generated/hub-reasons.inc:127
-msgid ""
-"Too many requests from this sender; send again after the seconds in "
-"Retry-After."
-msgstr ""
-"Too many requests from this sender; send again after the seconds in "
-"Retry-After."
-
-#: ../../reference/_generated/hub-reasons.inc:128
-msgid "``receipt_not_reviewable``"
-msgstr "``receipt_not_reviewable``"
-
-#: ../../reference/_generated/hub-reasons.inc:131
-msgid ""
-"This receipt cannot be used for a review: it carries no review "
-"commitment, or its signatures do not match the review; only tasks started"
-" with anet 0.3.0 can be reviewed."
-msgstr ""
-"This receipt cannot be used for a review: it carries no review "
-"commitment, or its signatures do not match the review; only tasks started"
-" with anet 0.3.0 can be reviewed."
-
-#: ../../reference/_generated/hub-reasons.inc:132
-msgid "``recipient_unknown``"
-msgstr "``recipient_unknown``"
-
-#: ../../reference/_generated/hub-reasons.inc:135
-msgid "No hub this hub can reach knows the recipient; check the recipient's AID."
-msgstr "No hub this hub can reach knows the recipient; check the recipient's AID."
-
-#: ../../reference/_generated/hub-reasons.inc:136
-msgid "``redelivery_limited``"
-msgstr "``redelivery_limited``"
-
-#: ../../reference/_generated/hub-reasons.inc:139
-msgid ""
-"This envelope was queued too often in the last 24 hours; send it again "
-"after the seconds in Retry-After."
-msgstr ""
-"This envelope was queued too often in the last 24 hours; send it again "
-"after the seconds in Retry-After."
-
-#: ../../reference/_generated/hub-reasons.inc:140
-msgid "``registration_quota``"
-msgstr "``registration_quota``"
-
-#: ../../reference/_generated/hub-reasons.inc:143
-msgid ""
-"Today's sign-ups from your network are used up; retry after Retry-After, "
-"or ask the operator to run anet-hub admit <AID>."
-msgstr ""
-"Today's sign-ups from your network are used up; retry after Retry-After, "
-"or ask the operator to run anet-hub admit <AID>."
-
-#: ../../reference/_generated/hub-reasons.inc:144
-msgid "``replayed``"
-msgstr "``replayed``"
-
-#: ../../reference/_generated/hub-reasons.inc:147
-msgid "This signed request was already used; sign a new one."
-msgstr "This signed request was already used; sign a new one."
-
-#: ../../reference/_generated/hub-reasons.inc:148
-msgid "``requester_commit_mismatch``"
-msgstr "``requester_commit_mismatch``"
-
-#: ../../reference/_generated/hub-reasons.inc:151
-msgid ""
-"Only the requester of this interaction can review it; retrying will not "
-"help."
-msgstr ""
-"Only the requester of this interaction can review it; retrying will not "
-"help."
-
-#: ../../reference/_generated/hub-reasons.inc:152
-msgid "``review_exists``"
-msgstr "``review_exists``"
-
-#: ../../reference/_generated/hub-reasons.inc:155
-msgid ""
-"This interaction has already been reviewed; each can be reviewed once, so"
-" retrying will not help."
-msgstr ""
-"This interaction has already been reviewed; each can be reviewed once, so"
-" retrying will not help."
-
-#: ../../reference/_generated/hub-reasons.inc:156
-msgid "``review_window_closed``"
-msgstr "``review_window_closed``"
-
-#: ../../reference/_generated/hub-reasons.inc:159
-msgid ""
-"Reviews are accepted up to 30 days after the interaction ends; this one "
-"can no longer be reviewed."
-msgstr ""
-"Reviews are accepted up to 30 days after the interaction ends; this one "
-"can no longer be reviewed."
-
-#: ../../reference/_generated/hub-reasons.inc:163
-msgid ""
-"This mailbox's revocation list is full; start a new mailbox key epoch, "
-"which empties it, instead of revoking more."
-msgstr ""
-"This mailbox's revocation list is full; start a new mailbox key epoch, "
-"which empties it, instead of revoking more."
-
-#: ../../reference/_generated/hub-reasons.inc:164
-msgid "``session_invalid``"
-msgstr "``session_invalid``"
-
-#: ../../reference/_generated/hub-reasons.inc:167
-msgid ""
-"The sending session is missing, expired or does not verify; open a new "
-"session and send again."
-msgstr ""
-"The sending session is missing, expired or does not verify; open a new "
-"session and send again."
-
-#: ../../reference/_generated/hub-reasons.inc:171
-msgid ""
-"Too many requests from your hub; send again after the seconds in Retry-"
-"After."
-msgstr ""
-"Too many requests from your hub; send again after the seconds in Retry-"
-"After."
-
-#: ../../reference/_generated/hub-reasons.inc:172
-msgid "``strangers_busy``"
-msgstr "``strangers_busy``"
-
-#: ../../reference/_generated/hub-reasons.inc:175
-msgid ""
-"The recipient takes no more messages from senders who are not yet its "
-"contacts right now; send again after the seconds in Retry-After."
-msgstr ""
-"The recipient takes no more messages from senders who are not yet its "
-"contacts right now; send again after the seconds in Retry-After."
-
-#: ../../reference/_generated/hub-reasons.inc:176
-msgid "``too_large``"
-msgstr "``too_large``"
-
-#: ../../reference/_generated/hub-reasons.inc:177
-#: ../../reference/_generated/hub-reasons.inc:181
-msgid "413"
-msgstr "413"
-
-#: ../../reference/_generated/hub-reasons.inc:179
-msgid "The request body is larger than this route accepts; send a smaller one."
-msgstr "The request body is larger than this route accepts; send a smaller one."
-
 #: ../../reference/_generated/hub-reasons.inc:180
-msgid "``too_large_for_stranger``"
-msgstr "``too_large_for_stranger``"
-
-#: ../../reference/_generated/hub-reasons.inc:183
 msgid ""
-"The envelope is larger than the recipient accepts from senders who are "
-"not yet its contacts; send a smaller one."
+"This hub has no such route or resource; check the method, the path and "
+"the identifiers in it."
 msgstr ""
-"The envelope is larger than the recipient accepts from senders who are "
-"not yet its contacts; send a smaller one."
-
-#: ../../reference/_generated/hub-reasons.inc:184
-msgid "``ts_stale``"
-msgstr "``ts_stale``"
-
-#: ../../reference/_generated/hub-reasons.inc:186
-msgid "``floor``"
-msgstr "``floor``"
+"This hub has no such route or resource; check the method, the path and "
+"the identifiers in it."
 
 #: ../../reference/_generated/hub-reasons.inc:187
 msgid ""
+"This hub does not federate with yours; ask both operators to add each "
+"other as peers."
+msgstr ""
+"This hub does not federate with yours; ask both operators to add each "
+"other as peers."
+
+#: ../../reference/_generated/hub-reasons.inc:190
+msgid "``pow_required``"
+msgstr "``pow_required``"
+
+#: ../../reference/_generated/hub-reasons.inc:193
+msgid "``challenge``"
+msgstr "``challenge``"
+
+#: ../../reference/_generated/hub-reasons.inc:194
+msgid ""
+"Registration here needs a proof of work; solve the challenge in this "
+"response and register again."
+msgstr ""
+"Registration here needs a proof of work; solve the challenge in this "
+"response and register again."
+
+#: ../../reference/_generated/hub-reasons.inc:197
+msgid "``probation``"
+msgstr "``probation``"
+
+#: ../../reference/_generated/hub-reasons.inc:201
+msgid "New accounts cannot upload reviews during probation; retry after it ends."
+msgstr "New accounts cannot upload reviews during probation; retry after it ends."
+
+#: ../../reference/_generated/hub-reasons.inc:208
+msgid ""
+"No balance proof is kept for that period (proofs are kept for 14 days); "
+"fetch a newer period."
+msgstr ""
+"No balance proof is kept for that period (proofs are kept for 14 days); "
+"fetch a newer period."
+
+#: ../../reference/_generated/hub-reasons.inc:211
+msgid "``rate_limited``"
+msgstr "``rate_limited``"
+
+#: ../../reference/_generated/hub-reasons.inc:213
+#: ../../reference/_generated/hub-reasons.inc:234
+#: ../../reference/_generated/hub-reasons.inc:241
+#: ../../reference/_generated/hub-reasons.inc:276
+#: ../../reference/_generated/hub-reasons.inc:290
+#: ../../reference/_generated/hub-reasons.inc:297
+msgid "429"
+msgstr "429"
+
+#: ../../reference/_generated/hub-reasons.inc:215
+msgid ""
+"Too many requests from this sender; send again after the seconds in "
+"Retry-After."
+msgstr ""
+"Too many requests from this sender; send again after the seconds in "
+"Retry-After."
+
+#: ../../reference/_generated/hub-reasons.inc:218
+msgid "``receipt_not_reviewable``"
+msgstr "``receipt_not_reviewable``"
+
+#: ../../reference/_generated/hub-reasons.inc:222
+msgid ""
+"This receipt cannot be used for a review: it carries no review "
+"commitment, or its signatures do not match the review; only tasks started"
+" with anet 0.3.0 can be reviewed."
+msgstr ""
+"This receipt cannot be used for a review: it carries no review "
+"commitment, or its signatures do not match the review; only tasks started"
+" with anet 0.3.0 can be reviewed."
+
+#: ../../reference/_generated/hub-reasons.inc:225
+msgid "``recipient_unknown``"
+msgstr "``recipient_unknown``"
+
+#: ../../reference/_generated/hub-reasons.inc:229
+msgid "No hub this hub can reach knows the recipient; check the recipient's AID."
+msgstr "No hub this hub can reach knows the recipient; check the recipient's AID."
+
+#: ../../reference/_generated/hub-reasons.inc:232
+msgid "``redelivery_limited``"
+msgstr "``redelivery_limited``"
+
+#: ../../reference/_generated/hub-reasons.inc:236
+msgid ""
+"This envelope was queued too often in the last 24 hours; send it again "
+"after the seconds in Retry-After."
+msgstr ""
+"This envelope was queued too often in the last 24 hours; send it again "
+"after the seconds in Retry-After."
+
+#: ../../reference/_generated/hub-reasons.inc:239
+msgid "``registration_quota``"
+msgstr "``registration_quota``"
+
+#: ../../reference/_generated/hub-reasons.inc:243
+msgid ""
+"Today's sign-ups from your network are used up; retry after Retry-After, "
+"or ask the operator to run anet-hub admit <AID>."
+msgstr ""
+"Today's sign-ups from your network are used up; retry after Retry-After, "
+"or ask the operator to run anet-hub admit <AID>."
+
+#: ../../reference/_generated/hub-reasons.inc:246
+msgid "``replayed``"
+msgstr "``replayed``"
+
+#: ../../reference/_generated/hub-reasons.inc:250
+msgid "This signed request was already used; sign a new one."
+msgstr "This signed request was already used; sign a new one."
+
+#: ../../reference/_generated/hub-reasons.inc:253
+msgid "``requester_commit_mismatch``"
+msgstr "``requester_commit_mismatch``"
+
+#: ../../reference/_generated/hub-reasons.inc:257
+msgid ""
+"Only the requester of this interaction can review it; retrying will not "
+"help."
+msgstr ""
+"Only the requester of this interaction can review it; retrying will not "
+"help."
+
+#: ../../reference/_generated/hub-reasons.inc:260
+msgid "``review_exists``"
+msgstr "``review_exists``"
+
+#: ../../reference/_generated/hub-reasons.inc:264
+msgid ""
+"This interaction has already been reviewed; each can be reviewed once, so"
+" retrying will not help."
+msgstr ""
+"This interaction has already been reviewed; each can be reviewed once, so"
+" retrying will not help."
+
+#: ../../reference/_generated/hub-reasons.inc:267
+msgid "``review_window_closed``"
+msgstr "``review_window_closed``"
+
+#: ../../reference/_generated/hub-reasons.inc:271
+msgid ""
+"Reviews are accepted up to 30 days after the interaction ends; this one "
+"can no longer be reviewed."
+msgstr ""
+"Reviews are accepted up to 30 days after the interaction ends; this one "
+"can no longer be reviewed."
+
+#: ../../reference/_generated/hub-reasons.inc:278
+msgid ""
+"This mailbox's revocation list is full; start a new mailbox key epoch, "
+"which empties it, instead of revoking more."
+msgstr ""
+"This mailbox's revocation list is full; start a new mailbox key epoch, "
+"which empties it, instead of revoking more."
+
+#: ../../reference/_generated/hub-reasons.inc:281
+msgid "``session_invalid``"
+msgstr "``session_invalid``"
+
+#: ../../reference/_generated/hub-reasons.inc:285
+msgid ""
+"The sending session is missing, expired or does not verify; open a new "
+"session and send again."
+msgstr ""
+"The sending session is missing, expired or does not verify; open a new "
+"session and send again."
+
+#: ../../reference/_generated/hub-reasons.inc:292
+msgid ""
+"Too many requests from your hub; send again after the seconds in Retry-"
+"After."
+msgstr ""
+"Too many requests from your hub; send again after the seconds in Retry-"
+"After."
+
+#: ../../reference/_generated/hub-reasons.inc:295
+msgid "``strangers_busy``"
+msgstr "``strangers_busy``"
+
+#: ../../reference/_generated/hub-reasons.inc:299
+msgid ""
+"The recipient takes no more messages from senders who are not yet its "
+"contacts right now; send again after the seconds in Retry-After."
+msgstr ""
+"The recipient takes no more messages from senders who are not yet its "
+"contacts right now; send again after the seconds in Retry-After."
+
+#: ../../reference/_generated/hub-reasons.inc:302
+msgid "``too_large``"
+msgstr "``too_large``"
+
+#: ../../reference/_generated/hub-reasons.inc:304
+#: ../../reference/_generated/hub-reasons.inc:311
+msgid "413"
+msgstr "413"
+
+#: ../../reference/_generated/hub-reasons.inc:306
+msgid "The request body is larger than this route accepts; send a smaller one."
+msgstr "The request body is larger than this route accepts; send a smaller one."
+
+#: ../../reference/_generated/hub-reasons.inc:309
+msgid "``too_large_for_stranger``"
+msgstr "``too_large_for_stranger``"
+
+#: ../../reference/_generated/hub-reasons.inc:313
+msgid ""
+"The envelope is larger than the recipient accepts from senders who are "
+"not yet its contacts; send a smaller one."
+msgstr ""
+"The envelope is larger than the recipient accepts from senders who are "
+"not yet its contacts; send a smaller one."
+
+#: ../../reference/_generated/hub-reasons.inc:316
+msgid "``ts_stale``"
+msgstr "``ts_stale``"
+
+#: ../../reference/_generated/hub-reasons.inc:319
+msgid "``floor``"
+msgstr "``floor``"
+
+#: ../../reference/_generated/hub-reasons.inc:320
+msgid ""
 "The signing time is not after this hub's record for this signer; sign "
 "again with a later time (see X-ANet-TS-Floor)."
 msgstr ""
 "The signing time is not after this hub's record for this signer; sign "
 "again with a later time (see X-ANet-TS-Floor)."
 
-#: ../../reference/_generated/hub-reasons.inc:188
+#: ../../reference/_generated/hub-reasons.inc:323
 msgid "``unauthorized``"
 msgstr "``unauthorized``"
 
-#: ../../reference/_generated/hub-reasons.inc:191
+#: ../../reference/_generated/hub-reasons.inc:327
 msgid ""
 "The request's signature does not verify against what this hub holds for "
 "the signer; sign it again with the current key."
@@ -2167,7 +2233,7 @@ msgstr ""
 "The request's signature does not verify against what this hub holds for "
 "the signer; sign it again with the current key."
 
-#: ../../reference/_generated/hub-reasons.inc:195
+#: ../../reference/_generated/hub-reasons.inc:334
 msgid ""
 "This hub knows no agent with this AID; check the AID, or register it "
 "first."
@@ -2175,11 +2241,11 @@ msgstr ""
 "This hub knows no agent with this AID; check the AID, or register it "
 "first."
 
-#: ../../reference/_generated/hub-reasons.inc:196
+#: ../../reference/_generated/hub-reasons.inc:337
 msgid "``unknown_destination``"
 msgstr "``unknown_destination``"
 
-#: ../../reference/_generated/hub-reasons.inc:199
+#: ../../reference/_generated/hub-reasons.inc:341
 msgid ""
 "No agent with this AID is registered on this hub; check the destination "
 "before forwarding again."
@@ -2187,11 +2253,11 @@ msgstr ""
 "No agent with this AID is registered on this hub; check the destination "
 "before forwarding again."
 
-#: ../../reference/_generated/hub-reasons.inc:200
+#: ../../reference/_generated/hub-reasons.inc:344
 msgid "``wire_too_new``"
 msgstr "``wire_too_new``"
 
-#: ../../reference/_generated/hub-reasons.inc:203
+#: ../../reference/_generated/hub-reasons.inc:348
 msgid ""
 "This hub speaks hub wire 3, older than the caller's; ask the hub's "
 "operator to upgrade the hub, or use another hub."
@@ -2199,19 +2265,19 @@ msgstr ""
 "This hub speaks hub wire 3, older than the caller's; ask the hub's "
 "operator to upgrade the hub, or use another hub."
 
-#: ../../reference/_generated/hub-reasons.inc:204
+#: ../../reference/_generated/hub-reasons.inc:351
 msgid "``wire_too_old``"
 msgstr "``wire_too_old``"
 
-#: ../../reference/_generated/hub-reasons.inc:205
+#: ../../reference/_generated/hub-reasons.inc:353
 msgid "426"
 msgstr "426"
 
-#: ../../reference/_generated/hub-reasons.inc:206
+#: ../../reference/_generated/hub-reasons.inc:354
 msgid "``required_wire`` ``required_anet``"
 msgstr "``required_wire`` ``required_anet``"
 
-#: ../../reference/_generated/hub-reasons.inc:207
+#: ../../reference/_generated/hub-reasons.inc:355
 msgid ""
 "This hub speaks hub wire 3 and needs anet 0.3.0 or later; update anet "
 "(anet update) and send again."
@@ -2219,11 +2285,11 @@ msgstr ""
 "This hub speaks hub wire 3 and needs anet 0.3.0 or later; update anet "
 "(anet update) and send again."
 
-#: ../../reference/_generated/hub-reasons.inc:208
+#: ../../reference/_generated/hub-reasons.inc:358
 msgid "``witness_not_this_hub``"
 msgstr "``witness_not_this_hub``"
 
-#: ../../reference/_generated/hub-reasons.inc:211
+#: ../../reference/_generated/hub-reasons.inc:362
 msgid ""
 "The latest event in the key history does not name this hub as its "
 "witness; add a rotation that names this hub, then register again."
@@ -2231,11 +2297,21 @@ msgstr ""
 "The latest event in the key history does not name this hub as its "
 "witness; add a rotation that names this hub, then register again."
 
-#: ../../reference/hub-api.rst:337
+#: ../../reference/_generated/hub-reasons.inc:367
+msgid "Retired hub codes"
+msgstr "已停用的 hub 代码"
+
+#: ../../reference/_generated/hub-reasons.inc:369
+msgid ""
+"No hub code has been retired. A retired code stays on this list, with the"
+" version that retired it, and is never used again."
+msgstr "没有 hub 代码被停用。已停用的代码会保留在此列表中，并注明停用它的版本，且不会再被使用。"
+
+#: ../../reference/hub-api.rst:341
 msgid "Removed routes"
 msgstr "已移除的路由"
 
-#: ../../reference/hub-api.rst:339
+#: ../../reference/hub-api.rst:343
 msgid ""
 "The following routes and members of 0.2 are not part of wire 3. A request"
 " to a removed route is answered with 404 ``not_found`` unless stated "
@@ -2309,4 +2385,11 @@ msgstr ""
 #~ "Counters of the hub: agents, federated"
 #~ " agents, completed tasks, reviews."
 #~ msgstr "hub 的计数：agent、联邦 agent、已完成的任务、评价。"
+
+#~ msgid ""
+#~ "Every code that a hub returns, "
+#~ "with its HTTP status. The sentence "
+#~ "is the default; a route may state"
+#~ " a more specific one."
+#~ msgstr "hub 返回的每个原因码及其 HTTP 状态。语句为默认语句；路由可以给出更具体的语句。"
 

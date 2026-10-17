@@ -8,6 +8,33 @@ Release notes
    :depth: 2
 
 
+.. _news-0.3.3:
+
+ANet 0.3.3
+----------
+
+ANet 0.3.3 is a patch release. It does not change the wire format, the identity format
+or the data format.
+
+Reason codes
+~~~~~~~~~~~~
+
+* Reason codes are now managed as a stable interface. The register
+  ``internal/a2ashape/codes.txt`` lists every code that ``anet`` has published, with the
+  version that first emitted it, and a test holds it against the reason table. The
+  rules are on the page :doc:`reference/reason-codes`, in the section
+  :ref:`reason-codes-lifecycle`: the meaning of a code never changes, and a code is never
+  renamed or reused. The hub has the same register for its own codes.
+* The tables of :doc:`reference/reason-codes` and of :ref:`hub-api-codes` have a *Since*
+  column, every code has an anchor, and a table lists the retired codes. No code is
+  retired in this release.
+* The command line and the MCP tools show the code after the sentence of a refusal, for
+  example ``... send it again in 2 minutes. [busy]``. A refusal that the hub returned with
+  a code of its own shows ``[hub_refused:<hub code>]``. The JSON output is unchanged.
+* The commands ``anet agents wire``, ``anet agents unwire`` and ``anet agents`` add 22 codes
+  with the prefix ``wire_``, for example ``wire_json_invalid`` and ``wire_conflict``.
+
+
 .. _news-0.3.2:
 
 ANet 0.3.2

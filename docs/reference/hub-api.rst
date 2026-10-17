@@ -327,8 +327,12 @@ every hub that takes part in it (see :doc:`security`).
 Codes
 -----
 
-Every code that a hub returns, with its HTTP status. The sentence is the default; a
-route may state a more specific one.
+Every code that a hub returns, with the first version of the hub that returned it
+and its HTTP status. The sentence is the default; a route may state a more specific
+one. A hub code is a stable interface under the same rules as a node code (see
+:ref:`reason-codes-lifecycle`): its meaning never changes, and it is never renamed or
+reused. A node reports a refusal of the hub as ``hub_refused`` with the hub code,
+``[hub_refused:<hub code>]``.
 
 .. include:: _generated/hub-reasons.inc
 

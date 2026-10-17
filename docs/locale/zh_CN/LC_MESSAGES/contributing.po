@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ANet 0.3\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-16 14:35+0000\n"
+"POT-Creation-Date: 2026-10-17 18:43+0000\n"
 "PO-Revision-Date: 2026-10-16 05:00+0000\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: zh_CN\n"
@@ -16,7 +16,7 @@ msgstr ""
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"Generated-By: Babel 2.10.3\n"
+"Generated-By: Babel 2.18.0\n"
 
 #: ../../contributing.rst:4
 msgid "Contributing"
@@ -149,8 +149,7 @@ msgstr ""
 " 运行以机器环境为前提的测试（非 root 用户、参考 A2A SDK、不含某项功能的构建），其中的跳过同样算失败。macOS "
 "与第二个账户（``peercred``）的作业覆盖其他平台。"
 
-#: ../../contributing.rst:80
-#: ../../contributing.rst:106
+#: ../../contributing.rst:80 ../../contributing.rst:131
 msgid "Style"
 msgstr "风格"
 
@@ -172,10 +171,79 @@ msgid "Sentences are written in the style described in the next section."
 msgstr "语句按下一节所述的风格撰写。"
 
 #: ../../contributing.rst:89
+msgid "Adding or retiring a reason code"
+msgstr "增加或停用原因码"
+
+#: ../../contributing.rst:91
+msgid ""
+"A reason code is a stable interface (see :ref:`reason-codes-lifecycle`). "
+"It is added and retired deliberately, in one commit that holds the code, "
+"the register and the documentation."
+msgstr ""
+"原因码是稳定的接口（见 :ref:`reason-codes-"
+"lifecycle`）。增加和停用都必须是有意的操作，并且在同一个提交中同时包含代码、登记表和文档。"
+
+#: ../../contributing.rst:94
+msgid "To add a code:"
+msgstr "增加代码的步骤："
+
+#: ../../contributing.rst:96
+msgid ""
+"Add the row to the reason table in ``internal/a2ashape/reasons.go``, with"
+" both templates and the next step, and add the code to the registry of "
+"user reasons in ANetCore if the wire registry requires it."
+msgstr ""
+"在 ``internal/a2ashape/reasons.go`` "
+"的原因表中增加该行，包含两种语言的模板和下一步；如果线路登记表要求，还需把该代码加入 ANetCore 的用户原因登记表。"
+
+#: ../../contributing.rst:98
+msgid ""
+"Add one line to ``internal/a2ashape/codes.txt``, in sorted place, with "
+"the version being prepared as *since* and the status ``active``. The "
+"failure of ``TestCodeRegisterMatchesTheTable`` prints the exact line when"
+" it is missing."
+msgstr ""
+"在 ``internal/a2ashape/codes.txt`` 中按排序位置增加一行，*since* 填写正在准备的版本，状态为 "
+"``active``。登记表缺少该行时，``TestCodeRegisterMatchesTheTable`` 的失败信息会给出应添加的完整一行。"
+
+#: ../../contributing.rst:101
+msgid ""
+"Regenerate the reference with ``docs/_tools/gen_reason_codes.py`` and add"
+" the Chinese entries of the new sentences to the catalog of ``reference"
+"/reason-codes``."
+msgstr ""
+"用 ``docs/_tools/gen_reason_codes.py`` 重新生成参考页，并把新句子的中文条目加入 ``reference"
+"/reason-codes`` 的目录文件。"
+
+#: ../../contributing.rst:103
+msgid "Name the code in the entry of the release in ``docs/news.rst``."
+msgstr "在 ``docs/news.rst`` 对应版本的条目中写明该代码。"
+
+#: ../../contributing.rst:105
+msgid ""
+"To retire a code, remove its row, change its line in ``codes.txt`` to "
+"``retired`` with the retiring version and, if there is one, the "
+"replacement code, and regenerate the reference. Never delete the line and"
+" never give the name to another event. A hub reason code follows the same"
+" steps in ``internal/wire3/reasons.go`` and ``internal/wire3/codes.txt`` "
+"of ANetHub, and ``docs/_tools/gen_hub_reasons.py``. A name that is a code"
+" of both the hub and the node must be listed as mirrored in "
+"``docs/_tools/check_code_collisions.py``, which ``docs/_tools/build-"
+"site.sh`` runs."
+msgstr ""
+"停用代码时，删除其行，把 ``codes.txt`` 中该代码的行改为 "
+"``retired``，填写停用的版本以及（如有）替代代码，然后重新生成参考页。不得删除该行，也不得把该名称用于其他事件。hub "
+"原因码按同样的步骤处理，涉及 ANetHub 的 ``internal/wire3/reasons.go`` 和 "
+"``internal/wire3/codes.txt``，以及 "
+"``docs/_tools/gen_hub_reasons.py``。若某个名称同时是 hub 和节点的代码，必须在 "
+"``docs/_tools/check_code_collisions.py`` 中列为有意镜像，``docs/_tools/build-"
+"site.sh`` 会运行该检查。"
+
+#: ../../contributing.rst:114
 msgid "Documentation"
 msgstr "文档"
 
-#: ../../contributing.rst:91
+#: ../../contributing.rst:116
 msgid ""
 "The documentation is written in reStructuredText with Sphinx and the Read"
 " the Docs theme. English is the source language; Chinese is translated "
@@ -184,7 +252,7 @@ msgstr ""
 "文档以 reStructuredText 编写，使用 Sphinx 和 Read the Docs 主题。英文为源语言，中文通过 "
 "``sphinx-intl`` 基于 gettext 目录翻译。"
 
-#: ../../contributing.rst:100
+#: ../../contributing.rst:125
 msgid ""
 "The build runs with ``-W --keep-going``, so every warning fails it. A "
 "page that adds a command, a configuration key or a code must give its "
@@ -197,7 +265,7 @@ msgstr ""
 "运行，因此任何警告都会导致构建失败。新增命令、配置键或代码的页面，必须在代码或规范中给出其依据。参考部分的页面在程序源码持有数据之处生成：命令索引、原因码、Hub"
 " 代码和线路表（脚本位于 ``docs/_tools``）。"
 
-#: ../../contributing.rst:108
+#: ../../contributing.rst:133
 msgid ""
 "Write in a formal, restrained register. Use noun phrases as headings and "
 "complete declarative sentences as explanations. Do not use colloquial "
@@ -205,56 +273,56 @@ msgid ""
 "personify the software."
 msgstr "采用正式、克制的语体。标题使用名词短语，说明使用完整的陈述句。不使用口语、感叹号、反问句或表情符号，不将软件拟人化。"
 
-#: ../../contributing.rst:111
+#: ../../contributing.rst:136
 msgid ""
 "Do not address the reader directly in descriptions. Use roles such as "
 "operator, caller and node. An imperative is acceptable for a step in a "
 "procedure."
 msgstr "描述中不直接称呼读者，使用运维者、调用方和节点等角色。操作步骤可以使用祈使句。"
 
-#: ../../contributing.rst:113
+#: ../../contributing.rst:138
 msgid ""
 "Use the terms of the :ref:`glossary <reference-glossary>`, and introduce "
 "a term at its first use."
 msgstr "使用 :ref:`术语表 <reference-glossary>` 中的术语，并在首次使用时给出定义。"
 
-#: ../../contributing.rst:114
+#: ../../contributing.rst:139
 msgid "Write times in UTC and in ISO 8601, and amounts with the unit credits."
 msgstr "时间使用 UTC 和 ISO 8601 格式书写，金额带单位“额度”。"
 
-#: ../../contributing.rst:115
+#: ../../contributing.rst:140
 msgid ""
 "Use ``hub.example.com`` for hosts and an obviously fictitious value for "
 "an AID. Do not publish keys, tokens or the names of internal hosts."
 msgstr "主机使用 ``hub.example.com``，AID 使用明显虚构的值。不得公布密钥、令牌或内部主机名。"
 
-#: ../../contributing.rst:117
+#: ../../contributing.rst:142
 msgid ""
 "Examples are complete and runnable. Mark commands with ``.. code-block:: "
 "console`` and structured data with ``json``."
 msgstr "示例应完整且可运行。命令以 ``.. code-block:: console`` 标注，结构化数据以 ``json`` 标注。"
 
-#: ../../contributing.rst:119
+#: ../../contributing.rst:144
 msgid "Cross-reference with ``:ref:`` and ``:doc:``."
 msgstr "交叉引用使用 ``:ref:`` 与 ``:doc:``\\ 。"
 
-#: ../../contributing.rst:122
+#: ../../contributing.rst:147
 msgid "Translation"
 msgstr "翻译"
 
-#: ../../contributing.rst:124
+#: ../../contributing.rst:149
 msgid ""
 "The Chinese text is written to read naturally and not word for word, in "
 "the same register. Extract and update the catalogs with:"
 msgstr "中文译文按通顺自然的原则撰写，不逐字对译，语体保持一致。提取和更新目录的命令如下："
 
-#: ../../contributing.rst:132
+#: ../../contributing.rst:157
 msgid ""
 "Terms follow the glossary. Command lines, configuration keys, codes and "
 "paths are not translated."
 msgstr "术语遵循术语表。命令行、配置键、代码和路径不翻译。"
 
-#: ../../contributing.rst:134
+#: ../../contributing.rst:159
 msgid ""
 "In Chinese text, inline markup that touches a Chinese character needs an "
 "escaped space (a backslash and a space) before or after it, because "
@@ -265,11 +333,11 @@ msgstr ""
 "在中文文本中，紧邻汉字的行内标记前后需要加转义空格（反斜杠加空格），否则 docutils 无法识别标记的起止。每次执行 ``sphinx-"
 "intl update`` 之后，运行设置这些转义的脚本："
 
-#: ../../contributing.rst:144
+#: ../../contributing.rst:169
 msgid "Licensing of contributions"
 msgstr "贡献的许可"
 
-#: ../../contributing.rst:146
+#: ../../contributing.rst:171
 msgid ""
 "ANet is released under the ANet Open Source License (see :doc:`license`)."
 " By submitting a contribution, the contributor agrees that it is provided"
@@ -285,11 +353,11 @@ msgstr ""
 "可以调整许可证，可以将贡献用于商业用途（包括其托管 Hub 和云运营），并可以仅依据 Apache License 2.0 将其提交给 A2A "
 "项目。对 ``docs/a2a/`` 中 A2A 规范材料的贡献依据 Apache License 2.0 许可。"
 
-#: ../../contributing.rst:154
+#: ../../contributing.rst:179
 msgid "Security reports"
 msgstr "安全报告"
 
-#: ../../contributing.rst:156
+#: ../../contributing.rst:181
 msgid ""
 "Report a suspected vulnerability by email to ``hi@anet0.com`` with the "
 "subject ``[SECURITY]``."

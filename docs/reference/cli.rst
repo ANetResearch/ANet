@@ -89,8 +89,11 @@ step, a last line begins with an arrow and holds the command to run:
    delivery: Sent; waiting for the other side's node to confirm it. ...
 
 When the control plane refuses a request, the command prints only the ``error``
-sentence and, if present, the ``next`` line, both on standard error, and exits
-with status 1. It does not print the JSON body.
+sentence, followed by its reason code in brackets, and, if present, the ``next``
+line, both on standard error, and exits with status 1. It does not print the JSON
+body. For example, ``... send it again in 2 minutes. [busy]``. A refusal that the
+hub returned with a code of its own shows ``[hub_refused:<hub code>]``. See
+:ref:`reason-codes-shown`.
 
 Language
 ~~~~~~~~

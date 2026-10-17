@@ -85,6 +85,31 @@ Style
 * Sentences are written in the style described in the next section.
 
 
+Adding or retiring a reason code
+--------------------------------
+
+A reason code is a stable interface (see :ref:`reason-codes-lifecycle`). It is added and retired
+deliberately, in one commit that holds the code, the register and the documentation.
+
+To add a code:
+
+#. Add the row to the reason table in ``internal/a2ashape/reasons.go``, with both templates and the next
+   step, and add the code to the registry of user reasons in ANetCore if the wire registry requires it.
+#. Add one line to ``internal/a2ashape/codes.txt``, in sorted place, with the version being prepared as
+   *since* and the status ``active``. The failure of ``TestCodeRegisterMatchesTheTable`` prints the exact
+   line when it is missing.
+#. Regenerate the reference with ``docs/_tools/gen_reason_codes.py`` and add the Chinese entries of the new
+   sentences to the catalog of ``reference/reason-codes``.
+#. Name the code in the entry of the release in ``docs/news.rst``.
+
+To retire a code, remove its row, change its line in ``codes.txt`` to ``retired`` with the retiring version
+and, if there is one, the replacement code, and regenerate the reference. Never delete the line and never
+give the name to another event. A hub reason code follows the same steps in ``internal/wire3/reasons.go`` and
+``internal/wire3/codes.txt`` of ANetHub, and ``docs/_tools/gen_hub_reasons.py``. A name that is a code of both
+the hub and the node must be listed as mirrored in ``docs/_tools/check_code_collisions.py``, which
+``docs/_tools/build-site.sh`` runs.
+
+
 Documentation
 -------------
 
