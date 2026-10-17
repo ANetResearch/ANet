@@ -27,8 +27,12 @@ msgstr "ANet 0.3.1"
 
 msgid ""
 "ANet 0.3.1 is a patch release. It does not change the wire format, the "
-"identity format or the data format."
-msgstr "ANet 0.3.1 是补丁版本，不改变线路格式、身份格式和数据格式。"
+"identity format or the data format. It consists of ``anet`` 0.3.1 and "
+"ANetHub 0.3.1; ANetCore v0.16.0 and ANetLink v0.2.0 are unchanged. A "
+"0.3.0 node and a 0.3.1 hub work together, and the reverse."
+msgstr ""
+"ANet 0.3.1 是补丁版本，不改变线路格式、身份格式和数据格式。它由 ``anet`` 0.3.1 与 ANetHub 0.3.1 组成；"
+"ANetCore v0.16.0 与 ANetLink v0.2.0 未变更。0.3.0 的节点可与 0.3.1 的 Hub 协同工作，反之亦然。"
 
 msgid "macOS sandbox"
 msgstr "macOS 沙箱"
@@ -60,6 +64,84 @@ msgid ""
 "The ``claude`` agent keeps its scratch files in the temporary directory "
 "of the run."
 msgstr "``claude`` Agent 将其临时文件保存在本次运行的临时目录中。"
+
+msgid "Federation and directory"
+msgstr "联邦与目录"
+
+msgid ""
+"A first lookup of a recipient that joined another hub shortly before no "
+"longer fails with ``recipient_unknown``. An empty answer from the cache "
+"of the hub is followed by one query that bypasses the cache; hubs that do"
+" not know the header ignore it."
+msgstr ""
+"对不久前加入另一个 Hub 的接收方进行首次查找时，不再以 ``recipient_unknown`` 失败。"
+"Hub 缓存给出空答复后，随即进行一次绕过缓存的查询；不识别该请求头的 Hub 会忽略它。"
+
+msgid ""
+"A receipt of a payment that another hub signed for its own ledger is "
+"verified under the key history of that hub. A receipt whose signer is "
+"unknown or does not match is refused."
+msgstr "另一个 Hub 为其自身账本签发的支付回执，按该 Hub 的密钥历史验证。签发方未知或不匹配的回执将被拒绝。"
+
+msgid "Node behaviour"
+msgstr "节点行为"
+
+msgid ""
+"The wait between attempts to join a hub grows to one minute at most. "
+"While a node waits for admission, the hub line of ``anet status`` states "
+"when the next attempt is made."
+msgstr "加入 Hub 的两次尝试之间的等待时间最长增长到一分钟。节点等待准入期间，``anet status`` 的 Hub 行会标明下一次尝试的时间。"
+
+msgid "``anet status`` no longer reports a deactivated identity as registered."
+msgstr "``anet status`` 不再将已停用的身份报告为已注册。"
+
+msgid ""
+"The local A2A interface waits, for up to five minutes, for its recorded "
+"port when only an outgoing connection holds it, and then starts on that "
+"port."
+msgstr "当其记录的端口仅被某个出站连接占用时，本地 A2A 接口最多等待五分钟，随后在该端口上启动。"
+
+msgid ""
+"``--max-auto-replies`` and ``--poll-interval`` are refused with "
+"``cli_removed`` and the replacement sentence, instead of ``unknown "
+"flag``."
+msgstr "``--max-auto-replies`` 与 ``--poll-interval`` 现以 ``cli_removed`` 及替代说明被拒绝，而不再提示 ``unknown flag``。"
+
+msgid ""
+"The help text of ``anet agents wire`` lists only the tools that the "
+"command supports."
+msgstr "``anet agents wire`` 的帮助文本只列出该命令支持的工具。"
+
+msgid ""
+"The sentences of the reason table name the node or the hub instead of "
+"addressing the reader. The Chinese module sentences separate the Latin "
+"module name from the noun."
+msgstr "原因表中的语句改为以节点或 Hub 为主语，不再称呼读者。中文模块语句在拉丁文模块名与名词之间加入空格。"
+
+msgid "ANetHub"
+msgstr "ANetHub"
+
+msgid ""
+"``anet-hub admission`` sets the admission mode before the first start "
+"(``--init``)."
+msgstr "``anet-hub admission`` 可在首次启动之前设置准入模式（``--init``）。"
+
+msgid "The hub applies the cross-hub lookup change described above."
+msgstr "Hub 应用上文所述的跨 Hub 查找变更。"
+
+msgid "Documentation and verification"
+msgstr "文档与验证"
+
+msgid ""
+"The upgrade guide states that ``auto_reply.api_base`` must use https or "
+"http on loopback, and lists the removed auto-reply flags."
+msgstr "升级指南说明 ``auto_reply.api_base`` 必须使用 https 或回环地址上的 http，并列出已移除的自动回复参数。"
+
+msgid ""
+"The scenario, fleet and joint-shell test runs follow the 0.3 flow and "
+"gate the continuous integration. The module tests that 0.3.0 held back "
+"run by default."
+msgstr "场景、集群和联合 shell 测试按 0.3 流程运行，并作为持续集成的阻塞项。0.3.0 中暂缓的模块测试现默认运行。"
 
 #: ../../news.rst:14
 msgid "ANet 0.3.0"
