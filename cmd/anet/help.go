@@ -113,7 +113,7 @@ func helpSections() []helpSection {
 			{"verify --attestation <b64> --hub <url>", "核验见证方对 hub 链头的陈述", "check a witness's statement about a hub's chain head", false},
 		}},
 		{"接入工具", "Tools", []helpEntry{
-			{"agents wire [--all|<tool>…] [--refresh] [--a2a <aid>…]", "把 anet 的 MCP 工具与用法写进编码 agent（" + agents + "；改动的文件先备份）", "give your coding agents anet's MCP tools and guide (" + agents + "; every file it edits is backed up)", true},
+			{"agents wire [--all|<tool>…] [--refresh] [--a2a <aid>…]", "把 anet 的 MCP 工具与用法写进编码 agent（" + wireAgentChoices + "；改动的文件先备份）", "give your coding agents anet's MCP tools and guide (" + wireAgentChoices + "; every file it edits is backed up)", true},
 			{"agents unwire [--all|<tool>…] [--a2a <aid>…]", "撤销 wire 写入的内容", "remove what wire added", false},
 			{"agents", "哪些编码 agent 已接入", "which coding agents are wired", false},
 			{"mcp", "经 stdio 提供 MCP 服务（由 anet agents wire 登记）", "serve MCP over stdio (anet agents wire registers it)", false},
