@@ -3,209 +3,369 @@
 
 .. list-table::
    :header-rows: 1
-   :widths: 22 8 16 54
+   :widths: 21 8 8 16 47
 
    * - Code
+     - Since
      - Status
      - Extra members
      - Default sentence
-   * - ``access_invalid``
+   * - .. _hub-reason-access-invalid:
+
+       ``access_invalid``
+     - 0.3.0
      - 403
      - 
      - The delivery credential in X-ANet-Access was not accepted; use a current one from the recipient, or send without one.
-   * - ``admission_required``
+   * - .. _hub-reason-admission-required:
+
+       ``admission_required``
+     - 0.3.0
      - 403
      - ``aid`` 
      - This hub admits AIDs one by one; ask its operator to run: anet-hub admit <AID>.
-   * - ``aid_deactivated``
+   * - .. _hub-reason-aid-deactivated:
+
+       ``aid_deactivated``
+     - 0.3.0
      - 410
      - 
      - This identity is deactivated and cannot register again; create a new identity to come back.
-   * - ``bad_ack_item``
+   * - .. _hub-reason-bad-ack-item:
+
+       ``bad_ack_item``
+     - 0.3.0
      - 400
      - 
      - An ack item is malformed (an id is required, handle and dack go together, at most 1000 items); fix it and send again.
-   * - ``bad_envelope``
+   * - .. _hub-reason-bad-envelope:
+
+       ``bad_envelope``
+     - 0.3.0
      - 400
      - 
      - The body is not a sealed envelope this hub accepts, or it does not match X-ANet-Access; seal it again with anet 0.3.0 or later.
-   * - ``bad_exp``
+   * - .. _hub-reason-bad-exp:
+
+       ``bad_exp``
+     - 0.3.0
      - 400
      - 
      - The envelope's expiry time is further ahead than this hub accepts; seal it again with a nearer expiry.
-   * - ``bad_request``
+   * - .. _hub-reason-bad-request:
+
+       ``bad_request``
+     - 0.3.0
      - 400
      - 
      - This request is not in a form this hub accepts; fix the client (or update anet) and send again.
-   * - ``bad_status_query``
+   * - .. _hub-reason-bad-status-query:
+
+       ``bad_status_query``
+     - 0.3.0
      - 400
      - 
      - A status check takes 1 to 64 items with a 16-byte rid and handle, all for one hub; fix the query and send again.
-   * - ``bucket_too_narrow``
+   * - .. _hub-reason-bucket-too-narrow:
+
+       ``bucket_too_narrow``
+     - 0.3.0
      - 400
      - ``max_bits`` 
      - The directory query asks for more prefix bits than this hub serves; query again with at most max_bits bits.
-   * - ``expired``
+   * - .. _hub-reason-expired:
+
+       ``expired``
+     - 0.3.0
      - 400
      - 
      - The envelope's expiry time has passed, so this hub does not carry it; seal a new one.
-   * - ``gateway_removed``
+   * - .. _hub-reason-gateway-removed:
+
+       ``gateway_removed``
+     - 0.3.0
      - 410
      - 
      - The hub gateway was removed in 0.3.0; install anet and call through its local A2A interface, where anet signs the payment for you: send payment-submitted without x402.payment.payload.
-   * - ``home_unreachable``
+   * - .. _hub-reason-home-unreachable:
+
+       ``home_unreachable``
+     - 0.3.0
      - 502
      - 
      - The recipient's hub did not answer; send again after the seconds in Retry-After.
-   * - ``identity_headers_not_allowed``
+   * - .. _hub-reason-identity-headers-not-allowed:
+
+       ``identity_headers_not_allowed``
+     - 0.3.0
      - 400
      - 
      - This route is anonymous; send the request without the X-ANet-AID, X-ANet-Seq and X-ANet-Sig headers.
-   * - ``internal``
+   * - .. _hub-reason-internal:
+
+       ``internal``
+     - 0.3.0
      - 500
      - 
      - This hub failed to handle the request; try again later, and tell the hub's operator if it keeps failing.
-   * - ``invite_removed``
+   * - .. _hub-reason-invite-removed:
+
+       ``invite_removed``
+     - 0.3.0
      - 400
      - 
      - Hubs no longer use invites; register without one and send the admit command to the operator.
-   * - ``kel_fork``
+   * - .. _hub-reason-kel-fork:
+
+       ``kel_fork``
+     - 0.3.0
      - 409
      - 
      - The key history conflicts with the one this hub holds for this AID; the identity has diverged, so retrying will not help.
-   * - ``kel_invalid``
+   * - .. _hub-reason-kel-invalid:
+
+       ``kel_invalid``
+     - 0.3.0
      - 400
      - 
      - The key history does not verify; send the identity's full, unmodified key history.
-   * - ``kel_rollback``
+   * - .. _hub-reason-kel-rollback:
+
+       ``kel_rollback``
+     - 0.3.0
      - 409
      - 
      - The key history is older than the one this hub holds for this AID; send the full, current history.
-   * - ``kel_ts_out_of_window``
+   * - .. _hub-reason-kel-ts-out-of-window:
+
+       ``kel_ts_out_of_window``
+     - 0.3.0
      - 400
      - 
      - A new key event's time is too far from this hub's clock; correct the system clock and sign the event again.
-   * - ``key_retired``
+   * - .. _hub-reason-key-retired:
+
+       ``key_retired``
+     - 0.3.0
      - 401
      - 
      - The request is signed with a key the signer has since rotated away from; sign it again with the current key.
-   * - ``keys_rollback``
+   * - .. _hub-reason-keys-rollback:
+
+       ``keys_rollback``
+     - 0.3.0
      - 409
      - ``stored_seq`` 
      - The key set is not newer than the one this hub holds (stored_seq); publish one with a higher sequence number.
-   * - ``kid_stale``
+   * - .. _hub-reason-kid-stale:
+
+       ``kid_stale``
+     - 0.3.0
      - 409
      - 
      - The envelope is sealed to an encryption key the recipient no longer publishes; fetch its current keys and seal it again.
-   * - ``mailbox_full``
+   * - .. _hub-reason-mailbox-full:
+
+       ``mailbox_full``
+     - 0.3.0
      - 507
      - 
      - The recipient's mailbox on this hub is full; send again after the seconds in Retry-After.
-   * - ``not_found``
+   * - .. _hub-reason-not-found:
+
+       ``not_found``
+     - 0.3.0
      - 404
      - 
      - This hub has no such route or resource; check the method, the path and the identifiers in it.
-   * - ``not_peer``
+   * - .. _hub-reason-not-peer:
+
+       ``not_peer``
+     - 0.3.0
      - 403
      - 
      - This hub does not federate with yours; ask both operators to add each other as peers.
-   * - ``pow_required``
+   * - .. _hub-reason-pow-required:
+
+       ``pow_required``
+     - 0.3.0
      - 403
      - ``challenge`` 
      - Registration here needs a proof of work; solve the challenge in this response and register again.
-   * - ``probation``
+   * - .. _hub-reason-probation:
+
+       ``probation``
+     - 0.3.0
      - 403
      - 
      - New accounts cannot upload reviews during probation; retry after it ends.
-   * - ``proof_unavailable``
+   * - .. _hub-reason-proof-unavailable:
+
+       ``proof_unavailable``
+     - 0.3.0
      - 404
      - 
      - No balance proof is kept for that period (proofs are kept for 14 days); fetch a newer period.
-   * - ``rate_limited``
+   * - .. _hub-reason-rate-limited:
+
+       ``rate_limited``
+     - 0.3.0
      - 429
      - 
      - Too many requests from this sender; send again after the seconds in Retry-After.
-   * - ``receipt_not_reviewable``
+   * - .. _hub-reason-receipt-not-reviewable:
+
+       ``receipt_not_reviewable``
+     - 0.3.0
      - 400
      - 
      - This receipt cannot be used for a review: it carries no review commitment, or its signatures do not match the review; only tasks started with anet 0.3.0 can be reviewed.
-   * - ``recipient_unknown``
+   * - .. _hub-reason-recipient-unknown:
+
+       ``recipient_unknown``
+     - 0.3.0
      - 404
      - 
      - No hub this hub can reach knows the recipient; check the recipient's AID.
-   * - ``redelivery_limited``
+   * - .. _hub-reason-redelivery-limited:
+
+       ``redelivery_limited``
+     - 0.3.0
      - 429
      - 
      - This envelope was queued too often in the last 24 hours; send it again after the seconds in Retry-After.
-   * - ``registration_quota``
+   * - .. _hub-reason-registration-quota:
+
+       ``registration_quota``
+     - 0.3.0
      - 429
      - 
      - Today's sign-ups from your network are used up; retry after Retry-After, or ask the operator to run anet-hub admit <AID>.
-   * - ``replayed``
+   * - .. _hub-reason-replayed:
+
+       ``replayed``
+     - 0.3.0
      - 401
      - 
      - This signed request was already used; sign a new one.
-   * - ``requester_commit_mismatch``
+   * - .. _hub-reason-requester-commit-mismatch:
+
+       ``requester_commit_mismatch``
+     - 0.3.0
      - 400
      - 
      - Only the requester of this interaction can review it; retrying will not help.
-   * - ``review_exists``
+   * - .. _hub-reason-review-exists:
+
+       ``review_exists``
+     - 0.3.0
      - 409
      - 
      - This interaction has already been reviewed; each can be reviewed once, so retrying will not help.
-   * - ``review_window_closed``
+   * - .. _hub-reason-review-window-closed:
+
+       ``review_window_closed``
+     - 0.3.0
      - 400
      - 
      - Reviews are accepted up to 30 days after the interaction ends; this one can no longer be reviewed.
-   * - ``revocation_list_full``
+   * - .. _hub-reason-revocation-list-full:
+
+       ``revocation_list_full``
+     - 0.3.0
      - 429
      - 
      - This mailbox's revocation list is full; start a new mailbox key epoch, which empties it, instead of revoking more.
-   * - ``session_invalid``
+   * - .. _hub-reason-session-invalid:
+
+       ``session_invalid``
+     - 0.3.0
      - 401
      - 
      - The sending session is missing, expired or does not verify; open a new session and send again.
-   * - ``source_rate``
+   * - .. _hub-reason-source-rate:
+
+       ``source_rate``
+     - 0.3.0
      - 429
      - 
      - Too many requests from your hub; send again after the seconds in Retry-After.
-   * - ``strangers_busy``
+   * - .. _hub-reason-strangers-busy:
+
+       ``strangers_busy``
+     - 0.3.0
      - 429
      - 
      - The recipient takes no more messages from senders who are not yet its contacts right now; send again after the seconds in Retry-After.
-   * - ``too_large``
+   * - .. _hub-reason-too-large:
+
+       ``too_large``
+     - 0.3.0
      - 413
      - 
      - The request body is larger than this route accepts; send a smaller one.
-   * - ``too_large_for_stranger``
+   * - .. _hub-reason-too-large-for-stranger:
+
+       ``too_large_for_stranger``
+     - 0.3.0
      - 413
      - 
      - The envelope is larger than the recipient accepts from senders who are not yet its contacts; send a smaller one.
-   * - ``ts_stale``
+   * - .. _hub-reason-ts-stale:
+
+       ``ts_stale``
+     - 0.3.0
      - 401
      - ``floor`` 
      - The signing time is not after this hub's record for this signer; sign again with a later time (see X-ANet-TS-Floor).
-   * - ``unauthorized``
+   * - .. _hub-reason-unauthorized:
+
+       ``unauthorized``
+     - 0.3.0
      - 401
      - 
      - The request's signature does not verify against what this hub holds for the signer; sign it again with the current key.
-   * - ``unknown_aid``
+   * - .. _hub-reason-unknown-aid:
+
+       ``unknown_aid``
+     - 0.3.0
      - 404
      - 
      - This hub knows no agent with this AID; check the AID, or register it first.
-   * - ``unknown_destination``
+   * - .. _hub-reason-unknown-destination:
+
+       ``unknown_destination``
+     - 0.3.0
      - 404
      - 
      - No agent with this AID is registered on this hub; check the destination before forwarding again.
-   * - ``wire_too_new``
+   * - .. _hub-reason-wire-too-new:
+
+       ``wire_too_new``
+     - 0.3.0
      - 400
      - 
      - This hub speaks hub wire 3, older than the caller's; ask the hub's operator to upgrade the hub, or use another hub.
-   * - ``wire_too_old``
+   * - .. _hub-reason-wire-too-old:
+
+       ``wire_too_old``
+     - 0.3.0
      - 426
      - ``required_wire`` ``required_anet`` 
      - This hub speaks hub wire 3 and needs anet 0.3.0 or later; update anet (anet update) and send again.
-   * - ``witness_not_this_hub``
+   * - .. _hub-reason-witness-not-this-hub:
+
+       ``witness_not_this_hub``
+     - 0.3.0
      - 400
      - 
      - The latest event in the key history does not name this hub as its witness; add a rotation that names this hub, then register again.
+
+.. _hub-reasons-retired:
+
+Retired hub codes
+~~~~~~~~~~~~~~~~~
+
+No hub code has been retired. A retired code stays on this list, with the version that
+retired it, and is never used again.
+

@@ -7,7 +7,9 @@
 #   <out>/zh-cn/latest/       Simplified Chinese
 #
 # usage: docs/_tools/build-site.sh [OUT_DIR]   (default: docs/_site)
-# env:   SPHINX_BUILD  command used to run sphinx-build (default: sphinx-build)
+# env:   ANET_HUB_CODES path of ANetHub/internal/wire3/codes.txt, for the code
+#                       collision check (default: ../ANetHub beside the checkout)
+#        SPHINX_BUILD  command used to run sphinx-build (default: sphinx-build)
 #        BUILD_WRAPPER wrapper for heavy jobs, for example "heavy.sh --"
 set -euo pipefail
 
@@ -16,6 +18,15 @@ docs="$(dirname "$here")"
 out="${1:-$docs/_site}"
 sphinx="${SPHINX_BUILD:-sphinx-build}"
 wrapper="${BUILD_WRAPPER:-}"
+
+# The reason codes of anet and of the hub must not collide by accident. The
+# check needs the hub register, which is in the ANetHub repository.
+hub_codes="${ANET_HUB_CODES:-$docs/../../ANetHub/internal/wire3/codes.txt}"
+if [ -f "$hub_codes" ]; then
+    python3 "$here/check_code_collisions.py" --hub-codes "$hub_codes"
+else
+    echo "== code collisions: skipped (set ANET_HUB_CODES to the hub register)"
+fi
 
 rm -rf "$out"
 mkdir -p "$out/en" "$out/zh-cn"
