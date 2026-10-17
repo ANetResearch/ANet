@@ -290,6 +290,11 @@ type fakeHub struct {
 	// standing in for /fed/v3/directory:bucket (SSR-W19); a peer whose
 	// dirDown is set makes the answer partial (SSR-W21).
 	peers []*fakeHub
+	// peersStale makes the answer leave out the peers' entries unless the
+	// query asks past the hub's cache (Cache-Control: no-cache); freshQueries
+	// counts those.
+	peersStale   bool
+	freshQueries int
 	// hubKELs are hub key histories (identity.MarshalKEL) GET /hub/kels
 	// lists besides this hub's own and its peer fakes', by AID: the hubs a
 	// test makes this one federate with; hubKELReads counts the reads.
@@ -1259,6 +1264,11 @@ func (h *fakeHub) hDirBucket(w http.ResponseWriter, r *http.Request) {
 		stated = *h.dirAnswerMaxBits
 	}
 	peers := append([]*fakeHub(nil), h.peers...)
+	if strings.Contains(strings.ToLower(r.Header.Get("Cache-Control")), "no-cache") {
+		h.freshQueries++
+	} else if h.peersStale {
+		peers = nil
+	}
 	h.mu.Unlock()
 	if down {
 		fakeHubRefuse(w, http.StatusServiceUnavailable, "unavailable", nil)
