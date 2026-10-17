@@ -349,7 +349,9 @@ What each module does when it is absent
      - ``anet pay``, ``anet redeem``, ``anet reconcile``, ``anet audit-hub`` and
        the routes behind them answer ``module_absent``. ``anet balance`` reports
        the balance as ``module_absent``. A quote that is received waits in
-       ``input-required`` with the sentence ``module_absent.payment``. The
+       ``input-required`` with the sentence ``module_absent.payment`` and the
+       reason ``anet.reason = module_absent`` (a sentence variant never changes
+       the reason). The
        proxy card declares ``a2a-x402`` only while the node can pay. The doctor
        item ``payments.unchargeable`` reports a priced capability that the node
        could not charge for.
