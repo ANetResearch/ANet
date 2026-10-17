@@ -1,15 +1,42 @@
-//go:build linux && mod4_pending
+//go:build linux
 
 package daemon
 
 import (
+	"encoding/json"
 	"net/http/httptest"
-	"os/exec"
 	"strings"
 	"testing"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
+	"github.com/ANetResearch/ANet/module/autoreply"
 )
+
+// noBubblewrap makes the host one without bubblewrap: the module looks the binary up on PATH.
+func noBubblewrap(t *testing.T) {
+	t.Helper()
+	t.Setenv("PATH", t.TempDir())
+}
+
+// postAutoReplyTest runs the module's test route (POST /autoreply-test) and returns its results.
+func postAutoReplyTest(t *testing.T, d *Daemon) ([]autoreply.AutoReplyTestResult, error) {
+	t.Helper()
+	code, out, err := d.autoReplyRoute("POST /autoreply-test", []byte(`{}`))
+	if err != nil {
+		return nil, err
+	}
+	if code != 200 {
+		t.Fatalf("test route: %d %v", code, out)
+	}
+	b, _ := json.Marshal(out)
+	var v struct {
+		Results []autoreply.AutoReplyTestResult `json:"results"`
+	}
+	if err := json.Unmarshal(b, &v); err != nil {
+		t.Fatal(err)
+	}
+	return v.Results, nil
+}
 
 // sandboxOf is the sandbox object of d's /status.auto_reply.
 func sandboxOf(t *testing.T, d *Daemon) map[string]any {
@@ -27,8 +54,7 @@ func sandboxOf(t *testing.T, d *Daemon) map[string]any {
 // a budget of 0 is off; exec shows api_base and trusted; the answer to /autoreply carries the same line.
 func TestStatusSandboxStates(t *testing.T) {
 	lang := a2ashape.Lang()
-	defer func(f func(string) (string, error)) { bwrapLookPath = f }(bwrapLookPath)
-	bwrapLookPath = func(string) (string, error) { return "", exec.ErrNotFound }
+	noBubblewrap(t)
 	d := newTestDaemon(t, "", false)
 
 	// openai starts no process: nothing is sandboxed.
@@ -89,23 +115,22 @@ func TestStatusSandboxStates(t *testing.T) {
 // LEC §2.3.5: /autoreply-test runs direct first and adds sandbox when anything is sandboxed; a sandbox
 // that cannot run fails that path with the reason's sentence and not the whole request.
 func TestAutoReplyTestPaths(t *testing.T) {
-	defer func(f func(string) (string, error)) { bwrapLookPath = f }(bwrapLookPath)
-	bwrapLookPath = func(string) (string, error) { return "", exec.ErrNotFound }
+	noBubblewrap(t)
 	d := newTestDaemon(t, "", false)
-	if _, err := d.TestAutoReplyPaths(t.Context(), ""); err == nil {
+	if _, err := postAutoReplyTest(t, d); err == nil {
 		t.Fatal("no auto-reply is not a result")
 	}
 	api := &fakeOpenAI{reply: "an answer"}
 	srv := httptest.NewServer(api.handler())
 	defer srv.Close()
 	postAutoReply(t, d, `{"backend":"openai","api_base":"`+srv.URL+`/v1","model":"m"}`)
-	res, err := d.TestAutoReplyPaths(t.Context(), "")
+	res, err := postAutoReplyTest(t, d)
 	if err != nil || len(res) != 1 || res[0].Path != "direct" || !res[0].OK || res[0].ReplyChars != len("an answer") ||
 		res[0].Message != a2ashape.Sentence("autoreply_test.pass_direct", a2ashape.Lang(), a2ashape.Args{"n": len("an answer")}) {
 		t.Fatalf("openai: %+v %v", res, err)
 	}
 	postAutoReply(t, d, `{"backend":"exec","agent":"cursor","untrusted":"sandbox","api_key":"k"}`)
-	res, _ = d.TestAutoReplyPaths(t.Context(), "")
+	res, _ = postAutoReplyTest(t, d)
 	if len(res) != 2 || res[1].Path != "sandbox" || res[1].OK || res[1].Reason != "no_bwrap" ||
 		!strings.Contains(res[1].Message, a2ashape.Sentence("no_bwrap", a2ashape.Lang(), nil)) {
 		t.Fatalf("exec without bwrap: %+v", res)
