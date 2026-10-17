@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"path/filepath"
 
+	"github.com/ANetResearch/ANet/internal/a2ashape"
 	"github.com/ANetResearch/ANet/internal/agentwire"
 	"github.com/ANetResearch/ANet/internal/daemon"
 )
@@ -40,7 +41,7 @@ func inspectAgents(layout daemon.Layout, env doctorEnv) agentsView {
 		lookPath = exec.LookPath
 	}
 	states, err := agentwire.Inspect(agentwire.Options{Bin: bin, DataDir: dataDir, Home: env.home,
-		Getenv: env.env, LookPath: lookPath})
+		Getenv: env.env, LookPath: lookPath, Lang: a2ashape.Lang()})
 	if err != nil {
 		v.err = err.Error()
 		return v

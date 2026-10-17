@@ -3,7 +3,6 @@
 package agentwire
 
 import (
-	"fmt"
 	"strings"
 )
 
@@ -47,18 +46,18 @@ func (m markers) locate(lines []string, path string) (b, e int, err error) {
 		switch {
 		case strings.HasPrefix(t, m.begin):
 			if b >= 0 {
-				return -1, -1, fmt.Errorf("%s:%d: 这里开始了第二个 anet 托管块;请手动删掉其中一个", path, i+1)
+				return -1, -1, fail("wire_block_malformed.second", "path", path, "line", i+1)
 			}
 			b = i
 		case t == m.end:
 			if b < 0 || e >= 0 {
-				return -1, -1, fmt.Errorf("%s:%d: anet 托管块的结束标记没有对应的开始标记;请手动修正", path, i+1)
+				return -1, -1, fail("wire_block_malformed.orphan_end", "path", path, "line", i+1)
 			}
 			e = i
 		}
 	}
 	if b >= 0 && e < 0 {
-		return -1, -1, fmt.Errorf("%s:%d: anet 托管块没有结束标记;请手动修正", path, b+1)
+		return -1, -1, fail("wire_block_malformed.no_end", "path", path, "line", b+1)
 	}
 	return b, e, nil
 }
@@ -144,7 +143,7 @@ func dropTextBlock(src, path string, m markers) (string, bool, error) {
 }
 
 // planTextBlock plans writing the persona block into path.
-func planTextBlock(o *Options, path, body, what string) (*change, error) {
+func planTextBlock(o *Options, path, body string) (*change, error) {
 	cur, err := readMaybe(realPath(path))
 	if err != nil {
 		return nil, err
@@ -154,12 +153,13 @@ func planTextBlock(o *Options, path, body, what string) (*change, error) {
 		return nil, err
 	}
 	return &change{path: path, before: cur, after: []byte(out), mode: 0o644,
-		note: "写入 " + what + ":" + short(o, path)}, nil
+		note: msg("wire.change.guide_write", "path", short(o, path))}, nil
 }
 
 // planDropTextBlock plans removing the persona block from path, deleting
-// the file when nothing else is left in it.
-func planDropTextBlock(o *Options, path, what string) (*change, error) {
+// the file when nothing else is left in it. key is the row that names the
+// change: the current block, the legacy one, or OpenClaw's.
+func planDropTextBlock(o *Options, path, key string) (*change, error) {
 	cur, err := readMaybe(realPath(path))
 	if err != nil || cur == nil {
 		return nil, err
@@ -168,7 +168,7 @@ func planDropTextBlock(o *Options, path, what string) (*change, error) {
 	if err != nil || !had {
 		return nil, err
 	}
-	c := &change{path: path, before: cur, after: []byte(out), note: "删除 " + what + ":" + short(o, path)}
+	c := &change{path: path, before: cur, after: []byte(out), note: msg(key, "path", short(o, path))}
 	if onlyBlank(splitLines(out)) {
 		c.del = true
 	}

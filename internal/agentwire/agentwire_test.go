@@ -458,7 +458,7 @@ func TestCodexConflictStopsTheTool(t *testing.T) {
 			h.write(".codex/config.toml", cfg, 0o644)
 			r := one(t, h.wire(ToolCodex), Conflict)
 			var ce *ConflictError
-			if !errors.As(r.Err, &ce) || ce.Line == 0 {
+			if !errors.As(r.Err, &ce) || argLine(ce.Msg) == 0 {
 				t.Fatalf("a conflict must name its line: %v", r.Err)
 			}
 			if h.read(".codex/config.toml") != cfg {
@@ -490,7 +490,7 @@ func TestCodexInlineServersTableIsAConflict(t *testing.T) {
 			h.write(".codex/config.toml", cfg, 0o644)
 			r := one(t, h.wire(ToolCodex), Conflict)
 			var ce *ConflictError
-			if !errors.As(r.Err, &ce) || ce.Line == 0 || !strings.Contains(ce.What, "行内表") {
+			if !errors.As(r.Err, &ce) || argLine(ce.Msg) == 0 || ce.Key != "wire_conflict.toml_inline" {
 				t.Fatalf("want a conflict naming the inline table and its line: %v", r.Err)
 			}
 			if h.read(".codex/config.toml") != cfg || h.exists(".codex/AGENTS.md") || len(h.backups()) > 0 {
@@ -823,7 +823,7 @@ func TestDanglingSymlinkIsNotReplaced(t *testing.T) {
 		t.Fatal(err)
 	}
 	r := one(t, h.wire(ToolCursor), Failed)
-	if !strings.Contains(r.Err.Error(), "符号链接") {
+	if m, ok := AsMsg(r.Err); !ok || m.Key != "wire_dangling_symlink" || m.Code() != "wire_dangling_symlink" {
 		t.Fatalf("unclear error: %v", r.Err)
 	}
 	fi, err := os.Lstat(h.p(".cursor/mcp.json"))
@@ -843,7 +843,7 @@ func TestDuplicateJSONKeysAreRefused(t *testing.T) {
 	cfg := "{\"mcpServers\": {\"a\": {}}, \"mcpServers\": {\"b\": {}}}\n"
 	h.write(".cursor/mcp.json", cfg, 0o644)
 	r := one(t, h.wire(ToolCursor), Failed)
-	if !strings.Contains(r.Err.Error(), "duplicate") || h.read(".cursor/mcp.json") != cfg {
+	if m, _ := AsMsg(r.Err); m.Key != "wire_not_plain_json" || h.read(".cursor/mcp.json") != cfg {
 		t.Fatalf("%v\n%s", r.Err, h.read(".cursor/mcp.json"))
 	}
 }
@@ -887,7 +887,7 @@ func TestOpencodeJSONCWithCommentsIsNotRewritten(t *testing.T) {
 	cfg := "{\n  // my settings\n  \"theme\": \"x\"\n}\n"
 	h.write(".config/opencode/opencode.jsonc", cfg, 0o644)
 	r := one(t, h.wire(ToolOpenCode), Failed)
-	if !strings.Contains(r.Err.Error(), `"type": "local"`) {
+	if m, _ := AsMsg(r.Err); m.Key != "wire_not_plain_json" || !strings.Contains(m.Detail, `"type": "local"`) {
 		t.Fatalf("the error should carry the entry to add by hand: %v", r.Err)
 	}
 	if h.read(".config/opencode/opencode.jsonc") != cfg {
@@ -1024,7 +1024,7 @@ func TestWorkBuddyMergeConflictAndUnwire(t *testing.T) {
 	if got := keys(h.snapshot()); len(got) != 1 {
 		t.Fatalf("wire wrote files besides mcp.json: %v", got)
 	}
-	if !strings.Contains(strings.Join(r.Notes, "\n"), "workbuddy.cn/docs") {
+	if !strings.Contains(notesText(r.Notes), "workbuddy.cn/docs") {
 		t.Fatalf("notes %v lack the official link", r.Notes)
 	}
 	if r := one(t, h.wire(ToolWorkBuddy), UpToDate); len(r.Notes) != 0 {
@@ -1053,7 +1053,7 @@ func TestWorkBuddyMergeConflictAndUnwire(t *testing.T) {
 	jsonc := "{\n  // mine\n  \"mcpServers\": {}\n}\n"
 	h.write(".workbuddy/mcp.json", jsonc, 0o644)
 	r = one(t, h.wire(ToolWorkBuddy), Failed)
-	if !strings.Contains(r.Err.Error(), `"mcpServers"`) || h.read(".workbuddy/mcp.json") != jsonc {
+	if m, _ := AsMsg(r.Err); m.Key != "wire_not_plain_json" || !strings.Contains(m.Detail, `"mcpServers"`) || h.read(".workbuddy/mcp.json") != jsonc {
 		t.Fatalf("unsafe file: err %v", r.Err)
 	}
 }

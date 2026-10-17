@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/ANetResearch/ANet/internal/a2ashape"
 )
 
 const (
@@ -153,7 +155,8 @@ func TestHermesA2AEntries(t *testing.T) {
 func TestHermesA2AWithoutTheInterfaceFailsClearly(t *testing.T) {
 	h := newHost(t)
 	r := one(t, h.wireWith(h.hermesOpts(false, aidA), ToolHermes), Failed)
-	if !strings.Contains(r.Err.Error(), A2AAddrFile) || !strings.Contains(r.Err.Error(), "anet up") {
+	if m, ok := AsMsg(r.Err); !ok || m.Key != "wire_a2a_not_started" || !strings.Contains(m.String(), A2AAddrFile) ||
+		m.Next(a2ashape.English) != "anet up" {
 		t.Fatalf("unclear error: %v", r.Err)
 	}
 	if h.exists(".hermes/config.yaml") {
@@ -162,7 +165,7 @@ func TestHermesA2AWithoutTheInterfaceFailsClearly(t *testing.T) {
 
 	h.setA2A("10.0.0.5:39900", "tok")
 	r = one(t, h.wireWith(h.hermesOpts(false, aidA), ToolHermes), Failed)
-	if !strings.Contains(r.Err.Error(), "回环") {
+	if m, ok := AsMsg(r.Err); !ok || m.Key != "wire_a2a_addr_invalid" || !strings.Contains(m.String(), "loopback") {
 		t.Fatalf("a token must never be written into a non-loopback URL: %v", r.Err)
 	}
 }

@@ -3,7 +3,6 @@
 package agentwire
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -37,13 +36,12 @@ func (codexTool) configPath(o *Options) string { return codexConfig(o) }
 // AGENTS.md when it exists in the global directory
 // (https://developers.openai.com/codex/guides/agents-md), so the guide block
 // wire wrote would never reach the model.
-func (codexTool) wireNotes(o *Options, st Status) []string {
+func (codexTool) wireNotes(o *Options, st Status) []Msg {
 	ov := filepath.Join(codexHome(o), "AGENTS.override.md")
 	if _, err := os.Stat(realPath(ov)); err != nil {
 		return nil
 	}
-	return []string{short(o, ov) + " 存在:Codex 优先读取它而不是 AGENTS.md,anet 写入 AGENTS.md 的指引不会生效;" +
-		"把指引并入该文件,或移走它"}
+	return []Msg{msg("wire.note.codex_override", "path", short(o, ov))}
 }
 
 func (codexTool) detected(o *Options) bool {
@@ -82,11 +80,12 @@ func (codexTool) planWire(o *Options) ([]change, error) {
 	if err != nil {
 		return nil, err
 	}
-	if line, what, named := codexConflict(lines, b, e); line > 0 {
-		if named {
-			what += ";anet 不改动它。删除或改名这张表后再运行 wire"
+	if line, named := codexConflict(lines, b, e); line > 0 {
+		key := "wire_conflict.toml"
+		if !named {
+			key = "wire_conflict.toml_inline"
 		}
-		return nil, &ConflictError{Path: path, Line: line, What: what}
+		return nil, conflict(key, "path", path, "line", line)
 	}
 	var out []string
 	if b >= 0 {
@@ -97,9 +96,9 @@ func (codexTool) planWire(o *Options) ([]change, error) {
 	var changes []change
 	if after := joinLines(out); after != string(cur) {
 		changes = append(changes, change{path: path, before: cur, after: []byte(after), mode: 0o600,
-			note: "[mcp_servers.anet] → " + short(o, path)})
+			note: msg("wire.change.toml_write", "path", short(o, path))})
 	}
-	c, err := planTextBlock(o, codexAgentsMD(o), personaMarkdown, "anet 指引块")
+	c, err := planTextBlock(o, codexAgentsMD(o), personaMarkdown)
 	if err != nil {
 		return nil, err
 	}
@@ -109,14 +108,14 @@ func (codexTool) planWire(o *Options) ([]change, error) {
 	return changes, nil
 }
 
-func (codexTool) planUnwire(o *Options) ([]change, []string, error) {
+func (codexTool) planUnwire(o *Options) ([]change, []Msg, error) {
 	path := codexConfig(o)
 	cur, err := readMaybe(realPath(path))
 	if err != nil {
 		return nil, nil, err
 	}
 	var changes []change
-	var notes []string
+	var notes []Msg
 	lines := splitLines(string(cur))
 	b, e, err := tomlMarkers.locate(lines, path)
 	if err != nil {
@@ -125,11 +124,11 @@ func (codexTool) planUnwire(o *Options) ([]change, []string, error) {
 	if b >= 0 {
 		out := removeBlock(lines, b, e)
 		changes = append(changes, change{path: path, before: cur, after: []byte(joinLines(out)),
-			del: onlyBlank(out), note: "删除 [mcp_servers.anet]:" + short(o, path)})
-	} else if line, _, named := codexConflict(lines, -1, -1); line > 0 && named {
-		notes = append(notes, fmt.Sprintf("%s:%d 的 mcp_servers.anet 不是 anet 写的,未改动", short(o, path), line))
+			del: onlyBlank(out), note: msg("wire.change.toml_drop", "path", short(o, path))})
+	} else if line, named := codexConflict(lines, -1, -1); line > 0 && named {
+		notes = append(notes, msg("wire.note.foreign_toml", "path", short(o, path), "line", line))
 	}
-	c, err := planDropTextBlock(o, codexAgentsMD(o), "anet 指引块")
+	c, err := planDropTextBlock(o, codexAgentsMD(o), "wire.change.guide_drop")
 	if err != nil {
 		return nil, nil, err
 	}
@@ -150,12 +149,12 @@ var (
 // [mcp_servers.anet.env]) header, a dotted key at the root or under
 // [mcp_servers], or an inline table. An inline `mcp_servers = { … }`
 // without anet in it is reported too: anet's block cannot be added to it.
-// It returns the 1-based line and what it found, or 0; named is true when
+// It returns the 1-based line of what it found, or 0; named is true when
 // what it found is an anet entry rather than a form anet cannot extend.
 //
 // It reads lines, not TOML. Multi-line strings are skipped so a prompt that
 // happens to quote a table header is not mistaken for one.
-func codexConflict(lines []string, b, e int) (line int, what string, named bool) {
+func codexConflict(lines []string, b, e int) (line int, named bool) {
 	var table []string
 	inMulti := ""
 	for i, l := range lines {
@@ -173,29 +172,28 @@ func codexConflict(lines []string, b, e int) (line int, what string, named bool)
 		if m := tomlHeader.FindStringSubmatch(t); m != nil {
 			table = tomlPath(m[1])
 			if len(table) >= 2 && table[0] == "mcp_servers" && table[1] == "anet" {
-				return i + 1, "已有一张不是 anet 写的 [" + m[1] + "] 表", true
+				return i + 1, true
 			}
 			continue
 		}
 		if m := tomlKey.FindStringSubmatch(t); m != nil {
 			full := append(append([]string{}, table...), tomlPath(m[1])...)
 			if len(full) >= 2 && full[0] == "mcp_servers" && full[1] == "anet" {
-				return i + 1, "已有不是 anet 写的 mcp_servers.anet 定义", true
+				return i + 1, true
 			}
 			if len(full) == 1 && full[0] == "mcp_servers" {
 				if tomlAnetIn.MatchString(m[2]) {
-					return i + 1, "行内表 mcp_servers 里已有不是 anet 写的 anet 条目", true
+					return i + 1, true
 				}
 				// An inline table is closed: a [mcp_servers.anet] header
 				// after it redefines the table, and Codex stops loading its
 				// configuration altogether.
-				return i + 1, "mcp_servers 是行内表(mcp_servers = { … }),TOML 不允许再用 [mcp_servers.anet] 向它追加;" +
-					"请把它改成 [mcp_servers.<名字>] 表的写法", false
+				return i + 1, false
 			}
 		}
 		inMulti = tomlScan(l, "")
 	}
-	return 0, "", false
+	return 0, false
 }
 
 // tomlScan follows one line through TOML's strings and comments. in is the

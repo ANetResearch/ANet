@@ -4,11 +4,13 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 
+	"github.com/ANetResearch/ANet/internal/a2ashape"
 	"github.com/ANetResearch/ANet/internal/agentwire"
 	"github.com/ANetResearch/ANet/internal/daemon"
 )
@@ -32,27 +34,29 @@ func runAgents(layout daemon.Layout, rest []string) error {
 		return err
 	}
 	opts.A2A, opts.Refresh = args.a2a, args.refresh
+	lang := a2ashape.Lang()
+	opts.Lang = lang
 	switch verb {
 	case "status", "list", "ls":
 		if len(args.tools) > 0 || args.all || len(args.a2a) > 0 || args.refresh {
 			return usageError{"anet agents  (status takes no arguments)"}
 		}
-		return agentsStatus(opts)
+		return agentsStatus(outW(), lang, opts)
 	case "wire":
 		results, err := agentwire.Wire(opts, args.tools, args.all)
 		if err != nil {
-			return err
+			return wireRefusal(errW(), lang, err)
 		}
-		return printWireResults("wire", results, opts)
+		return printWireResults(outW(), errW(), lang, "wire", results, opts)
 	case "unwire":
 		if args.refresh {
 			return usageError{"anet agents wire [--all|<tool>…] [--refresh]  (--refresh is for wire only)"}
 		}
 		results, err := agentwire.Unwire(opts, args.tools, args.all)
 		if err != nil {
-			return err
+			return wireRefusal(errW(), lang, err)
 		}
-		return printWireResults("unwire", results, opts)
+		return printWireResults(outW(), errW(), lang, "unwire", results, opts)
 	}
 	return usageError{fmt.Sprintf("anet agents [wire|unwire …]  (%q is not one of wire, unwire, status)", printable(verb, 64))}
 }
@@ -157,22 +161,49 @@ func anetBinary() (string, error) {
 	return exe, nil
 }
 
-func printWireResults(verb string, results []agentwire.Result, opts agentwire.Options) error {
-	fmt.Printf("anet agents %s(anet %s,数据目录 %s)\n", verb, opts.Bin, opts.DataDir)
+// wireText is the one-line sentence of a message in a language: the
+// sentence, then its reason code in brackets when it has one.
+func wireText(lang a2ashape.Language, m agentwire.Msg) string {
+	t := m.Text(lang)
+	if c := m.Code(); c != "" {
+		t += " [" + c + "]"
+	}
+	return t
+}
+
+// wireRefusal prints an error of the wire code on w, the sentence with its
+// code and the next step after nextPrefix (ux UX-R2), and ends the command
+// with exit status 1. An error that is not one of the package's own is
+// returned as it is.
+func wireRefusal(w io.Writer, lang a2ashape.Language, err error) error {
+	m, ok := agentwire.AsMsg(err)
+	if !ok {
+		return err
+	}
+	say(w, wireText(lang, m), m.Next(lang))
+	return errExit1
+}
+
+// wireIndent is the prefix of the lines under a tool's name.
+const wireIndent = "            "
+
+func printWireResults(out, errw io.Writer, lang a2ashape.Language, verb string, results []agentwire.Result, opts agentwire.Options) error {
+	head := a2ashape.Sentence("wire.head."+verb, lang, a2ashape.Args{"bin": opts.Bin, "path": opts.DataDir})
+	fmt.Fprintln(out, head)
 	failed, changed := 0, false
 	for _, r := range results {
-		fmt.Printf("  %-9s %s\n", r.Tool, r.Status.Label())
+		fmt.Fprintf(out, "  %-9s %s\n", r.Tool, a2ashape.Sentence(r.Status.Key(), lang, nil))
 		for _, c := range r.Changes {
-			fmt.Printf("            - %s\n", c)
+			fmt.Fprintf(out, "%s- %s\n", wireIndent, c.Text(lang))
 		}
 		for _, b := range r.Backups {
-			fmt.Printf("            备份 %s\n", b)
+			fmt.Fprintf(out, "%s%s %s\n", wireIndent, a2ashape.Label("wire.backup", lang), b)
 		}
 		for _, n := range r.Notes {
-			fmt.Printf("            注意:%s\n", n)
+			fmt.Fprintf(out, "%s%s%s%s\n", wireIndent, a2ashape.Label("wire.note", lang), noteColon(lang), n.Text(lang))
 		}
 		if r.Err != nil {
-			fmt.Printf("            %s\n", strings.ReplaceAll(r.Err.Error(), "\n", "\n            "))
+			printResultError(out, lang, r.Err)
 		}
 		if !r.OK() {
 			failed++
@@ -182,23 +213,51 @@ func printWireResults(verb string, results []agentwire.Result, opts agentwire.Op
 		}
 	}
 	if changed && verb == "wire" {
-		fmt.Println("重启这些工具(或新开会话)后生效;它们调用 `anet mcp`,需要本机 daemon 在运行(anet up)。")
-		fmt.Println("撤销:anet agents unwire <工具>(或 --all)")
+		fmt.Fprintln(out, a2ashape.Sentence("wire.footer.restart", lang, nil))
+		fmt.Fprintln(out, a2ashape.Sentence("wire.footer.undo", lang, nil))
 	}
 	if failed > 0 {
 		// A conflict is an answer the operator has to act on, so the exit
 		// status says so — an installer running this must not report success.
-		return fmt.Errorf("%d of the tools were not done; see the lines above", failed)
+		say(errw, wireText(lang, agentwire.Msg{Key: "wire_tools_failed", Args: a2ashape.Args{"n": failed}}), a2ashape.Next("wire_tools_failed", lang, nil))
+		return errExit1
 	}
 	return nil
 }
 
-func agentsStatus(opts agentwire.Options) error {
+// noteColon follows the label of a note: a half-width colon and a space in
+// English, a full-width colon in Chinese.
+func noteColon(lang a2ashape.Language) string {
+	if lang == a2ashape.Chinese {
+		return "："
+	}
+	return ": "
+}
+
+// printResultError prints why a tool failed or conflicted under its name:
+// the sentence with its code, the next step, and any lines of detail.
+func printResultError(w io.Writer, lang a2ashape.Language, err error) {
+	m, ok := agentwire.AsMsg(err)
+	if !ok {
+		fmt.Fprintf(w, "%s%s\n", wireIndent, strings.ReplaceAll(err.Error(), "\n", "\n"+wireIndent))
+		return
+	}
+	fmt.Fprintf(w, "%s%s\n", wireIndent, wireText(lang, m))
+	if next := m.Next(lang); next != "" {
+		fmt.Fprintf(w, "%s%s\n", wireIndent, strings.TrimLeft(nextPrefix, " ")+next)
+	}
+	if m.Detail != "" {
+		fmt.Fprintf(w, "%s%s\n", wireIndent, strings.ReplaceAll(m.Detail, "\n", "\n"+wireIndent))
+	}
+}
+
+func agentsStatus(w io.Writer, lang a2ashape.Language, opts agentwire.Options) error {
 	states, err := agentwire.Inspect(opts)
 	if err != nil {
-		return err
+		return wireRefusal(errW(), lang, err)
 	}
-	fmt.Printf("anet agents(anet %s,数据目录 %s)\n", opts.Bin, opts.DataDir)
+	fmt.Fprintln(w, a2ashape.Sentence("wire.head.status", lang, a2ashape.Args{"bin": opts.Bin, "path": opts.DataDir}))
+	sentence := func(key string, args a2ashape.Args) string { return a2ashape.Sentence(key, lang, args) }
 	for _, s := range states {
 		fix := "anet agents wire " + s.Tool
 		for _, a := range s.A2A {
@@ -210,31 +269,34 @@ func agentsStatus(opts agentwire.Options) error {
 		var line string
 		switch {
 		case s.Conflict != "":
-			line = "冲突:" + s.Conflict
+			line = sentence("wire.state.conflict", a2ashape.Args{"detail": s.Conflict})
 		case s.Err != "":
-			line = "无法检查:" + s.Err
+			line = sentence("wire.state.unchecked", a2ashape.Args{"detail": s.Err})
 		case s.Wired && s.Current:
-			line = "已接入,最新"
+			line = sentence("wire.state.current", nil)
 		case s.Wired:
-			line = "已接入,需要更新(" + fix + ")"
+			line = sentence("wire.state.stale", a2ashape.Args{"command": fix})
 		case !s.Detected:
-			line = "未安装"
+			line = sentence("wire.state.not_installed", nil)
 		default:
-			line = "未接入(anet agents wire " + s.Tool + ")"
+			line = sentence("wire.state.not_wired", a2ashape.Args{"command": "anet agents wire " + s.Tool})
 		}
-		fmt.Printf("  %-9s %s\n", s.Tool, line)
+		fmt.Fprintf(w, "  %-9s %s\n", s.Tool, line)
 		if s.Tool == agentwire.ToolHermes && s.Mode != 0 && len(s.A2A) > 0 && s.Mode&0o077 != 0 {
-			fmt.Printf("            %s 含令牌但权限是 %o(应为 0600;anet agents wire hermes 会收紧)\n", s.Config, s.Mode)
+			fmt.Fprintf(w, "%s%s\n", wireIndent, sentence("wire.state.token_mode", a2ashape.Args{
+				"path": s.Config, "value": fmt.Sprintf("%o", s.Mode), "command": "anet agents wire hermes"}))
 		}
 		for _, a := range s.A2A {
+			var l string
 			switch {
 			case a.Unknown != "":
-				fmt.Printf("            a2a %s:无法核对(%s)\n", a.AID, a.Unknown)
+				l = sentence("wire.state.a2a_unknown", a2ashape.Args{"aid": a.AID, "detail": a.Unknown})
 			case a.PortOK && a.TokenOK:
-				fmt.Printf("            a2a %s:正常\n", a.AID)
+				l = sentence("wire.state.a2a_ok", a2ashape.Args{"aid": a.AID})
 			default:
-				fmt.Printf("            a2a %s:端口或令牌已变(anet agents wire hermes --refresh)\n", a.AID)
+				l = sentence("wire.state.a2a_changed", a2ashape.Args{"aid": a.AID, "command": "anet agents wire hermes --refresh"})
 			}
+			fmt.Fprintf(w, "%s%s\n", wireIndent, l)
 		}
 	}
 	return nil
