@@ -210,12 +210,12 @@ has_cmd() {
 }
 
 # removed_flag FLAG: the cli_removed sentence of anet's reason table for a
-# flag 0.3.0 removed, in the language anet would choose (LC_ALL, LC_MESSAGES,
-# LANG; Chinese when it begins with zh), on stderr, and exit 2 before
+# flag 0.3.0 removed, in the language anet would choose (Chinese when
+# ANET_LANG begins with zh, English otherwise), on stderr, and exit 2 before
 # anything is installed. The text is a2ashape.Sentence("cli_removed", …)
 # word for word (internal/release tests it).
 removed_flag() {
-  _lang="${LC_ALL:-${LC_MESSAGES:-${LANG:-}}}"
+  _lang="$(printf '%s' "${ANET_LANG:-}" | tr '[:upper:]' '[:lower:]')"
   case "$_lang" in
     zh*) printf '%s 已在 0.3.0 删除；hub 已不再使用邀请码；请删掉这个参数，直接运行 anet hub-register <网址>，再把它打印的 admit 命令发给运营者。\n' "install.sh $1" >&2 ;;
     *)   printf '%s was removed in 0.3.0; hubs no longer use invites; remove this flag, run anet hub-register <url> and send the admit command it prints to the operator.\n' "install.sh $1" >&2 ;;

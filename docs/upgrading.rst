@@ -199,3 +199,27 @@ After the upgrade
   the key.
 * The 0.2 data directory can be deleted when it is no longer needed. Before that, copy files that are
   to be kept, for example exported evidence.
+
+
+.. _upgrading-033:
+
+Upgrading to 0.3.3
+------------------
+
+Version 0.3.3 is an in-place upgrade of 0.3.x. One behavior changes.
+
+Output is English on every system, including a system with a Chinese locale. Before 0.3.3,
+anet and anet-hub chose Chinese when ``LC_ALL``, ``LC_MESSAGES`` or ``LANG`` began with ``zh``.
+Since 0.3.3 only the variable ``ANET_LANG`` selects Chinese, and the locale variables are not
+consulted. To keep Chinese sentences, set the variable in the environment of the daemon, of the
+command line and of the hub:
+
+.. code-block:: console
+
+   $ export ANET_LANG=zh-CN
+
+Any value that begins with ``zh`` in any letter case selects Chinese; any other value, or no
+value, selects English. Scripts that match the Chinese text of a sentence need the variable set,
+or need to match the English text. The sentences that anet hands to a model, such as the egress
+refusals read by a sandboxed agent, are English in both languages. See
+:doc:`reference/reason-codes`.

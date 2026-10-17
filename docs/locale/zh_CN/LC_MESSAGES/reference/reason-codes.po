@@ -98,15 +98,8 @@ msgstr ""
 "``agentnetwork.org.cn``，原因为原因码的大写形式，小写的原因码位于 ``metadata.reason``\\ 。"
 
 #: ../../reference/reason-codes.rst:44
-msgid ""
-"The sentence is rendered by the node, in the language of the node's "
-"environment. The language is taken from the first non-empty variable of "
-"``LC_ALL``, ``LC_MESSAGES`` and ``LANG``: a value that begins with ``zh``"
-" selects Chinese, any other value selects English, and an unset "
-"environment selects English. Clients pass the sentence on unchanged."
-msgstr ""
-"语句由节点按其环境的语言生成。语言取自 ``LC_ALL``\\ 、\\ ``LC_MESSAGES`` 和 ``LANG`` "
-"中第一个非空的变量：以 ``zh`` 开头的值选择中文，其他值选择英文，未设置环境时选择英文。客户端原样传递该语句。"
+msgid "The sentence is rendered by the node. The language is English unless the environment variable ``ANET_LANG`` of the node begins with ``zh`` (in any letter case), which selects Chinese. Any other value, and an unset variable, select English; ``LC_ALL``, ``LC_MESSAGES`` and ``LANG`` are not consulted. Rows of the class that is read by the sandboxed agent (the egress refusals) are English in both languages. Clients pass the sentence on unchanged."
+msgstr "语句由节点生成。语言默认为英文；节点的环境变量 ``ANET_LANG`` 以 ``zh`` 开头（不区分大小写）时选择中文。其他值或未设置时选择英文；``LC_ALL``、``LC_MESSAGES`` 和 ``LANG`` 不再参与判断。由沙箱中的 agent 读取的那一类条目（出站拒绝）在两种语言下均为英文。客户端原样传递该语句。"
 
 #: ../../reference/reason-codes.rst:50
 #, python-brace-format

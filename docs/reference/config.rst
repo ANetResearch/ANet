@@ -437,9 +437,10 @@ Environment variables
      - Selects the identity, like ``--id``.
    * - ``ANET_DATA_DIR``
      - Names one raw data directory outside the home layout.
-   * - ``LC_ALL``, ``LC_MESSAGES``, ``LANG``
-     - Select the language of sentences: Chinese when the first non-empty value
-       begins with ``zh``, English otherwise.
+   * - ``ANET_LANG``
+     - Selects the language of sentences: Chinese when the value begins with
+       ``zh`` (any letter case), English otherwise. The locale variables
+       ``LC_ALL``, ``LC_MESSAGES`` and ``LANG`` are not consulted.
    * - ``ADMIN_TOKEN``
      - The credential of ``anet-hub-admin``.
 

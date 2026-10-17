@@ -1055,14 +1055,12 @@ msgid "Names one raw data directory outside the home layout."
 msgstr "指定位于 home 布局之外的一个原始数据目录。"
 
 #: ../../reference/config.rst:440
-msgid "``LC_ALL``, ``LC_MESSAGES``, ``LANG``"
-msgstr "``LC_ALL``, ``LC_MESSAGES``, ``LANG``"
+msgid "``ANET_LANG``"
+msgstr "``ANET_LANG``"
 
 #: ../../reference/config.rst:441
-msgid ""
-"Select the language of sentences: Chinese when the first non-empty value "
-"begins with ``zh``, English otherwise."
-msgstr "选择语句的语言：第一个非空的值以 ``zh`` 开头时为中文，否则为英文。"
+msgid "Selects the language of sentences: Chinese when the value begins with ``zh`` (any letter case), English otherwise. The locale variables ``LC_ALL``, ``LC_MESSAGES`` and ``LANG`` are not consulted."
+msgstr "选择语句的语言：值以 ``zh`` 开头（不区分大小写）时为中文，否则为英文。区域设置变量 ``LC_ALL``、``LC_MESSAGES`` 和 ``LANG`` 不再参与判断。"
 
 #: ../../reference/config.rst:443
 msgid "``ADMIN_TOKEN``"

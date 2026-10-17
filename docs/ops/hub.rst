@@ -473,8 +473,9 @@ Except where noted they work while the hub is running.
 
 A subcommand pointed at a directory that holds no hub refuses to run and
 changes nothing. The subcommands print sentences in the language selected by
-``LC_ALL``, ``LC_MESSAGES`` or ``LANG`` (the first one set): Chinese when
-the value starts with ``zh``, English otherwise. Lists and figures are
+``ANET_LANG``: Chinese when the value begins with ``zh`` (any letter case),
+English otherwise, including when it is unset. ``LC_ALL``, ``LC_MESSAGES`` and
+``LANG`` are not consulted. Lists and figures are
 printed as tab-separated data and are not translated.
 
 

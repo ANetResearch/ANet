@@ -41,11 +41,12 @@ The same code appears in these places:
    domain ``agentnetwork.org.cn``, an upper-case form of the code as the reason,
    and the lower-case code in ``metadata.reason``.
 
-The sentence is rendered by the node, in the language of the node's
-environment. The language is taken from the first non-empty variable of
-``LC_ALL``, ``LC_MESSAGES`` and ``LANG``: a value that begins with ``zh``
-selects Chinese, any other value selects English, and an unset environment
-selects English. Clients pass the sentence on unchanged.
+The sentence is rendered by the node. The language is English unless the
+environment variable ``ANET_LANG`` of the node begins with ``zh`` (in any letter
+case), which selects Chinese. Any other value, and an unset variable, select
+English; ``LC_ALL``, ``LC_MESSAGES`` and ``LANG`` are not consulted. Rows of the
+class that is read by the sandboxed agent (the egress refusals) are English in
+both languages. Clients pass the sentence on unchanged.
 
 A sentence is built from a template. Placeholders in braces, such as ``{aid}``,
 ``{peer}``, ``{task}``, ``{retry}`` and ``{limit}``, are filled only from data
