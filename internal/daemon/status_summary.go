@@ -70,6 +70,11 @@ func (d *Daemon) statusSummary(out map[string]any, lang a2ashape.Language) []a2a
 	hub := d.viewOfJoin(d.joinSnapshot(), time.Now(), lang)
 	in.Hub = a2ashape.Said{Key: hub.key, Args: hub.args}
 	in.HubRegistered = hub.State == JoinRegistered
+	if in.IdentityState == IdentityDeactivated {
+		// The join record still says "registered", which is true of the hub and no longer of this node.
+		in.Hub = a2ashape.Said{Key: reasonDeactivated}
+		in.HubRegistered = false
+	}
 	if rec := d.joinSnapshot(); rec != nil && hub.key == reasonPending && rec.NextAttemptAt > 0 {
 		in.HubThen = &a2ashape.Said{Key: "hub.next_check", Args: a2ashape.Args{"time": time.UnixMilli(rec.NextAttemptAt), "now": time.Now()}}
 	}

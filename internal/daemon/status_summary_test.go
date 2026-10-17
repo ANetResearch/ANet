@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
+	"github.com/ANetResearch/ANetCore/identity"
 )
 
 // statusOf reads /status from a plane.
@@ -174,5 +175,36 @@ func TestStatusSummaryNamesTheNextCheckWhileWaitingForAdmission(t *testing.T) {
 	}
 	if w := joinBackoff(rec.Attempts, 0); w > time.Minute {
 		t.Errorf("the wait between two questions is %v, more than a minute", w)
+	}
+}
+
+// A deactivated identity no longer shows "Registered at": the hub line says the identity is deactivated,
+// although the join record still holds the registration.
+func TestStatusSummaryHubLineOfADeactivatedIdentity(t *testing.T) {
+	srv := newFakeHub(t)
+	d, _ := joinDaemon(t)
+	if code, out := controlCall(t, d.hHubRegister, "/hub-register", hubRegisterBody(srv.URL, `,"next_digest":"`+testDigest+`"`)); code != 200 ||
+		out["state"] != JoinRegistered {
+		t.Fatalf("join an open hub: %d %v", code, out)
+	}
+	hubLine := func(lang a2ashape.Language) string {
+		for _, l := range d.statusSummary(map[string]any{}, lang) {
+			if l.Topic == a2ashape.TopicHub {
+				return l.Text
+			}
+		}
+		return ""
+	}
+	if got := hubLine(a2ashape.English); !strings.HasPrefix(got, "Registered at") {
+		t.Fatalf("before the deactivation: %q", got)
+	}
+	if err := d.self.SetState(identity.StateDeactivated); err != nil {
+		t.Fatal(err)
+	}
+	for _, lang := range []a2ashape.Language{a2ashape.English, a2ashape.Chinese} {
+		want := a2ashape.Sentence("identity_deactivated", lang, nil)
+		if got := hubLine(lang); got != want || strings.Contains(got, "Registered at") {
+			t.Errorf("%v: hub line %q, want %q", lang, got, want)
+		}
 	}
 }
