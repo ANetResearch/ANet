@@ -257,8 +257,15 @@ func TestSeatbeltProfileHasTheSandboxShape(t *testing.T) {
 			t.Errorf("file-read* lacks %s", want)
 		}
 	}
+	// The root directory is opened as a literal, never as a subpath (its tree stays closed).
+	if !slices.Contains(reads, lit("/")) {
+		t.Errorf("file-read* lacks the root directory itself")
+	}
 	for _, r := range reads {
-		for _, home := range []string{`"/Users/u"`, `"/Users/u/Library"`, `"/Users/u/Library/Caches"`, `"/private/etc"`, `"/"`,
+		if r == sub("/") {
+			t.Errorf("file-read* opens the whole tree: %s", r)
+		}
+		for _, home := range []string{`"/Users/u"`, `"/Users/u/Library"`, `"/Users/u/Library/Caches"`, `"/private/etc"`,
 			`"/private/var"`, `"/System"`, `"/System/Volumes/Data"`, `"/usr/local"`, `"/opt/homebrew"`, `"/Library"`} {
 			if strings.HasSuffix(r, " "+home+")") {
 				t.Errorf("file-read* opens %s", r)

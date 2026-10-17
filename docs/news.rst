@@ -8,6 +8,29 @@ Release notes
    :depth: 2
 
 
+.. _news-0.3.1:
+
+ANet 0.3.1
+----------
+
+ANet 0.3.1 is a patch release. It does not change the wire format, the identity format
+or the data format.
+
+macOS sandbox
+~~~~~~~~~~~~~
+
+* The Seatbelt sandbox is enabled on macOS. In 0.3.0 its self-check aborted on macOS 14
+  and macOS 15, because a program started under the profile reads the root directory
+  itself and the profile did not permit that single read; the dynamic loader ended the
+  process. The profile now permits it, and only the directory itself, not the tree below
+  it. The profile remains closed by default and opens only the minimum of reads, writes
+  and network access.
+* Tasks of untrusted peers, and all tasks when ``trusted`` is ``sandbox``, now run in the
+  sandbox on macOS. The file isolation, the egress endpoint with its key and the denial of
+  the keychain are verified on macOS 14 and macOS 15 in continuous integration, where a
+  skipped test counts as a failure.
+* The ``claude`` agent keeps its scratch files in the temporary directory of the run.
+
 .. _news-0.3.0:
 
 ANet 0.3.0

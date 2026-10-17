@@ -438,6 +438,9 @@ func seatbeltCommand(p *sandboxPlan, workDir string, argv, env []string, stdin [
 	env = envWithSeatbeltPath(env, runtimeDirs)
 	env = envWithHome(env, filepath.Join(realRun, "home"))
 	env = envWithValue(env, "TMPDIR", filepath.Join(realRun, "tmp"))
+	// The claude CLI makes its scratch directory under /tmp unless told otherwise, which the profile keeps
+	// closed (there is no private /tmp as in the Linux sandbox): it is pointed at the run's own tmp/.
+	env = envWithValue(env, "CLAUDE_CODE_TMPDIR", filepath.Join(realRun, "tmp"))
 	env = envWithValue(env, "SSL_CERT_FILE", seatbeltSSLCertFile)
 	spec, err := json.Marshal(newSandboxInitSpec(append([]string{exe}, argv[1:]...), env, workDir, stdin != nil, ""))
 	if err != nil {

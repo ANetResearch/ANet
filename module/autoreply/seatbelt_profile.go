@@ -13,7 +13,8 @@ package autoreply
 //     the Linux sandbox, where the agent runs what it builds there); process information and signals only
 //     within the same sandbox (process information is refused first: Seatbelt allows it by default even
 //     under (deny default));
-//   - files: metadata anywhere (a program walking a path stats every directory on it); contents of the
+//   - files: metadata anywhere (a program walking a path stats every directory on it); the root directory
+//     itself (every program reads it at start-up; the tree below stays closed); contents of the
 //     system's libraries and tools, a short list of /private/etc, a few devices, the agent's runtime, the
 //     run directory and the work dir; writes only to the work dir, the run directory's home/ and tmp/,
 //     and the descriptors a process already holds (/dev/null, /dev/fd, /dev/stdout, /dev/stderr);
@@ -49,13 +50,15 @@ import (
 	"github.com/ANetResearch/ANet/internal/pathsafe"
 )
 
-// seatbeltEnabled says whether this build runs sandboxed turns on macOS. It is a compile-time constant. In
-// 0.3.0 it is false (MOD-V3): the sandbox's self-check did not pass on the hosted macOS runners of the first
-// CI run, so a turn that would run in the sandbox on a Mac -- an untrusted peer's, or any when trusted is
+// seatbeltEnabled says whether this build runs sandboxed turns on macOS. It is a compile-time constant. It
+// is true from 0.3.1. In 0.3.0 it was false (MOD-V3): the self-check aborted on the hosted macOS runners,
+// because a program that starts under (deny default) reads the root directory itself and the profile did not
+// allow that one read (the dynamic loader aborted the process; see the root entry in the file rules). With
+// it false a turn that would run in the sandbox on a Mac -- an untrusted peer's, or any when trusted is
 // sandbox -- is turned away before the agent starts, sandbox_unavailable with the local reason
 // platform_unsupported.pending, and never falls back to a direct run (GT-2). The direct and openai paths are
-// not affected. The sandbox is switched on again in a later 0.3 release, once its self-check passes on macOS.
-const seatbeltEnabled = false
+// not affected.
+const seatbeltEnabled = true
 
 // seatbeltGate is the macOS sandbox's one switch: nil while the sandbox is enabled, else the refusal
 // every sandboxed run and every self-check on macOS answers.
@@ -294,6 +297,9 @@ func buildSeatbeltProfile(spec seatbeltSpec) (string, error) {
 	}
 	reads = append(reads, lits(seatbeltDevRead)...)
 	reads = append(reads, sub("/dev/fd"))
+	// The root directory itself (not its tree): every program reads it at start-up, and one that cannot
+	// aborts in the dynamic loader.
+	reads = append(reads, lit("/"))
 	reads = append(reads, lit(spec.Init))
 	reads = append(reads, subs(runtime)...)
 	reads = append(reads, subs(readOnly)...)

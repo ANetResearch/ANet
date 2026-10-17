@@ -926,7 +926,7 @@ var sandboxRunnerForTest func(ctx context.Context, req sandboxRequest, workDir s
 
 // sandboxPrepareForTest, when set, replaces the platform's check that the sandbox can run (the part of
 // newSandboxPlan that differs by platform). Only tests set it, to stand in for a Mac on any host
-// (seatbeltEnabled false).
+// (the macOS gate closed).
 var sandboxPrepareForTest func(*sandboxPlan) error
 
 // sandboxRequest is one auto-reply turn for an untrusted peer under auto_reply.untrusted=sandbox.

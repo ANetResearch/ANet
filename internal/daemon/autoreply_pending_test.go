@@ -726,14 +726,12 @@ func TestNoAutoReplyLeavesTasksInInbox(t *testing.T) {
 	}
 }
 
-// MOD-3 (6), TestDarwinPendingFailsClosed: with the macOS sandbox not part of the build
-// (seatbeltEnabled false, stood in for on this host), a turn that would run in the sandbox is turned away
-// before the agent starts with sandbox_unavailable and the local reason platform_unsupported.pending; the
-// direct and openai paths are not touched; and the constant is false in 0.3.0.
+// MOD-3 (6), TestDarwinPendingFailsClosed: with the macOS sandbox switched off (the gate closed, stood in
+// for on this host), a turn that would run in the sandbox is turned away before the agent starts with
+// sandbox_unavailable and the local reason platform_unsupported.pending; the direct and openai paths are
+// not touched. The gate is open in 0.3.1, where the sandbox is on; the switch stays for a build that must
+// turn it off again.
 func TestDarwinPendingFailsClosed(t *testing.T) {
-	if seatbeltEnabled {
-		t.Fatal("seatbeltEnabled is false in 0.3.0 (MOD-V3)")
-	}
 	prev := sandboxPrepareForTest
 	sandboxPrepareForTest = func(*sandboxPlan) error { return seatbeltGate(false) }
 	t.Cleanup(func() { sandboxPrepareForTest = prev })

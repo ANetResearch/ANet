@@ -47,11 +47,14 @@ Linux
 
 macOS
    The sandbox uses Seatbelt through ``/usr/bin/sandbox-exec``. Before a turn
-   starts, the node runs a self-check inside the profile. A build in which
-   Seatbelt is not enabled, and a host on which the self-check fails, report the
-   sandbox as unavailable (``platform_unsupported.pending`` or the reason of the
-   failed item) and turn away the turns that need it with ``sandbox_unavailable``.
-   The node never runs such a turn without the sandbox.
+   starts, the node runs a self-check inside the profile. A host on which the
+   self-check fails reports the sandbox as unavailable (the reason of the failed
+   item) and turns away the turns that need it with ``sandbox_unavailable``. The
+   node never runs such a turn without the sandbox. The sandbox is available from
+   version 0.3.1 and is verified on macOS 14 and macOS 15; version 0.3.0 does not
+   include it (``platform_unsupported.pending``). The profile denies everything by
+   default and opens the system libraries and tools, the run directory, the work
+   directory and the egress endpoint of the run.
 
 Other platforms
    There is no sandbox. On Windows, run ANet in WSL2.

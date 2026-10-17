@@ -62,6 +62,7 @@
   (literal "/dev/dtracehelper")
   (literal "/dev/autofs_nowait")
   (subpath "/dev/fd")
+  (literal "/")
   (literal "/Users/u/.local/bin/anet")
   (subpath "/Users/u/.local/bin")
   (subpath "/Users/u/.local/share/claude/versions/1.0.0")
