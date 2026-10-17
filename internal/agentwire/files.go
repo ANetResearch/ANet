@@ -42,7 +42,7 @@ type change struct {
 	// that still holds exactly that is not backed up: the copy would add
 	// nothing, and in the skill directory it would be left behind.
 	generated []byte
-	note      string
+	note      Msg
 }
 
 // readMaybe returns the file's content, or nil when it does not exist.
@@ -52,7 +52,7 @@ func readMaybe(path string) ([]byte, error) {
 		return nil, nil
 	}
 	if err != nil {
-		return nil, err
+		return nil, ioError(path, err)
 	}
 	if b == nil {
 		b = []byte{}
@@ -81,13 +81,13 @@ func (c change) apply(o *Options) (string, error) {
 	// it in between (Claude Code rewrites ~/.claude.json on every start) is
 	// reported rather than overwritten with a plan made from older content.
 	if !sameContent(cur, c.before) {
-		return "", fmt.Errorf("%s 在 anet 读取之后被改动了,请重新运行", c.path)
+		return "", fail("wire_changed_during_run", "path", c.path)
 	}
 	// realPath resolves every link that leads somewhere, so a link still
 	// here points at nothing. Writing would replace the operator's link
 	// with a file; following it would create a file wherever it points.
 	if fi, err := os.Lstat(path); err == nil && fi.Mode()&fs.ModeSymlink != 0 {
-		return "", fmt.Errorf("%s 是指向不存在文件的符号链接,anet 不替换它;请先修正链接", c.path)
+		return "", fail("wire_dangling_symlink", "path", c.path)
 	}
 	perm := c.mode
 	if fi, err := os.Stat(path); err == nil {
@@ -101,12 +101,15 @@ func (c change) apply(o *Options) (string, error) {
 		perm &= c.narrow
 	}
 	if c.chmodOnly {
-		return "", os.Chmod(path, perm)
+		return "", ioError(c.path, os.Chmod(path, perm))
 	}
 	var bak string
 	if cur != nil && (c.generated == nil || !bytes.Equal(cur, c.generated)) {
 		if bak, err = backup(o, path, cur, perm); err != nil {
-			return "", fmt.Errorf("备份 %s: %w", c.path, err)
+			if _, ok := AsMsg(err); ok {
+				return "", err
+			}
+			return "", fail("wire_backup_failed", "path", c.path, "error", sysText(err))
 		}
 	}
 	switch {
@@ -116,28 +119,28 @@ func (c change) apply(o *Options) (string, error) {
 		for _, argv := range c.run {
 			out, err := o.Run(ctx, argv[0], argv[1:]...)
 			if err != nil {
-				return bak, fmt.Errorf("%s: %v: %s", strings.Join(argv, " "), err, strings.TrimSpace(string(out)))
+				return bak, fail("wire_cli_failed", "command", strings.Join(argv, " "), "error", cliError(err, out))
 			}
 		}
 		if c.verify != nil {
 			after, rerr := readMaybe(path)
 			if rerr != nil {
-				return bak, rerr
+				return bak, ioError(c.path, rerr)
 			}
 			if err := c.verify(after); err != nil {
-				return bak, fmt.Errorf("claude 命令报告成功,但%s", err)
+				return bak, err
 			}
 		}
 	case c.del:
 		if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
-			return bak, err
+			return bak, ioError(c.path, err)
 		}
 		if c.rmdir != "" {
 			_ = os.Remove(c.rmdir) // only succeeds when empty, which is the point
 		}
 	default:
 		if err := writeAtomic(path, c.after, perm); err != nil {
-			return bak, err
+			return bak, ioError(c.path, err)
 		}
 	}
 	return bak, nil
@@ -184,7 +187,7 @@ func backup(o *Options, path string, data []byte, perm fs.FileMode) (string, err
 		}
 		return name, f.Close()
 	}
-	return "", fmt.Errorf("%s 一秒内的备份过多", path)
+	return "", fail("wire_backup_limit", "path", path)
 }
 
 // writeAtomic writes data through a sibling temp file and a rename, so a
@@ -243,4 +246,13 @@ func short(o *Options, p string) string {
 		}
 	}
 	return p
+}
+
+// cliError is the first line of what a tool's own CLI said when it failed, or
+// the error from starting it: enough to tell why, and bounded.
+func cliError(err error, out []byte) string {
+	if line, _, _ := strings.Cut(strings.TrimSpace(string(out)), "\n"); line != "" {
+		return line
+	}
+	return err.Error()
 }

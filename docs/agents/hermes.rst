@@ -64,8 +64,9 @@ did not write is a conflict: the command exits with status 1 and changes
 nothing. The general rules are in :ref:`howto-coding-agents`.
 
 The messages of ``wire``, ``unwire`` and ``anet agents`` are printed in
-Chinese in all builds. The state of a successful integration is the line
-``hermes    已接入,最新`` (wired, current) in the output of ``anet agents``.
+English by default and in Chinese when ``ANET_LANG`` is ``zh-CN``. The state of
+a successful integration is the line ``hermes    wired, up to date`` in the
+output of ``anet agents``.
 
 Start a new Hermes session after the command. Alternatively, run
 ``/reload-mcp`` in a running session; the Hermes MCP guide describes this
@@ -138,7 +139,7 @@ Run the checks in a terminal.
    $ hermes mcp test anet
    $ anet doctor
 
-* ``anet agents`` reports the line ``hermes    已接入,最新``.
+* ``anet agents`` reports the line ``hermes    wired, up to date``.
 * ``hermes mcp list`` shows the server ``anet`` with the status ``enabled``.
 * ``hermes mcp test anet`` prints the transport, then ``Connected`` with the
   connection time, then ``Tools discovered: 14``, followed by the list of the

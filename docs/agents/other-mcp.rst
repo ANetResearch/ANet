@@ -53,9 +53,10 @@ Automatic registration
 .. code-block:: console
 
    $ anet agents wire windsurf
-   error: 不认识的工具 "windsurf"(支持:claude, codex, cursor, opencode, hermes, workbuddy)
+   windsurf is not a supported tool (supported: claude, codex, cursor, opencode, hermes, workbuddy); use one of them. [wire_unknown_tool]
 
-The message is in Chinese in every build, and the exit status is 1. The clients
+The message is in English by default and in Chinese when ``ANET_LANG`` is
+``zh-CN``, and the exit status is 1. The clients
 on this page are therefore registered by hand, as described in the next
 section.
 

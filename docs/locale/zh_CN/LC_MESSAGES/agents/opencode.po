@@ -116,20 +116,6 @@ msgstr ""
 "``AGENTS.md`` 增加一个以标记 ``anet:begin`` 与 ``anet:end`` "
 "界定的块,说明工具的使用方式以及任务结果的报告方式。"
 
-#: ../agents/opencode.rst:65
-msgid ""
-"Each changed file is first copied to ``<name>.anet-bak-<UTC time>``. "
-"Writes are atomic, a second run reports that the files are up to date, "
-"and an existing ``mcp.anet`` entry that ANet did not write is reported as"
-" a conflict without any change. The output of ``wire`` and ``unwire`` is "
-"in Chinese in every build; the status words are ``已写`` (written), "
-"``已是最新`` (up to date), ``冲突`` (conflict), ``失败`` (failed) and ``未安装,跳过`` "
-"(not installed, skipped)."
-msgstr ""
-"每个被修改的文件会先复制为 ``<name>.anet-bak-<UTC time>``。写入是原子的;再次运行时报告文件已是最新;已存在但并非 "
-"ANet 写入的 ``mcp.anet`` 条目被报告为冲突,且不做任何更改。``wire`` 与 ``unwire`` "
-"的输出在所有构建中均为中文;状态词为 ``已写``\\ (已写入)、``已是最新``、``冲突``、``失败`` 和 ``未安装,跳过``。"
-
 #: ../agents/opencode.rst:73
 msgid ""
 "opencode reads its configuration when it starts. Restart opencode or open"
@@ -406,10 +392,6 @@ msgstr ""
 "运行 ``anet agents``,再运行 ``anet agents wire opencode``。重启 opencode。用 "
 "``opencode debug config`` 检查解析后的条目。"
 
-#: ../agents/opencode.rst:275
-msgid "``wire`` reports ``冲突`` and the exit status is 1."
-msgstr "``wire`` 报告 ``冲突``,退出状态为 1。"
-
 #: ../agents/opencode.rst:276
 msgid "``mcp.anet`` exists and was not written by ANet."
 msgstr "``mcp.anet`` 已存在,且并非由 ANet 写入。"
@@ -417,10 +399,6 @@ msgstr "``mcp.anet`` 已存在,且并非由 ANet 写入。"
 #: ../agents/opencode.rst:277
 msgid "Remove or rename that entry in the opencode file, then run ``wire`` again."
 msgstr "在 opencode 文件中删除或改名该条目,然后再次运行 ``wire``。"
-
-#: ../agents/opencode.rst:279
-msgid "``wire`` reports ``失败``, names ``opencode.jsonc`` and prints an entry."
-msgstr "``wire`` 报告 ``失败``,指明 ``opencode.jsonc`` 并输出一个条目。"
 
 #: ../agents/opencode.rst:280
 msgid "The file contains comments, and ``wire`` does not rewrite it."
@@ -488,20 +466,6 @@ msgstr ""
 msgid "Disconnecting"
 msgstr "断开"
 
-#: ../agents/opencode.rst:308
-msgid ""
-"The command removes the member ``mcp.anet`` and the block between the "
-"markers in ``AGENTS.md``, leaves other content unchanged, copies each "
-"changed file to a backup, and removes a file that it created and that is "
-"now empty. Use ``anet --id <name> agents unwire opencode`` for a named "
-"identity. The status words are ``已移除`` (removed) and ``未接入`` (not wired)."
-" An entry named ``anet`` that ANet did not write is left in place."
-msgstr ""
-"该命令删除成员 ``mcp.anet`` 以及 ``AGENTS.md`` "
-"中两个标记之间的块,其他内容保持不变,每个被修改的文件先复制为备份,由命令新建且现已为空的文件会被删除。对指定身份使用 ``anet --id "
-"<name> agents unwire opencode``。状态词为 ``已移除`` 和 ``未接入``。名为 ``anet`` 但并非由 "
-"ANet 写入的条目保持原样。"
-
 #: ../agents/opencode.rst:315
 msgid ""
 "To remove the integration by hand, delete the member ``mcp.anet`` from "
@@ -558,4 +522,45 @@ msgstr ":doc:`/reference/mcp-tools`"
 #: ../agents/opencode.rst:333
 msgid ":doc:`/intro/install` and :doc:`/intro/tutorial`"
 msgstr ":doc:`/intro/install` 与 :doc:`/intro/tutorial`"
+
+#: ../../agents/opencode.rst:63
+msgid ""
+"Each changed file is first copied to ``<name>.anet-bak-<UTC time>``. "
+"Writes are atomic, a second run reports that the files are up to date, "
+"and an existing ``mcp.anet`` entry that ANet did not write is reported as"
+" a conflict without any change. The output of ``wire`` and ``unwire`` is "
+"in English by default and in Chinese when ``ANET_LANG`` is ``zh-CN``; the"
+" status words are ``written``, ``up to date``, ``conflict``, ``failed`` "
+"and ``not installed, skipped``."
+msgstr ""
+"每个被修改的文件会先复制为 ``<name>.anet-bak-<UTC time>``。写入是原子的；再次运行时报告文件已是最新；已存在但并非 "
+"ANet 写入的 ``mcp.anet`` 条目被报告为冲突，且不做任何更改。``wire`` 与 ``unwire`` "
+"的输出默认为英文，``ANET_LANG`` 为 ``zh-CN`` 时为中文；状态词为 ``written``、``up to "
+"date``、``conflict``、``failed`` 和 ``not installed, skipped``。"
+
+#: ../../agents/opencode.rst:273
+msgid "``wire`` reports ``conflict`` and the exit status is 1."
+msgstr "``wire`` 报告 ``conflict``，退出状态为 1。"
+
+#: ../../agents/opencode.rst:277
+msgid ""
+"``wire`` reports ``failed`` with ``[wire_not_plain_json]``, names "
+"``opencode.jsonc`` and prints an entry."
+msgstr ""
+"``wire`` 报告 ``failed`` 及 ``[wire_not_plain_json]``，指明 ``opencode.jsonc`` "
+"并输出一个条目。"
+
+#: ../../agents/opencode.rst:307
+msgid ""
+"The command removes the member ``mcp.anet`` and the block between the "
+"markers in ``AGENTS.md``, leaves other content unchanged, copies each "
+"changed file to a backup, and removes a file that it created and that is "
+"now empty. Use ``anet --id <name> agents unwire opencode`` for a named "
+"identity. The status words are ``removed`` and ``not wired``. An entry "
+"named ``anet`` that ANet did not write is left in place."
+msgstr ""
+"该命令删除成员 ``mcp.anet`` 以及 ``AGENTS.md`` "
+"中两个标记之间的块，其他内容保持不变，每个被修改的文件先复制为备份，由命令新建且现已为空的文件会被删除。对指定身份使用 ``anet --id "
+"<name> agents unwire opencode``。状态词为 ``removed`` 和 ``not wired``。名为 "
+"``anet`` 但并非由 ANet 写入的条目保持原样。"
 

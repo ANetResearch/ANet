@@ -107,19 +107,6 @@ msgstr ""
 msgid "Automatic registration"
 msgstr "自动注册"
 
-#: ../agents/workbuddy.rst:62
-msgid ""
-"The output of ``wire`` and ``unwire`` is in Chinese in every build. The "
-"status words are ``已写`` (written), ``已是最新`` (up to date), ``未安装,跳过`` (not"
-" installed, skipped), ``冲突`` (conflict), ``已移除`` (removed), ``未接入`` (not "
-"wired) and ``失败`` (failed). The line about the tool not being detected "
-"appears only when the directory ``~/.workbuddy`` does not exist; the "
-"command then writes the file as requested."
-msgstr ""
-"``wire`` 与 ``unwire`` 的输出在所有构建中均为中文。状态词为 ``已写``\\ （已写入）、\\ ``已是最新``\\ 、\\"
-" ``未安装,跳过``\\ 、\\ ``冲突``\\ 、\\ ``已移除``\\ 、\\ ``未接入`` 和 ``失败``\\ 。仅当目录 "
-"``~/.workbuddy`` 不存在时才会出现“未检测到该工具”一行，此时命令按指定要求写入文件。"
-
 #: ../agents/workbuddy.rst:69
 msgid ""
 "The command changes one file, ``~/.workbuddy/mcp.json``, which holds the "
@@ -138,15 +125,6 @@ msgstr ""
 "，以及设为所选身份数据目录的变量 ``ANET_DATA_DIR``\\ 。该条目没有 ``type`` 成员和 ``timeout`` "
 "成员。文件中的其他服务器保持不变；文件不存在时会被创建。"
 
-#: ../agents/workbuddy.rst:77
-msgid ""
-"An existing file is copied to ``mcp.json.anet-bak-<UTC time>`` before it "
-"is changed. The write is atomic and keeps the mode of the file. A second "
-"run changes nothing and reports ``已是最新``."
-msgstr ""
-"已有文件在修改前复制为 ``mcp.json.anet-bak-<UTC 时间>``\\ "
-"。写入是原子的，并保留文件的权限模式。再次运行不产生任何变更，并报告 ``已是最新``\\ 。"
-
 #: ../agents/workbuddy.rst:80
 msgid ""
 "No skill and no instruction file is written, because no user-level file "
@@ -156,16 +134,6 @@ msgid ""
 msgstr ""
 "不写入技能文件和指引文件，因为 WorkBuddy 没有文档记载的、可用于此目的的用户级文件。MCP "
 "服务器在连接建立时向客户端发送其操作指引；WorkBuddy 是否将其传递给模型，文档未说明。"
-
-#: ../agents/workbuddy.rst:84
-msgid ""
-"A file that is not plain JSON, for example one with comments, is not "
-"edited. The command reports ``失败`` and prints the entry for insertion by "
-"hand. An existing ``mcpServers.anet`` that is not ``anet mcp`` is "
-"reported as ``冲突``, nothing is changed and the exit status is 1."
-msgstr ""
-"不是纯 JSON 的文件（例如含注释的文件）不会被编辑。命令报告 ``失败`` 并打印条目，供手动加入。已有的 "
-"``mcpServers.anet`` 若不是 ``anet mcp``\\ ，则报告为 ``冲突``\\ ，不做任何变更，退出状态为 1。"
 
 #: ../agents/workbuddy.rst:89
 msgid ""
@@ -477,9 +445,11 @@ msgstr "``anet`` 的状态灯为红色，或服务器无法连接。"
 msgid ""
 "The daemon of the identity does not run. ``anet mcp`` then exits with a "
 "message that begins with ``anet is not running`` (the node was never "
-"started) or with ``error: anet mcp:`` (the daemon stopped), and the "
-"exit status 1."
-msgstr "该身份的守护进程未运行。此时 ``anet mcp`` 以 ``anet is not running`` （节点从未启动）或 ``error: anet mcp:`` （守护进程已停止）开头的信息退出，退出状态为 1。"
+"started) or with ``error: anet mcp:`` (the daemon stopped), and the exit "
+"status 1."
+msgstr ""
+"该身份的守护进程未运行。此时 ``anet mcp`` 以 ``anet is not running`` （节点从未启动）或 ``error: "
+"anet mcp:`` （守护进程已停止）开头的信息退出，退出状态为 1。"
 
 #: ../agents/workbuddy.rst:251
 msgid ""
@@ -503,10 +473,6 @@ msgstr ""
 "运行 ``anet agents``\\ ；若报告条目已过期，再次执行 ``anet agents wire workbuddy``\\ 。检查 "
 "``mcp.json`` 的 JSON 格式。"
 
-#: ../agents/workbuddy.rst:257
-msgid "``wire`` reports ``失败``."
-msgstr "``wire`` 报告 ``失败``\\ 。"
-
 #: ../agents/workbuddy.rst:258
 msgid "``mcp.json`` contains comments or is not valid JSON."
 msgstr "``mcp.json`` 含有注释或不是有效 JSON。"
@@ -516,10 +482,6 @@ msgid ""
 "Insert the printed entry by hand, or remove the comments and run ``wire``"
 " again."
 msgstr "手动加入所打印的条目，或删除注释后再次运行 ``wire``\\ 。"
-
-#: ../agents/workbuddy.rst:261
-msgid "``wire`` reports ``冲突`` and exits with 1."
-msgstr "``wire`` 报告 ``冲突`` 并以状态 1 退出。"
 
 #: ../agents/workbuddy.rst:262
 msgid "The file already holds an ``anet`` entry that is not ``anet mcp``."
@@ -607,17 +569,6 @@ msgstr ""
 msgid "Disconnecting"
 msgstr "断开"
 
-#: ../agents/workbuddy.rst:298
-msgid ""
-"The command removes only the entry that ``wire`` wrote and keeps other "
-"servers. When the file then holds nothing that ``wire`` did not create, "
-"the file is removed as well. A second run reports ``未接入``. An entry can "
-"also be deleted by hand from ``~/.workbuddy/mcp.json`` or in the MCP "
-"panel."
-msgstr ""
-"该命令只移除 ``wire`` 写入的条目，保留其他服务器。若文件中此后只剩 ``wire`` 创建的内容，文件也会被删除。再次运行报告 "
-"``未接入``\\ 。也可在 ``~/.workbuddy/mcp.json`` 中或在 MCP 面板中手动删除该条目。"
-
 #: ../agents/workbuddy.rst:305
 msgid "References"
 msgstr "参考"
@@ -668,4 +619,58 @@ msgid ""
 msgstr ""
 "以下几点尚未在运行中的 WorkBuddy 客户端上确认，以所安装版本的官方文档为准：无需重启的重新加载、信任提示、用户级 ``timeout``"
 " 是否生效、MCP 服务器的指引是否传递给模型、Windows 上文件的位置，以及 WSL2 路径。"
+
+#: ../../agents/workbuddy.rst:60
+msgid ""
+"The output of ``wire`` and ``unwire`` is in English by default and in "
+"Chinese when ``ANET_LANG`` is ``zh-CN``. The status words are "
+"``written``, ``up to date``, ``not installed, skipped``, ``conflict``, "
+"``removed``, ``not wired`` and ``failed``. The line about the tool not "
+"being detected appears only when the directory ``~/.workbuddy`` does not "
+"exist; the command then writes the file as requested."
+msgstr ""
+"``wire`` 与 ``unwire`` 的输出默认为英文，``ANET_LANG`` 为 ``zh-CN`` 时为中文。状态词为 "
+"``written``、``up to date``、``not installed, "
+"skipped``、``conflict``、``removed``、``not wired`` 和 ``failed``。仅当目录 "
+"``~/.workbuddy`` 不存在时才会出现“未检测到该工具”一行，此时命令按指定要求写入文件。"
+
+#: ../../agents/workbuddy.rst:75
+msgid ""
+"An existing file is copied to ``mcp.json.anet-bak-<UTC time>`` before it "
+"is changed. The write is atomic and keeps the mode of the file. A second "
+"run changes nothing and reports ``up to date``."
+msgstr ""
+"已有文件在修改前复制为 ``mcp.json.anet-bak-<UTC "
+"时间>``。写入是原子的，并保留文件的权限模式。再次运行不产生任何变更，并报告 ``up to date``。"
+
+#: ../../agents/workbuddy.rst:82
+msgid ""
+"A file that is not plain JSON, for example one with comments, is not "
+"edited. The command reports ``failed`` with the reason code "
+"``[wire_not_plain_json]`` and prints the entry for insertion by hand. An "
+"existing ``mcpServers.anet`` that is not ``anet mcp`` is reported as "
+"``conflict``, nothing is changed and the exit status is 1."
+msgstr ""
+"不是纯 JSON 的文件（例如含注释的文件）不会被编辑。命令报告 ``failed`` 及原因代码 "
+"``[wire_not_plain_json]``，并打印条目，供手动加入。已有的 ``mcpServers.anet`` 若不是 ``anet "
+"mcp``，则报告为 ``conflict``，不做任何变更，退出状态为 1。"
+
+#: ../../agents/workbuddy.rst:258
+msgid "``wire`` reports ``failed``."
+msgstr "``wire`` 报告 ``failed``。"
+
+#: ../../agents/workbuddy.rst:262
+msgid "``wire`` reports ``conflict`` and exits with 1."
+msgstr "``wire`` 报告 ``conflict`` 并以状态 1 退出。"
+
+#: ../../agents/workbuddy.rst:299
+msgid ""
+"The command removes only the entry that ``wire`` wrote and keeps other "
+"servers. When the file then holds nothing that ``wire`` did not create, "
+"the file is removed as well. A second run reports ``not wired``. An entry"
+" can also be deleted by hand from ``~/.workbuddy/mcp.json`` or in the MCP"
+" panel."
+msgstr ""
+"该命令只移除 ``wire`` 写入的条目，保留其他服务器。若文件中此后只剩 ``wire`` 创建的内容，文件也会被删除。再次运行报告 "
+"``not wired``。也可在 ``~/.workbuddy/mcp.json`` 中或在 MCP 面板中手动删除该条目。"
 

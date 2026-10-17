@@ -26,7 +26,7 @@ func TestCodexConflictBehindStringsAndEscapes(t *testing.T) {
 			h.write(".codex/config.toml", cfg, 0o644)
 			r := one(t, h.wire(ToolCodex), Conflict)
 			var ce *ConflictError
-			if !errors.As(r.Err, &ce) || ce.Line == 0 {
+			if !errors.As(r.Err, &ce) || argLine(ce.Msg) == 0 {
 				t.Fatalf("want a conflict naming its line, got %v", r.Err)
 			}
 			if h.read(".codex/config.toml") != cfg {

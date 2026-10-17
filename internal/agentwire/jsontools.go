@@ -4,7 +4,6 @@ package agentwire
 
 import (
 	"encoding/json"
-	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -37,15 +36,16 @@ func (s jsonServer) load(o *Options) ([]byte, *jsonObject, *jsonObject, error) {
 	if err != nil {
 		// opencode accepts JSONC; anet's editor does not keep comments, so
 		// it stops rather than silently dropping them.
-		return nil, nil, nil, fmt.Errorf("%s 不是纯 JSON(%v;可能含注释),anet 不改写它。请手动加入:\n%s",
-			short(o, s.path), err, s.manual)
+		e := fail("wire_not_plain_json", "path", short(o, s.path))
+		e.Detail = s.manual
+		return nil, nil, nil, e
 	}
 	if cur == nil {
 		root = &jsonObject{members: append([]jsonMember{}, s.fresh...)}
 	}
 	servers, _, err := root.subObject(s.container)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("%s: %v", short(o, s.path), err)
+		return nil, nil, nil, fail("wire_json_shape", "path", short(o, s.path), "key", s.container)
 	}
 	return cur, root, servers, nil
 }
@@ -60,8 +60,7 @@ func (s jsonServer) planWire(o *Options) (*change, error) {
 		return nil, nil
 	}
 	if has && !s.ours(raw) {
-		return nil, &ConflictError{Path: s.path, What: "已有一个不是 anet 写的 " + s.container +
-			".anet(命令不是 `anet mcp`);删除或改名后再运行 wire"}
+		return nil, conflict("wire_conflict", "path", short(o, s.path), "key", s.container)
 	}
 	want, err := marshalNoEscape(s.want)
 	if err != nil {
@@ -74,10 +73,10 @@ func (s jsonServer) planWire(o *Options) (*change, error) {
 		return nil, err
 	}
 	return &change{path: s.path, before: cur, after: after, mode: s.mode,
-		note: s.container + ".anet → " + short(o, s.path)}, nil
+		note: msg("wire.change.json_write", "key", s.container, "path", short(o, s.path))}, nil
 }
 
-func (s jsonServer) planUnwire(o *Options) (*change, []string, error) {
+func (s jsonServer) planUnwire(o *Options) (*change, []Msg, error) {
 	cur, root, servers, err := s.load(o)
 	if err != nil || cur == nil {
 		return nil, nil, err
@@ -87,7 +86,7 @@ func (s jsonServer) planUnwire(o *Options) (*change, []string, error) {
 		return nil, nil, nil
 	}
 	if !s.ours(raw) {
-		return nil, []string{short(o, s.path) + " 的 " + s.container + ".anet 不是 anet 写的,未改动"}, nil
+		return nil, []Msg{msg("wire.note.foreign_entry", "path", short(o, s.path), "key", s.container)}, nil
 	}
 	servers.del("anet")
 	if servers.empty() {
@@ -103,7 +102,7 @@ func (s jsonServer) planUnwire(o *Options) (*change, []string, error) {
 	// wire; removing it gives the original state back.
 	del := root.empty() || sameMembers(root.members, s.fresh)
 	return &change{path: s.path, before: cur, after: after, del: del,
-		note: "删除 " + s.container + ".anet:" + short(o, s.path)}, nil, nil
+		note: msg("wire.change.json_drop", "key", s.container, "path", short(o, s.path))}, nil, nil
 }
 
 func sameMembers(a, b []jsonMember) bool {
@@ -183,7 +182,7 @@ func (t cursorTool) planWire(o *Options) ([]change, error) {
 	return changes, nil
 }
 
-func (t cursorTool) planUnwire(o *Options) ([]change, []string, error) {
+func (t cursorTool) planUnwire(o *Options) ([]change, []Msg, error) {
 	var changes []change
 	c, notes, err := t.server(o).planUnwire(o)
 	if err != nil {
@@ -210,7 +209,7 @@ func planLegacyFile(o *Options, path string) (*change, error) {
 	if !strings.Contains(string(cur), "AgentNetwork (anet)") {
 		return nil, nil
 	}
-	return &change{path: path, before: cur, del: true, note: "删除旧版规则文件:" + short(o, path)}, nil
+	return &change{path: path, before: cur, del: true, note: msg("wire.change.legacy_file_drop", "path", short(o, path))}, nil
 }
 
 // opencode: the mcp member of $XDG_CONFIG_HOME/opencode/opencode.json. Its
@@ -281,7 +280,7 @@ func (t opencodeTool) planWire(o *Options) ([]change, error) {
 	if c != nil {
 		changes = append(changes, *c)
 	}
-	p, err := planTextBlock(o, opencodeAgentsMD(o), personaMarkdown, "anet 指引块")
+	p, err := planTextBlock(o, opencodeAgentsMD(o), personaMarkdown)
 	if err != nil {
 		return nil, err
 	}
@@ -291,7 +290,7 @@ func (t opencodeTool) planWire(o *Options) ([]change, error) {
 	return changes, nil
 }
 
-func (t opencodeTool) planUnwire(o *Options) ([]change, []string, error) {
+func (t opencodeTool) planUnwire(o *Options) ([]change, []Msg, error) {
 	var changes []change
 	c, notes, err := t.server(o).planUnwire(o)
 	if err != nil {
@@ -300,7 +299,7 @@ func (t opencodeTool) planUnwire(o *Options) ([]change, []string, error) {
 	if c != nil {
 		changes = append(changes, *c)
 	}
-	p, err := planDropTextBlock(o, opencodeAgentsMD(o), "anet 指引块")
+	p, err := planDropTextBlock(o, opencodeAgentsMD(o), "wire.change.guide_drop")
 	if err != nil {
 		return nil, nil, err
 	}
@@ -349,7 +348,7 @@ func (t workbuddyTool) planWire(o *Options) ([]change, error) {
 	return []change{*c}, nil
 }
 
-func (t workbuddyTool) planUnwire(o *Options) ([]change, []string, error) {
+func (t workbuddyTool) planUnwire(o *Options) ([]change, []Msg, error) {
 	c, notes, err := t.server(o).planUnwire(o)
 	if err != nil || c == nil {
 		return nil, notes, err
@@ -357,10 +356,9 @@ func (t workbuddyTool) planUnwire(o *Options) ([]change, []string, error) {
 	return []change{*c}, notes, nil
 }
 
-func (workbuddyTool) wireNotes(o *Options, st Status) []string {
+func (workbuddyTool) wireNotes(o *Options, st Status) []Msg {
 	if st != Written {
 		return nil
 	}
-	return []string{"WorkBuddy 的重载方式与工具调用超时(默认 30 秒)以官方文档为准:" + workbuddyDocs +
-		";anet 只写了 MCP 条目,没有写指引文件"}
+	return []Msg{msg("wire.note.workbuddy_docs", "url", workbuddyDocs)}
 }

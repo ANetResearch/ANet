@@ -4,7 +4,6 @@ package agentwire
 
 import (
 	"encoding/json"
-	"fmt"
 	"regexp"
 	"strings"
 )
@@ -202,7 +201,7 @@ func (m yamlMap) set(src, path string, body []string, children []string) (string
 			end := regionEnd(lines, k)
 			for _, c := range children {
 				if line := hasChildKey(lines, k, end, ind, b, e, c); line > 0 {
-					return "", &ConflictError{Path: path, Line: line, What: fmt.Sprintf("%s 下已有不是 anet 写的 %s 条目", m.key, c)}
+					return "", conflict("wire_conflict.yaml_entry", "path", path, "line", line, "key", m.key, "name", c)
 				}
 			}
 		}
@@ -211,8 +210,7 @@ func (m yamlMap) set(src, path string, body []string, children []string) (string
 	}
 	if k < 0 {
 		if line, ok := topMapping(lines); !ok {
-			return "", &ConflictError{Path: path, Line: line, What: fmt.Sprintf(
-				"文件的顶层不是映射(第 %d 行不是 `键: 值`),anet 无法在其后加入 %s;请先改成映射写法", line, m.key)}
+			return "", conflict("wire_conflict.yaml_top", "path", path, "line", line, "key", m.key)
 		}
 		block := append([]string{m.key + ":  " + yamlTag + " added"},
 			indentLines(append(append([]string{m.begin}, body...), m.markers.end), 2)...)
@@ -221,29 +219,28 @@ func (m yamlMap) set(src, path string, body []string, children []string) (string
 	end := regionEnd(lines, k)
 	ind := childIndent(lines, k, end)
 	if !yamlEmptyValues[val] {
-		return "", &ConflictError{Path: path, Line: k + 1, What: fmt.Sprintf(
-			"%s 用的是行内写法(%s),anet 无法在不解析 YAML 的情况下加入条目;请改成块写法后再运行 wire", m.key, val)}
+		return "", conflict("wire_conflict.yaml_inline", "path", path, "line", k+1, "key", m.key)
 	}
 	if ind == 0 {
-		return "", &ConflictError{Path: path, Line: k + 1, What: m.key + " 不是映射(子项没有缩进)"}
+		return "", conflict("wire_conflict.yaml_shape", "path", path, "line", k+1, "key", m.key)
 	}
 	if j := firstChild(lines, k, end); j >= 0 {
 		if t := strings.TrimSpace(lines[j]); t == "-" || strings.HasPrefix(t, "- ") {
 			// A sequence: an `anet:` key among its items would make the
 			// whole file unreadable to Hermes.
-			return "", &ConflictError{Path: path, Line: j + 1, What: m.key + " 是列表,不是映射;anet 无法在其中加入条目"}
+			return "", conflict("wire_conflict.yaml_shape", "path", path, "line", j+1, "key", m.key)
 		}
 		if !yamlKeyLine.MatchString(strings.TrimSpace(lines[j])) {
 			// A scalar or a flow collection on the lines below the key
 			// ("mcp_servers:\n  0", "mcp_servers:\n  {fs: …}"): a key
 			// among it makes the file unreadable (an internal note,
 			// FuzzHermesConfig).
-			return "", &ConflictError{Path: path, Line: j + 1, What: m.key + " 的值不是映射(这一行不是 `键: 值`);anet 无法在其中加入条目"}
+			return "", conflict("wire_conflict.yaml_shape", "path", path, "line", j+1, "key", m.key)
 		}
 	}
 	for _, c := range children {
 		if line := hasChildKey(lines, k, end, ind, -1, -1, c); line > 0 {
-			return "", &ConflictError{Path: path, Line: line, What: fmt.Sprintf("%s 下已有不是 anet 写的 %s 条目", m.key, c)}
+			return "", conflict("wire_conflict.yaml_entry", "path", path, "line", line, "key", m.key, "name", c)
 		}
 	}
 	keyLine := lines[k]

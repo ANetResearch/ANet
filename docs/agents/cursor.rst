@@ -63,23 +63,24 @@ The member names the ``anet`` binary by its absolute path, passes the argument
 The file is created when it does not exist, the other servers in it are kept,
 and the write is atomic. An existing file is saved first as
 ``mcp.json.anet-bak-<UTC timestamp>``. Running the command again changes
-nothing and reports ``已是最新``. An older rule file,
+nothing and reports ``up to date``. An older rule file,
 ``~/.cursor/rules/agentnetwork-anet.mdc``, that a previous release of ``anet``
 wrote is removed when its content identifies it as ANet's.
 
 The command writes no entry of the project scope (``.cursor/mcp.json``) and no
 operating guide. See `Operating guide`_ for the optional guide.
 
-The output of the command is in Chinese in all builds. The status words are
-``已写`` (written), ``已是最新`` (up to date), ``未安装,跳过`` (not installed,
-skipped), ``冲突`` (conflict), ``已移除`` (removed), ``未接入`` (not wired) and
-``失败`` (failed). A ``mcpServers.anet`` member that ``anet`` did not write is
-reported as ``冲突``; the command then exits with status 1 and changes nothing.
+The output of the command is in English by default and in Chinese when
+``ANET_LANG`` is ``zh-CN``. The status words are ``written``, ``up to date``,
+``not installed, skipped``, ``conflict``, ``removed``, ``not wired`` and
+``failed``. A ``mcpServers.anet`` member that ``anet`` did not write is
+reported as ``conflict`` with the reason code ``[wire_conflict]``; the command
+then exits with status 1 and changes nothing.
 Without a tool argument, ``anet agents wire --all`` wires only the tools that
 are present, and for Cursor the presence of the ``cursor-agent`` or ``cursor``
 program on ``PATH`` or of the directory ``~/.cursor`` counts. Naming ``cursor``
-wires it in any case and prints the note ``未检测到该工具,按要求照写`` when
-it is not detected.
+wires it in any case and prints the note ``the tool was not detected; written
+as requested`` when it is not detected.
 
 Restart Cursor after the first write. The Cursor documentation states that a
 change to the local files takes effect after Cursor is restarted; it does not
@@ -89,23 +90,26 @@ reminder, and adds that ``anet mcp`` needs the local daemon (``anet up``).
 .. code-block:: console
 
    $ anet agents wire cursor
-   cursor    已写
-             - mcpServers.anet → ~/.cursor/mcp.json
-   重启这些工具(或新开会话)后生效;它们调用 `anet mcp`,需要本机 daemon 在运行(anet up)。
-   撤销:anet agents unwire <工具>(或 --all)
+   anet agents wire (anet /usr/local/bin/anet, data directory /home/operator/.anet)
+     cursor    written
+               - mcpServers.anet → ~/.cursor/mcp.json
+               backup ~/.cursor/mcp.json.anet-bak-20261017-161550
+   Restart these tools (or start a new session) for the change to take effect. They call anet mcp, which needs the local daemon to be running (anet up).
+   To undo: anet agents unwire <tool> (or --all)
 
 The state of the registration is shown by ``anet agents``; ``cursor`` is
-reported as ``已接入,最新`` (wired, current) or ``未安装`` (not installed).
+reported as ``wired, up to date`` or ``not installed``.
 
 .. code-block:: console
 
    $ anet agents
-     claude    未接入(anet agents wire claude)
-     codex     未安装
-     cursor    已接入,最新
-     opencode  未安装
-     hermes    未安装
-     workbuddy 未安装
+   anet agents (anet /usr/local/bin/anet, data directory /home/operator/.anet)
+     claude    not wired (anet agents wire claude)
+     codex     not installed
+     cursor    wired, up to date
+     opencode  not installed
+     hermes    not installed
+     workbuddy not installed
 
 
 Manual registration
@@ -326,7 +330,7 @@ Troubleshooting
    * - The tools are not listed after ``wire``
      - Cursor has not been restarted, or the server is disabled
      - Restart Cursor. Enable ``anet`` in **Customize**
-   * - ``wire`` reports ``冲突`` and exits with status 1
+   * - ``wire`` reports ``conflict`` and exits with status 1
      - ``mcpServers.anet`` exists and was not written by ``anet``
      - Rename or delete that member, then run ``wire`` again
    * - ``agent mcp list`` shows another source or another identity
@@ -356,14 +360,16 @@ Disconnecting
 .. code-block:: console
 
    $ anet agents unwire cursor
-   cursor    已移除
-             - 删除 mcpServers.anet:~/.cursor/mcp.json
-             备份 ~/.cursor/mcp.json.anet-bak-20261017-094802
+   anet agents unwire (anet /usr/local/bin/anet, data directory /home/operator/.anet)
+     cursor    removed
+               - remove mcpServers.anet: ~/.cursor/mcp.json
+               backup ~/.cursor/mcp.json.anet-bak-20261017-161550-2
 
 The command removes only the member written by ``anet`` and keeps the other
 servers; a file that holds nothing else is removed, and the backup remains. A
 member that ``anet`` did not write is left unchanged and reported with the note
-``不是 anet 写的,未改动``. Without a registration the status is ``未接入``.
+``mcpServers.anet in ~/.cursor/mcp.json was not written by anet and was left
+unchanged``. Without a registration the status is ``not wired``.
 Manually, delete the member ``anet`` from ``mcpServers`` and restart Cursor.
 
 

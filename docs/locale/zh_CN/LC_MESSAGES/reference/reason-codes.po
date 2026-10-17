@@ -9271,3 +9271,1400 @@ msgstr ":ref:`howto-troubleshooting`：运营人员最常遇到的原因码清�
 msgid ":doc:`hub-api` for the codes that a hub returns on the wire."
 msgstr ":doc:`hub-api`：hub 在线路上返回的原因码。"
 
+
+#: ../../reference/_generated/reason-codes.inc:336
+msgid ""
+"This node's hub is not taking first contacts right now, so this is "
+"queued; run ``anet status`` to see the hub's state."
+msgstr ""
+"This node's hub is not taking first contacts right now, so this is "
+"queued; run ``anet status`` to see the hub's state."
+
+#: ../../reference/_generated/reason-codes.inc:429
+msgid "``hub.next_check``"
+msgstr "``hub.next_check``"
+
+#: ../../reference/_generated/reason-codes.inc:431
+#, python-brace-format
+msgid "``anet`` asks the hub again at {time}."
+msgstr "``anet`` asks the hub again at {time}."
+
+#: ../../reference/_generated/reason-codes.inc:432
+#, python-brace-format
+msgid "``anet`` 将在 {time} 再次向 hub 确认。"
+msgstr "``anet`` 将在 {time} 再次向 hub 确认。"
+
+#: ../../reference/_generated/reason-codes.inc:1725
+msgid "· 结束所有进行中的任务（对方会看到你做了紧急密钥轮换）"
+msgstr "· 结束所有进行中的任务（对方会看到你做了紧急密钥轮换）"
+
+#: ../../reference/_generated/reason-codes.inc:2225
+msgid "Coding-agent registration"
+msgstr "编码代理接入"
+
+#: ../../reference/_generated/reason-codes.inc:2227
+msgid ""
+"Output of ``anet agents``, ``anet agents wire`` and ``anet agents "
+"unwire``: the status words, the lines of a result, the notes, and the "
+"refusals with the ``wire_`` codes."
+msgstr ""
+"``anet agents``、``anet agents wire`` 与 ``anet agents unwire`` "
+"的输出：状态词、结果各行、提示，以及带 ``wire_`` 代码的拒绝信息。"
+
+#: ../../reference/_generated/reason-codes.inc:2238
+msgid "``wire.status.written``"
+msgstr "``wire.status.written``"
+
+#: ../../reference/_generated/reason-codes.inc:2240
+msgid "written"
+msgstr "已写入"
+
+#: ../../reference/_generated/reason-codes.inc:2241
+msgid "已写入"
+msgstr "已写入"
+
+#: ../../reference/_generated/reason-codes.inc:2243
+msgid "``wire.status.up_to_date``"
+msgstr "``wire.status.up_to_date``"
+
+#: ../../reference/_generated/reason-codes.inc:2245
+msgid "up to date"
+msgstr "已是最新"
+
+#: ../../reference/_generated/reason-codes.inc:2246
+msgid "已是最新"
+msgstr "已是最新"
+
+#: ../../reference/_generated/reason-codes.inc:2248
+msgid "``wire.status.skipped``"
+msgstr "``wire.status.skipped``"
+
+#: ../../reference/_generated/reason-codes.inc:2250
+msgid "not installed, skipped"
+msgstr "未安装，已跳过"
+
+#: ../../reference/_generated/reason-codes.inc:2251
+msgid "未安装，已跳过"
+msgstr "未安装，已跳过"
+
+#: ../../reference/_generated/reason-codes.inc:2253
+msgid "``wire.status.conflict``"
+msgstr "``wire.status.conflict``"
+
+#: ../../reference/_generated/reason-codes.inc:2255
+msgid "conflict"
+msgstr "冲突"
+
+#: ../../reference/_generated/reason-codes.inc:2256
+msgid "冲突"
+msgstr "冲突"
+
+#: ../../reference/_generated/reason-codes.inc:2258
+msgid "``wire.status.removed``"
+msgstr "``wire.status.removed``"
+
+#: ../../reference/_generated/reason-codes.inc:2260
+msgid "removed"
+msgstr "已移除"
+
+#: ../../reference/_generated/reason-codes.inc:2261
+msgid "已移除"
+msgstr "已移除"
+
+#: ../../reference/_generated/reason-codes.inc:2263
+msgid "``wire.status.not_wired``"
+msgstr "``wire.status.not_wired``"
+
+#: ../../reference/_generated/reason-codes.inc:2265
+msgid "not wired"
+msgstr "未接入"
+
+#: ../../reference/_generated/reason-codes.inc:2266
+msgid "未接入"
+msgstr "未接入"
+
+#: ../../reference/_generated/reason-codes.inc:2268
+msgid "``wire.status.failed``"
+msgstr "``wire.status.failed``"
+
+#: ../../reference/_generated/reason-codes.inc:2270
+msgid "failed"
+msgstr "失败"
+
+#: ../../reference/_generated/reason-codes.inc:2271
+msgid "失败"
+msgstr "失败"
+
+#: ../../reference/_generated/reason-codes.inc:2273
+msgid "``wire.head.wire``"
+msgstr "``wire.head.wire``"
+
+#: ../../reference/_generated/reason-codes.inc:2275
+#, python-brace-format
+msgid "``anet agents`` wire (``anet`` {bin}, data directory {path})"
+msgstr "``anet agents`` wire（\\ ``anet`` {bin}，数据目录 {path}）"
+
+#: ../../reference/_generated/reason-codes.inc:2276
+#, python-brace-format
+msgid "``anet agents`` wire（\\ ``anet`` {bin}，数据目录 {path}）"
+msgstr "``anet agents`` wire（\\ ``anet`` {bin}，数据目录 {path}）"
+
+#: ../../reference/_generated/reason-codes.inc:2278
+msgid "``wire.head.unwire``"
+msgstr "``wire.head.unwire``"
+
+#: ../../reference/_generated/reason-codes.inc:2280
+#, python-brace-format
+msgid "``anet agents`` unwire (``anet`` {bin}, data directory {path})"
+msgstr "``anet agents`` unwire（\\ ``anet`` {bin}，数据目录 {path}）"
+
+#: ../../reference/_generated/reason-codes.inc:2281
+#, python-brace-format
+msgid "``anet agents`` unwire（\\ ``anet`` {bin}，数据目录 {path}）"
+msgstr "``anet agents`` unwire（\\ ``anet`` {bin}，数据目录 {path}）"
+
+#: ../../reference/_generated/reason-codes.inc:2283
+msgid "``wire.head.status``"
+msgstr "``wire.head.status``"
+
+#: ../../reference/_generated/reason-codes.inc:2285
+#, python-brace-format
+msgid "``anet agents`` (``anet`` {bin}, data directory {path})"
+msgstr "``anet agents``\\ （\\ ``anet`` {bin}，数据目录 {path}）"
+
+#: ../../reference/_generated/reason-codes.inc:2286
+#, python-brace-format
+msgid "``anet agents``\\ （\\ ``anet`` {bin}，数据目录 {path}）"
+msgstr "``anet agents``\\ （\\ ``anet`` {bin}，数据目录 {path}）"
+
+#: ../../reference/_generated/reason-codes.inc:2288
+msgid "``wire.footer.restart``"
+msgstr "``wire.footer.restart``"
+
+#: ../../reference/_generated/reason-codes.inc:2290
+msgid ""
+"Restart these tools (or start a new session) for the change to take "
+"effect. They call ``anet mcp``, which needs the local daemon to be "
+"running (``anet up``)."
+msgstr "重启这些工具（或新开会话）后生效；它们调用 ``anet mcp``\\ ，需要本机 daemon 在运行（\\ ``anet up``\\ ）。"
+
+#: ../../reference/_generated/reason-codes.inc:2291
+msgid "重启这些工具（或新开会话）后生效；它们调用 ``anet mcp``\\ ，需要本机 daemon 在运行（\\ ``anet up``\\ ）。"
+msgstr "重启这些工具（或新开会话）后生效；它们调用 ``anet mcp``\\ ，需要本机 daemon 在运行（\\ ``anet up``\\ ）。"
+
+#: ../../reference/_generated/reason-codes.inc:2293
+msgid "``wire.footer.undo``"
+msgstr "``wire.footer.undo``"
+
+#: ../../reference/_generated/reason-codes.inc:2295
+msgid "To undo: ``anet agents`` unwire <tool> (or ``--all``)"
+msgstr "撤销：\\ ``anet agents`` unwire <工具>（或 ``--all``\\ ）"
+
+#: ../../reference/_generated/reason-codes.inc:2296
+msgid "撤销：\\ ``anet agents`` unwire <工具>（或 ``--all``\\ ）"
+msgstr "撤销：\\ ``anet agents`` unwire <工具>（或 ``--all``\\ ）"
+
+#: ../../reference/_generated/reason-codes.inc:2298
+msgid "``wire.state.current``"
+msgstr "``wire.state.current``"
+
+#: ../../reference/_generated/reason-codes.inc:2300
+msgid "wired, up to date"
+msgstr "已接入，最新"
+
+#: ../../reference/_generated/reason-codes.inc:2301
+msgid "已接入，最新"
+msgstr "已接入，最新"
+
+#: ../../reference/_generated/reason-codes.inc:2303
+msgid "``wire.state.stale``"
+msgstr "``wire.state.stale``"
+
+#: ../../reference/_generated/reason-codes.inc:2305
+#, python-brace-format
+msgid "wired, needs an update ({command})"
+msgstr "已接入，需要更新（{command}）"
+
+#: ../../reference/_generated/reason-codes.inc:2306
+#, python-brace-format
+msgid "已接入，需要更新（{command}）"
+msgstr "已接入，需要更新（{command}）"
+
+#: ../../reference/_generated/reason-codes.inc:2308
+msgid "``wire.state.not_installed``"
+msgstr "``wire.state.not_installed``"
+
+#: ../../reference/_generated/reason-codes.inc:2310
+msgid "not installed"
+msgstr "未安装"
+
+#: ../../reference/_generated/reason-codes.inc:2311
+msgid "未安装"
+msgstr "未安装"
+
+#: ../../reference/_generated/reason-codes.inc:2313
+msgid "``wire.state.not_wired``"
+msgstr "``wire.state.not_wired``"
+
+#: ../../reference/_generated/reason-codes.inc:2315
+#, python-brace-format
+msgid "not wired ({command})"
+msgstr "未接入（{command}）"
+
+#: ../../reference/_generated/reason-codes.inc:2316
+#, python-brace-format
+msgid "未接入（{command}）"
+msgstr "未接入（{command}）"
+
+#: ../../reference/_generated/reason-codes.inc:2318
+msgid "``wire.state.conflict``"
+msgstr "``wire.state.conflict``"
+
+#: ../../reference/_generated/reason-codes.inc:2320
+#, python-brace-format
+msgid "conflict: {detail}"
+msgstr "冲突：{detail}"
+
+#: ../../reference/_generated/reason-codes.inc:2321
+#, python-brace-format
+msgid "冲突：{detail}"
+msgstr "冲突：{detail}"
+
+#: ../../reference/_generated/reason-codes.inc:2323
+msgid "``wire.state.unchecked``"
+msgstr "``wire.state.unchecked``"
+
+#: ../../reference/_generated/reason-codes.inc:2325
+#, python-brace-format
+msgid "cannot be checked: {detail}"
+msgstr "无法检查：{detail}"
+
+#: ../../reference/_generated/reason-codes.inc:2326
+#, python-brace-format
+msgid "无法检查：{detail}"
+msgstr "无法检查：{detail}"
+
+#: ../../reference/_generated/reason-codes.inc:2328
+msgid "``wire.state.token_mode``"
+msgstr "``wire.state.token_mode``"
+
+#: ../../reference/_generated/reason-codes.inc:2330
+#, python-brace-format
+msgid ""
+"{path} holds a token but its permissions are {value} (they should be "
+"0600; {command} tightens them)"
+msgstr "{path} 含令牌，但权限是 {value}（应为 0600；{command} 会收紧）"
+
+#: ../../reference/_generated/reason-codes.inc:2331
+#, python-brace-format
+msgid "{path} 含令牌，但权限是 {value}（应为 0600；{command} 会收紧）"
+msgstr "{path} 含令牌，但权限是 {value}（应为 0600；{command} 会收紧）"
+
+#: ../../reference/_generated/reason-codes.inc:2333
+msgid "``wire.state.a2a_ok``"
+msgstr "``wire.state.a2a_ok``"
+
+#: ../../reference/_generated/reason-codes.inc:2335
+#, python-brace-format
+msgid "a2a {aid}: in order"
+msgstr "a2a {aid}：正常"
+
+#: ../../reference/_generated/reason-codes.inc:2336
+#, python-brace-format
+msgid "a2a {aid}：正常"
+msgstr "a2a {aid}：正常"
+
+#: ../../reference/_generated/reason-codes.inc:2338
+msgid "``wire.state.a2a_changed``"
+msgstr "``wire.state.a2a_changed``"
+
+#: ../../reference/_generated/reason-codes.inc:2340
+#, python-brace-format
+msgid "a2a {aid}: the port or the token has changed ({command})"
+msgstr "a2a {aid}：端口或令牌已变（{command}）"
+
+#: ../../reference/_generated/reason-codes.inc:2341
+#, python-brace-format
+msgid "a2a {aid}：端口或令牌已变（{command}）"
+msgstr "a2a {aid}：端口或令牌已变（{command}）"
+
+#: ../../reference/_generated/reason-codes.inc:2343
+msgid "``wire.state.a2a_unknown``"
+msgstr "``wire.state.a2a_unknown``"
+
+#: ../../reference/_generated/reason-codes.inc:2345
+#, python-brace-format
+msgid "a2a {aid}: cannot be verified ({detail})"
+msgstr "a2a {aid}：无法核对（{detail}）"
+
+#: ../../reference/_generated/reason-codes.inc:2346
+#, python-brace-format
+msgid "a2a {aid}：无法核对（{detail}）"
+msgstr "a2a {aid}：无法核对（{detail}）"
+
+#: ../../reference/_generated/reason-codes.inc:2348
+msgid "``wire.pending.a2a_stale``"
+msgstr "``wire.pending.a2a_stale``"
+
+#: ../../reference/_generated/reason-codes.inc:2350
+msgid "a2a_agents points at an old port or token (``--refresh``)"
+msgstr "a2a_agents 指向旧的端口或令牌（\\ ``--refresh``\\ ）"
+
+#: ../../reference/_generated/reason-codes.inc:2351
+msgid "a2a_agents 指向旧的端口或令牌（\\ ``--refresh``\\ ）"
+msgstr "a2a_agents 指向旧的端口或令牌（\\ ``--refresh``\\ ）"
+
+#: ../../reference/_generated/reason-codes.inc:2353
+msgid "``wire.change.guide_write``"
+msgstr "``wire.change.guide_write``"
+
+#: ../../reference/_generated/reason-codes.inc:2355
+#, python-brace-format
+msgid "write the ``anet`` guide block: {path}"
+msgstr "写入 ``anet`` 指引块：{path}"
+
+#: ../../reference/_generated/reason-codes.inc:2356
+#, python-brace-format
+msgid "写入 ``anet`` 指引块：{path}"
+msgstr "写入 ``anet`` 指引块：{path}"
+
+#: ../../reference/_generated/reason-codes.inc:2358
+msgid "``wire.change.guide_drop``"
+msgstr "``wire.change.guide_drop``"
+
+#: ../../reference/_generated/reason-codes.inc:2360
+#, python-brace-format
+msgid "remove the ``anet`` guide block: {path}"
+msgstr "删除 ``anet`` 指引块：{path}"
+
+#: ../../reference/_generated/reason-codes.inc:2361
+#, python-brace-format
+msgid "删除 ``anet`` 指引块：{path}"
+msgstr "删除 ``anet`` 指引块：{path}"
+
+#: ../../reference/_generated/reason-codes.inc:2363
+msgid "``wire.change.legacy_drop``"
+msgstr "``wire.change.legacy_drop``"
+
+#: ../../reference/_generated/reason-codes.inc:2365
+#, python-brace-format
+msgid "remove the legacy ``anet`` guide block: {path}"
+msgstr "删除旧版 ``anet`` 指引块：{path}"
+
+#: ../../reference/_generated/reason-codes.inc:2366
+#, python-brace-format
+msgid "删除旧版 ``anet`` 指引块：{path}"
+msgstr "删除旧版 ``anet`` 指引块：{path}"
+
+#: ../../reference/_generated/reason-codes.inc:2368
+msgid "``wire.change.openclaw_drop``"
+msgstr "``wire.change.openclaw_drop``"
+
+#: ../../reference/_generated/reason-codes.inc:2370
+#, python-brace-format
+msgid ""
+"remove the legacy ``anet`` guide block (OpenClaw is not a supported "
+"tool): {path}"
+msgstr "删除旧版 ``anet`` 指引块（OpenClaw 不在支持的工具内）：{path}"
+
+#: ../../reference/_generated/reason-codes.inc:2371
+#, python-brace-format
+msgid "删除旧版 ``anet`` 指引块（OpenClaw 不在支持的工具内）：{path}"
+msgstr "删除旧版 ``anet`` 指引块（OpenClaw 不在支持的工具内）：{path}"
+
+#: ../../reference/_generated/reason-codes.inc:2373
+msgid "``wire.change.legacy_file_drop``"
+msgstr "``wire.change.legacy_file_drop``"
+
+#: ../../reference/_generated/reason-codes.inc:2375
+#, python-brace-format
+msgid "remove the legacy rules file: {path}"
+msgstr "删除旧版规则文件：{path}"
+
+#: ../../reference/_generated/reason-codes.inc:2376
+#, python-brace-format
+msgid "删除旧版规则文件：{path}"
+msgstr "删除旧版规则文件：{path}"
+
+#: ../../reference/_generated/reason-codes.inc:2378
+msgid "``wire.change.claude_cli_add``"
+msgstr "``wire.change.claude_cli_add``"
+
+#: ../../reference/_generated/reason-codes.inc:2380
+#, python-brace-format
+msgid "claude mcp add -s user ``anet`` ({path})"
+msgstr "claude mcp add -s user ``anet``\\ （{path}）"
+
+#: ../../reference/_generated/reason-codes.inc:2381
+#, python-brace-format
+msgid "claude mcp add -s user ``anet``\\ （{path}）"
+msgstr "claude mcp add -s user ``anet``\\ （{path}）"
+
+#: ../../reference/_generated/reason-codes.inc:2383
+msgid "``wire.change.claude_cli_remove``"
+msgstr "``wire.change.claude_cli_remove``"
+
+#: ../../reference/_generated/reason-codes.inc:2385
+#, python-brace-format
+msgid "claude mcp remove -s user ``anet`` ({path})"
+msgstr "claude mcp remove -s user ``anet``\\ （{path}）"
+
+#: ../../reference/_generated/reason-codes.inc:2386
+#, python-brace-format
+msgid "claude mcp remove -s user ``anet``\\ （{path}）"
+msgstr "claude mcp remove -s user ``anet``\\ （{path}）"
+
+#: ../../reference/_generated/reason-codes.inc:2388
+msgid "``wire.change.claude_file_add``"
+msgstr "``wire.change.claude_file_add``"
+
+#: ../../reference/_generated/reason-codes.inc:2390
+#, python-brace-format
+msgid ""
+"MCP server ``anet`` (user scope) → {path} (claude is not on PATH, so the "
+"file was edited directly)"
+msgstr "MCP 服务 ``anet``\\ （user 作用域）→ {path}（claude 不在 PATH，直接改文件）"
+
+#: ../../reference/_generated/reason-codes.inc:2391
+#, python-brace-format
+msgid "MCP 服务 ``anet``\\ （user 作用域）→ {path}（claude 不在 PATH，直接改文件）"
+msgstr "MCP 服务 ``anet``\\ （user 作用域）→ {path}（claude 不在 PATH，直接改文件）"
+
+#: ../../reference/_generated/reason-codes.inc:2393
+msgid "``wire.change.mcp_drop``"
+msgstr "``wire.change.mcp_drop``"
+
+#: ../../reference/_generated/reason-codes.inc:2395
+#, python-brace-format
+msgid "remove the MCP server ``anet``: {path}"
+msgstr "删除 MCP 服务 ``anet``\\ ：{path}"
+
+#: ../../reference/_generated/reason-codes.inc:2396
+#, python-brace-format
+msgid "删除 MCP 服务 ``anet``\\ ：{path}"
+msgstr "删除 MCP 服务 ``anet``\\ ：{path}"
+
+#: ../../reference/_generated/reason-codes.inc:2398
+msgid "``wire.change.guide_file_write``"
+msgstr "``wire.change.guide_file_write``"
+
+#: ../../reference/_generated/reason-codes.inc:2400
+#, python-brace-format
+msgid "Claude Code skill → {path}"
+msgstr "技能 → {path}"
+
+#: ../../reference/_generated/reason-codes.inc:2401
+#, python-brace-format
+msgid "技能 → {path}"
+msgstr "技能 → {path}"
+
+#: ../../reference/_generated/reason-codes.inc:2403
+msgid "``wire.change.guide_file_drop``"
+msgstr "``wire.change.guide_file_drop``"
+
+#: ../../reference/_generated/reason-codes.inc:2405
+#, python-brace-format
+msgid "remove the Claude Code skill: {path}"
+msgstr "删除技能：{path}"
+
+#: ../../reference/_generated/reason-codes.inc:2406
+#, python-brace-format
+msgid "删除技能：{path}"
+msgstr "删除技能：{path}"
+
+#: ../../reference/_generated/reason-codes.inc:2408
+msgid "``wire.change.toml_write``"
+msgstr "``wire.change.toml_write``"
+
+#: ../../reference/_generated/reason-codes.inc:2410
+#: ../../reference/_generated/reason-codes.inc:2411
+#, python-brace-format
+msgid "[mcp_servers.``anet``] → {path}"
+msgstr "[mcp_servers.``anet``] → {path}"
+
+#: ../../reference/_generated/reason-codes.inc:2413
+msgid "``wire.change.toml_drop``"
+msgstr "``wire.change.toml_drop``"
+
+#: ../../reference/_generated/reason-codes.inc:2415
+#, python-brace-format
+msgid "remove [mcp_servers.``anet``]: {path}"
+msgstr "删除 [mcp_servers.``anet``]：{path}"
+
+#: ../../reference/_generated/reason-codes.inc:2416
+#, python-brace-format
+msgid "删除 [mcp_servers.``anet``]：{path}"
+msgstr "删除 [mcp_servers.``anet``]：{path}"
+
+#: ../../reference/_generated/reason-codes.inc:2418
+msgid "``wire.change.json_write``"
+msgstr "``wire.change.json_write``"
+
+#: ../../reference/_generated/reason-codes.inc:2420
+#: ../../reference/_generated/reason-codes.inc:2421
+#, python-brace-format
+msgid "{key}.``anet`` → {path}"
+msgstr "{key}.``anet`` → {path}"
+
+#: ../../reference/_generated/reason-codes.inc:2423
+msgid "``wire.change.json_drop``"
+msgstr "``wire.change.json_drop``"
+
+#: ../../reference/_generated/reason-codes.inc:2425
+#, python-brace-format
+msgid "remove {key}.``anet``: {path}"
+msgstr "删除 {key}.``anet``\\ ：{path}"
+
+#: ../../reference/_generated/reason-codes.inc:2426
+#, python-brace-format
+msgid "删除 {key}.``anet``\\ ：{path}"
+msgstr "删除 {key}.``anet``\\ ：{path}"
+
+#: ../../reference/_generated/reason-codes.inc:2428
+msgid "``wire.change.hermes_mcp``"
+msgstr "``wire.change.hermes_mcp``"
+
+#: ../../reference/_generated/reason-codes.inc:2430
+#: ../../reference/_generated/reason-codes.inc:2431
+#, python-brace-format
+msgid "mcp_servers.``anet`` → {path}"
+msgstr "mcp_servers.``anet`` → {path}"
+
+#: ../../reference/_generated/reason-codes.inc:2433
+msgid "``wire.change.hermes_a2a``"
+msgstr "``wire.change.hermes_a2a``"
+
+#: ../../reference/_generated/reason-codes.inc:2435
+#, python-brace-format
+msgid "a2a_agents ({n} entries, pointing at {host}) → {path}"
+msgstr "a2a_agents（{n} 个，指向 {host}）→ {path}"
+
+#: ../../reference/_generated/reason-codes.inc:2436
+#, python-brace-format
+msgid "a2a_agents（{n} 个，指向 {host}）→ {path}"
+msgstr "a2a_agents（{n} 个，指向 {host}）→ {path}"
+
+#: ../../reference/_generated/reason-codes.inc:2438
+msgid "``wire.change.hermes_both``"
+msgstr "``wire.change.hermes_both``"
+
+#: ../../reference/_generated/reason-codes.inc:2440
+#, python-brace-format
+msgid ""
+"mcp_servers.``anet``, a2a_agents ({n} entries, pointing at {host}) → "
+"{path}"
+msgstr "mcp_servers.``anet``\\ 、a2a_agents（{n} 个，指向 {host}）→ {path}"
+
+#: ../../reference/_generated/reason-codes.inc:2441
+#, python-brace-format
+msgid "mcp_servers.``anet``\\ 、a2a_agents（{n} 个，指向 {host}）→ {path}"
+msgstr "mcp_servers.``anet``\\ 、a2a_agents（{n} 个，指向 {host}）→ {path}"
+
+#: ../../reference/_generated/reason-codes.inc:2443
+msgid "``wire.change.hermes_drop_mcp``"
+msgstr "``wire.change.hermes_drop_mcp``"
+
+#: ../../reference/_generated/reason-codes.inc:2445
+#, python-brace-format
+msgid "remove mcp_servers.``anet``: {path}"
+msgstr "删除 mcp_servers.``anet``\\ ：{path}"
+
+#: ../../reference/_generated/reason-codes.inc:2446
+#, python-brace-format
+msgid "删除 mcp_servers.``anet``\\ ：{path}"
+msgstr "删除 mcp_servers.``anet``\\ ：{path}"
+
+#: ../../reference/_generated/reason-codes.inc:2448
+msgid "``wire.change.hermes_drop_a2a``"
+msgstr "``wire.change.hermes_drop_a2a``"
+
+#: ../../reference/_generated/reason-codes.inc:2450
+#, python-brace-format
+msgid "remove a2a_agents (with its token): {path}"
+msgstr "删除 a2a_agents（含令牌）：{path}"
+
+#: ../../reference/_generated/reason-codes.inc:2451
+#, python-brace-format
+msgid "删除 a2a_agents（含令牌）：{path}"
+msgstr "删除 a2a_agents（含令牌）：{path}"
+
+#: ../../reference/_generated/reason-codes.inc:2453
+msgid "``wire.change.hermes_drop_both``"
+msgstr "``wire.change.hermes_drop_both``"
+
+#: ../../reference/_generated/reason-codes.inc:2455
+#, python-brace-format
+msgid "remove mcp_servers.``anet`` and a2a_agents (with its token): {path}"
+msgstr "删除 mcp_servers.``anet``\\ 、a2a_agents（含令牌）：{path}"
+
+#: ../../reference/_generated/reason-codes.inc:2456
+#, python-brace-format
+msgid "删除 mcp_servers.``anet``\\ 、a2a_agents（含令牌）：{path}"
+msgstr "删除 mcp_servers.``anet``\\ 、a2a_agents（含令牌）：{path}"
+
+#: ../../reference/_generated/reason-codes.inc:2458
+msgid "``wire.change.hermes_drop_entries``"
+msgstr "``wire.change.hermes_drop_entries``"
+
+#: ../../reference/_generated/reason-codes.inc:2460
+#, python-brace-format
+msgid "remove {n} a2a_agents entries: {path}"
+msgstr "删除 a2a_agents 条目 {n} 个：{path}"
+
+#: ../../reference/_generated/reason-codes.inc:2461
+#, python-brace-format
+msgid "删除 a2a_agents 条目 {n} 个：{path}"
+msgstr "删除 a2a_agents 条目 {n} 个：{path}"
+
+#: ../../reference/_generated/reason-codes.inc:2463
+msgid "``wire.change.token_mode``"
+msgstr "``wire.change.token_mode``"
+
+#: ../../reference/_generated/reason-codes.inc:2465
+#, python-brace-format
+msgid "{path} holds the local A2A token; its permissions are tightened to 0600"
+msgstr "{path} 含本机 A2A 令牌，权限收紧为 0600"
+
+#: ../../reference/_generated/reason-codes.inc:2466
+#, python-brace-format
+msgid "{path} 含本机 A2A 令牌，权限收紧为 0600"
+msgstr "{path} 含本机 A2A 令牌，权限收紧为 0600"
+
+#: ../../reference/_generated/reason-codes.inc:2468
+msgid "``wire.note.not_detected``"
+msgstr "``wire.note.not_detected``"
+
+#: ../../reference/_generated/reason-codes.inc:2470
+msgid "the tool was not detected; written as requested"
+msgstr "未检测到该工具，按要求照写"
+
+#: ../../reference/_generated/reason-codes.inc:2471
+msgid "未检测到该工具，按要求照写"
+msgstr "未检测到该工具，按要求照写"
+
+#: ../../reference/_generated/reason-codes.inc:2473
+msgid "``wire.note.a2a_skipped``"
+msgstr "``wire.note.a2a_skipped``"
+
+#: ../../reference/_generated/reason-codes.inc:2475
+msgid ""
+"``--a2a`` was not written: Hermes was not found (set HERMES_HOME, or name"
+" hermes explicitly)"
+msgstr "``--a2a`` 未写入：没有找到 Hermes（设置 HERMES_HOME，或明确写 hermes）"
+
+#: ../../reference/_generated/reason-codes.inc:2476
+msgid "``--a2a`` 未写入：没有找到 Hermes（设置 HERMES_HOME，或明确写 hermes）"
+msgstr "``--a2a`` 未写入：没有找到 Hermes（设置 HERMES_HOME，或明确写 hermes）"
+
+#: ../../reference/_generated/reason-codes.inc:2478
+msgid "``wire.note.hermes_toolset``"
+msgstr "``wire.note.hermes_toolset``"
+
+#: ../../reference/_generated/reason-codes.inc:2480
+msgid ""
+"The Hermes a2a toolset is off by default: a2a_call is visible only after "
+"hermes tools enable a2a ``--platform`` cli"
+msgstr ""
+"Hermes 的 a2a 工具集默认关闭：运行 hermes tools enable a2a ``--platform`` cli "
+"后，a2a_call 才可见"
+
+#: ../../reference/_generated/reason-codes.inc:2481
+msgid ""
+"Hermes 的 a2a 工具集默认关闭：运行 hermes tools enable a2a ``--platform`` cli "
+"后，a2a_call 才可见"
+msgstr ""
+"Hermes 的 a2a 工具集默认关闭：运行 hermes tools enable a2a ``--platform`` cli "
+"后，a2a_call 才可见"
+
+#: ../../reference/_generated/reason-codes.inc:2483
+msgid "``wire.note.codex_override``"
+msgstr "``wire.note.codex_override``"
+
+#: ../../reference/_generated/reason-codes.inc:2485
+#, python-brace-format
+msgid ""
+"{path} exists: Codex reads it instead of AGENTS.md, so the guide ``anet``"
+" wrote to AGENTS.md has no effect; merge the guide into that file or move"
+" it away"
+msgstr ""
+"{path} 存在：Codex 优先读取它而不是 AGENTS.md，\\ ``anet`` 写入 AGENTS.md "
+"的指引不会生效；请把指引并入该文件，或移走它"
+
+#: ../../reference/_generated/reason-codes.inc:2486
+#, python-brace-format
+msgid ""
+"{path} 存在：Codex 优先读取它而不是 AGENTS.md，\\ ``anet`` 写入 AGENTS.md "
+"的指引不会生效；请把指引并入该文件，或移走它"
+msgstr ""
+"{path} 存在：Codex 优先读取它而不是 AGENTS.md，\\ ``anet`` 写入 AGENTS.md "
+"的指引不会生效；请把指引并入该文件，或移走它"
+
+#: ../../reference/_generated/reason-codes.inc:2488
+msgid "``wire.note.workbuddy_docs``"
+msgstr "``wire.note.workbuddy_docs``"
+
+#: ../../reference/_generated/reason-codes.inc:2490
+#, python-brace-format
+msgid ""
+"How WorkBuddy reloads, and its tool-call timeout (30 seconds by default),"
+" are described in its documentation: {url}. ``anet`` wrote only the MCP "
+"entry, not a guide file"
+msgstr ""
+"WorkBuddy 的重载方式与工具调用超时（默认 30 秒）以官方文档为准：{url}；\\ ``anet`` 只写了 MCP "
+"条目，没有写指引文件"
+
+#: ../../reference/_generated/reason-codes.inc:2491
+#, python-brace-format
+msgid ""
+"WorkBuddy 的重载方式与工具调用超时（默认 30 秒）以官方文档为准：{url}；\\ ``anet`` 只写了 MCP "
+"条目，没有写指引文件"
+msgstr ""
+"WorkBuddy 的重载方式与工具调用超时（默认 30 秒）以官方文档为准：{url}；\\ ``anet`` 只写了 MCP "
+"条目，没有写指引文件"
+
+#: ../../reference/_generated/reason-codes.inc:2493
+msgid "``wire.note.foreign_entry``"
+msgstr "``wire.note.foreign_entry``"
+
+#: ../../reference/_generated/reason-codes.inc:2495
+#, python-brace-format
+msgid ""
+"{key}.``anet`` in {path} was not written by ``anet`` and was left "
+"unchanged"
+msgstr "{path} 的 {key}.``anet`` 不是 ``anet`` 写的，未改动"
+
+#: ../../reference/_generated/reason-codes.inc:2496
+#, python-brace-format
+msgid "{path} 的 {key}.``anet`` 不是 ``anet`` 写的，未改动"
+msgstr "{path} 的 {key}.``anet`` 不是 ``anet`` 写的，未改动"
+
+#: ../../reference/_generated/reason-codes.inc:2498
+msgid "``wire.note.foreign_toml``"
+msgstr "``wire.note.foreign_toml``"
+
+#: ../../reference/_generated/reason-codes.inc:2500
+#, python-brace-format
+msgid ""
+"mcp_servers.``anet`` at {path}:{line} was not written by ``anet`` and was"
+" left unchanged"
+msgstr "{path} 第 {line} 行的 mcp_servers.``anet`` 不是 ``anet`` 写的，未改动"
+
+#: ../../reference/_generated/reason-codes.inc:2501
+#, python-brace-format
+msgid "{path} 第 {line} 行的 mcp_servers.``anet`` 不是 ``anet`` 写的，未改动"
+msgstr "{path} 第 {line} 行的 mcp_servers.``anet`` 不是 ``anet`` 写的，未改动"
+
+#: ../../reference/_generated/reason-codes.inc:2503
+msgid "``wire.note.a2a_absent``"
+msgstr "``wire.note.a2a_absent``"
+
+#: ../../reference/_generated/reason-codes.inc:2505
+msgid "a2a_agents has none of these entries written by ``anet``"
+msgstr "a2a_agents 里没有 ``anet`` 写的这些条目"
+
+#: ../../reference/_generated/reason-codes.inc:2506
+msgid "a2a_agents 里没有 ``anet`` 写的这些条目"
+msgstr "a2a_agents 里没有 ``anet`` 写的这些条目"
+
+#: ../../reference/_generated/reason-codes.inc:2508
+msgid "``wire_tools_failed``"
+msgstr "``wire_tools_failed``"
+
+#: ../../reference/_generated/reason-codes.inc:2510
+#, python-brace-format
+msgid ""
+"{n} of the tools could not be done; follow the lines above, then try "
+"again."
+msgstr "有 {n} 个工具没有完成；请按上面各行处理后重试。"
+
+#: ../../reference/_generated/reason-codes.inc:2511
+#, python-brace-format
+msgid "有 {n} 个工具没有完成；请按上面各行处理后重试。"
+msgstr "有 {n} 个工具没有完成；请按上面各行处理后重试。"
+
+#: ../../reference/_generated/reason-codes.inc:2513
+msgid "``wire_home_not_found``"
+msgstr "``wire_home_not_found``"
+
+#: ../../reference/_generated/reason-codes.inc:2515
+msgid "The home directory cannot be found; set HOME and try again."
+msgstr "找不到家目录；请设置 HOME 后重试。"
+
+#: ../../reference/_generated/reason-codes.inc:2516
+msgid "找不到家目录；请设置 HOME 后重试。"
+msgstr "找不到家目录；请设置 HOME 后重试。"
+
+#: ../../reference/_generated/reason-codes.inc:2518
+msgid "``wire_path_not_absolute.bin``"
+msgstr "``wire_path_not_absolute.bin``"
+
+#: ../../reference/_generated/reason-codes.inc:2520
+#, python-brace-format
+msgid ""
+"The path of the ``anet`` binary must be absolute (got {path}); use the "
+"full path of the installed binary."
+msgstr "``anet`` 可执行文件的路径必须是绝对路径（得到 {path}）；请改用已安装的 ``anet`` 的完整路径。"
+
+#: ../../reference/_generated/reason-codes.inc:2521
+#, python-brace-format
+msgid "``anet`` 可执行文件的路径必须是绝对路径（得到 {path}）；请改用已安装的 ``anet`` 的完整路径。"
+msgstr "``anet`` 可执行文件的路径必须是绝对路径（得到 {path}）；请改用已安装的 ``anet`` 的完整路径。"
+
+#: ../../reference/_generated/reason-codes.inc:2523
+msgid "``wire_path_not_absolute.data``"
+msgstr "``wire_path_not_absolute.data``"
+
+#: ../../reference/_generated/reason-codes.inc:2525
+#, python-brace-format
+msgid ""
+"The data directory must be an absolute path (got {path}); use an absolute"
+" path."
+msgstr "数据目录必须是绝对路径（得到 {path}）；请改用绝对路径。"
+
+#: ../../reference/_generated/reason-codes.inc:2526
+#, python-brace-format
+msgid "数据目录必须是绝对路径（得到 {path}）；请改用绝对路径。"
+msgstr "数据目录必须是绝对路径（得到 {path}）；请改用绝对路径。"
+
+#: ../../reference/_generated/reason-codes.inc:2528
+msgid "``wire_bad_aid``"
+msgstr "``wire_bad_aid``"
+
+#: ../../reference/_generated/reason-codes.inc:2530
+#, python-brace-format
+msgid ""
+"{value} is not an AID (lowercase letters and digits, 8 to 128 "
+"characters); use an AID that ``anet find`` shows."
+msgstr "{value} 不是 AID（小写字母与数字，8 到 128 个字符）；请改用 ``anet find`` 显示的 AID。"
+
+#: ../../reference/_generated/reason-codes.inc:2531
+#, python-brace-format
+msgid "{value} 不是 AID（小写字母与数字，8 到 128 个字符）；请改用 ``anet find`` 显示的 AID。"
+msgstr "{value} 不是 AID（小写字母与数字，8 到 128 个字符）；请改用 ``anet find`` 显示的 AID。"
+
+#: ../../reference/_generated/reason-codes.inc:2533
+msgid "``wire_unknown_tool``"
+msgstr "``wire_unknown_tool``"
+
+#: ../../reference/_generated/reason-codes.inc:2535
+#, python-brace-format
+msgid "{name} is not a supported tool (supported: {value}); use one of them."
+msgstr "不认识的工具 {name}（支持：{value}）；请改用其中之一。"
+
+#: ../../reference/_generated/reason-codes.inc:2536
+#, python-brace-format
+msgid "不认识的工具 {name}（支持：{value}）；请改用其中之一。"
+msgstr "不认识的工具 {name}（支持：{value}）；请改用其中之一。"
+
+#: ../../reference/_generated/reason-codes.inc:2538
+msgid "``wire_a2a_needs_hermes.wire``"
+msgstr "``wire_a2a_needs_hermes.wire``"
+
+#: ../../reference/_generated/reason-codes.inc:2540
+msgid ""
+"``--a2a`` writes Hermes' a2a_agents entries; add hermes (or ``--all``) to"
+" the command."
+msgstr "``--a2a`` 写的是 Hermes 的 a2a_agents；请加上 hermes（或 ``--all``\\ ）。"
+
+#: ../../reference/_generated/reason-codes.inc:2541
+msgid "``--a2a`` 写的是 Hermes 的 a2a_agents；请加上 hermes（或 ``--all``\\ ）。"
+msgstr "``--a2a`` 写的是 Hermes 的 a2a_agents；请加上 hermes（或 ``--all``\\ ）。"
+
+#: ../../reference/_generated/reason-codes.inc:2543
+msgid "``wire_a2a_needs_hermes.unwire``"
+msgstr "``wire_a2a_needs_hermes.unwire``"
+
+#: ../../reference/_generated/reason-codes.inc:2545
+msgid ""
+"``--a2a`` removes Hermes' a2a_agents entries; add hermes (or ``--all``) "
+"to the command."
+msgstr "``--a2a`` 删除的是 Hermes 的 a2a_agents 条目；请加上 hermes（或 ``--all``\\ ）。"
+
+#: ../../reference/_generated/reason-codes.inc:2546
+msgid "``--a2a`` 删除的是 Hermes 的 a2a_agents 条目；请加上 hermes（或 ``--all``\\ ）。"
+msgstr "``--a2a`` 删除的是 Hermes 的 a2a_agents 条目；请加上 hermes（或 ``--all``\\ ）。"
+
+#: ../../reference/_generated/reason-codes.inc:2548
+msgid "``wire_conflict``"
+msgstr "``wire_conflict``"
+
+#: ../../reference/_generated/reason-codes.inc:2550
+#, python-brace-format
+msgid ""
+"{path} already has an entry {key}.``anet`` that ``anet`` did not write; "
+"remove or rename it, then run wire again."
+msgstr "{path} 里已有一个不是 ``anet`` 写的 {key}.``anet``\\ ；请删除或改名后再运行 wire。"
+
+#: ../../reference/_generated/reason-codes.inc:2551
+#, python-brace-format
+msgid "{path} 里已有一个不是 ``anet`` 写的 {key}.``anet``\\ ；请删除或改名后再运行 wire。"
+msgstr "{path} 里已有一个不是 ``anet`` 写的 {key}.``anet``\\ ；请删除或改名后再运行 wire。"
+
+#: ../../reference/_generated/reason-codes.inc:2553
+msgid "``wire_conflict.claude``"
+msgstr "``wire_conflict.claude``"
+
+#: ../../reference/_generated/reason-codes.inc:2555
+#, python-brace-format
+msgid ""
+"{path} already has an entry mcpServers.``anet`` that ``anet`` did not "
+"write; remove or rename it (claude mcp remove -s user ``anet``), then run"
+" wire again."
+msgstr ""
+"{path} 里已有一个不是 ``anet`` 写的 mcpServers.``anet``\\ ；请删除或改名（claude mcp "
+"remove -s user ``anet``\\ ）后再运行 wire。"
+
+#: ../../reference/_generated/reason-codes.inc:2556
+#, python-brace-format
+msgid ""
+"{path} 里已有一个不是 ``anet`` 写的 mcpServers.``anet``\\ ；请删除或改名（claude mcp "
+"remove -s user ``anet``\\ ）后再运行 wire。"
+msgstr ""
+"{path} 里已有一个不是 ``anet`` 写的 mcpServers.``anet``\\ ；请删除或改名（claude mcp "
+"remove -s user ``anet``\\ ）后再运行 wire。"
+
+#: ../../reference/_generated/reason-codes.inc:2558
+msgid "``wire_conflict.toml``"
+msgstr "``wire_conflict.toml``"
+
+#: ../../reference/_generated/reason-codes.inc:2560
+#, python-brace-format
+msgid ""
+"{path}:{line} already defines an entry mcp_servers.``anet`` that ``anet``"
+" did not write; remove or rename it, then run wire again."
+msgstr ""
+"{path} 第 {line} 行已定义了一个不是 ``anet`` 写的 mcp_servers.``anet``\\ ；请删除或改名后再运行 "
+"wire。"
+
+#: ../../reference/_generated/reason-codes.inc:2561
+#, python-brace-format
+msgid ""
+"{path} 第 {line} 行已定义了一个不是 ``anet`` 写的 mcp_servers.``anet``\\ ；请删除或改名后再运行 "
+"wire。"
+msgstr ""
+"{path} 第 {line} 行已定义了一个不是 ``anet`` 写的 mcp_servers.``anet``\\ ；请删除或改名后再运行 "
+"wire。"
+
+#: ../../reference/_generated/reason-codes.inc:2563
+msgid "``wire_conflict.toml_inline``"
+msgstr "``wire_conflict.toml_inline``"
+
+#: ../../reference/_generated/reason-codes.inc:2565
+#, python-brace-format
+msgid ""
+"mcp_servers at {path}:{line} is an inline table, and TOML does not allow "
+"[mcp_servers.``anet``] to be added to it; use [mcp_servers.<name>] tables"
+" instead, then run wire again."
+msgstr ""
+"{path} 第 {line} 行的 mcp_servers 是行内表，TOML 不允许再向它追加 "
+"[mcp_servers.``anet``]；请改用 [mcp_servers.<名字>] 表的写法后再运行 wire。"
+
+#: ../../reference/_generated/reason-codes.inc:2566
+#, python-brace-format
+msgid ""
+"{path} 第 {line} 行的 mcp_servers 是行内表，TOML 不允许再向它追加 "
+"[mcp_servers.``anet``]；请改用 [mcp_servers.<名字>] 表的写法后再运行 wire。"
+msgstr ""
+"{path} 第 {line} 行的 mcp_servers 是行内表，TOML 不允许再向它追加 "
+"[mcp_servers.``anet``]；请改用 [mcp_servers.<名字>] 表的写法后再运行 wire。"
+
+#: ../../reference/_generated/reason-codes.inc:2568
+msgid "``wire_conflict.yaml_entry``"
+msgstr "``wire_conflict.yaml_entry``"
+
+#: ../../reference/_generated/reason-codes.inc:2570
+#, python-brace-format
+msgid ""
+"{key} at {path}:{line} already has an entry {name} that ``anet`` did not "
+"write; remove or rename it, then run wire again."
+msgstr "{path} 第 {line} 行的 {key} 下已有一个不是 ``anet`` 写的 {name} 条目；请删除或改名后再运行 wire。"
+
+#: ../../reference/_generated/reason-codes.inc:2571
+#, python-brace-format
+msgid "{path} 第 {line} 行的 {key} 下已有一个不是 ``anet`` 写的 {name} 条目；请删除或改名后再运行 wire。"
+msgstr "{path} 第 {line} 行的 {key} 下已有一个不是 ``anet`` 写的 {name} 条目；请删除或改名后再运行 wire。"
+
+#: ../../reference/_generated/reason-codes.inc:2573
+msgid "``wire_conflict.yaml_top``"
+msgstr "``wire_conflict.yaml_top``"
+
+#: ../../reference/_generated/reason-codes.inc:2575
+#, python-brace-format
+msgid ""
+"The top level of {path} is not a mapping (line {line} is not key: value),"
+" so ``anet`` cannot add {key}; use the mapping form, then run wire again."
+msgstr "{path} 的顶层不是映射（第 {line} 行不是键值对），\\ ``anet`` 无法加入 {key}；请改用映射写法后再运行 wire。"
+
+#: ../../reference/_generated/reason-codes.inc:2576
+#, python-brace-format
+msgid "{path} 的顶层不是映射（第 {line} 行不是键值对），\\ ``anet`` 无法加入 {key}；请改用映射写法后再运行 wire。"
+msgstr "{path} 的顶层不是映射（第 {line} 行不是键值对），\\ ``anet`` 无法加入 {key}；请改用映射写法后再运行 wire。"
+
+#: ../../reference/_generated/reason-codes.inc:2578
+msgid "``wire_conflict.yaml_inline``"
+msgstr "``wire_conflict.yaml_inline``"
+
+#: ../../reference/_generated/reason-codes.inc:2580
+#, python-brace-format
+msgid ""
+"{key} at {path}:{line} is written inline, and ``anet`` cannot add entries"
+" to it without parsing YAML; use the block form, then run wire again."
+msgstr ""
+"{path} 第 {line} 行的 {key} 用的是行内写法，\\ ``anet`` 无法在不解析 YAML "
+"的情况下加入条目；请改用块写法后再运行 wire。"
+
+#: ../../reference/_generated/reason-codes.inc:2581
+#, python-brace-format
+msgid ""
+"{path} 第 {line} 行的 {key} 用的是行内写法，\\ ``anet`` 无法在不解析 YAML "
+"的情况下加入条目；请改用块写法后再运行 wire。"
+msgstr ""
+"{path} 第 {line} 行的 {key} 用的是行内写法，\\ ``anet`` 无法在不解析 YAML "
+"的情况下加入条目；请改用块写法后再运行 wire。"
+
+#: ../../reference/_generated/reason-codes.inc:2583
+msgid "``wire_conflict.yaml_shape``"
+msgstr "``wire_conflict.yaml_shape``"
+
+#: ../../reference/_generated/reason-codes.inc:2585
+#, python-brace-format
+msgid ""
+"{key} at {path}:{line} is not a mapping that ``anet`` can add entries to;"
+" use the block mapping form, then run wire again."
+msgstr "{path} 第 {line} 行的 {key} 不是 ``anet`` 能加入条目的映射；请改用块映射写法后再运行 wire。"
+
+#: ../../reference/_generated/reason-codes.inc:2586
+#, python-brace-format
+msgid "{path} 第 {line} 行的 {key} 不是 ``anet`` 能加入条目的映射；请改用块映射写法后再运行 wire。"
+msgstr "{path} 第 {line} 行的 {key} 不是 ``anet`` 能加入条目的映射；请改用块映射写法后再运行 wire。"
+
+#: ../../reference/_generated/reason-codes.inc:2588
+msgid "``wire_json_invalid``"
+msgstr "``wire_json_invalid``"
+
+#: ../../reference/_generated/reason-codes.inc:2590
+#, python-brace-format
+msgid ""
+"{path} is not valid JSON, so ``anet`` leaves it unchanged; repair it or "
+"restore a backup, then try again."
+msgstr "{path} 不是合法的 JSON，\\ ``anet`` 不改它；请修复或从备份恢复后重试。"
+
+#: ../../reference/_generated/reason-codes.inc:2591
+#, python-brace-format
+msgid "{path} 不是合法的 JSON，\\ ``anet`` 不改它；请修复或从备份恢复后重试。"
+msgstr "{path} 不是合法的 JSON，\\ ``anet`` 不改它；请修复或从备份恢复后重试。"
+
+#: ../../reference/_generated/reason-codes.inc:2593
+msgid "``wire_not_plain_json``"
+msgstr "``wire_not_plain_json``"
+
+#: ../../reference/_generated/reason-codes.inc:2595
+#, python-brace-format
+msgid ""
+"{path} is not plain JSON (it may contain comments), so ``anet`` does not "
+"rewrite it; add the entry below by hand."
+msgstr "{path} 不是纯 JSON（可能含注释），\\ ``anet`` 不改写它；请加入下面的条目。"
+
+#: ../../reference/_generated/reason-codes.inc:2596
+#, python-brace-format
+msgid "{path} 不是纯 JSON（可能含注释），\\ ``anet`` 不改写它；请加入下面的条目。"
+msgstr "{path} 不是纯 JSON（可能含注释），\\ ``anet`` 不改写它；请加入下面的条目。"
+
+#: ../../reference/_generated/reason-codes.inc:2598
+msgid "``wire_json_shape``"
+msgstr "``wire_json_shape``"
+
+#: ../../reference/_generated/reason-codes.inc:2600
+#, python-brace-format
+msgid ""
+"{key} in {path} is not a JSON object, so ``anet`` leaves it unchanged; "
+"change it to an object and try again."
+msgstr "{path} 里的 {key} 不是 JSON 对象，\\ ``anet`` 不改它；请改成对象后重试。"
+
+#: ../../reference/_generated/reason-codes.inc:2601
+#, python-brace-format
+msgid "{path} 里的 {key} 不是 JSON 对象，\\ ``anet`` 不改它；请改成对象后重试。"
+msgstr "{path} 里的 {key} 不是 JSON 对象，\\ ``anet`` 不改它；请改成对象后重试。"
+
+#: ../../reference/_generated/reason-codes.inc:2603
+msgid "``wire_block_malformed.second``"
+msgstr "``wire_block_malformed.second``"
+
+#: ../../reference/_generated/reason-codes.inc:2605
+#, python-brace-format
+msgid ""
+"A second ``anet`` managed block starts at {path}:{line}; remove one of "
+"them by hand."
+msgstr "{path} 第 {line} 行又开始了一个 ``anet`` 托管块；请手动删掉其中一个。"
+
+#: ../../reference/_generated/reason-codes.inc:2606
+#, python-brace-format
+msgid "{path} 第 {line} 行又开始了一个 ``anet`` 托管块；请手动删掉其中一个。"
+msgstr "{path} 第 {line} 行又开始了一个 ``anet`` 托管块；请手动删掉其中一个。"
+
+#: ../../reference/_generated/reason-codes.inc:2608
+msgid "``wire_block_malformed.orphan_end``"
+msgstr "``wire_block_malformed.orphan_end``"
+
+#: ../../reference/_generated/reason-codes.inc:2610
+#, python-brace-format
+msgid ""
+"The end marker of the managed block at {path}:{line} has no start marker;"
+" remove the marker or add the start marker."
+msgstr "{path} 第 {line} 行的托管块结束标记没有对应的开始标记；请删除该标记或补上开始标记。"
+
+#: ../../reference/_generated/reason-codes.inc:2611
+#, python-brace-format
+msgid "{path} 第 {line} 行的托管块结束标记没有对应的开始标记；请删除该标记或补上开始标记。"
+msgstr "{path} 第 {line} 行的托管块结束标记没有对应的开始标记；请删除该标记或补上开始标记。"
+
+#: ../../reference/_generated/reason-codes.inc:2613
+msgid "``wire_block_malformed.no_end``"
+msgstr "``wire_block_malformed.no_end``"
+
+#: ../../reference/_generated/reason-codes.inc:2615
+#, python-brace-format
+msgid ""
+"The managed block that starts at {path}:{line} has no end marker; add the"
+" end marker or remove the block."
+msgstr "{path} 第 {line} 行开始的托管块没有结束标记；请删除该块或补上结束标记。"
+
+#: ../../reference/_generated/reason-codes.inc:2616
+#, python-brace-format
+msgid "{path} 第 {line} 行开始的托管块没有结束标记；请删除该块或补上结束标记。"
+msgstr "{path} 第 {line} 行开始的托管块没有结束标记；请删除该块或补上结束标记。"
+
+#: ../../reference/_generated/reason-codes.inc:2618
+msgid "``wire_changed_during_run``"
+msgstr "``wire_changed_during_run``"
+
+#: ../../reference/_generated/reason-codes.inc:2620
+#, python-brace-format
+msgid "{path} changed after ``anet`` read it, so nothing was written; try again."
+msgstr "{path} 在 ``anet`` 读取之后被改动了，未写入；请等写入它的程序结束后重试。"
+
+#: ../../reference/_generated/reason-codes.inc:2621
+#, python-brace-format
+msgid "{path} 在 ``anet`` 读取之后被改动了，未写入；请等写入它的程序结束后重试。"
+msgstr "{path} 在 ``anet`` 读取之后被改动了，未写入；请等写入它的程序结束后重试。"
+
+#: ../../reference/_generated/reason-codes.inc:2623
+msgid "``wire_dangling_symlink``"
+msgstr "``wire_dangling_symlink``"
+
+#: ../../reference/_generated/reason-codes.inc:2625
+#, python-brace-format
+msgid ""
+"{path} is a symbolic link to a file that does not exist, and ``anet`` "
+"does not replace it; fix the link and try again."
+msgstr "{path} 是指向不存在文件的符号链接，\\ ``anet`` 不替换它；请修正链接后重试。"
+
+#: ../../reference/_generated/reason-codes.inc:2626
+#, python-brace-format
+msgid "{path} 是指向不存在文件的符号链接，\\ ``anet`` 不替换它；请修正链接后重试。"
+msgstr "{path} 是指向不存在文件的符号链接，\\ ``anet`` 不替换它；请修正链接后重试。"
+
+#: ../../reference/_generated/reason-codes.inc:2628
+msgid "``wire_backup_failed``"
+msgstr "``wire_backup_failed``"
+
+#: ../../reference/_generated/reason-codes.inc:2630
+#, python-brace-format
+msgid ""
+"{path} cannot be backed up ({error}), so nothing was changed; fix the "
+"permissions or the path and try again."
+msgstr "无法备份 {path}（{error}），未做任何改动；请修复权限或路径后重试。"
+
+#: ../../reference/_generated/reason-codes.inc:2631
+#, python-brace-format
+msgid "无法备份 {path}（{error}），未做任何改动；请修复权限或路径后重试。"
+msgstr "无法备份 {path}（{error}），未做任何改动；请修复权限或路径后重试。"
+
+#: ../../reference/_generated/reason-codes.inc:2633
+msgid "``wire_backup_limit``"
+msgstr "``wire_backup_limit``"
+
+#: ../../reference/_generated/reason-codes.inc:2635
+#, python-brace-format
+msgid ""
+"There are too many backups of {path} within one second; try again in a "
+"moment."
+msgstr "{path} 在一秒内的备份过多；请稍后再试。"
+
+#: ../../reference/_generated/reason-codes.inc:2636
+#, python-brace-format
+msgid "{path} 在一秒内的备份过多；请稍后再试。"
+msgstr "{path} 在一秒内的备份过多；请稍后再试。"
+
+#: ../../reference/_generated/reason-codes.inc:2638
+msgid "``wire_io_failed``"
+msgstr "``wire_io_failed``"
+
+#: ../../reference/_generated/reason-codes.inc:2640
+#, python-brace-format
+msgid ""
+"{path} cannot be read or written ({error}); fix the permissions or the "
+"path and try again."
+msgstr "无法读写 {path}（{error}）；请修复权限或路径后重试。"
+
+#: ../../reference/_generated/reason-codes.inc:2641
+#, python-brace-format
+msgid "无法读写 {path}（{error}）；请修复权限或路径后重试。"
+msgstr "无法读写 {path}（{error}）；请修复权限或路径后重试。"
+
+#: ../../reference/_generated/reason-codes.inc:2643
+msgid "``wire_cli_failed``"
+msgstr "``wire_cli_failed``"
+
+#: ../../reference/_generated/reason-codes.inc:2645
+#, python-brace-format
+msgid "{command} failed ({error}); fix what that command reports and try again."
+msgstr "{command} 执行失败（{error}）；请排除该命令报告的问题后重试。"
+
+#: ../../reference/_generated/reason-codes.inc:2646
+#, python-brace-format
+msgid "{command} 执行失败（{error}）；请排除该命令报告的问题后重试。"
+msgstr "{command} 执行失败（{error}）；请排除该命令报告的问题后重试。"
+
+#: ../../reference/_generated/reason-codes.inc:2648
+msgid "``wire_verify_failed.add``"
+msgstr "``wire_verify_failed.add``"
+
+#: ../../reference/_generated/reason-codes.inc:2650
+#, python-brace-format
+msgid ""
+"The claude command reported success, but {path} has no "
+"mcpServers.``anet`` afterwards; try again."
+msgstr "claude 命令报告成功，但 {path} 里并没有 mcpServers.``anet``\\ ；请检查该文件后重试。"
+
+#: ../../reference/_generated/reason-codes.inc:2651
+#, python-brace-format
+msgid "claude 命令报告成功，但 {path} 里并没有 mcpServers.``anet``\\ ；请检查该文件后重试。"
+msgstr "claude 命令报告成功，但 {path} 里并没有 mcpServers.``anet``\\ ；请检查该文件后重试。"
+
+#: ../../reference/_generated/reason-codes.inc:2653
+msgid "``wire_verify_failed.remove``"
+msgstr "``wire_verify_failed.remove``"
+
+#: ../../reference/_generated/reason-codes.inc:2655
+#, python-brace-format
+msgid ""
+"The claude command reported success, but {path} still has "
+"mcpServers.``anet`` afterwards; try again."
+msgstr "claude 命令报告成功，但 {path} 里仍有 mcpServers.``anet``\\ ；请检查该文件后重试。"
+
+#: ../../reference/_generated/reason-codes.inc:2656
+#, python-brace-format
+msgid "claude 命令报告成功，但 {path} 里仍有 mcpServers.``anet``\\ ；请检查该文件后重试。"
+msgstr "claude 命令报告成功，但 {path} 里仍有 mcpServers.``anet``\\ ；请检查该文件后重试。"
+
+#: ../../reference/_generated/reason-codes.inc:2658
+msgid "``wire_a2a_not_started``"
+msgstr "``wire_a2a_not_started``"
+
+#: ../../reference/_generated/reason-codes.inc:2660
+#, python-brace-format
+msgid ""
+"{path} does not exist: the local A2A interface has not been started yet "
+"(a -tags no_a2a build has no such module); run ``anet up`` first, then "
+"run this command again."
+msgstr ""
+"找不到 {path}：本机 A2A 接口还没有启动过（-tags no_a2a 的构建没有这个模块）；请先运行 ``anet up``\\ "
+"，再运行本命令。"
+
+#: ../../reference/_generated/reason-codes.inc:2661
+#, python-brace-format
+msgid ""
+"找不到 {path}：本机 A2A 接口还没有启动过（-tags no_a2a 的构建没有这个模块）；请先运行 ``anet up``\\ "
+"，再运行本命令。"
+msgstr ""
+"找不到 {path}：本机 A2A 接口还没有启动过（-tags no_a2a 的构建没有这个模块）；请先运行 ``anet up``\\ "
+"，再运行本命令。"
+
+#: ../../reference/_generated/reason-codes.inc:2663
+msgid "``wire_a2a_addr_invalid``"
+msgstr "``wire_a2a_addr_invalid``"
+
+#: ../../reference/_generated/reason-codes.inc:2665
+#, python-brace-format
+msgid ""
+"{path} does not hold a host:port on a loopback address (the local A2A "
+"interface listens only on 127.0.0.1, localhost or [::1]); run ``anet "
+"stop`` and ``anet up`` to write it again."
+msgstr ""
+"{path} 的内容不是回环地址上的主机与端口（本机 A2A 接口只在 127.0.0.1、localhost 或 [::1] 上监听）；请运行 "
+"``anet stop`` 和 ``anet up`` 重新写出。"
+
+#: ../../reference/_generated/reason-codes.inc:2666
+#, python-brace-format
+msgid ""
+"{path} 的内容不是回环地址上的主机与端口（本机 A2A 接口只在 127.0.0.1、localhost 或 [::1] 上监听）；请运行 "
+"``anet stop`` 和 ``anet up`` 重新写出。"
+msgstr ""
+"{path} 的内容不是回环地址上的主机与端口（本机 A2A 接口只在 127.0.0.1、localhost 或 [::1] 上监听）；请运行 "
+"``anet stop`` 和 ``anet up`` 重新写出。"
+
+#: ../../reference/_generated/reason-codes.inc:2668
+msgid "``wire_a2a_token_invalid``"
+msgstr "``wire_a2a_token_invalid``"
+
+#: ../../reference/_generated/reason-codes.inc:2670
+#, python-brace-format
+msgid ""
+"{path} does not hold a token; run ``anet stop`` and ``anet up`` to "
+"generate it again."
+msgstr "{path} 的内容不是一个令牌；请运行 ``anet stop`` 和 ``anet up`` 重新生成。"
+
+#: ../../reference/_generated/reason-codes.inc:2671
+#, python-brace-format
+msgid "{path} 的内容不是一个令牌；请运行 ``anet stop`` 和 ``anet up`` 重新生成。"
+msgstr "{path} 的内容不是一个令牌；请运行 ``anet stop`` 和 ``anet up`` 重新生成。"
+
+#: ../../reference/_generated/reason-codes.inc:2673
+msgid "``wire_a2a_port_foreign.user``"
+msgstr "``wire_a2a_port_foreign.user``"
+
+#: ../../reference/_generated/reason-codes.inc:2675
+#, python-brace-format
+msgid ""
+"The port {host} of the local A2A interface is held by a process of "
+"another local user (uid {n}), and writing the token now would hand it to "
+"that process; have it release the port, run ``anet stop`` and ``anet "
+"up``, then run this command again."
+msgstr ""
+"本机 A2A 接口的端口 {host} 被另一个本机用户（uid {n}）的进程占着，现在写入令牌会交给它；请让它释放端口，运行 ``anet "
+"stop`` 和 ``anet up`` 后再运行本命令。"
+
+#: ../../reference/_generated/reason-codes.inc:2676
+#, python-brace-format
+msgid ""
+"本机 A2A 接口的端口 {host} 被另一个本机用户（uid {n}）的进程占着，现在写入令牌会交给它；请让它释放端口，运行 ``anet "
+"stop`` 和 ``anet up`` 后再运行本命令。"
+msgstr ""
+"本机 A2A 接口的端口 {host} 被另一个本机用户（uid {n}）的进程占着，现在写入令牌会交给它；请让它释放端口，运行 ``anet "
+"stop`` 和 ``anet up`` 后再运行本命令。"
+
+#: ../../reference/_generated/reason-codes.inc:2678
+msgid "``wire_a2a_port_foreign.record``"
+msgstr "``wire_a2a_port_foreign.record``"
+
+#: ../../reference/_generated/reason-codes.inc:2680
+#, python-brace-format
+msgid ""
+"The local A2A interface is down because another process holds its "
+"recorded port {host} (see {path}), and writing the token now would hand "
+"it to that process; have the holder release the port, run ``anet stop`` "
+"and ``anet up``, then run this command again."
+msgstr ""
+"本机 A2A 接口没有启动，它记录的端口 {host} 被别的进程占着（见 {path}），现在写入令牌会交给它；请让占用者释放端口，运行 "
+"``anet stop`` 和 ``anet up`` 后再运行本命令。"
+
+#: ../../reference/_generated/reason-codes.inc:2681
+#, python-brace-format
+msgid ""
+"本机 A2A 接口没有启动，它记录的端口 {host} 被别的进程占着（见 {path}），现在写入令牌会交给它；请让占用者释放端口，运行 "
+"``anet stop`` 和 ``anet up`` 后再运行本命令。"
+msgstr ""
+"本机 A2A 接口没有启动，它记录的端口 {host} 被别的进程占着（见 {path}），现在写入令牌会交给它；请让占用者释放端口，运行 "
+"``anet stop`` 和 ``anet up`` 后再运行本命令。"
+

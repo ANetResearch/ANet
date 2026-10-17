@@ -49,18 +49,18 @@ Automatic registration
 .. code-block:: console
 
    $ anet agents wire workbuddy
-   anet agents wire(anet /usr/local/bin/anet,数据目录 /home/operator/.anet)
-     workbuddy 已写
+   anet agents wire (anet /usr/local/bin/anet, data directory /home/operator/.anet)
+     workbuddy written
                - mcpServers.anet → ~/.workbuddy/mcp.json
-               注意:未检测到该工具,按要求照写
-               注意:WorkBuddy 的重载方式与工具调用超时(默认 30 秒)以官方文档为准:https://www.workbuddy.cn/docs/workbuddy/From-Beginner-to-Expert-Guide/Function-Description/MCP-Guide;anet 只写了 MCP 条目,没有写指引文件
-   重启这些工具(或新开会话)后生效;它们调用 `anet mcp`,需要本机 daemon 在运行(anet up)。
-   撤销:anet agents unwire <工具>(或 --all)
+               note: the tool was not detected; written as requested
+               note: How WorkBuddy reloads, and its tool-call timeout (30 seconds by default), are described in its documentation: https://www.workbuddy.cn/docs/workbuddy/From-Beginner-to-Expert-Guide/Function-Description/MCP-Guide. anet wrote only the MCP entry, not a guide file
+   Restart these tools (or start a new session) for the change to take effect. They call anet mcp, which needs the local daemon to be running (anet up).
+   To undo: anet agents unwire <tool> (or --all)
 
-The output of ``wire`` and ``unwire`` is in Chinese in every build. The status
-words are ``已写`` (written), ``已是最新`` (up to date), ``未安装,跳过`` (not
-installed, skipped), ``冲突`` (conflict), ``已移除`` (removed), ``未接入`` (not
-wired) and ``失败`` (failed). The line about the tool not being detected appears
+The output of ``wire`` and ``unwire`` is in English by default and in Chinese
+when ``ANET_LANG`` is ``zh-CN``. The status words are ``written``,
+``up to date``, ``not installed, skipped``, ``conflict``, ``removed``,
+``not wired`` and ``failed``. The line about the tool not being detected appears
 only when the directory ``~/.workbuddy`` does not exist; the command then
 writes the file as requested.
 
@@ -74,15 +74,16 @@ settings of the user for all projects:
   created when it does not exist.
 * An existing file is copied to ``mcp.json.anet-bak-<UTC time>`` before it is
   changed. The write is atomic and keeps the mode of the file. A second run
-  changes nothing and reports ``已是最新``.
+  changes nothing and reports ``up to date``.
 * No skill and no instruction file is written, because no user-level file of
   WorkBuddy for this purpose is documented. The MCP server sends its operating
   guide to the client when the connection starts; whether WorkBuddy passes it
   to the model is not documented.
 * A file that is not plain JSON, for example one with comments, is not edited.
-  The command reports ``失败`` and prints the entry for insertion by hand. An
-  existing ``mcpServers.anet`` that is not ``anet mcp`` is reported as
-  ``冲突``, nothing is changed and the exit status is 1.
+  The command reports ``failed`` with the reason code ``[wire_not_plain_json]``
+  and prints the entry for insertion by hand. An existing ``mcpServers.anet``
+  that is not ``anet mcp`` is reported as ``conflict``, nothing is changed and
+  the exit status is 1.
 
 ``wire --all`` includes WorkBuddy when ``~/.workbuddy`` exists. WorkBuddy has
 no command-line program, so the directory is the only test for its presence.
@@ -254,11 +255,11 @@ Troubleshooting
      - The path in ``command`` is wrong or the file is not valid JSON.
      - Run ``anet agents`` and, if it reports an outdated entry, ``anet agents
        wire workbuddy`` again. Check the JSON of ``mcp.json``.
-   * - ``wire`` reports ``失败``.
+   * - ``wire`` reports ``failed``.
      - ``mcp.json`` contains comments or is not valid JSON.
      - Insert the printed entry by hand, or remove the comments and run
        ``wire`` again.
-   * - ``wire`` reports ``冲突`` and exits with 1.
+   * - ``wire`` reports ``conflict`` and exits with 1.
      - The file already holds an ``anet`` entry that is not ``anet mcp``.
      - Rename or remove that entry and run ``wire`` again.
    * - The tools reach a different node than expected.
@@ -290,14 +291,14 @@ Disconnecting
 .. code-block:: console
 
    $ anet agents unwire workbuddy
-   anet agents unwire(anet /usr/local/bin/anet,数据目录 /home/operator/.anet)
-     workbuddy 已移除
-               - 删除 mcpServers.anet:~/.workbuddy/mcp.json
-               备份 ~/.workbuddy/mcp.json.anet-bak-20261017-094652
+   anet agents unwire (anet /usr/local/bin/anet, data directory /home/operator/.anet)
+     workbuddy removed
+               - remove mcpServers.anet: ~/.workbuddy/mcp.json
+               backup ~/.workbuddy/mcp.json.anet-bak-20261017-161551
 
 The command removes only the entry that ``wire`` wrote and keeps other
 servers. When the file then holds nothing that ``wire`` did not create, the
-file is removed as well. A second run reports ``未接入``. An entry can also be
+file is removed as well. A second run reports ``not wired``. An entry can also be
 deleted by hand from ``~/.workbuddy/mcp.json`` or in the MCP panel.
 
 

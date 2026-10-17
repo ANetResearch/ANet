@@ -15,7 +15,7 @@ func TestHermesGuideAndA2ANote(t *testing.T) {
 	}
 	h := newHost(t)
 	r := one(t, h.wire(ToolHermes), Written)
-	if strings.Contains(strings.Join(r.Notes, "\n"), "tools enable a2a") {
+	if strings.Contains(notesText(r.Notes), "tools enable a2a") {
 		t.Fatalf("a2a note without --a2a: %v", r.Notes)
 	}
 	if !strings.Contains(h.read(".hermes/SOUL.md"), "mcp_anet_list_agents") {
@@ -25,7 +25,7 @@ func TestHermesGuideAndA2ANote(t *testing.T) {
 
 func TestHermesA2ANoteText(t *testing.T) {
 	n := hermesTool{}.wireNotes(&Options{A2A: []string{"bafyreiaaaaaaaa"}}, Written)
-	if len(n) != 1 || !strings.Contains(n[0], "hermes tools enable a2a --platform cli") {
+	if len(n) != 1 || n[0].Key != "wire.note.hermes_toolset" || !strings.Contains(n[0].String(), "hermes tools enable a2a --platform cli") {
 		t.Fatalf("notes %v", n)
 	}
 }

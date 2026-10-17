@@ -4,7 +4,6 @@ package agentwire
 
 import (
 	"errors"
-	"fmt"
 	"io/fs"
 	"net"
 	"os"
@@ -31,11 +30,11 @@ type hermesTool struct{}
 
 // wireNotes: with --a2a the a2a toolset is still off for the CLI until the
 // operator enables it (https://hermes-agent.nousresearch.com/docs/user-guide/messaging/a2a).
-func (hermesTool) wireNotes(o *Options, st Status) []string {
+func (hermesTool) wireNotes(o *Options, st Status) []Msg {
 	if len(o.A2A) == 0 {
 		return nil
 	}
-	return []string{"Hermes 的 a2a 工具集默认关闭:运行 `hermes tools enable a2a --platform cli` 后,a2a_call 才可见"}
+	return []Msg{msg("wire.note.hermes_toolset")}
 }
 
 func (hermesTool) name() string { return ToolHermes }
@@ -93,26 +92,25 @@ func readA2A(o *Options) (a2aEndpoint, error) {
 	tokPath := a2aStatePath(o.DataDir, A2ATokenFile)
 	ab, err := os.ReadFile(addrPath)
 	if errors.Is(err, fs.ErrNotExist) {
-		return a2aEndpoint{}, fmt.Errorf("找不到 %s:本机 A2A 接口还没有启动过。它由 daemon 的 a2a 模块在第一次启动时写出"+
-			"(-tags no_a2a 的构建没有这个模块);先 `anet up`,再运行本命令", addrPath)
+		return a2aEndpoint{}, fail("wire_a2a_not_started", "path", addrPath)
 	}
 	if err != nil {
-		return a2aEndpoint{}, err
+		return a2aEndpoint{}, ioError(addrPath, err)
 	}
 	tb, err := os.ReadFile(tokPath)
 	if errors.Is(err, fs.ErrNotExist) {
-		return a2aEndpoint{}, fmt.Errorf("找不到 %s:本机 A2A 令牌还没有生成;先 `anet up`,再运行本命令", tokPath)
+		return a2aEndpoint{}, fail("wire_a2a_not_started", "path", tokPath)
 	}
 	if err != nil {
-		return a2aEndpoint{}, err
+		return a2aEndpoint{}, ioError(tokPath, err)
 	}
 	addr, err := parseA2AAddr(string(ab))
 	if err != nil {
-		return a2aEndpoint{}, fmt.Errorf("%s: %v", addrPath, err)
+		return a2aEndpoint{}, fail("wire_a2a_addr_invalid", "path", addrPath)
 	}
 	tok := strings.TrimSpace(string(tb))
 	if tok == "" || strings.ContainsAny(tok, " \t\r\n\"'\\") {
-		return a2aEndpoint{}, fmt.Errorf("%s 的内容不是一个令牌", tokPath)
+		return a2aEndpoint{}, fail("wire_a2a_token_invalid", "path", tokPath)
 	}
 	if err := checkA2APortHolder(o, addr); err != nil {
 		return a2aEndpoint{}, err
@@ -136,26 +134,21 @@ func checkA2APortHolder(o *Options, addr string) error {
 	if terr == nil {
 		for _, u := range uids {
 			if u != os.Getuid() {
-				return fmt.Errorf("本机 A2A 接口的端口 %s 正被 uid %d(另一个本机用户)的进程占着。现在写入令牌,"+
-					"Hermes 的下一次调用就会把它交给那个进程。先让它释放端口,再 `anet stop && anet up`,"+
-					"之后再运行本命令", addr, u)
+				return fail("wire_a2a_port_foreign.user", "host", addr, "n", u)
 			}
 		}
 		if len(uids) > 0 {
 			return nil // this user holds it
 		}
 	}
-	conflict := a2aStatePath(o.DataDir, A2AConflictFile)
-	b, err := os.ReadFile(conflict)
-	if errors.Is(err, fs.ErrNotExist) {
+	record := a2aStatePath(o.DataDir, A2AConflictFile)
+	if _, err := os.Stat(record); errors.Is(err, fs.ErrNotExist) {
 		return nil
+	} else if err != nil {
+		return ioError(record, err)
 	}
-	if err != nil {
-		return err
-	}
-	return fmt.Errorf("本机 A2A 接口没有启动,它记录的端口 %s 被别的进程占着(%s:%s)。现在写入令牌,"+
-		"Hermes 的下一次调用就会把它交给占用者。先让占用者释放端口,再 `anet stop && anet up`,"+
-		"接口在原端口起来后再运行本命令", addr, conflict, strings.TrimSpace(string(b)))
+	// The record names the holder; its content is not shown, only its path.
+	return fail("wire_a2a_port_foreign.record", "host", addr, "path", record)
 }
 
 // parseA2AAddr accepts host:port (or an http:// URL of one) and requires a
@@ -172,10 +165,10 @@ func parseA2AAddr(s string) (string, error) {
 	s = strings.TrimRight(s, "/")
 	host, port, err := net.SplitHostPort(s)
 	if n, perr := strconv.Atoi(port); err != nil || perr != nil || n < 1 || n > 65535 {
-		return "", fmt.Errorf("%q 不是 host:port", s)
+		return "", errors.New("not host:port")
 	}
 	if loopguard.CheckLoopbackAddr(s) != nil {
-		return "", fmt.Errorf("%q 不是回环地址(本机 A2A 接口只在 127.0.0.1、localhost 或 [::1] 上监听)", s)
+		return "", errors.New("not a loopback address")
 	}
 	return net.JoinHostPort(host, port), nil
 }
@@ -245,10 +238,12 @@ func (t hermesTool) planWire(o *Options) ([]change, error) {
 	if err != nil {
 		return nil, err
 	}
-	var notes []string
-	if out != string(cur) {
-		notes = append(notes, "mcp_servers.anet")
-	}
+	wroteMCP := out != string(cur)
+	var (
+		wroteA2A bool
+		nAIDs    int
+		host     string
+	)
 
 	existing, err := hermesA2AEntries(out, path)
 	if err != nil {
@@ -280,24 +275,32 @@ func (t hermesTool) planWire(o *Options) ([]change, error) {
 			return nil, err
 		}
 		if out != before {
-			notes = append(notes, fmt.Sprintf("a2a_agents(%d 个,指向 %s)", len(aids), ep.addr))
+			wroteA2A, nAIDs, host = true, len(aids), ep.addr
 		}
 	}
 
 	var changes []change
 	holdsToken := len(a2aEntriesOf(out, path)) > 0
 	if out != string(cur) {
-		c := change{path: path, before: cur, after: []byte(out), mode: 0o600,
-			note: strings.Join(notes, "、") + " → " + short(o, path)}
+		var note Msg
+		switch {
+		case wroteMCP && wroteA2A:
+			note = msg("wire.change.hermes_both", "n", nAIDs, "host", host, "path", short(o, path))
+		case wroteA2A:
+			note = msg("wire.change.hermes_a2a", "n", nAIDs, "host", host, "path", short(o, path))
+		default:
+			note = msg("wire.change.hermes_mcp", "path", short(o, path))
+		}
+		c := change{path: path, before: cur, after: []byte(out), mode: 0o600, note: note}
 		if holdsToken {
 			c.narrow = 0o600
 		}
 		changes = append(changes, c)
 	} else if holdsToken && fileMode(realPath(path))&0o077 != 0 {
 		changes = append(changes, change{path: path, before: cur, chmodOnly: true, narrow: 0o600,
-			note: short(o, path) + " 含本机 A2A 令牌,权限收紧为 0600"})
+			note: msg("wire.change.token_mode", "path", short(o, path))})
 	}
-	p, err := planTextBlock(o, hermesSoul(o), hermesPersona, "anet 指引块")
+	p, err := planTextBlock(o, hermesSoul(o), hermesPersona)
 	if err != nil {
 		return nil, err
 	}
@@ -313,15 +316,16 @@ func a2aEntriesOf(src, path string) []a2aEntry {
 	return e
 }
 
-func (t hermesTool) planUnwire(o *Options) ([]change, []string, error) {
+func (t hermesTool) planUnwire(o *Options) ([]change, []Msg, error) {
 	path := hermesConfig(o)
 	cur, err := readMaybe(realPath(path))
 	if err != nil {
 		return nil, nil, err
 	}
 	src := string(cur)
-	var what []string
-	var notes []string
+	var dropMCP, dropA2A bool
+	dropped := 0
+	var notes []Msg
 	if len(o.A2A) > 0 {
 		// Only the named entries; the MCP entry and the others stay.
 		existing, err := hermesA2AEntries(src, path)
@@ -349,41 +353,51 @@ func (t hermesTool) planUnwire(o *Options) ([]change, []string, error) {
 			if err != nil {
 				return nil, nil, err
 			}
-			what = append(what, fmt.Sprintf("a2a_agents 条目 %d 个", len(existing)-len(keep)))
+			dropped = len(existing) - len(keep)
 		} else {
-			notes = append(notes, "a2a_agents 里没有 anet 写的这些条目")
+			notes = append(notes, msg("wire.note.a2a_absent"))
 		}
 	} else {
 		var had bool
 		if src, had, err = hermesMCP.drop(src, path); err != nil {
 			return nil, nil, err
 		} else if had {
-			what = append(what, "mcp_servers.anet")
+			dropMCP = true
 		}
 		if src, had, err = hermesA2A.drop(src, path); err != nil {
 			return nil, nil, err
 		} else if had {
-			what = append(what, "a2a_agents(含令牌)")
+			dropA2A = true
 		}
 		if k, _, _ := hermesMCP.topKey(splitLines(src)); k >= 0 {
 			lines := splitLines(src)
 			if line := hasChildKey(lines, k, regionEnd(lines, k), childIndent(lines, k, regionEnd(lines, k)), -1, -1, "anet"); line > 0 {
-				notes = append(notes, fmt.Sprintf("%s:%d 的 mcp_servers.anet 不是 anet 写的,未改动", short(o, path), line))
+				notes = append(notes, msg("wire.note.foreign_toml", "path", short(o, path), "line", line))
 			}
 		}
 	}
 	var changes []change
 	if src != string(cur) {
 		out := splitLines(src)
-		c := change{path: path, before: cur, after: []byte(src), del: onlyBlank(out),
-			note: "删除 " + strings.Join(what, "、") + ":" + short(o, path)}
+		var note Msg
+		switch {
+		case dropped > 0:
+			note = msg("wire.change.hermes_drop_entries", "n", dropped, "path", short(o, path))
+		case dropMCP && dropA2A:
+			note = msg("wire.change.hermes_drop_both", "path", short(o, path))
+		case dropA2A:
+			note = msg("wire.change.hermes_drop_a2a", "path", short(o, path))
+		default:
+			note = msg("wire.change.hermes_drop_mcp", "path", short(o, path))
+		}
+		c := change{path: path, before: cur, after: []byte(src), del: onlyBlank(out), note: note}
 		if len(a2aEntriesOf(src, path)) > 0 {
 			c.narrow = 0o600 // the entries left behind still carry the token
 		}
 		changes = append(changes, c)
 	}
 	if len(o.A2A) == 0 {
-		p, err := planDropTextBlock(o, hermesSoul(o), "anet 指引块")
+		p, err := planDropTextBlock(o, hermesSoul(o), "wire.change.guide_drop")
 		if err != nil {
 			return nil, nil, err
 		}

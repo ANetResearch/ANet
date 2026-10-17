@@ -51,25 +51,29 @@ Automatic registration
    $ anet agents wire claude
 
 ``claude-code`` is accepted as an alias of ``claude``. The command works on
-files only and needs no running daemon. The output is in Chinese in all builds.
-The following output was produced by ``anet`` 0.3.1 on Linux with a temporary
-home directory; the first line names the binary and the data directory in use:
+files only and needs no running daemon. The output is in English by default
+and in Chinese when ``ANET_LANG`` is ``zh-CN``. The following output was
+produced by ``anet`` 0.3.3 on Linux with a temporary home directory; the first
+line names the binary and the data directory in use:
 
 .. code-block:: console
 
    $ anet agents wire claude
-   anet agents wire(anet /usr/local/bin/anet,数据目录 /home/user/.anet)
-     claude    已写
-               - claude mcp add -s user anet(~/.claude.json)
-               - 技能 → ~/.claude/skills/anet/SKILL.md
-   重启这些工具(或新开会话)后生效;它们调用 `anet mcp`,需要本机 daemon 在运行(anet up)。
-   撤销:anet agents unwire <工具>(或 --all)
+   anet agents wire (anet /usr/local/bin/anet, data directory /home/user/.anet)
+     claude    written
+               - claude mcp add -s user anet (~/.claude.json)
+               - Claude Code skill → ~/.claude/skills/anet/SKILL.md
+   Restart these tools (or start a new session) for the change to take effect. They call anet mcp, which needs the local daemon to be running (anet up).
+   To undo: anet agents unwire <tool> (or --all)
 
-The status words are ``已写`` (written), ``已是最新`` (up to date),
-``未安装,跳过`` (not installed, skipped), ``冲突`` (conflict), ``已移除``
-(removed), ``未接入`` (not wired) and ``失败`` (failed). The last two lines
+The status words are ``written``, ``up to date``, ``not installed, skipped``,
+``conflict``, ``removed``, ``not wired`` and ``failed``. The last two lines
 state that the tool must be restarted or a new session opened, that
-``anet mcp`` needs the local daemon, and how the change is undone.
+``anet mcp`` needs the local daemon, and how the change is undone. A refusal is
+printed with its reason code in square brackets, for example
+``[wire_conflict]``, and the next step follows on a line that begins with an
+arrow when the code has a command; the codes are listed in
+:ref:`reason-codes-w`.
 
 The command changes two things.
 
@@ -94,8 +98,8 @@ Run ``wire`` with the same variable that Claude Code runs with.
 The entry names the ``anet`` binary by its absolute path and sets
 ``ANET_DATA_DIR``. Writes are atomic and keep the file mode. Every file that is
 changed is backed up first, as ``<file>.anet-bak-<UTC time>``, and the backup is
-printed. Wiring twice changes nothing and reports ``已是最新``. An entry named
-``anet`` that ANet did not write is reported as ``冲突``; the command then exits
+printed. Wiring twice changes nothing and reports ``up to date``. An entry named
+``anet`` that ANet did not write is reported as ``conflict``; the command then exits
 with status 1 and changes nothing. A binary started by ``go run`` is refused,
 because its path does not outlive the command.
 
@@ -104,16 +108,16 @@ because its path does not outlive the command.
 .. code-block:: console
 
    $ anet agents
-   anet agents(anet /usr/local/bin/anet,数据目录 /home/user/.anet)
-     claude    已接入,最新
-     codex     未安装
-     cursor    未安装
-     opencode  未安装
-     hermes    未安装
-     workbuddy 未安装
+   anet agents (anet /usr/local/bin/anet, data directory /home/user/.anet)
+     claude    wired, up to date
+     codex     not installed
+     cursor    not installed
+     opencode  not installed
+     hermes    not installed
+     workbuddy not installed
 
-``已接入,最新`` means wired and current; ``未安装`` means that the tool was not
-detected. ``claude`` counts as present when the program is on ``PATH`` or when
+``wired, up to date`` means wired and current; ``not installed`` means that the
+tool was not detected. ``claude`` counts as present when the program is on ``PATH`` or when
 ``~/.claude`` or ``~/.claude.json`` exists. Without a tool name, ``anet agents
 wire`` registers every tool that is present. The command does not write the
 configuration of the desktop chat application (``claude_desktop_config.json``),
@@ -214,11 +218,11 @@ selects one by its data directory. A named identity created with
 .. code-block:: console
 
    $ anet --id requester agents wire claude
-   anet agents wire(anet /usr/local/bin/anet,数据目录 /home/user/.anet/ids/requester)
-     claude    已写
-               - claude mcp add -s user anet(~/.claude.json)
-               - 技能 → ~/.claude/skills/anet/SKILL.md
-               备份 ~/.claude.json.anet-bak-20261017-094738
+   anet agents wire (anet /usr/local/bin/anet, data directory /home/user/.anet/ids/requester)
+     claude    written
+               - claude mcp add -s user anet (~/.claude.json)
+               - Claude Code skill → ~/.claude/skills/anet/SKILL.md
+               backup ~/.claude.json.anet-bak-20261017-094738
    ...
 
 The resulting entry carries ``ANET_DATA_DIR=/home/user/.anet/ids/requester``.
@@ -421,11 +425,11 @@ Troubleshooting
      - Claude Code reads the configuration at the start of a session and does
        not reconnect servers of the stdio type.
      - Open a new session or restart Claude Code.
-   * - ``anet agents`` shows ``已接入,最新``, but the tools address another node
+   * - ``anet agents`` shows ``wired, up to date``, but the tools address another node
      - An entry named ``anet`` in the local scope or in a project ``.mcp.json``
        takes precedence over the user entry.
      - Run ``claude mcp get anet``, remove or rename the entry that wins.
-   * - ``wire`` prints ``冲突`` and exits with status 1
+   * - ``wire`` prints ``conflict`` and exits with status 1
      - A server named ``anet`` exists that ANet did not write.
      - Rename or remove that entry with ``claude mcp remove``, then run
        ``wire`` again.
@@ -464,15 +468,15 @@ Disconnecting
 .. code-block:: console
 
    $ anet agents unwire claude
-   anet agents unwire(anet /usr/local/bin/anet,数据目录 /home/user/.anet)
-     claude    已移除
-               - claude mcp remove -s user anet(~/.claude.json)
-               - 删除技能:~/.claude/skills/anet/SKILL.md
-               备份 ~/.claude.json.anet-bak-20261017-094551
+   anet agents unwire (anet /usr/local/bin/anet, data directory /home/user/.anet)
+     claude    removed
+               - claude mcp remove -s user anet (~/.claude.json)
+               - remove the Claude Code skill: ~/.claude/skills/anet/SKILL.md
+               backup ~/.claude.json.anet-bak-20261017-094551
 
 The command removes the entry that ANet wrote and the skill file, and makes a
 backup. An entry named ``anet`` that ANet did not write is not touched. A tool
-that is not wired is reported as ``未接入``.
+that is not wired is reported as ``not wired``.
 
 To disconnect by hand, run ``claude mcp remove -s user anet``, or delete the
 member ``mcpServers.anet`` from ``~/.claude.json``, and delete the directory

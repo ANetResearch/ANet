@@ -4,7 +4,6 @@ package agentwire
 
 import (
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 )
@@ -90,10 +89,10 @@ func (claudeTool) servers(o *Options) (cur []byte, root, servers *jsonObject, er
 		return nil, nil, nil, err
 	}
 	if root, err = parseObject(cur); err != nil {
-		return nil, nil, nil, fmt.Errorf("%s 不是合法的 JSON(%v),anet 不改它", path, err)
+		return nil, nil, nil, fail("wire_json_invalid", "path", path)
 	}
 	if servers, _, err = root.subObject("mcpServers"); err != nil {
-		return nil, nil, nil, fmt.Errorf("%s: %v", path, err)
+		return nil, nil, nil, fail("wire_json_shape", "path", path, "key", "mcpServers")
 	}
 	return cur, root, servers, nil
 }
@@ -108,8 +107,7 @@ func (t claudeTool) planWire(o *Options) ([]change, error) {
 	raw, has := servers.get("anet")
 	if !has || !t.matches(o, raw) {
 		if has && !t.ours(raw) {
-			return nil, &ConflictError{Path: path, What: "已有一个不是 anet 写的 mcpServers.anet(命令不是 `anet mcp`);" +
-				"删除或改名(`claude mcp remove -s user anet`)后再运行 wire"}
+			return nil, conflict("wire_conflict.claude", "path", path)
 		}
 		if claude, err := o.LookPath("claude"); err == nil {
 			w := claudeWant(o)
@@ -124,14 +122,14 @@ func (t claudeTool) planWire(o *Options) ([]change, error) {
 				verify: func(after []byte) error {
 					_, _, s, err := t.serversOf(after)
 					if err != nil {
-						return err
+						return fail("wire_json_invalid", "path", path)
 					}
 					if raw, ok := s.get("anet"); !ok || !t.matches(o, raw) {
-						return fmt.Errorf("之后 %s 里没有对应的 mcpServers.anet", path)
+						return fail("wire_verify_failed.add", "path", path)
 					}
 					return nil
 				},
-				note: "claude mcp add -s user anet(" + short(o, path) + ")",
+				note: msg("wire.change.claude_cli_add", "path", short(o, path)),
 			})
 		} else {
 			want, _ := marshalNoEscape(claudeWant(o))
@@ -142,7 +140,7 @@ func (t claudeTool) planWire(o *Options) ([]change, error) {
 				return nil, err
 			}
 			changes = append(changes, change{path: path, before: cur, after: after, mode: 0o600,
-				note: "MCP 服务 anet(user 作用域)→ " + short(o, path) + "(claude 不在 PATH,直接改文件)"})
+				note: msg("wire.change.claude_file_add", "path", short(o, path))})
 		}
 	}
 	skill, err := readMaybe(realPath(claudeSkill(o)))
@@ -151,9 +149,9 @@ func (t claudeTool) planWire(o *Options) ([]change, error) {
 	}
 	if string(skill) != skillMarkdown {
 		changes = append(changes, change{path: claudeSkill(o), before: skill, after: []byte(skillMarkdown),
-			mode: 0o644, note: "技能 → " + short(o, claudeSkill(o))})
+			mode: 0o644, note: msg("wire.change.guide_file_write", "path", short(o, claudeSkill(o)))})
 	}
-	legacy, err := planDropTextBlock(o, claudeLegacy(o), "旧版 anet 指引块")
+	legacy, err := planDropTextBlock(o, claudeLegacy(o), "wire.change.legacy_drop")
 	if err != nil {
 		return nil, err
 	}
@@ -173,17 +171,17 @@ func (claudeTool) serversOf(b []byte) ([]byte, *jsonObject, *jsonObject, error) 
 	return b, root, s, err
 }
 
-func (t claudeTool) planUnwire(o *Options) ([]change, []string, error) {
+func (t claudeTool) planUnwire(o *Options) ([]change, []Msg, error) {
 	path := claudeJSON(o)
 	cur, root, servers, err := t.servers(o)
 	if err != nil {
 		return nil, nil, err
 	}
 	var changes []change
-	var notes []string
+	var notes []Msg
 	if raw, has := servers.get("anet"); has {
 		if !t.ours(raw) {
-			notes = append(notes, short(o, path)+" 的 mcpServers.anet 不是 anet 写的,未改动")
+			notes = append(notes, msg("wire.note.foreign_entry", "path", short(o, path), "key", "mcpServers"))
 		} else if claude, err := o.LookPath("claude"); err == nil {
 			changes = append(changes, change{
 				path: path, before: cur,
@@ -191,14 +189,14 @@ func (t claudeTool) planUnwire(o *Options) ([]change, []string, error) {
 				verify: func(after []byte) error {
 					_, _, s, err := t.serversOf(after)
 					if err != nil {
-						return err
+						return fail("wire_json_invalid", "path", path)
 					}
 					if _, ok := s.get("anet"); ok {
-						return fmt.Errorf("之后 %s 里仍有 mcpServers.anet", path)
+						return fail("wire_verify_failed.remove", "path", path)
 					}
 					return nil
 				},
-				note: "claude mcp remove -s user anet(" + short(o, path) + ")",
+				note: msg("wire.change.claude_cli_remove", "path", short(o, path)),
 			})
 		} else {
 			servers.del("anet")
@@ -214,7 +212,7 @@ func (t claudeTool) planUnwire(o *Options) ([]change, []string, error) {
 			// A file that held nothing but anet's entry was created by wire;
 			// removing it is what gives the original state back.
 			changes = append(changes, change{path: path, before: cur, after: after, del: root.empty(),
-				note: "删除 MCP 服务 anet:" + short(o, path)})
+				note: msg("wire.change.mcp_drop", "path", short(o, path))})
 		}
 	}
 	skillPath := claudeSkill(o)
@@ -222,9 +220,9 @@ func (t claudeTool) planUnwire(o *Options) ([]change, []string, error) {
 		return nil, nil, err
 	} else if skill != nil {
 		changes = append(changes, change{path: skillPath, before: skill, del: true, generated: []byte(skillMarkdown),
-			rmdir: filepath.Dir(skillPath), note: "删除技能:" + short(o, skillPath)})
+			rmdir: filepath.Dir(skillPath), note: msg("wire.change.guide_file_drop", "path", short(o, skillPath))})
 	}
-	legacy, err := planDropTextBlock(o, claudeLegacy(o), "旧版 anet 指引块")
+	legacy, err := planDropTextBlock(o, claudeLegacy(o), "wire.change.legacy_drop")
 	if err != nil {
 		return nil, nil, err
 	}

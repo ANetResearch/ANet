@@ -168,6 +168,13 @@ The command exits with a non-zero status when at least one tool ended in a
 conflict or an error, so that an installer cannot report success after a
 partial result.
 
+The report is printed in English. When the environment variable ``ANET_LANG``
+is ``zh-CN``, the same lines are printed in Chinese. The sentences come from the
+reason table. A refusal ends with its reason code in square brackets, for
+example ``[wire_conflict]``, and the next step follows on a line that begins
+with an arrow when the code names a command. The ``wire_`` codes are listed in
+:ref:`reason-codes-w`.
+
 Procedure
 ~~~~~~~~~
 

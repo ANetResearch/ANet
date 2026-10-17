@@ -32,7 +32,6 @@ package agentwire
 import (
 	"context"
 	"errors"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -40,6 +39,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ANetResearch/ANet/internal/a2ashape"
 	"github.com/ANetResearch/ANet/internal/anethome"
 )
 
@@ -98,6 +98,10 @@ type Options struct {
 	// current a2a_addr.txt and a2a_token.txt, after the port or the token
 	// changed.
 	Refresh bool
+	// Lang is the language of the text State carries (Inspect); results and
+	// errors hold keys and are rendered by their caller. The zero value is
+	// English.
+	Lang a2ashape.Language
 }
 
 func (o *Options) normalize() error {
@@ -118,19 +122,19 @@ func (o *Options) normalize() error {
 	if o.Home == "" {
 		h, err := os.UserHomeDir()
 		if err != nil || h == "" {
-			return fmt.Errorf("找不到家目录: %v", err)
+			return fail("wire_home_not_found")
 		}
 		o.Home = h
 	}
 	if !filepath.IsAbs(o.Bin) {
-		return fmt.Errorf("anet 可执行文件路径必须是绝对路径,得到 %q", o.Bin)
+		return fail("wire_path_not_absolute.bin", "path", o.Bin)
 	}
 	if !filepath.IsAbs(o.DataDir) {
-		return fmt.Errorf("数据目录必须是绝对路径,得到 %q", o.DataDir)
+		return fail("wire_path_not_absolute.data", "path", o.DataDir)
 	}
 	for _, aid := range o.A2A {
 		if !validAID(aid) {
-			return fmt.Errorf("%q 不是 AID(小写字母与数字,8–128 个字符)", aid)
+			return fail("wire_bad_aid", "value", aid)
 		}
 	}
 	return nil
@@ -149,35 +153,34 @@ const (
 	Failed   Status = "error"
 )
 
-// Label is the status as the CLI prints it.
-func (s Status) Label() string {
+// Key is the status word's key in the reason table; the CLI prints the
+// sentence in its language.
+func (s Status) Key() string {
 	switch s {
 	case Written:
-		return "已写"
+		return "wire.status.written"
 	case UpToDate:
-		return "已是最新"
+		return "wire.status.up_to_date"
 	case Skipped:
-		return "未安装,跳过"
+		return "wire.status.skipped"
 	case Conflict:
-		return "冲突"
+		return "wire.status.conflict"
 	case Removed:
-		return "已移除"
+		return "wire.status.removed"
 	case NotWired:
-		return "未接入"
-	case Failed:
-		return "失败"
+		return "wire.status.not_wired"
 	}
-	return string(s)
+	return "wire.status.failed"
 }
 
 // Result is what happened to one tool.
 type Result struct {
 	Tool    string
 	Status  Status
-	Changes []string // one line per file changed, or per CLI call made
+	Changes []Msg    // one line per file changed, or per CLI call made
 	Backups []string // backup copies made before changing a file
-	Notes   []string // anything else the operator should know
-	Err     error    // Conflict and Failed: why
+	Notes   []Msg    // anything else the operator should know
+	Err     error    // Conflict and Failed: why (an *Error or *ConflictError)
 }
 
 // OK reports whether the result needs no action from the operator.
@@ -198,7 +201,7 @@ type tool interface {
 	// planWire and planUnwire compute the changes without making any. A
 	// *ConflictError means the tool must be left alone.
 	planWire(o *Options) ([]change, error)
-	planUnwire(o *Options) ([]change, []string, error)
+	planUnwire(o *Options) ([]change, []Msg, error)
 	// configPath is the file that holds the tool's MCP entry.
 	configPath(o *Options) string
 }
@@ -207,7 +210,7 @@ type tool interface {
 // after wire that the plan itself cannot express: a file the tool reads
 // first that hides anet's, or a step the tool needs that anet cannot take.
 type noter interface {
-	wireNotes(o *Options, st Status) []string
+	wireNotes(o *Options, st Status) []Msg
 }
 
 func toolByName(name string) (tool, bool) {
@@ -248,7 +251,7 @@ func selectTools(names []string, all bool) ([]tool, bool, error) {
 		}
 		t, ok := toolByName(n)
 		if !ok {
-			return nil, false, fmt.Errorf("不认识的工具 %q(支持:%s)", n, strings.Join(Tools(), ", "))
+			return nil, false, fail("wire_unknown_tool", "name", n, "value", strings.Join(Tools(), ", "))
 		}
 		if !seen[n] {
 			seen[n] = true
@@ -278,7 +281,7 @@ func Wire(o Options, names []string, all bool) ([]Result, error) {
 		return nil, err
 	}
 	if len(o.A2A) > 0 && !includes(tools, ToolHermes) {
-		return nil, fmt.Errorf("--a2a 写的是 Hermes 的 a2a_agents;请同时指定 hermes(或 --all)")
+		return nil, fail("wire_a2a_needs_hermes.wire")
 	}
 	var out []Result
 	for _, t := range tools {
@@ -286,13 +289,13 @@ func Wire(o Options, names []string, all bool) ([]Result, error) {
 		if implicit && !t.detected(&o) {
 			r.Status = Skipped
 			if t.name() == ToolHermes && len(o.A2A) > 0 {
-				r.Notes = append(r.Notes, "--a2a 未写入:没有找到 Hermes(设置 HERMES_HOME,或明确写 hermes)")
+				r.Notes = append(r.Notes, msg("wire.note.a2a_skipped"))
 			}
 			out = append(out, r)
 			continue
 		}
 		if !implicit && !t.detected(&o) {
-			r.Notes = append(r.Notes, "未检测到该工具,按要求照写")
+			r.Notes = append(r.Notes, msg("wire.note.not_detected"))
 		}
 		changes, err := t.planWire(&o)
 		r = finish(&o, r, changes, nil, err, Written, UpToDate)
@@ -323,7 +326,7 @@ func openclawAgentsMD(o *Options) string { return filepath.Join(o.Home, ".opencl
 // there was something of anet's to take out.
 func legacyOpenClaw(o *Options) (Result, bool) {
 	r := Result{Tool: LegacyOpenClaw}
-	c, err := planDropTextBlock(o, openclawAgentsMD(o), "旧版 anet 指引块(OpenClaw 不在支持的工具内)")
+	c, err := planDropTextBlock(o, openclawAgentsMD(o), "wire.change.openclaw_drop")
 	if err == nil && c == nil {
 		return r, false
 	}
@@ -347,7 +350,7 @@ func Unwire(o Options, names []string, all bool) ([]Result, error) {
 		return nil, err
 	}
 	if len(o.A2A) > 0 && !includes(tools, ToolHermes) {
-		return nil, fmt.Errorf("--a2a 删除的是 Hermes 的 a2a_agents 条目;请同时指定 hermes(或 --all)")
+		return nil, fail("wire_a2a_needs_hermes.unwire")
 	}
 	var out []Result
 	for _, t := range tools {
@@ -376,7 +379,7 @@ func includes(ts []tool, name string) bool {
 }
 
 // finish applies a plan and turns it into a Result.
-func finish(o *Options, r Result, changes []change, notes []string, err error, changed, unchanged Status) Result {
+func finish(o *Options, r Result, changes []change, notes []Msg, err error, changed, unchanged Status) Result {
 	r.Notes = append(r.Notes, notes...)
 	var ce *ConflictError
 	switch {
@@ -404,22 +407,6 @@ func finish(o *Options, r Result, changes []change, notes []string, err error, c
 	}
 	r.Status = changed
 	return r
-}
-
-// ConflictError is a same-named entry anet did not write. The tool is left
-// untouched; the operator removes or renames the entry and runs wire again.
-type ConflictError struct {
-	Path string
-	Line int // 1-based; 0 when the file has no line structure worth naming
-	What string
-}
-
-func (e *ConflictError) Error() string {
-	loc := e.Path
-	if e.Line > 0 {
-		loc = fmt.Sprintf("%s:%d", e.Path, e.Line)
-	}
-	return fmt.Sprintf("%s: %s", loc, e.What)
 }
 
 // validAID accepts the AID alphabet (a CID in lowercase base32) and nothing

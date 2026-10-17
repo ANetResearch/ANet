@@ -7,6 +7,8 @@ import (
 	"io/fs"
 	"net/url"
 	"os"
+
+	"github.com/ANetResearch/ANet/internal/a2ashape"
 )
 
 // State is what `anet doctor` and `anet agents` report for one tool. It is
@@ -20,10 +22,12 @@ type State struct {
 	// wire writes them now), and for Hermes no a2a_agents entry is Stale
 	// (that one takes wire --refresh).
 	Current bool
-	// Pending lists what wire would change when not Current.
+	// Pending lists what wire would change when not Current, in the
+	// language of Options.Lang.
 	Pending []string
 	// Conflict is a same-named entry anet does not manage; Err is any
-	// other reason the tool cannot be planned.
+	// other reason the tool cannot be planned. Both are sentences in the
+	// language of Options.Lang.
 	Conflict string
 	Err      string
 	// Config is the file holding the MCP entry, Mode its permission bits
@@ -43,8 +47,9 @@ type A2AState struct {
 	URL     string
 	PortOK  bool // the URL's host:port is a2a_addr.txt
 	TokenOK bool // the token is a2a_token.txt
-	// Unknown is set when a2a_addr.txt or a2a_token.txt cannot be read, so
-	// neither check means anything.
+	// Unknown is set (as a sentence in the language of Options.Lang) when
+	// a2a_addr.txt or a2a_token.txt cannot be read, so neither check means
+	// anything.
 	Unknown string
 }
 
@@ -63,13 +68,13 @@ func Inspect(o Options) ([]State, error) {
 		var ce *ConflictError
 		switch {
 		case errors.As(err, &ce):
-			st.Conflict = ce.Error()
+			st.Conflict = ce.Text(o.Lang)
 		case err != nil:
-			st.Err = err.Error()
+			st.Err = errText(err, o.Lang)
 		default:
 			st.Current = len(changes) == 0
 			for _, c := range changes {
-				st.Pending = append(st.Pending, c.note)
+				st.Pending = append(st.Pending, c.note.Text(o.Lang))
 			}
 		}
 		if un, _, err := t.planUnwire(&o); err == nil {
@@ -86,7 +91,7 @@ func Inspect(o Options) ([]State, error) {
 			for _, a := range st.A2A {
 				if a.Stale() && st.Conflict == "" && st.Err == "" {
 					st.Current = false
-					st.Pending = append(st.Pending, "a2a_agents 指向旧的端口或令牌(--refresh)")
+					st.Pending = append(st.Pending, msg("wire.pending.a2a_stale").Text(o.Lang))
 					break
 				}
 			}
@@ -115,7 +120,7 @@ func inspectA2A(o *Options, path string) []A2AState {
 	for _, e := range entries {
 		s := A2AState{AID: e.aid, URL: e.url}
 		if eperr != nil {
-			s.Unknown = eperr.Error()
+			s.Unknown = errText(eperr, o.Lang)
 		} else {
 			if u, err := url.Parse(e.url); err == nil {
 				s.PortOK = u.Host == ep.addr && u.Path == "/a2a/v1/agents/"+e.aid
@@ -125,4 +130,13 @@ func inspectA2A(o *Options, path string) []A2AState {
 		out = append(out, s)
 	}
 	return out
+}
+
+// errText is an error's sentence in a language: the sentence of the reason
+// row for this package's own errors, the error's own words for the rest.
+func errText(err error, lang a2ashape.Language) string {
+	if m, ok := AsMsg(err); ok {
+		return m.Text(lang)
+	}
+	return err.Error()
 }

@@ -262,8 +262,8 @@ grep -qs 'AgentNetwork' "$AGENT_HOME/.claude/skills/anet/SKILL.md" \
   && ok "Claude Code 技能写好了" || no "没有 ~/.claude/skills/anet/SKILL.md"
 out=$(env HOME="$AGENT_HOME" PATH=/usr/bin:/bin ANET_DATA_DIR="$AGENT_HOME/.anet" \
   "$ROOT/bin/anet-default" agents wire --all 2>&1)
-if printf '%s' "$out" | grep -q '已写'; then
-  no "第二次 wire 又改了文件:$(printf '%s' "$out" | grep '已写' | head -1)"
+if printf '%s' "$out" | grep -Eq '^  [a-z]+ +written$'; then
+  no "第二次 wire 又改了文件:$(printf '%s' "$out" | grep -E '^  [a-z]+ +written$' | head -1)"
 else
   ok "第二次 wire 什么都没改"
 fi

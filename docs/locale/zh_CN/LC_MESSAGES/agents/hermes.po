@@ -132,15 +132,6 @@ msgstr ""
 "``mcp_servers.anet`` 条目,则构成冲突:命令以状态 1 退出,且不作任何修改。通用规则见 :ref:`howto-"
 "coding-agents`。"
 
-#: ../../agents/hermes.rst:68
-msgid ""
-"The messages of ``wire``, ``unwire`` and ``anet agents`` are printed in "
-"Chinese in all builds. The state of a successful integration is the line "
-"``hermes    已接入,最新`` (wired, current) in the output of ``anet agents``."
-msgstr ""
-"``wire``、``unwire`` 与 ``anet agents`` 的提示信息在所有构建中均以中文输出。接入成功的状态是 ``anet "
-"agents`` 输出中的 ``hermes    已接入,最新`` 一行(英文含义为 wired, current)。"
-
 #: ../../agents/hermes.rst:72
 msgid ""
 "Start a new Hermes session after the command. Alternatively, run "
@@ -230,10 +221,6 @@ msgstr "验证"
 #: ../../agents/hermes.rst:134
 msgid "Run the checks in a terminal."
 msgstr "在终端中执行以下检查。"
-
-#: ../../agents/hermes.rst:143
-msgid "``anet agents`` reports the line ``hermes    已接入,最新``."
-msgstr "``anet agents`` 输出 ``hermes    已接入,最新`` 一行。"
 
 #: ../../agents/hermes.rst:144
 msgid "``hermes mcp list`` shows the server ``anet`` with the status ``enabled``."
@@ -605,4 +592,19 @@ msgstr ":ref:`reference-mcp-tools`"
 #: ../../agents/hermes.rst:330
 msgid ":ref:`howto-local-a2a`"
 msgstr ":ref:`howto-local-a2a`"
+
+#: ../../agents/hermes.rst:66
+msgid ""
+"The messages of ``wire``, ``unwire`` and ``anet agents`` are printed in "
+"English by default and in Chinese when ``ANET_LANG`` is ``zh-CN``. The "
+"state of a successful integration is the line ``hermes    wired, up to "
+"date`` in the output of ``anet agents``."
+msgstr ""
+"``wire``、``unwire`` 与 ``anet agents`` 的提示信息默认以英文输出，``ANET_LANG`` 为 ``zh-"
+"CN`` 时以中文输出。接入成功的状态是 ``anet agents`` 输出中的 ``hermes    wired, up to date``"
+" 一行。"
+
+#: ../../agents/hermes.rst:142
+msgid "``anet agents`` reports the line ``hermes    wired, up to date``."
+msgstr "``anet agents`` 输出 ``hermes    wired, up to date`` 一行。"
 

@@ -263,6 +263,8 @@ var placeholders = map[string]bool{
 	"paths": true, "auto_reply": true, "detail": true,
 	// MOD-1: the module sentences.
 	"fix": true, "variant": true, "modules": true,
+	// `anet agents wire|unwire`: the binary and a line number.
+	"bin": true, "line": true, "url": true,
 }
 
 // UX-T4: every placeholder is defined; with no values at all a sentence
