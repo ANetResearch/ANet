@@ -9,7 +9,8 @@ registers that server, together with a short operating guide, in the
 configuration files of the coding agents installed on the machine. The
 command ``anet agents unwire`` removes both again.
 
-This page describes the supported tools, the files that are changed, the
+The guide for each tool, with prerequisites, verification and removal steps,
+starts at :doc:`/agents/index`. This page describes the supported tools, the files that are changed, the
 rules that apply to every change, and the options specific to Hermes.
 
 .. contents::
@@ -491,3 +492,4 @@ See also
 * :ref:`howto-local-a2a`
 * :ref:`reference-cli`
 * :ref:`howto-troubleshooting`
+* :doc:`/agents/index`

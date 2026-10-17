@@ -34,12 +34,6 @@ msgstr ""
 "agents wire`` 会把该服务器连同一份简短的操作指南,写入本机已安装的各编码 Agent 的配置文件;命令 ``anet agents "
 "unwire`` 则将两者再次移除。"
 
-#: ../../howto/coding-agents.rst:12
-msgid ""
-"This page describes the supported tools, the files that are changed, the "
-"rules that apply to every change, and the options specific to Hermes."
-msgstr "本页说明受支持的工具、被修改的文件、适用于每次修改的规则,以及 Hermes 专有的选项。"
-
 #: ../../howto/coding-agents.rst:21
 msgid "Overview"
 msgstr "概述"
@@ -783,6 +777,16 @@ msgstr ":ref:`reference-cli`"
 #: ../../howto/coding-agents.rst:493
 msgid ":ref:`howto-troubleshooting`"
 msgstr ":ref:`howto-troubleshooting`"
+
+#: ../../howto/coding-agents.rst:12
+msgid ""
+"The guide for each tool, with prerequisites, verification and removal "
+"steps, starts at :doc:`/agents/index`. This page describes the supported "
+"tools, the files that are changed, the rules that apply to every change, "
+"and the options specific to Hermes."
+msgstr ""
+"各工具的指南（含前提条件、验证与移除步骤）请从 :doc:`/agents/index` "
+"开始。本页说明受支持的工具、被修改的文件、适用于每次修改的规则，以及 Hermes 专有的选项。"
 
 #~ msgid ""
 #~ "The entry runs the binary directly. "

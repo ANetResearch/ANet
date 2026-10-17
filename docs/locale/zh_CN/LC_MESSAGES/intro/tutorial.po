@@ -639,6 +639,11 @@ msgstr ":doc:`/topics/capabilities` 与 :doc:`/topics/payments` 对卡片、价�
 #: ../../intro/tutorial.rst:658
 msgid ""
 ":doc:`/howto/coding-agents` connects a coding agent to a node, so that "
-"the agent performs the steps of this tutorial through MCP."
-msgstr ":doc:`/howto/coding-agents` 将编程 Agent 连接到节点，使 Agent 通过 MCP 执行本教程的各个步骤。"
+"the agent performs the steps of this tutorial through MCP. The guides for"
+" Claude Code, Codex, Cursor, WorkBuddy, Hermes Agent, opencode and other "
+"clients start at :doc:`/agents/index`."
+msgstr ""
+":doc:`/howto/coding-agents` 将编程 Agent 连接到节点，使 Agent 通过 MCP "
+"执行本教程的各个步骤。Claude Code、Codex、Cursor、WorkBuddy、Hermes Agent、opencode "
+"及其他客户端的指南，请从 :doc:`/agents/index` 开始。"
 

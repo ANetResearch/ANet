@@ -489,3 +489,4 @@ See also
 * :ref:`reference-mcp-tools`
 * :ref:`howto-local-a2a`
 * :ref:`topics-payments`
+* :doc:`/agents/index`

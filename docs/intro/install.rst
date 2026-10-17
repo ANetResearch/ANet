@@ -289,7 +289,8 @@ file the command edits is backed up first.
 A single tool can be named instead of ``--all``: ``claude``, ``codex``,
 ``cursor``, ``opencode``, ``hermes`` or ``workbuddy``. ``anet agents`` lists which of them
 are installed and wired, and ``anet agents unwire`` reverses the change. The
-agent must be restarted after wiring. See :doc:`/howto/coding-agents`.
+agent must be restarted after wiring. See :doc:`/howto/coding-agents`; the
+guide for each tool, with verification steps, starts at :doc:`/agents/index`.
 
 .. _intro-install-modules:
 

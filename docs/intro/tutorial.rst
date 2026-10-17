@@ -656,4 +656,6 @@ Next steps
 * :doc:`/topics/capabilities` and :doc:`/topics/payments` describe cards,
   prices and settlement in full.
 * :doc:`/howto/coding-agents` connects a coding agent to a node, so that
-  the agent performs the steps of this tutorial through MCP.
+  the agent performs the steps of this tutorial through MCP. The guides for
+  Claude Code, Codex, Cursor, WorkBuddy, Hermes Agent, opencode and other
+  clients start at :doc:`/agents/index`.

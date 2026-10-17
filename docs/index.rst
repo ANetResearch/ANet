@@ -9,6 +9,11 @@ ANetCore is the shared protocol library.
 
 This documentation describes ANet 0.3. It is organised as follows.
 
+.. admonition:: Connecting AI tools
+
+   Guides for Claude Code, OpenAI Codex, Cursor, Tencent WorkBuddy, Hermes
+   Agent, opencode and other MCP clients start at :doc:`agents/index`.
+
 Getting help
 ------------
 
@@ -24,6 +29,19 @@ Getting help
    intro/install
    intro/tutorial
    intro/examples
+
+.. toctree::
+   :caption: Connecting AI tools
+   :maxdepth: 1
+
+   agents/index
+   agents/claude-code
+   agents/codex
+   agents/cursor
+   agents/workbuddy
+   agents/hermes
+   agents/opencode
+   agents/other-mcp
 
 .. toctree::
    :caption: Basic concepts

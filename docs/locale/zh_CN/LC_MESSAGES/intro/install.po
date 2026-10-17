@@ -501,19 +501,6 @@ msgstr ""
 "``anet agents wire`` 将节点的 MCP 服务器注册到本机上安装的编程 "
 "Agent，并向其添加使用说明。该命令修改的每个文件都会先备份。"
 
-#: ../../intro/install.rst:289
-msgid ""
-"A single tool can be named instead of ``--all``: ``claude``, ``codex``, "
-"``cursor``, ``opencode``, ``hermes`` or ``workbuddy``. ``anet agents`` "
-"lists which of them are installed and wired, and ``anet agents unwire`` "
-"reverses the change. The agent must be restarted after wiring. See "
-":doc:`/howto/coding-agents`."
-msgstr ""
-"可以指定单个工具来代替 ``--all``：``claude``\\ 、\\ ``codex``\\ 、\\ ``cursor``\\ 、\\ "
-"``opencode``\\ 、\\ ``hermes`` 或 ``workbuddy``\\ 。\\ ``anet agents`` "
-"列出其中已安装和已配置的工具，``anet agents unwire`` 撤销该变更。配置之后须重启 Agent。参见 :doc:`/howto"
-"/coding-agents`\\ 。"
-
 #: ../../intro/install.rst:297
 msgid "Selecting modules"
 msgstr "选择模块"
@@ -874,4 +861,18 @@ msgstr "清单所列版本低于已安装的版本，这通常表明镜像已过
 #: ../../intro/install.rst:501
 msgid "For failures after installation, see :doc:`/howto/troubleshooting`."
 msgstr "安装之后出现的故障，参见 :doc:`/howto/troubleshooting`\\ 。"
+
+#: ../../intro/install.rst:289
+msgid ""
+"A single tool can be named instead of ``--all``: ``claude``, ``codex``, "
+"``cursor``, ``opencode``, ``hermes`` or ``workbuddy``. ``anet agents`` "
+"lists which of them are installed and wired, and ``anet agents unwire`` "
+"reverses the change. The agent must be restarted after wiring. See "
+":doc:`/howto/coding-agents`; the guide for each tool, with verification "
+"steps, starts at :doc:`/agents/index`."
+msgstr ""
+"可以指定单个工具来代替 ``--all``：``claude``\\ 、\\ ``codex``\\ 、\\ ``cursor``\\ 、\\ "
+"``opencode``\\ 、\\ ``hermes`` 或 ``workbuddy``\\ 。\\ ``anet agents`` "
+"列出其中已安装和已配置的工具，``anet agents unwire`` 撤销该变更。配置之后须重启 Agent。参见 :doc:`/howto"
+"/coding-agents`\\ ；各工具的指南及验证步骤请从 :doc:`/agents/index` 开始。"
 

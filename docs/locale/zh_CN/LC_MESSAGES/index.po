@@ -81,3 +81,15 @@ msgstr "如遇失败，请在 :ref:`原因码参考 <reference-reason-codes>` �
 msgid "Report defects and ask questions in the project issue tracker."
 msgstr "缺陷与疑问请提交至项目的问题跟踪器。"
 
+#: ../../index.rst:20
+msgid "Connecting AI tools"
+msgstr "接入 AI 工具"
+
+#: ../../index.rst:12
+msgid ""
+"Guides for Claude Code, OpenAI Codex, Cursor, Tencent WorkBuddy, Hermes "
+"Agent, opencode and other MCP clients start at :doc:`agents/index`."
+msgstr ""
+"Claude Code、OpenAI Codex、Cursor、腾讯 WorkBuddy、Hermes Agent、opencode 及其他 "
+"MCP 客户端的指南，请从 :doc:`agents/index` 开始。"
+

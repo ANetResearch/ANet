@@ -932,6 +932,10 @@ msgstr ":ref:`howto-local-a2a`"
 msgid ":ref:`topics-payments`"
 msgstr ":ref:`topics-payments`"
 
+#: ../../howto/mcp.rst:1
+msgid ":doc:`/agents/index`"
+msgstr ":doc:`/agents/index`"
+
 #~ msgid "At least 900 seconds is recommended; see :ref:`howto-mcp-waiting`"
 #~ msgstr "建议至少 900 秒;参见 :ref:`howto-mcp-waiting`"
 
