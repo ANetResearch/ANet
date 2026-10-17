@@ -41,6 +41,7 @@ GROUPS = [
     ("M", "Terminal lines and prompts"),
     ("S", "Status summary lines"),
     ("X", "Diagnostic checks"),
+    ("W", "Coding-agent registration"),
 ]
 
 TITLES = dict(GROUPS)
@@ -60,6 +61,7 @@ BLURBS = {
     "M": "Confirmation prompts and common lines printed by the command line.",
     "S": "Sentences of the status summary and of the text that tells an agent how to proceed.",
     "X": "Sentences that only the diagnostic report prints.",
+    "W": "Output of ``anet agents``, ``anet agents wire`` and ``anet agents unwire``: the status words, the lines of a result, the notes, and the refusals with the ``wire_`` codes.",
 }
 
 
@@ -83,6 +85,9 @@ def sections_from_source():
     cur = None
     out = {}
     for line in text[start:].splitlines():
+        if line.startswith("\t// `anet agents wire"):
+            cur = "W"
+            continue
         m = re.match(r"^\t// ux §(.*)$", line)
         if m:
             g = group_of(m.group(1))

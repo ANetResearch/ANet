@@ -96,29 +96,6 @@ msgstr ""
 msgid "Automatic registration"
 msgstr "自动接入"
 
-#: ../../agents/claude-code.rst:55
-msgid ""
-"``claude-code`` is accepted as an alias of ``claude``. The command works "
-"on files only and needs no running daemon. The output is in Chinese in "
-"all builds. The following output was produced by ``anet`` 0.3.1 on Linux "
-"with a temporary home directory; the first line names the binary and the "
-"data directory in use:"
-msgstr ""
-"``claude-code`` 是 ``claude`` 的别名。该命令只操作文件,不需要守护进程正在运行。其输出在所有构建中均为中文。以下输出由"
-" ``anet`` 0.3.1 在 Linux 上使用临时主目录生成;第一行列出所用的二进制文件与数据目录:"
-
-#: ../../agents/claude-code.rst:70
-msgid ""
-"The status words are ``已写`` (written), ``已是最新`` (up to date), ``未安装,跳过`` "
-"(not installed, skipped), ``冲突`` (conflict), ``已移除`` (removed), ``未接入`` "
-"(not wired) and ``失败`` (failed). The last two lines state that the tool "
-"must be restarted or a new session opened, that ``anet mcp`` needs the "
-"local daemon, and how the change is undone."
-msgstr ""
-"状态用语为 "
-"``已写``(已写入)、``已是最新``(已为最新)、``未安装,跳过``(未安装,已跳过)、``冲突``、``已移除``、``未接入``与 "
-"``失败``。最后两行说明:须重启该工具或新开会话;``anet mcp`` 需要本机守护进程;以及如何撤销本次变更。"
-
 #: ../../agents/claude-code.rst:76
 msgid "The command changes two things."
 msgstr "该命令修改两处内容。"
@@ -164,39 +141,9 @@ msgstr ""
 "``$CLAUDE_CONFIG_DIR/skills/anet/SKILL.md``。该值必须是绝对路径。执行 ``wire`` 时须使用与 "
 "Claude Code 运行时相同的变量。"
 
-#: ../../agents/claude-code.rst:96
-msgid ""
-"The entry names the ``anet`` binary by its absolute path and sets "
-"``ANET_DATA_DIR``. Writes are atomic and keep the file mode. Every file "
-"that is changed is backed up first, as ``<file>.anet-bak-<UTC time>``, "
-"and the backup is printed. Wiring twice changes nothing and reports "
-"``已是最新``. An entry named ``anet`` that ANet did not write is reported as "
-"``冲突``; the command then exits with status 1 and changes nothing. A "
-"binary started by ``go run`` is refused, because its path does not "
-"outlive the command."
-msgstr ""
-"条目以绝对路径指明 ``anet`` 二进制文件,并设置 "
-"``ANET_DATA_DIR``。写入是原子的,并保持文件权限。凡被修改的文件均先备份,备份名为 ``<file>.anet-bak-<UTC "
-"time>``,并在输出中列出。重复接入不产生任何变更,并报告 ``已是最新``。名为 ``anet`` 但非 ANet 所写的条目报告为 "
-"``冲突``;此时命令以状态码 1 退出,且不做任何修改。由 ``go run`` 启动的二进制文件会被拒绝,因为其路径在命令结束后即失效。"
-
 #: ../../agents/claude-code.rst:104
 msgid "``anet agents`` shows the result:"
 msgstr "``anet agents`` 显示结果:"
-
-#: ../../agents/claude-code.rst:117
-msgid ""
-"``已接入,最新`` means wired and current; ``未安装`` means that the tool was not "
-"detected. ``claude`` counts as present when the program is on ``PATH`` or"
-" when ``~/.claude`` or ``~/.claude.json`` exists. Without a tool name, "
-"``anet agents wire`` registers every tool that is present. The command "
-"does not write the configuration of the desktop chat application "
-"(``claude_desktop_config.json``), of VS Code or of a project."
-msgstr ""
-"``已接入,最新`` 表示已接入且为最新;``未安装`` 表示未检测到该工具。程序位于 ``PATH``,或 ``~/.claude`` 或 "
-"``~/.claude.json`` 存在时,``claude`` 视为存在。不指定工具名时,``anet agents wire`` "
-"为所有已存在的工具接入。该命令不写入桌面聊天应用的配置(``claude_desktop_config.json``)、VS Code "
-"的配置以及项目配置。"
 
 #: ../../agents/claude-code.rst:126
 msgid ""
@@ -653,10 +600,6 @@ msgstr "Claude Code 在会话开始时读取配置,不会重新连接 stdio 类�
 msgid "Open a new session or restart Claude Code."
 msgstr "新开会话或重启 Claude Code。"
 
-#: ../../agents/claude-code.rst:426
-msgid "``anet agents`` shows ``已接入,最新``, but the tools address another node"
-msgstr "``anet agents`` 显示 ``已接入,最新``,但工具连到的是另一个节点"
-
 #: ../../agents/claude-code.rst:427
 msgid ""
 "An entry named ``anet`` in the local scope or in a project ``.mcp.json`` "
@@ -666,10 +609,6 @@ msgstr "本地作用域或项目 ``.mcp.json`` 中名为 ``anet`` 的条目优�
 #: ../../agents/claude-code.rst:429
 msgid "Run ``claude mcp get anet``, remove or rename the entry that wins."
 msgstr "执行 ``claude mcp get anet``,移除或改名胜出的条目。"
-
-#: ../../agents/claude-code.rst:430
-msgid "``wire`` prints ``冲突`` and exits with status 1"
-msgstr "``wire`` 输出 ``冲突`` 并以状态码 1 退出"
 
 #: ../../agents/claude-code.rst:431
 msgid "A server named ``anet`` exists that ANet did not write."
@@ -778,15 +717,6 @@ msgstr ""
 msgid "Disconnecting"
 msgstr "断开"
 
-#: ../../agents/claude-code.rst:475
-msgid ""
-"The command removes the entry that ANet wrote and the skill file, and "
-"makes a backup. An entry named ``anet`` that ANet did not write is not "
-"touched. A tool that is not wired is reported as ``未接入``."
-msgstr ""
-"该命令移除 ANet 所写的条目与技能文件,并生成备份。名为 ``anet`` 但非 ANet 所写的条目不受影响。未接入的工具报告为 "
-"``未接入``。"
-
 #: ../../agents/claude-code.rst:479
 msgid ""
 "To disconnect by hand, run ``claude mcp remove -s user anet``, or delete "
@@ -851,4 +781,87 @@ msgstr ""
 "tools`、:ref:`topics-sandbox`、:ref:`topics-payments`、:ref:`topics-"
 "delegation`、:ref:`intro-install`、:ref:`intro-tutorial`、:ref:`howto-"
 "troubleshooting`、:ref:`reference-reason-codes`。"
+
+#: ../../agents/claude-code.rst:53
+msgid ""
+"``claude-code`` is accepted as an alias of ``claude``. The command works "
+"on files only and needs no running daemon. The output is in English by "
+"default and in Chinese when ``ANET_LANG`` is ``zh-CN``. The following "
+"output was produced by ``anet`` 0.3.3 on Linux with a temporary home "
+"directory; the first line names the binary and the data directory in use:"
+msgstr ""
+"``claude-code`` 是 ``claude`` "
+"的别名。该命令只操作文件，不需要守护进程正在运行。其输出默认为英文，``ANET_LANG`` 为 ``zh-CN`` 时为中文。以下输出由 "
+"``anet`` 0.3.3 在 Linux 上使用临时主目录生成；第一行列出所用的二进制文件与数据目录："
+
+#: ../../agents/claude-code.rst:69
+msgid ""
+"The status words are ``written``, ``up to date``, ``not installed, "
+"skipped``, ``conflict``, ``removed``, ``not wired`` and ``failed``. The "
+"last two lines state that the tool must be restarted or a new session "
+"opened, that ``anet mcp`` needs the local daemon, and how the change is "
+"undone. A refusal is printed with its reason code in square brackets, for"
+" example ``[wire_conflict]``, and the next step follows on a line that "
+"begins with an arrow when the code has a command; the codes are listed in"
+" :ref:`reason-codes-w`."
+msgstr ""
+"状态词为 ``written``、``up to date``、``not installed, "
+"skipped``、``conflict``、``removed``、``not wired`` 与 ``failed``\\ "
+"（``ANET_LANG`` 为 ``zh-CN`` 时分别为 "
+"``已写入``、``已是最新``、``未安装，已跳过``、``冲突``、``已移除``、``未接入`` 与 "
+"``失败``）。最后两行说明：须重启该工具或新开会话；``anet mcp`` "
+"需要本机守护进程；以及如何撤销本次变更。拒绝信息的末尾以方括号给出原因代码，例如 "
+"``[wire_conflict]``；该代码带有命令时，下一步另起一行，以箭头开头；代码列于 :ref:`reason-codes-w`。"
+
+#: ../../agents/claude-code.rst:98
+msgid ""
+"The entry names the ``anet`` binary by its absolute path and sets "
+"``ANET_DATA_DIR``. Writes are atomic and keep the file mode. Every file "
+"that is changed is backed up first, as ``<file>.anet-bak-<UTC time>``, "
+"and the backup is printed. Wiring twice changes nothing and reports ``up "
+"to date``. An entry named ``anet`` that ANet did not write is reported as"
+" ``conflict``; the command then exits with status 1 and changes nothing. "
+"A binary started by ``go run`` is refused, because its path does not "
+"outlive the command."
+msgstr ""
+"条目以绝对路径指明 ``anet`` 二进制文件，并设置 "
+"``ANET_DATA_DIR``。写入是原子的，并保持文件权限。凡被修改的文件均先备份，备份名为 ``<file>.anet-bak-<UTC "
+"time>``，并在输出中列出。重复接入不产生任何变更，并报告 ``up to date``。名为 ``anet`` 但非 ANet "
+"所写的条目报告为 ``conflict``；此时命令以状态码 1 退出，且不做任何修改。由 ``go run`` "
+"启动的二进制文件会被拒绝，因为其路径在命令结束后即失效。"
+
+#: ../../agents/claude-code.rst:119
+msgid ""
+"``wired, up to date`` means wired and current; ``not installed`` means "
+"that the tool was not detected. ``claude`` counts as present when the "
+"program is on ``PATH`` or when ``~/.claude`` or ``~/.claude.json`` "
+"exists. Without a tool name, ``anet agents wire`` registers every tool "
+"that is present. The command does not write the configuration of the "
+"desktop chat application (``claude_desktop_config.json``), of VS Code or "
+"of a project."
+msgstr ""
+"``wired, up to date`` 表示已接入且为最新；``not installed`` 表示未检测到该工具。程序位于 "
+"``PATH``，或 ``~/.claude`` 或 ``~/.claude.json`` 存在时，``claude`` "
+"视为存在。不指定工具名时，``anet agents wire`` "
+"为所有已存在的工具接入。该命令不写入桌面聊天应用的配置（``claude_desktop_config.json``）、VS Code "
+"的配置以及项目配置。"
+
+#: ../../agents/claude-code.rst:428
+msgid ""
+"``anet agents`` shows ``wired, up to date``, but the tools address "
+"another node"
+msgstr "``anet agents`` 显示 ``wired, up to date``，但工具连到的是另一个节点"
+
+#: ../../agents/claude-code.rst:432
+msgid "``wire`` prints ``conflict`` and exits with status 1"
+msgstr "``wire`` 输出 ``conflict`` 并以状态码 1 退出"
+
+#: ../../agents/claude-code.rst:477
+msgid ""
+"The command removes the entry that ANet wrote and the skill file, and "
+"makes a backup. An entry named ``anet`` that ANet did not write is not "
+"touched. A tool that is not wired is reported as ``not wired``."
+msgstr ""
+"该命令移除 ANet 所写的条目与技能文件，并生成备份。名为 ``anet`` 但非 ANet 所写的条目不受影响。未接入的工具报告为 ``not"
+" wired``。"
 

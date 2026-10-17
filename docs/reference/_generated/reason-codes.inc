@@ -2219,3 +2219,465 @@ Sentences that only the diagnostic report prints.
      - 公开能力 {name} 在 ANetLink 里不接受远端调用（c1.remote 没有匹配），别人调用会得到 provider_policy；请在 ANetLink 配置 c1.remote 放行，或不公开它。
      - 
 
+.. _reason-codes-w:
+
+Coding-agent registration
+-------------------------
+
+Output of ``anet agents``, ``anet agents wire`` and ``anet agents unwire``: the status words, the lines of a result, the notes, and the refusals with the ``wire_`` codes.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 16 9 31 31 13
+
+   * - Code
+     - Class
+     - English
+     - 中文
+     - Next step
+   * - ``wire.status.written``
+     - I
+     - written
+     - 已写入
+     - 
+   * - ``wire.status.up_to_date``
+     - I
+     - up to date
+     - 已是最新
+     - 
+   * - ``wire.status.skipped``
+     - I
+     - not installed, skipped
+     - 未安装，已跳过
+     - 
+   * - ``wire.status.conflict``
+     - I
+     - conflict
+     - 冲突
+     - 
+   * - ``wire.status.removed``
+     - I
+     - removed
+     - 已移除
+     - 
+   * - ``wire.status.not_wired``
+     - I
+     - not wired
+     - 未接入
+     - 
+   * - ``wire.status.failed``
+     - I
+     - failed
+     - 失败
+     - 
+   * - ``wire.head.wire``
+     - I
+     - ``anet agents`` wire (``anet`` {bin}, data directory {path})
+     - ``anet agents`` wire（\ ``anet`` {bin}，数据目录 {path}）
+     - 
+   * - ``wire.head.unwire``
+     - I
+     - ``anet agents`` unwire (``anet`` {bin}, data directory {path})
+     - ``anet agents`` unwire（\ ``anet`` {bin}，数据目录 {path}）
+     - 
+   * - ``wire.head.status``
+     - I
+     - ``anet agents`` (``anet`` {bin}, data directory {path})
+     - ``anet agents``\ （\ ``anet`` {bin}，数据目录 {path}）
+     - 
+   * - ``wire.footer.restart``
+     - I
+     - Restart these tools (or start a new session) for the change to take effect. They call ``anet mcp``, which needs the local daemon to be running (``anet up``).
+     - 重启这些工具（或新开会话）后生效；它们调用 ``anet mcp``\ ，需要本机 daemon 在运行（\ ``anet up``\ ）。
+     - 
+   * - ``wire.footer.undo``
+     - I
+     - To undo: ``anet agents`` unwire <tool> (or ``--all``)
+     - 撤销：\ ``anet agents`` unwire <工具>（或 ``--all``\ ）
+     - 
+   * - ``wire.state.current``
+     - S ok
+     - wired, up to date
+     - 已接入，最新
+     - 
+   * - ``wire.state.stale``
+     - S warn
+     - wired, needs an update ({command})
+     - 已接入，需要更新（{command}）
+     - 
+   * - ``wire.state.not_installed``
+     - S info
+     - not installed
+     - 未安装
+     - 
+   * - ``wire.state.not_wired``
+     - S info
+     - not wired ({command})
+     - 未接入（{command}）
+     - 
+   * - ``wire.state.conflict``
+     - S warn
+     - conflict: {detail}
+     - 冲突：{detail}
+     - 
+   * - ``wire.state.unchecked``
+     - S unknown
+     - cannot be checked: {detail}
+     - 无法检查：{detail}
+     - 
+   * - ``wire.state.token_mode``
+     - S warn
+     - {path} holds a token but its permissions are {value} (they should be 0600; {command} tightens them)
+     - {path} 含令牌，但权限是 {value}（应为 0600；{command} 会收紧）
+     - 
+   * - ``wire.state.a2a_ok``
+     - S ok
+     - a2a {aid}: in order
+     - a2a {aid}：正常
+     - 
+   * - ``wire.state.a2a_changed``
+     - S warn
+     - a2a {aid}: the port or the token has changed ({command})
+     - a2a {aid}：端口或令牌已变（{command}）
+     - 
+   * - ``wire.state.a2a_unknown``
+     - S unknown
+     - a2a {aid}: cannot be verified ({detail})
+     - a2a {aid}：无法核对（{detail}）
+     - 
+   * - ``wire.pending.a2a_stale``
+     - S warn
+     - a2a_agents points at an old port or token (``--refresh``)
+     - a2a_agents 指向旧的端口或令牌（\ ``--refresh``\ ）
+     - 
+   * - ``wire.change.guide_write``
+     - I
+     - write the ``anet`` guide block: {path}
+     - 写入 ``anet`` 指引块：{path}
+     - 
+   * - ``wire.change.guide_drop``
+     - I
+     - remove the ``anet`` guide block: {path}
+     - 删除 ``anet`` 指引块：{path}
+     - 
+   * - ``wire.change.legacy_drop``
+     - I
+     - remove the legacy ``anet`` guide block: {path}
+     - 删除旧版 ``anet`` 指引块：{path}
+     - 
+   * - ``wire.change.openclaw_drop``
+     - I
+     - remove the legacy ``anet`` guide block (OpenClaw is not a supported tool): {path}
+     - 删除旧版 ``anet`` 指引块（OpenClaw 不在支持的工具内）：{path}
+     - 
+   * - ``wire.change.legacy_file_drop``
+     - I
+     - remove the legacy rules file: {path}
+     - 删除旧版规则文件：{path}
+     - 
+   * - ``wire.change.claude_cli_add``
+     - I
+     - claude mcp add -s user ``anet`` ({path})
+     - claude mcp add -s user ``anet``\ （{path}）
+     - 
+   * - ``wire.change.claude_cli_remove``
+     - I
+     - claude mcp remove -s user ``anet`` ({path})
+     - claude mcp remove -s user ``anet``\ （{path}）
+     - 
+   * - ``wire.change.claude_file_add``
+     - I
+     - MCP server ``anet`` (user scope) → {path} (claude is not on PATH, so the file was edited directly)
+     - MCP 服务 ``anet``\ （user 作用域）→ {path}（claude 不在 PATH，直接改文件）
+     - 
+   * - ``wire.change.mcp_drop``
+     - I
+     - remove the MCP server ``anet``: {path}
+     - 删除 MCP 服务 ``anet``\ ：{path}
+     - 
+   * - ``wire.change.guide_file_write``
+     - I
+     - Claude Code skill → {path}
+     - 技能 → {path}
+     - 
+   * - ``wire.change.guide_file_drop``
+     - I
+     - remove the Claude Code skill: {path}
+     - 删除技能：{path}
+     - 
+   * - ``wire.change.toml_write``
+     - I
+     - [mcp_servers.``anet``] → {path}
+     - [mcp_servers.``anet``] → {path}
+     - 
+   * - ``wire.change.toml_drop``
+     - I
+     - remove [mcp_servers.``anet``]: {path}
+     - 删除 [mcp_servers.``anet``]：{path}
+     - 
+   * - ``wire.change.json_write``
+     - I
+     - {key}.``anet`` → {path}
+     - {key}.``anet`` → {path}
+     - 
+   * - ``wire.change.json_drop``
+     - I
+     - remove {key}.``anet``: {path}
+     - 删除 {key}.``anet``\ ：{path}
+     - 
+   * - ``wire.change.hermes_mcp``
+     - I
+     - mcp_servers.``anet`` → {path}
+     - mcp_servers.``anet`` → {path}
+     - 
+   * - ``wire.change.hermes_a2a``
+     - I
+     - a2a_agents ({n} entries, pointing at {host}) → {path}
+     - a2a_agents（{n} 个，指向 {host}）→ {path}
+     - 
+   * - ``wire.change.hermes_both``
+     - I
+     - mcp_servers.``anet``, a2a_agents ({n} entries, pointing at {host}) → {path}
+     - mcp_servers.``anet``\ 、a2a_agents（{n} 个，指向 {host}）→ {path}
+     - 
+   * - ``wire.change.hermes_drop_mcp``
+     - I
+     - remove mcp_servers.``anet``: {path}
+     - 删除 mcp_servers.``anet``\ ：{path}
+     - 
+   * - ``wire.change.hermes_drop_a2a``
+     - I
+     - remove a2a_agents (with its token): {path}
+     - 删除 a2a_agents（含令牌）：{path}
+     - 
+   * - ``wire.change.hermes_drop_both``
+     - I
+     - remove mcp_servers.``anet`` and a2a_agents (with its token): {path}
+     - 删除 mcp_servers.``anet``\ 、a2a_agents（含令牌）：{path}
+     - 
+   * - ``wire.change.hermes_drop_entries``
+     - I
+     - remove {n} a2a_agents entries: {path}
+     - 删除 a2a_agents 条目 {n} 个：{path}
+     - 
+   * - ``wire.change.token_mode``
+     - I
+     - {path} holds the local A2A token; its permissions are tightened to 0600
+     - {path} 含本机 A2A 令牌，权限收紧为 0600
+     - 
+   * - ``wire.note.not_detected``
+     - I
+     - the tool was not detected; written as requested
+     - 未检测到该工具，按要求照写
+     - 
+   * - ``wire.note.a2a_skipped``
+     - I
+     - ``--a2a`` was not written: Hermes was not found (set HERMES_HOME, or name hermes explicitly)
+     - ``--a2a`` 未写入：没有找到 Hermes（设置 HERMES_HOME，或明确写 hermes）
+     - 
+   * - ``wire.note.hermes_toolset``
+     - I
+     - The Hermes a2a toolset is off by default: a2a_call is visible only after hermes tools enable a2a ``--platform`` cli
+     - Hermes 的 a2a 工具集默认关闭：运行 hermes tools enable a2a ``--platform`` cli 后，a2a_call 才可见
+     - 
+   * - ``wire.note.codex_override``
+     - I
+     - {path} exists: Codex reads it instead of AGENTS.md, so the guide ``anet`` wrote to AGENTS.md has no effect; merge the guide into that file or move it away
+     - {path} 存在：Codex 优先读取它而不是 AGENTS.md，\ ``anet`` 写入 AGENTS.md 的指引不会生效；请把指引并入该文件，或移走它
+     - 
+   * - ``wire.note.workbuddy_docs``
+     - I
+     - How WorkBuddy reloads, and its tool-call timeout (30 seconds by default), are described in its documentation: {url}. ``anet`` wrote only the MCP entry, not a guide file
+     - WorkBuddy 的重载方式与工具调用超时（默认 30 秒）以官方文档为准：{url}；\ ``anet`` 只写了 MCP 条目，没有写指引文件
+     - 
+   * - ``wire.note.foreign_entry``
+     - I
+     - {key}.``anet`` in {path} was not written by ``anet`` and was left unchanged
+     - {path} 的 {key}.``anet`` 不是 ``anet`` 写的，未改动
+     - 
+   * - ``wire.note.foreign_toml``
+     - I
+     - mcp_servers.``anet`` at {path}:{line} was not written by ``anet`` and was left unchanged
+     - {path} 第 {line} 行的 mcp_servers.``anet`` 不是 ``anet`` 写的，未改动
+     - 
+   * - ``wire.note.a2a_absent``
+     - I
+     - a2a_agents has none of these entries written by ``anet``
+     - a2a_agents 里没有 ``anet`` 写的这些条目
+     - 
+   * - ``wire_tools_failed``
+     - C
+     - {n} of the tools could not be done; follow the lines above, then try again.
+     - 有 {n} 个工具没有完成；请按上面各行处理后重试。
+     - change input
+   * - ``wire_home_not_found``
+     - C
+     - The home directory cannot be found; set HOME and try again.
+     - 找不到家目录；请设置 HOME 后重试。
+     - change input
+   * - ``wire_path_not_absolute.bin``
+     - C
+     - The path of the ``anet`` binary must be absolute (got {path}); use the full path of the installed binary.
+     - ``anet`` 可执行文件的路径必须是绝对路径（得到 {path}）；请改用已安装的 ``anet`` 的完整路径。
+     - change input
+   * - ``wire_path_not_absolute.data``
+     - C
+     - The data directory must be an absolute path (got {path}); use an absolute path.
+     - 数据目录必须是绝对路径（得到 {path}）；请改用绝对路径。
+     - change input
+   * - ``wire_bad_aid``
+     - C
+     - {value} is not an AID (lowercase letters and digits, 8 to 128 characters); use an AID that ``anet find`` shows.
+     - {value} 不是 AID（小写字母与数字，8 到 128 个字符）；请改用 ``anet find`` 显示的 AID。
+     - change input
+   * - ``wire_unknown_tool``
+     - C
+     - {name} is not a supported tool (supported: {value}); use one of them.
+     - 不认识的工具 {name}（支持：{value}）；请改用其中之一。
+     - change input
+   * - ``wire_a2a_needs_hermes.wire``
+     - C
+     - ``--a2a`` writes Hermes' a2a_agents entries; add hermes (or ``--all``) to the command.
+     - ``--a2a`` 写的是 Hermes 的 a2a_agents；请加上 hermes（或 ``--all``\ ）。
+     - change input
+   * - ``wire_a2a_needs_hermes.unwire``
+     - C
+     - ``--a2a`` removes Hermes' a2a_agents entries; add hermes (or ``--all``) to the command.
+     - ``--a2a`` 删除的是 Hermes 的 a2a_agents 条目；请加上 hermes（或 ``--all``\ ）。
+     - change input
+   * - ``wire_conflict``
+     - C
+     - {path} already has an entry {key}.``anet`` that ``anet`` did not write; remove or rename it, then run wire again.
+     - {path} 里已有一个不是 ``anet`` 写的 {key}.``anet``\ ；请删除或改名后再运行 wire。
+     - change input
+   * - ``wire_conflict.claude``
+     - C
+     - {path} already has an entry mcpServers.``anet`` that ``anet`` did not write; remove or rename it (claude mcp remove -s user ``anet``), then run wire again.
+     - {path} 里已有一个不是 ``anet`` 写的 mcpServers.``anet``\ ；请删除或改名（claude mcp remove -s user ``anet``\ ）后再运行 wire。
+     - change input
+   * - ``wire_conflict.toml``
+     - C
+     - {path}:{line} already defines an entry mcp_servers.``anet`` that ``anet`` did not write; remove or rename it, then run wire again.
+     - {path} 第 {line} 行已定义了一个不是 ``anet`` 写的 mcp_servers.``anet``\ ；请删除或改名后再运行 wire。
+     - change input
+   * - ``wire_conflict.toml_inline``
+     - C
+     - mcp_servers at {path}:{line} is an inline table, and TOML does not allow [mcp_servers.``anet``] to be added to it; use [mcp_servers.<name>] tables instead, then run wire again.
+     - {path} 第 {line} 行的 mcp_servers 是行内表，TOML 不允许再向它追加 [mcp_servers.``anet``]；请改用 [mcp_servers.<名字>] 表的写法后再运行 wire。
+     - change input
+   * - ``wire_conflict.yaml_entry``
+     - C
+     - {key} at {path}:{line} already has an entry {name} that ``anet`` did not write; remove or rename it, then run wire again.
+     - {path} 第 {line} 行的 {key} 下已有一个不是 ``anet`` 写的 {name} 条目；请删除或改名后再运行 wire。
+     - change input
+   * - ``wire_conflict.yaml_top``
+     - C
+     - The top level of {path} is not a mapping (line {line} is not key: value), so ``anet`` cannot add {key}; use the mapping form, then run wire again.
+     - {path} 的顶层不是映射（第 {line} 行不是键值对），\ ``anet`` 无法加入 {key}；请改用映射写法后再运行 wire。
+     - change input
+   * - ``wire_conflict.yaml_inline``
+     - C
+     - {key} at {path}:{line} is written inline, and ``anet`` cannot add entries to it without parsing YAML; use the block form, then run wire again.
+     - {path} 第 {line} 行的 {key} 用的是行内写法，\ ``anet`` 无法在不解析 YAML 的情况下加入条目；请改用块写法后再运行 wire。
+     - change input
+   * - ``wire_conflict.yaml_shape``
+     - C
+     - {key} at {path}:{line} is not a mapping that ``anet`` can add entries to; use the block mapping form, then run wire again.
+     - {path} 第 {line} 行的 {key} 不是 ``anet`` 能加入条目的映射；请改用块映射写法后再运行 wire。
+     - change input
+   * - ``wire_json_invalid``
+     - C
+     - {path} is not valid JSON, so ``anet`` leaves it unchanged; repair it or restore a backup, then try again.
+     - {path} 不是合法的 JSON，\ ``anet`` 不改它；请修复或从备份恢复后重试。
+     - change input
+   * - ``wire_not_plain_json``
+     - C
+     - {path} is not plain JSON (it may contain comments), so ``anet`` does not rewrite it; add the entry below by hand.
+     - {path} 不是纯 JSON（可能含注释），\ ``anet`` 不改写它；请加入下面的条目。
+     - change input
+   * - ``wire_json_shape``
+     - C
+     - {key} in {path} is not a JSON object, so ``anet`` leaves it unchanged; change it to an object and try again.
+     - {path} 里的 {key} 不是 JSON 对象，\ ``anet`` 不改它；请改成对象后重试。
+     - change input
+   * - ``wire_block_malformed.second``
+     - C
+     - A second ``anet`` managed block starts at {path}:{line}; remove one of them by hand.
+     - {path} 第 {line} 行又开始了一个 ``anet`` 托管块；请手动删掉其中一个。
+     - change input
+   * - ``wire_block_malformed.orphan_end``
+     - C
+     - The end marker of the managed block at {path}:{line} has no start marker; remove the marker or add the start marker.
+     - {path} 第 {line} 行的托管块结束标记没有对应的开始标记；请删除该标记或补上开始标记。
+     - change input
+   * - ``wire_block_malformed.no_end``
+     - C
+     - The managed block that starts at {path}:{line} has no end marker; add the end marker or remove the block.
+     - {path} 第 {line} 行开始的托管块没有结束标记；请删除该块或补上结束标记。
+     - change input
+   * - ``wire_changed_during_run``
+     - C
+     - {path} changed after ``anet`` read it, so nothing was written; try again.
+     - {path} 在 ``anet`` 读取之后被改动了，未写入；请等写入它的程序结束后重试。
+     - change input
+   * - ``wire_dangling_symlink``
+     - C
+     - {path} is a symbolic link to a file that does not exist, and ``anet`` does not replace it; fix the link and try again.
+     - {path} 是指向不存在文件的符号链接，\ ``anet`` 不替换它；请修正链接后重试。
+     - change input
+   * - ``wire_backup_failed``
+     - C
+     - {path} cannot be backed up ({error}), so nothing was changed; fix the permissions or the path and try again.
+     - 无法备份 {path}（{error}），未做任何改动；请修复权限或路径后重试。
+     - change input
+   * - ``wire_backup_limit``
+     - C
+     - There are too many backups of {path} within one second; try again in a moment.
+     - {path} 在一秒内的备份过多；请稍后再试。
+     - retry later
+   * - ``wire_io_failed``
+     - C
+     - {path} cannot be read or written ({error}); fix the permissions or the path and try again.
+     - 无法读写 {path}（{error}）；请修复权限或路径后重试。
+     - change input
+   * - ``wire_cli_failed``
+     - C
+     - {command} failed ({error}); fix what that command reports and try again.
+     - {command} 执行失败（{error}）；请排除该命令报告的问题后重试。
+     - change input
+   * - ``wire_verify_failed.add``
+     - C
+     - The claude command reported success, but {path} has no mcpServers.``anet`` afterwards; try again.
+     - claude 命令报告成功，但 {path} 里并没有 mcpServers.``anet``\ ；请检查该文件后重试。
+     - change input
+   * - ``wire_verify_failed.remove``
+     - C
+     - The claude command reported success, but {path} still has mcpServers.``anet`` afterwards; try again.
+     - claude 命令报告成功，但 {path} 里仍有 mcpServers.``anet``\ ；请检查该文件后重试。
+     - change input
+   * - ``wire_a2a_not_started``
+     - C
+     - {path} does not exist: the local A2A interface has not been started yet (a -tags no_a2a build has no such module); run ``anet up`` first, then run this command again.
+     - 找不到 {path}：本机 A2A 接口还没有启动过（-tags no_a2a 的构建没有这个模块）；请先运行 ``anet up``\ ，再运行本命令。
+     - ``anet up``
+   * - ``wire_a2a_addr_invalid``
+     - C
+     - {path} does not hold a host:port on a loopback address (the local A2A interface listens only on 127.0.0.1, localhost or [::1]); run ``anet stop`` and ``anet up`` to write it again.
+     - {path} 的内容不是回环地址上的主机与端口（本机 A2A 接口只在 127.0.0.1、localhost 或 [::1] 上监听）；请运行 ``anet stop`` 和 ``anet up`` 重新写出。
+     - change input
+   * - ``wire_a2a_token_invalid``
+     - C
+     - {path} does not hold a token; run ``anet stop`` and ``anet up`` to generate it again.
+     - {path} 的内容不是一个令牌；请运行 ``anet stop`` 和 ``anet up`` 重新生成。
+     - change input
+   * - ``wire_a2a_port_foreign.user``
+     - C
+     - The port {host} of the local A2A interface is held by a process of another local user (uid {n}), and writing the token now would hand it to that process; have it release the port, run ``anet stop`` and ``anet up``, then run this command again.
+     - 本机 A2A 接口的端口 {host} 被另一个本机用户（uid {n}）的进程占着，现在写入令牌会交给它；请让它释放端口，运行 ``anet stop`` 和 ``anet up`` 后再运行本命令。
+     - change input
+   * - ``wire_a2a_port_foreign.record``
+     - C
+     - The local A2A interface is down because another process holds its recorded port {host} (see {path}), and writing the token now would hand it to that process; have the holder release the port, run ``anet stop`` and ``anet up``, then run this command again.
+     - 本机 A2A 接口没有启动，它记录的端口 {host} 被别的进程占着（见 {path}），现在写入令牌会交给它；请让占用者释放端口，运行 ``anet stop`` 和 ``anet up`` 后再运行本命令。
+     - change input
+

@@ -62,17 +62,19 @@ The command changes two files in the Codex home directory, which is
 Other tables of ``config.toml`` and other text in ``AGENTS.md`` are kept. Each
 file that is changed is first copied to ``<name>.anet-bak-<UTC time>``.
 Running the command a second time changes nothing. The output of the command
-is Chinese only, in every build:
+is English by default and Chinese when ``ANET_LANG`` is ``zh-CN``; a refusal is
+printed with its reason code in square brackets (the codes are listed in
+:ref:`reason-codes-w`):
 
 .. code-block:: text
 
-   anet agents wire(anet /usr/local/bin/anet,数据目录 /home/operator/.anet)
-     codex     已写
+   anet agents wire (anet /usr/local/bin/anet, data directory /home/operator/.anet)
+     codex     written
                - [mcp_servers.anet] → ~/.codex/config.toml
-               - 写入 anet 指引块:~/.codex/AGENTS.md
-               备份 ~/.codex/config.toml.anet-bak-20261017-094809
-   重启这些工具(或新开会话)后生效;它们调用 `anet mcp`,需要本机 daemon 在运行(anet up)。
-   撤销:anet agents unwire <工具>(或 --all)
+               - write the anet guide block: ~/.codex/AGENTS.md
+               backup ~/.codex/config.toml.anet-bak-20261017-094809
+   Restart these tools (or start a new session) for the change to take effect. They call anet mcp, which needs the local daemon to be running (anet up).
+   To undo: anet agents unwire <tool> (or --all)
 
 The status words are listed below. ``anet agents`` reports the state of every
 tool with the same words.
@@ -83,21 +85,21 @@ tool with the same words.
 
    * - Word
      - Meaning
-   * - ``已写``
+   * - ``written``
      - The entry or the guide was written.
-   * - ``已是最新``
+   * - ``up to date``
      - Nothing to change.
-   * - ``未安装,跳过``
+   * - ``not installed, skipped``
      - The tool was not detected and was not named explicitly.
-   * - ``冲突``
+   * - ``conflict``
      - A table ``[mcp_servers.anet]`` that ``wire`` did not write exists. The
        command reports the file and the line, changes nothing and exits with
        status 1.
-   * - ``已移除``
+   * - ``removed``
      - ``unwire`` removed the entry.
-   * - ``未接入``
+   * - ``not wired``
      - The tool is installed and not wired.
-   * - ``失败``
+   * - ``failed``
      - The file could not be changed.
 
 A wired and current entry appears as follows:
@@ -105,9 +107,9 @@ A wired and current entry appears as follows:
 .. code-block:: console
 
    $ anet agents
-   anet agents(anet /usr/local/bin/anet,数据目录 /home/operator/.anet)
+   anet agents (anet /usr/local/bin/anet, data directory /home/operator/.anet)
      ...
-     codex     已接入,最新
+     codex     wired, up to date
      ...
 
 Codex loads the servers when it starts. After a change, the application is
@@ -285,7 +287,7 @@ Troubleshooting
      - No daemon answers. ``anet mcp`` exits with ``anet is not running ...
        run anet up``.
      - Run ``anet up``, then restart Codex or open a new session.
-   * - ``wire`` reports ``冲突`` and exits with status 1.
+   * - ``wire`` reports ``conflict`` and exits with status 1.
      - A table ``[mcp_servers.anet]`` that ``wire`` did not write exists. A
        second table of that name is invalid TOML.
      - Remove or rename the table named in the message, then run ``wire``

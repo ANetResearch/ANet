@@ -97,44 +97,11 @@ msgstr ""
 "该命令将成员 ``mcpServers.anet`` 写入 ``~/.cursor/mcp.json``。该成员以绝对路径指明 ``anet`` "
 "二进制文件，传入参数 ``mcp``，并将 ``ANET_DATA_DIR`` 设为该身份的数据目录："
 
-#: ../../agents/cursor.rst:65
-msgid ""
-"The file is created when it does not exist, the other servers in it are "
-"kept, and the write is atomic. An existing file is saved first as "
-"``mcp.json.anet-bak-<UTC timestamp>``. Running the command again changes "
-"nothing and reports ``已是最新``. An older rule file, ``~/.cursor/rules"
-"/agentnetwork-anet.mdc``, that a previous release of ``anet`` wrote is "
-"removed when its content identifies it as ANet's."
-msgstr ""
-"文件不存在时创建；文件中的其他服务器予以保留；写入为原子操作。已有文件先保存为 ``mcp.json.anet-bak-<UTC "
-"时间戳>``。再次运行该命令不产生任何变更，并报告 ``已是最新``。早期版本的 ``anet`` 写入的规则文件 "
-"``~/.cursor/rules/agentnetwork-anet.mdc``，在其内容标明由 ANet 写入时被删除。"
-
 #: ../../agents/cursor.rst:72
 msgid ""
 "The command writes no entry of the project scope (``.cursor/mcp.json``) "
 "and no operating guide. See `Operating guide`_ for the optional guide."
 msgstr "该命令不写入项目范围的条目（``.cursor/mcp.json``），也不写入操作指南。可选的操作指南见 `操作指南`_。"
-
-#: ../../agents/cursor.rst:75
-msgid ""
-"The output of the command is in Chinese in all builds. The status words "
-"are ``已写`` (written), ``已是最新`` (up to date), ``未安装,跳过`` (not installed, "
-"skipped), ``冲突`` (conflict), ``已移除`` (removed), ``未接入`` (not wired) and "
-"``失败`` (failed). A ``mcpServers.anet`` member that ``anet`` did not write"
-" is reported as ``冲突``; the command then exits with status 1 and changes "
-"nothing. Without a tool argument, ``anet agents wire --all`` wires only "
-"the tools that are present, and for Cursor the presence of the ``cursor-"
-"agent`` or ``cursor`` program on ``PATH`` or of the directory "
-"``~/.cursor`` counts. Naming ``cursor`` wires it in any case and prints "
-"the note ``未检测到该工具,按要求照写`` when it is not detected."
-msgstr ""
-"该命令的输出在所有构建中均为中文。状态词为 "
-"``已写``（已写入）、``已是最新``、``未安装,跳过``、``冲突``、``已移除``、``未接入`` 与 ``失败``。非 "
-"``anet`` 写入的 ``mcpServers.anet`` 成员报告为 ``冲突``；此时命令以状态码 1 "
-"退出，且不做任何变更。不带工具参数时，``anet agents wire --all`` 只接入已存在的工具；对 Cursor，``PATH``"
-" 上存在 ``cursor-agent`` 或 ``cursor`` 程序，或存在目录 ``~/.cursor``，即视为存在。显式指定 "
-"``cursor`` 时无论是否检测到都会写入，未检测到时输出提示 ``未检测到该工具,按要求照写``。"
 
 #: ../../agents/cursor.rst:86
 msgid ""
@@ -147,12 +114,6 @@ msgstr ""
 "首次写入后须重启 Cursor。Cursor 文档说明，对本地文件的修改在重启 Cursor "
 "后生效，未描述其他重新加载该文件的方式。命令输出同样的提示，并说明 ``anet mcp`` 需要本机 daemon 在运行（``anet "
 "up``）。"
-
-#: ../../agents/cursor.rst:99
-msgid ""
-"The state of the registration is shown by ``anet agents``; ``cursor`` is "
-"reported as ``已接入,最新`` (wired, current) or ``未安装`` (not installed)."
-msgstr "注册状态由 ``anet agents`` 显示；``cursor`` 报告为 ``已接入,最新``（已接入，与当前写入一致）或 ``未安装``。"
 
 #: ../../agents/cursor.rst:114
 msgid "Manual registration"
@@ -478,10 +439,6 @@ msgstr "Cursor 尚未重启，或服务器已被停用"
 msgid "Restart Cursor. Enable ``anet`` in **Customize**"
 msgstr "重启 Cursor。在 **Customize** 中启用 ``anet``"
 
-#: ../../agents/cursor.rst:331
-msgid "``wire`` reports ``冲突`` and exits with status 1"
-msgstr "``wire`` 报告 ``冲突`` 并以状态码 1 退出"
-
 #: ../../agents/cursor.rst:332
 msgid "``mcpServers.anet`` exists and was not written by ``anet``"
 msgstr "``mcpServers.anet`` 已存在，且不是 ``anet`` 写入的"
@@ -558,19 +515,6 @@ msgstr ""
 msgid "Disconnecting"
 msgstr "断开"
 
-#: ../../agents/cursor.rst:365
-msgid ""
-"The command removes only the member written by ``anet`` and keeps the "
-"other servers; a file that holds nothing else is removed, and the backup "
-"remains. A member that ``anet`` did not write is left unchanged and "
-"reported with the note ``不是 anet 写的,未改动``. Without a registration the "
-"status is ``未接入``. Manually, delete the member ``anet`` from "
-"``mcpServers`` and restart Cursor."
-msgstr ""
-"该命令只删除由 ``anet`` 写入的成员，保留其他服务器；文件中不再有其他内容时，文件被删除，备份保留。非 ``anet`` "
-"写入的成员保持不变，并以提示 ``不是 anet 写的,未改动`` 报告。未注册时状态为 ``未接入``。手动断开时，从 "
-"``mcpServers`` 中删除成员 ``anet``，并重启 Cursor。"
-
 #: ../../agents/cursor.rst:373
 msgid "Reference"
 msgstr "参考"
@@ -622,4 +566,67 @@ msgstr ":doc:`../reference/mcp-tools`"
 #: ../../agents/cursor.rst:389
 msgid ":doc:`../reference/cli`"
 msgstr ":doc:`../reference/cli`"
+
+#: ../../agents/cursor.rst:63
+msgid ""
+"The file is created when it does not exist, the other servers in it are "
+"kept, and the write is atomic. An existing file is saved first as "
+"``mcp.json.anet-bak-<UTC timestamp>``. Running the command again changes "
+"nothing and reports ``up to date``. An older rule file, ``~/.cursor/rules"
+"/agentnetwork-anet.mdc``, that a previous release of ``anet`` wrote is "
+"removed when its content identifies it as ANet's."
+msgstr ""
+"文件不存在时创建；文件中的其他服务器予以保留；写入为原子操作。已有文件先保存为 ``mcp.json.anet-bak-<UTC "
+"时间戳>``。再次运行该命令不产生任何变更，并报告 ``up to date``。早期版本的 ``anet`` 写入的规则文件 "
+"``~/.cursor/rules/agentnetwork-anet.mdc``，在其内容标明由 ANet 写入时被删除。"
+
+#: ../../agents/cursor.rst:73
+msgid ""
+"The output of the command is in English by default and in Chinese when "
+"``ANET_LANG`` is ``zh-CN``. The status words are ``written``, ``up to "
+"date``, ``not installed, skipped``, ``conflict``, ``removed``, ``not "
+"wired`` and ``failed``. A ``mcpServers.anet`` member that ``anet`` did "
+"not write is reported as ``conflict`` with the reason code "
+"``[wire_conflict]``; the command then exits with status 1 and changes "
+"nothing. Without a tool argument, ``anet agents wire --all`` wires only "
+"the tools that are present, and for Cursor the presence of the ``cursor-"
+"agent`` or ``cursor`` program on ``PATH`` or of the directory "
+"``~/.cursor`` counts. Naming ``cursor`` wires it in any case and prints "
+"the note ``the tool was not detected; written as requested`` when it is "
+"not detected."
+msgstr ""
+"该命令的输出默认为英文，``ANET_LANG`` 为 ``zh-CN`` 时为中文。状态词为 ``written``、``up to "
+"date``、``not installed, skipped``、``conflict``、``removed``、``not wired`` "
+"与 ``failed``。非 ``anet`` 写入的 ``mcpServers.anet`` 成员报告为 ``conflict``，原因代码为 "
+"``[wire_conflict]``；此时命令以状态码 1 退出，且不做任何变更。不带工具参数时，``anet agents wire "
+"--all`` 只接入已存在的工具；对 Cursor，``PATH`` 上存在 ``cursor-agent`` 或 ``cursor`` "
+"程序，或存在目录 ``~/.cursor``，即视为存在。显式指定 ``cursor`` 时无论是否检测到都会写入，未检测到时输出提示 ``the"
+" tool was not detected; written as requested``。"
+
+#: ../../agents/cursor.rst:100
+msgid ""
+"The state of the registration is shown by ``anet agents``; ``cursor`` is "
+"reported as ``wired, up to date`` or ``not installed``."
+msgstr ""
+"注册状态由 ``anet agents`` 显示；``cursor`` 报告为 ``wired, up to date`` 或 ``not "
+"installed``。"
+
+#: ../../agents/cursor.rst:333
+msgid "``wire`` reports ``conflict`` and exits with status 1"
+msgstr "``wire`` 报告 ``conflict`` 并以状态码 1 退出"
+
+#: ../../agents/cursor.rst:368
+msgid ""
+"The command removes only the member written by ``anet`` and keeps the "
+"other servers; a file that holds nothing else is removed, and the backup "
+"remains. A member that ``anet`` did not write is left unchanged and "
+"reported with the note ``mcpServers.anet in ~/.cursor/mcp.json was not "
+"written by anet and was left unchanged``. Without a registration the "
+"status is ``not wired``. Manually, delete the member ``anet`` from "
+"``mcpServers`` and restart Cursor."
+msgstr ""
+"该命令只删除由 ``anet`` 写入的成员，保留其他服务器；文件中不再有其他内容时，文件被删除，备份保留。非 ``anet`` "
+"写入的成员保持不变，并以提示 ``mcpServers.anet in ~/.cursor/mcp.json was not written by"
+" anet and was left unchanged`` 报告。未注册时状态为 ``not wired``。手动断开时，从 "
+"``mcpServers`` 中删除成员 ``anet``，并重启 Cursor。"
 

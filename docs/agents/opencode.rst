@@ -63,10 +63,10 @@ not set:
 Each changed file is first copied to ``<name>.anet-bak-<UTC time>``. Writes are
 atomic, a second run reports that the files are up to date, and an existing
 ``mcp.anet`` entry that ANet did not write is reported as a conflict without
-any change. The output of ``wire`` and ``unwire`` is in Chinese in every
-build; the status words are ``已写`` (written), ``已是最新`` (up to date),
-``冲突`` (conflict), ``失败`` (failed) and ``未安装,跳过`` (not installed,
-skipped).
+any change. The output of ``wire`` and ``unwire`` is in English by default
+and in Chinese when ``ANET_LANG`` is ``zh-CN``; the status words are
+``written``, ``up to date``, ``conflict``, ``failed`` and ``not installed,
+skipped``.
 
 opencode reads its configuration when it starts. Restart opencode or open a new
 session after wiring. Whether a running session reloads the file was not
@@ -270,11 +270,12 @@ Troubleshooting
        written.
      - Run ``anet agents``, then ``anet agents wire opencode``. Restart
        opencode. Check the resolved entry with ``opencode debug config``.
-   * - ``wire`` reports ``冲突`` and the exit status is 1.
+   * - ``wire`` reports ``conflict`` and the exit status is 1.
      - ``mcp.anet`` exists and was not written by ANet.
      - Remove or rename that entry in the opencode file, then run ``wire``
        again.
-   * - ``wire`` reports ``失败``, names ``opencode.jsonc`` and prints an entry.
+   * - ``wire`` reports ``failed`` with ``[wire_not_plain_json]``, names
+       ``opencode.jsonc`` and prints an entry.
      - The file contains comments, and ``wire`` does not rewrite it.
      - Insert the printed entry by hand as described in
        :ref:`Manual wiring <agents-opencode-manual>`.
@@ -307,7 +308,7 @@ The command removes the member ``mcp.anet`` and the block between the markers in
 ``AGENTS.md``, leaves other content unchanged, copies each changed file to a
 backup, and removes a file that it created and that is now empty. Use
 ``anet --id <name> agents unwire opencode`` for a named identity. The status
-words are ``已移除`` (removed) and ``未接入`` (not wired). An entry named
+words are ``removed`` and ``not wired``. An entry named
 ``anet`` that ANet did not write is left in place.
 
 To remove the integration by hand, delete the member ``mcp.anet`` from the

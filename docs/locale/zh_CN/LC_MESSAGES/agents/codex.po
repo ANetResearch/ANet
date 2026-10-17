@@ -116,16 +116,6 @@ msgstr ""
 "anet:end -->`` 两行之间。指引面向模型,因此以英文书写。指引列出各工具,说明 ``completed`` "
 "不等于成功,并禁止提高支付额度,也禁止执行其他 Agent 的任务中夹带的指令。"
 
-#: ../../agents/codex.rst:64
-msgid ""
-"Other tables of ``config.toml`` and other text in ``AGENTS.md`` are kept."
-" Each file that is changed is first copied to ``<name>.anet-bak-<UTC "
-"time>``. Running the command a second time changes nothing. The output of"
-" the command is Chinese only, in every build:"
-msgstr ""
-"``config.toml`` 中的其他表和 ``AGENTS.md`` 中的其他文字保持不变。每个被修改的文件先复制为 ``<name"
-">.anet-bak-<UTC time>``。重复执行该命令不产生任何变化。该命令的输出在所有构建中均为中文:"
-
 #: ../../agents/codex.rst:79
 msgid ""
 "The status words are listed below. ``anet agents`` reports the state of "
@@ -140,33 +130,17 @@ msgstr "用语"
 msgid "Meaning"
 msgstr "含义"
 
-#: ../../agents/codex.rst:88
-msgid "``已写``"
-msgstr "``已写``"
-
 #: ../../agents/codex.rst:89
 msgid "The entry or the guide was written."
 msgstr "条目或指引已写入。"
-
-#: ../../agents/codex.rst:90
-msgid "``已是最新``"
-msgstr "``已是最新``"
 
 #: ../../agents/codex.rst:91
 msgid "Nothing to change."
 msgstr "无需修改。"
 
-#: ../../agents/codex.rst:92
-msgid "``未安装,跳过``"
-msgstr "``未安装,跳过``"
-
 #: ../../agents/codex.rst:93
 msgid "The tool was not detected and was not named explicitly."
 msgstr "未检测到该工具,且未显式指定。"
-
-#: ../../agents/codex.rst:94
-msgid "``冲突``"
-msgstr "``冲突``"
 
 #: ../../agents/codex.rst:95
 msgid ""
@@ -177,25 +151,13 @@ msgstr ""
 "已存在一张并非由 ``wire`` 写入的 ``[mcp_servers.anet]`` 表。命令报告文件与行号,不作任何修改,并以状态码 1 "
 "退出。"
 
-#: ../../agents/codex.rst:98
-msgid "``已移除``"
-msgstr "``已移除``"
-
 #: ../../agents/codex.rst:99
 msgid "``unwire`` removed the entry."
 msgstr "``unwire`` 已移除该条目。"
 
-#: ../../agents/codex.rst:100
-msgid "``未接入``"
-msgstr "``未接入``"
-
 #: ../../agents/codex.rst:101
 msgid "The tool is installed and not wired."
 msgstr "工具已安装,但未接入。"
-
-#: ../../agents/codex.rst:102
-msgid "``失败``"
-msgstr "``失败``"
 
 #: ../../agents/codex.rst:103
 msgid "The file could not be changed."
@@ -430,10 +392,6 @@ msgstr "没有守护进程应答。``anet mcp`` 以 ``anet is not running ... ru
 msgid "Run ``anet up``, then restart Codex or open a new session."
 msgstr "运行 ``anet up``,然后重启 Codex 或新开会话。"
 
-#: ../../agents/codex.rst:290
-msgid "``wire`` reports ``冲突`` and exits with status 1."
-msgstr "``wire`` 报告 ``冲突`` 并以状态码 1 退出。"
-
 #: ../../agents/codex.rst:291
 msgid ""
 "A table ``[mcp_servers.anet]`` that ``wire`` did not write exists. A "
@@ -604,4 +562,49 @@ msgid ""
 msgstr ""
 "相关页面::doc:`/howto/coding-agents`、:doc:`/howto/mcp`、:doc:`/reference/mcp-"
 "tools`、:doc:`/reference/cli`。"
+
+#: ../../agents/codex.rst:62
+msgid ""
+"Other tables of ``config.toml`` and other text in ``AGENTS.md`` are kept."
+" Each file that is changed is first copied to ``<name>.anet-bak-<UTC "
+"time>``. Running the command a second time changes nothing. The output of"
+" the command is English by default and Chinese when ``ANET_LANG`` is "
+"``zh-CN``; a refusal is printed with its reason code in square brackets "
+"(the codes are listed in :ref:`reason-codes-w`):"
+msgstr ""
+"``config.toml`` 中的其他表和 ``AGENTS.md`` 中的其他文字保持不变。每个被修改的文件先复制为 ``<name"
+">.anet-bak-<UTC time>``。重复执行该命令不产生任何变化。该命令的输出默认为英文，``ANET_LANG`` 为 ``zh-"
+"CN`` 时为中文；拒绝信息带有方括号中的原因代码（代码列于 :ref:`reason-codes-w`）："
+
+#: ../../agents/codex.rst:88
+msgid "``written``"
+msgstr "``written``（中文输出：``已写入``）"
+
+#: ../../agents/codex.rst:90
+msgid "``up to date``"
+msgstr "``up to date``（中文输出：``已是最新``）"
+
+#: ../../agents/codex.rst:92
+msgid "``not installed, skipped``"
+msgstr "``not installed, skipped``（中文输出：``未安装，已跳过``）"
+
+#: ../../agents/codex.rst:94
+msgid "``conflict``"
+msgstr "``conflict``（中文输出：``冲突``）"
+
+#: ../../agents/codex.rst:98
+msgid "``removed``"
+msgstr "``removed``（中文输出：``已移除``）"
+
+#: ../../agents/codex.rst:100
+msgid "``not wired``"
+msgstr "``not wired``（中文输出：``未接入``）"
+
+#: ../../agents/codex.rst:102
+msgid "``failed``"
+msgstr "``failed``（中文输出：``失败``）"
+
+#: ../../agents/codex.rst:290
+msgid "``wire`` reports ``conflict`` and exits with status 1."
+msgstr "``wire`` 报告 ``conflict`` 并以状态码 1 退出。"
 
