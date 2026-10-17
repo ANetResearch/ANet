@@ -23,4 +23,3 @@ func TestCodexOverrideFileIsReported(t *testing.T) {
 		t.Fatal("the override file was changed")
 	}
 }
-

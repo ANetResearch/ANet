@@ -113,7 +113,16 @@ func probeHomeTools(h string, add func(tool, cfg string, present, wired bool, de
 	p, w = jsonHasPath(cursor, "mcpServers", "anet")
 	add("cursor", cursor, p || fileExists(filepath.Join(h, ".cursor")), w, "")
 
-	opencode := filepath.Join(h, ".config", "opencode", "opencode.json")
+	// opencode follows XDG_CONFIG_HOME and reads opencode.jsonc when that is
+	// the only file (https://opencode.ai/docs/config/).
+	cfgHome := filepath.Join(h, ".config")
+	if x := strings.TrimSpace(os.Getenv("XDG_CONFIG_HOME")); x != "" {
+		cfgHome = x
+	}
+	opencode := filepath.Join(cfgHome, "opencode", "opencode.json")
+	if !fileExists(opencode) && fileExists(opencode+"c") {
+		opencode += "c"
+	}
 	p, w = jsonHasPath(opencode, "mcp", "anet")
 	add("opencode", opencode, p, w, "")
 
