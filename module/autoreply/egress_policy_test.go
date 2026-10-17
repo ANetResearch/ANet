@@ -479,7 +479,7 @@ var goldenInjectCases = []injectCase{
 // (method, address, headers, body) or answers it, equals testdata/inject/<case>.json; refusals.json holds
 // every refusal body of ux §1.4 I in both formats. Rewrite with -update-inject and review the diff.
 func TestInjectPolicyGolden(t *testing.T) {
-	t.Setenv("LC_ALL", "C")
+	t.Setenv("ANET_LANG", "C")
 	for _, tc := range goldenInjectCases {
 		t.Run(tc.name, func(t *testing.T) {
 			g := goldenInjectCase{Upstream: tc.upstream, Request: goldenInjectReq{Method: tc.method, Target: tc.path, Header: tc.header, Body: tc.body}}

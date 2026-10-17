@@ -2,7 +2,7 @@
 
 package service_test
 
-// Red-team PoCs for SI-6 ("不知道" 与 "知道" 不合并), lens si6.
+// Red-team PoCs for SI-6 ("not known" and "known" are not merged), lens si6.
 //
 // Each test passes when the defect is present: it asserts that the attack
 // succeeded. A fix makes these tests fail; they are then flipped or removed.
@@ -25,8 +25,8 @@ import (
 // the answer is right is not something this daemon can establish",
 // service.go:475-477). OK is "executed and the effect is verifiable —
 // Record carries the metrics that back the claim" (ANetCore effect.go) and
-// "做了且读回一致" (the guide of 0.2); what the module knows is
-// UNVERIFIED ("做了但没法读回").
+// "done and read back identical" (the guide of 0.2); what the module knows is
+// UNVERIFIED ("done but cannot be read back").
 func TestRedteamSI6_BareHTTP200IsReportedVerifiableOK(t *testing.T) {
 	svc := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{}`)) // "accepted" — nothing read back, no metric

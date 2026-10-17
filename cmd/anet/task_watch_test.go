@@ -72,7 +72,7 @@ func TestTaskWatchExitStatus(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			h := newCLIHome(t, "C")
 			newScriptedControl(t, h, watchAnswer(tc.body))
-			stdout, stderr, code := runCLIWithin(t, h, 30*time.Second, []string{"task", "watch", "ix_1"}, "LC_ALL=C", "LANG=C")
+			stdout, stderr, code := runCLIWithin(t, h, 30*time.Second, []string{"task", "watch", "ix_1"}, "ANET_LANG=en")
 			if code != tc.code {
 				t.Fatalf("exit %d, want %d (stdout %q, stderr %q)", code, tc.code, stdout, stderr)
 			}
@@ -100,7 +100,7 @@ func TestTaskWatchReasoningOnlyWhenAsked(t *testing.T) {
 	}{{[]string{"task", "watch", "ix_1"}, false}, {[]string{"task", "watch", "ix_1", "--reasoning"}, true}, {[]string{"task", "watch", "--reasoning", "ix_1"}, true}} {
 		h := newCLIHome(t, "C")
 		newScriptedControl(t, h, watchAnswer(body))
-		_, stderr, code := runCLIWithin(t, h, 30*time.Second, tc.args, "LC_ALL=C", "LANG=C")
+		_, stderr, code := runCLIWithin(t, h, 30*time.Second, tc.args, "ANET_LANG=en")
 		if code != 0 || strings.Contains(stderr, "private thoughts") != tc.want {
 			t.Errorf("%v: exit %d, reasoning shown %v, stderr %q", tc.args, code, !tc.want, stderr)
 		}
@@ -112,7 +112,7 @@ func TestTaskWatchRefusals(t *testing.T) {
 	sc := newScriptedControl(t, h, func(string, map[string]any) (int, string) {
 		return 404, `{"error":"No task ix_9 on this node.","reason":"no_local_task"}`
 	})
-	_, stderr, code := runCLIWithin(t, h, 30*time.Second, []string{"task", "watch", "ix_9"}, "LC_ALL=C", "LANG=C")
+	_, stderr, code := runCLIWithin(t, h, 30*time.Second, []string{"task", "watch", "ix_9"}, "ANET_LANG=en")
 	if code != 1 || !strings.Contains(stderr, "No task ix_9") {
 		t.Fatalf("exit %d, stderr %q", code, stderr)
 	}
@@ -138,7 +138,7 @@ func TestDelegateWatchSendsThenWatches(t *testing.T) {
 		}
 		return 404, `{"error":"no such route"}`
 	})
-	stdout, stderr, code := runCLIWithin(t, h, 30*time.Second, []string{"delegate", wholeAID, "--watch", "say", "hello"}, "LC_ALL=C", "LANG=C")
+	stdout, stderr, code := runCLIWithin(t, h, 30*time.Second, []string{"delegate", wholeAID, "--watch", "say", "hello"}, "ANET_LANG=en")
 	if code != 0 {
 		t.Fatalf("exit %d, stderr %q", code, stderr)
 	}
@@ -179,7 +179,7 @@ func TestDelegateWatchWithoutPreviewModule(t *testing.T) {
 		}
 		return 404, `{"error":"no such route"}`
 	})
-	stdout, stderr, code := runCLIWithin(t, h, 30*time.Second, []string{"delegate", wholeAID, "--watch", "say", "hello"}, "LC_ALL=C", "LANG=C")
+	stdout, stderr, code := runCLIWithin(t, h, 30*time.Second, []string{"delegate", wholeAID, "--watch", "say", "hello"}, "ANET_LANG=en")
 	if code != 0 {
 		t.Fatalf("exit %d, stderr %q", code, stderr)
 	}

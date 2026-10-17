@@ -98,8 +98,8 @@ type PublicCapability struct {
 	Discard bool `json:"discard,omitempty"`
 }
 
-// The peer lists, in the data directory (ux §2.2: "固定为数据目录下的
-// peers.*"). One AID per line, '#' starts a comment.
+// The peer lists, in the data directory (ux §2.2: fixed as peers.* in the
+// data directory). One AID per line, '#' starts a comment.
 const (
 	peersAllowFile = "peers.allow"
 	peersDenyFile  = "peers.deny"

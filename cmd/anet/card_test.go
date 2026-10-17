@@ -31,9 +31,7 @@ func cardServer(t *testing.T, answer string) (*client, *[]map[string]any) {
 
 func setLang(t *testing.T, lang string) a2ashape.Language {
 	t.Helper()
-	t.Setenv("LC_ALL", "")
-	t.Setenv("LC_MESSAGES", "")
-	t.Setenv("LANG", lang)
+	t.Setenv("ANET_LANG", lang)
 	return a2ashape.Lang()
 }
 

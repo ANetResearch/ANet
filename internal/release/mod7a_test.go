@@ -37,7 +37,7 @@ func runInstallSnippet(t *testing.T, funcs []string, body string) (string, strin
 	}
 	script := "set -eu\n" + installFuncs(t, funcs...) + "\n" + body + "\n"
 	cmd := exec.Command(sh, "-c", script)
-	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir(), "LANG=C"}
+	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir(), "ANET_LANG=en"}
 	var out, errb strings.Builder
 	cmd.Stdout, cmd.Stderr = &out, &errb
 	code := 0

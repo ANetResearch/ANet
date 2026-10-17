@@ -1,7 +1,7 @@
 package release
 
 // installed.go is the record an installation leaves beside the binary, and
-// the check `anet doctor` makes of it (A2A-DESIGN §13.1 "版本与签名").
+// the check `anet doctor` makes of it (A2A-DESIGN §13.1 "version and signature").
 //
 // install.sh and `anet update` both verify release.json before they
 // install anything, and then keep a copy of it and of its signature next

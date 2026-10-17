@@ -8,8 +8,8 @@ import (
 
 // Metadata keys. Every key anet puts on an A2A object is named here, so
 // that the daemon, the control plane, MCP and module/a2a spell it the same
-// way and a test can pin the string (A2A-DESIGN §17: "扩展 URI 与 metadata
-// 键两侧钉字符串").
+// way and a test can pin the string (A2A-DESIGN §17: extension URIs and
+// metadata keys are pinned as strings on both sides).
 //
 // The a2a-x402 vocabulary, and the anet.* keys the payment flow shares
 // with the projection (anet.reason, anet.cancel_requested,

@@ -46,7 +46,7 @@ var senderPrivacyRows = []struct {
 }
 
 // senderPrivacyInternal are the area's codes users never see (ux §1.3, SS
-// §5.3 "不呈现"): no row may give them a sentence.
+// §5.3 "not presented"): no row may give them a sentence.
 var senderPrivacyInternal = []string{"access_invalid", "session_invalid", "revocation_list_full", "bucket_too_narrow",
 	"identity_headers_not_allowed", "not_peer", "source_rate", "unknown_destination"}
 

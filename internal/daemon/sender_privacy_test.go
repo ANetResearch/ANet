@@ -104,9 +104,7 @@ func TestPeersListSenderHidden(t *testing.T) {
 	}
 	for _, lang := range []string{"C", "zh_CN.UTF-8"} {
 		t.Run(lang, func(t *testing.T) {
-			t.Setenv("LC_ALL", "")
-			t.Setenv("LC_MESSAGES", "")
-			t.Setenv("LANG", lang)
+			t.Setenv("ANET_LANG", lang)
 			l := a2ashape.Lang()
 			pl, raw := list(t)
 			want := []PeerView{

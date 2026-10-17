@@ -248,7 +248,7 @@ func TestReasonsBecomeText(t *testing.T) {
 func TestRejectedTasksSayTheirSentence(t *testing.T) {
 	for _, env := range []string{"zh_CN.UTF-8", "C"} {
 		t.Run(env, func(t *testing.T) {
-			t.Setenv("LC_ALL", env)
+			t.Setenv("ANET_LANG", env)
 			n := 0
 			for _, r := range a2ashape.Rows() {
 				if r.Class&a2ashape.ClassR == 0 || r.NoSentence || r.Key() != r.Code {
@@ -301,7 +301,7 @@ func TestRejectedTasksSayTheirSentence(t *testing.T) {
 // A stored wait far beyond what the protocol allows must not wrap around to
 // a negative duration and read as "0 seconds".
 func TestRejectedTaskWithHugeWaitDoesNotWrap(t *testing.T) {
-	t.Setenv("LC_ALL", "C")
+	t.Setenv("ANET_LANG", "C")
 	st := openStore(t)
 	const ix = "ix_huge"
 	must(t, st.Create(interactions.New{ID: ix, Role: interactions.RoleOutbound, PeerAID: peer, Goal: "g", ContextID: "c"}))

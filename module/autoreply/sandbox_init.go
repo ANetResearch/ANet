@@ -35,6 +35,8 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+
+	"github.com/ANetResearch/ANet/internal/a2ashape"
 )
 
 const (
@@ -406,14 +408,9 @@ func sandboxInitSay(zh, en string) {
 	fmt.Fprintln(os.Stderr, "anet: "+msg)
 }
 
-// sandboxLangZh reports a Chinese locale (LC_ALL, then LC_MESSAGES, then LANG).
+// sandboxLangZh reports the Chinese opt-in (ANET_LANG beginning with "zh").
 func sandboxLangZh() bool {
-	for _, k := range []string{"LC_ALL", "LC_MESSAGES", "LANG"} {
-		if v := os.Getenv(k); v != "" {
-			return strings.HasPrefix(strings.ToLower(v), "zh")
-		}
-	}
-	return false
+	return a2ashape.Lang() == a2ashape.Chinese
 }
 
 // --- the probe ---

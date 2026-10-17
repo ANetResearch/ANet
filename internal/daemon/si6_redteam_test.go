@@ -1,6 +1,6 @@
 package daemon
 
-// Red-team PoCs for SI-6 ("不知道" 与 "知道没问题" 不合并), lens si6.
+// Red-team PoCs for SI-6 ("not known" and "known to be fine" are not merged), lens si6.
 //
 // Each test passes when the defect is present: it asserts that the attack
 // succeeded. A fix makes these tests fail; they are then flipped or removed.
@@ -196,7 +196,7 @@ func mustMsgs(t *testing.T, d *Daemon, id string) []interactions.Message {
 // read) render a capability task that ended COMPLETED with effect
 // UNVERIFIED as state "completed" and nothing else: no anet.effect_status,
 // no receipt_verified, and the deliverable is not among the messages. The
-// console shows it as "已完成" and asks for a review (console.html
+// console shows it as "completed" and asks for a review (console.html
 // isCompleted/statusText).
 func TestRedteamSI6_ThreadViewDropsEffectStatus(t *testing.T) {
 	req, prov, id := rtPair(t)

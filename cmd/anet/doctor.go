@@ -59,7 +59,7 @@ type doctorCheck struct {
 
 // sayCheck is a finding told by a sentence of the reason table: the detail
 // is the key's sentence, the reason its code and the hint its next step
-// (UX-K4, K7), in the language of this process (core G13).
+// (UX-K4, K7), in the language of this process .
 func sayCheck(id, status, key string, args a2ashape.Args, lang a2ashape.Language) doctorCheck {
 	c := doctorCheck{ID: id, Status: status, Reason: key, Detail: a2ashape.Sentence(key, lang, args),
 		Hint: a2ashape.Next(key, lang, args)}
@@ -417,7 +417,7 @@ func collectDoctor(layout daemon.Layout, env doctorEnv) (*doctorReport, error) {
 		rep.Checks = append(rep.Checks, doctorCheck{ID: id, Status: status, Detail: detail, Hint: hint})
 	}
 	// Findings told by a sentence of the reason table (UX-K5, K7), in the
-	// language of this process (core G13; doctor runs without the daemon).
+	// language of this process (doctor runs without the daemon).
 	lang := a2ashape.LangFrom(env.env)
 	say := func(id, status, key string, args a2ashape.Args) {
 		rep.Checks = append(rep.Checks, sayCheck(id, status, key, args, lang))

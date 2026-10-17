@@ -128,7 +128,7 @@ func TestHelpFollowsTheLanguage(t *testing.T) {
 			t.Errorf("%s: anet help: exit %d, stderr %q, stdout\n%s", tc.lang, code, stderr, stdout)
 		}
 		stdout, _, code = runCLI(t, h, []string{"help", "--all"})
-		l := a2ashape.LangFrom(func(k string) string { return map[string]string{"LANG": tc.lang}[k] })
+		l := a2ashape.LangFrom(func(k string) string { return map[string]string{"ANET_LANG": tc.lang}[k] })
 		if code != 0 || stdout != usageAllTextIn(l) {
 			t.Errorf("%s: anet help --all: exit %d, stdout is not the help of its language", tc.lang, code)
 		}
@@ -172,7 +172,7 @@ func TestAIDArgumentsMustBeWhole(t *testing.T) {
 		{[]string{"audit", "--peer=" + short}, short},
 	}
 	for _, lang := range []string{"C", "zh_CN.UTF-8"} {
-		l := a2ashape.LangFrom(func(k string) string { return map[string]string{"LANG": lang}[k] })
+		l := a2ashape.LangFrom(func(k string) string { return map[string]string{"ANET_LANG": lang}[k] })
 		for _, tc := range cases {
 			h := newCLIHome(t, lang)
 			fc := newFakeControl(t, h)
@@ -241,9 +241,7 @@ func TestFindPrintsFullAID(t *testing.T) {
 		t.Fatalf("--json: %v %s", err, jsonOut)
 	}
 	for _, lang := range []string{"C", "zh_CN.UTF-8"} {
-		t.Setenv("LC_ALL", "")
-		t.Setenv("LC_MESSAGES", "")
-		t.Setenv("LANG", lang)
+		t.Setenv("ANET_LANG", lang)
 		table, errOut := captureCLI(t, func() {
 			if err := findCommand(c, nil); err != nil {
 				t.Fatal(err)

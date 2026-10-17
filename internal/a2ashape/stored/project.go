@@ -1,7 +1,7 @@
 package stored
 
 // project.go turns a stored interaction into an A2A Task (A2A-DESIGN §11.5,
-// "Task 表示"; SI-6). It is the one place the mapping is written: the
+// "Task representation"; SI-6). It is the one place the mapping is written: the
 // control plane's /tasks/* routes, MCP (which forwards the control plane's
 // JSON unchanged) and the TaskSeam behind module/a2a all return what
 // Project returns, so a rule fixed here is fixed for every door.

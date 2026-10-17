@@ -141,7 +141,7 @@ func TestBuildShTagPending(t *testing.T) {
 	for _, c := range []struct {
 		env  string
 		lang a2ashape.Language
-	}{{"LANG=C", a2ashape.English}, {"LANG=zh_CN.UTF-8", a2ashape.Chinese}} {
+	}{{"ANET_LANG=en", a2ashape.English}, {"ANET_LANG=zh_CN.UTF-8", a2ashape.Chinese}} {
 		for _, m := range []string{"console"} {
 			_, stderr, code := bashOut(t, []string{c.env}, "build.sh", "--without", "x402,"+m)
 			want := a2ashape.Sentence("build_tag_pending", c.lang, a2ashape.Args{"m": m}) + "\n"
@@ -151,7 +151,7 @@ func TestBuildShTagPending(t *testing.T) {
 		}
 	}
 	for _, args := range [][]string{{"--without", "nosuch"}, {"--with", "x402"}, {"--without"}, {"--bogus"}} {
-		_, stderr, code := bashOut(t, []string{"LANG=C"}, "build.sh", args...)
+		_, stderr, code := bashOut(t, []string{"ANET_LANG=en"}, "build.sh", args...)
 		if code != 2 || stderr == "" {
 			t.Errorf("build.sh %v: exit %d, stderr %q", args, code, stderr)
 		}

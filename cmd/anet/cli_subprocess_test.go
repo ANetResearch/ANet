@@ -51,7 +51,7 @@ func (h *cliHome) env(extra ...string) []string {
 	return append([]string{
 		"ANET_TEST_RUN_MAIN=1", "PATH=" + os.Getenv("PATH"), "HOME=" + h.home, "ANET_HOME=" + h.home,
 		"ANET_DATA_DIR=" + h.data, "XDG_RUNTIME_DIR=" + h.runtime, "XDG_CONFIG_HOME=" + filepath.Join(h.home, ".config"),
-		"LC_ALL=", "LC_MESSAGES=", "LANG=" + h.lang,
+		"ANET_LANG=" + h.lang,
 	}, extra...)
 }
 

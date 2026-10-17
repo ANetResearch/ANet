@@ -192,7 +192,7 @@ func TestSandboxInitWithoutSpecIsAnInternalCommand(t *testing.T) {
 		{[]string{"--spec-fd", "three"}, "C", "internal command"}, // not a number
 		{[]string{}, "zh_CN.UTF-8", "内部命令"},
 	} {
-		r := &initRun{args: tc.args, env: []string{"LANG=" + tc.lang}}
+		r := &initRun{args: tc.args, env: []string{"ANET_LANG=" + tc.lang}}
 		r.run(t)
 		if r.code != 2 || strings.Count(r.stderr, "\n") != 1 || !strings.Contains(r.stderr, tc.want) || r.stdout != "" {
 			t.Errorf("%v %s: exit %d, stdout %q, stderr %q", tc.args, tc.lang, r.code, r.stdout, r.stderr)

@@ -51,9 +51,7 @@ func TestPeersListTable(t *testing.T) {
 	}
 
 	for _, lang := range []string{"C", "zh_CN.UTF-8"} {
-		t.Setenv("LC_ALL", "")
-		t.Setenv("LC_MESSAGES", "")
-		t.Setenv("LANG", lang)
+		t.Setenv("ANET_LANG", lang)
 		l := a2ashape.Lang()
 		for _, args := range [][]string{nil, {"list"}, {"ls"}} {
 			table, errOut := captureCLI(t, func() {

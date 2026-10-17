@@ -1,4 +1,4 @@
-// The daemon's local P6 evidence ledger (C5 收口): every capability effect
+// The daemon's local P6 evidence ledger (C5 close-out): every capability effect
 // and issued receipt is appended to a per-DID, signed, fork-evident hash
 // chain (ANetCore/ael). Storage is an append-only file of base64
 // CoreDet-CBOR records, one per line, rebuilt and verified through

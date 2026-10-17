@@ -257,7 +257,7 @@ type paidFacts struct {
 	HeldPeerPay bool
 }
 
-// maybePaid is SS §4.3.2 "可能付费": a provider that sent payment-required
+// maybePaid is SS §4.3.2 "possibly paid": a provider that sent payment-required
 // or serves a priced capability; a requester whose provider's peer
 // capability says it prices something, or that received payment-required.
 func maybePaid(f paidFacts) bool {

@@ -550,7 +550,7 @@ func TestEgressDoesNotFollowRedirects(t *testing.T) {
 func TestEgressRefusalsSpeakTheUpstreamDialect(t *testing.T) {
 	f := newFakeModelService(t)
 	for _, lang := range []string{"C", "zh_CN.UTF-8"} {
-		t.Setenv("LC_ALL", lang)
+		t.Setenv("ANET_LANG", lang)
 		for _, name := range []string{egressUpstreamAnthropic, egressUpstreamOpenAI, egressUpstreamCustom} {
 			up := testUpstream(t, name, f)
 			_, c, _ := startTestEgress(t, up)

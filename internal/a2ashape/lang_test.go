@@ -1,9 +1,10 @@
 package a2ashape
 
-// UX-T13 (ux §6.1, core G13): the language comes from the environment, and
-// UX-T1 holds in both: once with LC_ALL=zh_CN.UTF-8, once with LANG=C.
+// UX-T13 (ux §6.1): the language comes from ANET_LANG alone, and UX-T1 holds
+// in both: once with ANET_LANG=zh-CN, once with it unset.
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -13,23 +14,47 @@ func TestLangFromTheEnvironment(t *testing.T) {
 		want Language
 	}{
 		{map[string]string{}, English},
-		{map[string]string{"LANG": "C"}, English},
-		{map[string]string{"LANG": "zh_CN.UTF-8"}, Chinese},
-		{map[string]string{"LANG": "zh_TW.UTF-8"}, Chinese},
-		{map[string]string{"LANG": "en_US.UTF-8"}, English},
-		// The first non-empty of LC_ALL, LC_MESSAGES, LANG decides.
-		{map[string]string{"LC_ALL": "en_US.UTF-8", "LANG": "zh_CN.UTF-8"}, English},
-		{map[string]string{"LC_ALL": "zh_CN.UTF-8", "LANG": "C"}, Chinese},
-		{map[string]string{"LC_ALL": "", "LC_MESSAGES": "zh_CN.UTF-8", "LANG": "C"}, Chinese},
-		{map[string]string{"LC_MESSAGES": "C", "LANG": "zh_CN.UTF-8"}, English},
-		// "zh" begins the value, or it is not Chinese.
-		{map[string]string{"LANG": "en_ZH"}, English},
-		{map[string]string{"LANG": "ZH_CN"}, English},
+		{map[string]string{"ANET_LANG": "zh-CN"}, Chinese},
+		{map[string]string{"ANET_LANG": "zh"}, Chinese},
+		{map[string]string{"ANET_LANG": "zh_CN.UTF-8"}, Chinese},
+		{map[string]string{"ANET_LANG": "ZH"}, Chinese},
+		{map[string]string{"ANET_LANG": "en"}, English},
+		{map[string]string{"ANET_LANG": "C"}, English},
+		{map[string]string{"ANET_LANG": "en_ZH"}, English},
+		// The locale variables are not consulted.
+		{map[string]string{"LANG": "zh_CN.UTF-8"}, English},
+		{map[string]string{"LC_ALL": "zh_CN.UTF-8"}, English},
+		{map[string]string{"LC_MESSAGES": "zh_CN.UTF-8"}, English},
+		{map[string]string{"ANET_LANG": "en", "LC_ALL": "zh_CN.UTF-8", "LANG": "zh_CN.UTF-8"}, English},
+		{map[string]string{"ANET_LANG": "zh", "LC_ALL": "C", "LANG": "C"}, Chinese},
 	} {
 		got := LangFrom(func(k string) string { return c.env[k] })
 		if got != c.want {
 			t.Errorf("%v: %d, want %d", c.env, got, c.want)
 		}
+	}
+}
+
+// The rows of ClassModel are read by the agent in the sandbox: English in
+// both languages, the next step included.
+func TestModelRowsAreEnglishInBothLanguages(t *testing.T) {
+	n := 0
+	for _, r := range Rows() {
+		if r.Class&ClassModel == 0 {
+			continue
+		}
+		n++
+		args := Args{"host": "example.org", "port": 25, "n": 1, "limit": 1, "code": "x"}
+		zh, en := Sentence(r.Key(), Chinese, args), Sentence(r.Key(), English, args)
+		if zh != en {
+			t.Errorf("%s: Chinese render %q differs from English %q", r.Key(), zh, en)
+		}
+		if strings.ContainsFunc(zh, func(c rune) bool { return c >= 0x4e00 && c <= 0x9fff }) {
+			t.Errorf("%s: model-facing sentence has Chinese: %q", r.Key(), zh)
+		}
+	}
+	if n == 0 {
+		t.Fatal("no ClassModel rows")
 	}
 }
 
@@ -41,8 +66,9 @@ func TestContractInBothLanguages(t *testing.T) {
 		env  map[string]string
 		want Language
 	}{
-		{"LC_ALL=zh_CN.UTF-8", map[string]string{"LC_ALL": "zh_CN.UTF-8", "LC_MESSAGES": "", "LANG": ""}, Chinese},
-		{"LANG=C", map[string]string{"LC_ALL": "", "LC_MESSAGES": "", "LANG": "C"}, English},
+		{"ANET_LANG=zh-CN", map[string]string{"ANET_LANG": "zh-CN", "LC_ALL": "", "LANG": ""}, Chinese},
+		{"LANG=zh_CN.UTF-8 alone", map[string]string{"ANET_LANG": "", "LC_ALL": "", "LANG": "zh_CN.UTF-8"}, English},
+		{"ANET_LANG=en with LC_ALL=zh_CN", map[string]string{"ANET_LANG": "en", "LC_ALL": "zh_CN.UTF-8", "LANG": ""}, English},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			for k, v := range c.env {
@@ -54,9 +80,9 @@ func TestContractInBothLanguages(t *testing.T) {
 			runContract(t)
 		})
 	}
-	t.Setenv("LC_ALL", "zh_CN.UTF-8")
+	t.Setenv("ANET_LANG", "zh")
 	zh := Sentence("denied", Lang(), nil)
-	t.Setenv("LC_ALL", "C")
+	t.Setenv("ANET_LANG", "en")
 	if en := Sentence("denied", Lang(), nil); en == zh {
 		t.Fatal("the language did not change with the environment")
 	}
