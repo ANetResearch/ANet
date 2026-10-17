@@ -72,9 +72,11 @@ Command line
         → anet task get t_9f3c
 
    This applies to every refusal that the control plane answers with a reason,
-   to the refusals of ``anet agents wire`` and ``anet agents unwire`` (the
-   ``wire_`` codes), and to the refusals of ``anet hub-register`` and
-   ``anet hub-leave``. When the hub refused the request with a code of its own,
+   to the refusals that a command decides itself before it reaches the daemon
+   (for example ``daemon_not_running``, ``tty_required`` and the refusals of
+   ``anet update``), to the refusals of ``anet agents wire`` and
+   ``anet agents unwire`` (the ``wire_`` codes), and to the refusals of
+   ``anet hub-register`` and ``anet hub-leave``. When the hub refused the request with a code of its own,
    the line shows both: ``[hub_refused:<hub code>]``. The hub codes are listed in
    :ref:`hub-api-codes`.
 

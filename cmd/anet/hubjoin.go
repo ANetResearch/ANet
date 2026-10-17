@@ -102,6 +102,13 @@ func say(w io.Writer, sentence, next string) {
 	}
 }
 
+// sayRefusal is say for a refusal of the reason table that this command
+// decided itself: the sentence of key with its reason code in brackets, and
+// its command.
+func sayRefusal(w io.Writer, key string, lang a2ashape.Language, args a2ashape.Args) {
+	say(w, a2ashape.Sentence(key, lang, args)+a2ashape.CodeSuffix(a2ashape.ReasonCode(key), ""), a2ashape.Next(key, lang, args))
+}
+
 // refusedBy prints a control-plane refusal (ux UX-C3): the sentence and its
 // command on stderr, no JSON, exit status 1. A body that is not a refusal
 // is shown as it came.

@@ -63,7 +63,7 @@ func initRefusal(err error) error {
 	}
 	lang := a2ashape.Lang()
 	if ref.Key == "daemon_running" {
-		say(os.Stderr, a2ashape.Sentence(ref.Key, lang, ref.Args), a2ashape.Next(ref.Key, lang, ref.Args))
+		sayRefusal(os.Stderr, ref.Key, lang, ref.Args)
 		return errExit1
 	}
 	text := a2ashape.Sentence(ref.Key, lang, ref.Args)

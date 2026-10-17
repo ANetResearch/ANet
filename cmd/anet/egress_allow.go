@@ -47,7 +47,7 @@ func egressAllowRequest(c *client, v, apiBase string, configuring bool) (map[str
 	}
 	hosts, ref := autoreply.CheckEgressAllow(list, apiBase)
 	if ref != nil {
-		say(egressStderr, a2ashape.Sentence(ref.Key, lang, ref.Args), a2ashape.Next(ref.Key, lang, ref.Args))
+		sayRefusal(egressStderr, ref.Key, lang, ref.Args)
 		return nil, errExit1
 	}
 	if len(hosts) > 0 {

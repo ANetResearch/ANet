@@ -92,7 +92,7 @@ func ttyConfirm(action string, summary func() (string, error)) error {
 // returns errNoTTY.
 func refuseNoTTY(action string, lang a2ashape.Language) error {
 	args := a2ashape.Args{"action": action, "command": typedCommand(commandLine())}
-	say(ttyStderr, a2ashape.Sentence("tty_required", lang, args), a2ashape.Next("tty_required", lang, args))
+	sayRefusal(ttyStderr, "tty_required", lang, args)
 	return errNoTTY
 }
 

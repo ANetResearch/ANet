@@ -73,7 +73,7 @@ func showRetention(layout daemon.Layout, asJSON bool) error {
 		return err
 	}
 	if ref != nil {
-		say(retentionStderr, a2ashape.Sentence(ref.Key, lang, ref.Args), a2ashape.Next(ref.Key, lang, ref.Args))
+		sayRefusal(retentionStderr, ref.Key, lang, ref.Args)
 		return errExit1
 	}
 	if asJSON {
@@ -116,13 +116,13 @@ func setRetention(layout daemon.Layout, value string) error {
 	lang := a2ashape.Lang()
 	r, ok := daemon.ParseContentRetention(value)
 	if !ok {
-		say(retentionStderr, a2ashape.Sentence("retention_invalid", lang, nil), a2ashape.Next("retention_invalid", lang, nil))
+		sayRefusal(retentionStderr, "retention_invalid", lang, nil)
 		return errExit1
 	}
 	tty, err := openTTY()
 	if err != nil {
 		args := a2ashape.Args{"action": "retention", "command": typedCommand(commandLine())}
-		say(retentionStderr, a2ashape.Sentence("tty_required", lang, args), a2ashape.Next("tty_required", lang, args))
+		sayRefusal(retentionStderr, "tty_required", lang, args)
 		return errExit1
 	}
 	defer tty.Close()
@@ -131,7 +131,7 @@ func setRetention(layout daemon.Layout, value string) error {
 	// a file changed under it: nothing is touched (KEL-10, daemon_not_answering).
 	if c == nil && daemon.DataLockHeld(layout) {
 		args := a2ashape.Args{"path": layout.Root, "dur": probeTimeout}
-		say(retentionStderr, a2ashape.Sentence("daemon_not_answering", lang, args), a2ashape.Next("daemon_not_answering", lang, args))
+		sayRefusal(retentionStderr, "daemon_not_answering", lang, args)
 		return errExit1
 	}
 	var k int64

@@ -390,7 +390,7 @@ func refuseBusyDaemon(layout daemon.Layout) error {
 	}
 	lang := a2ashape.Lang()
 	args := a2ashape.Args{"path": layout.Root, "dur": probeTimeout}
-	say(os.Stderr, a2ashape.Sentence("daemon_not_answering", lang, args), a2ashape.Next("daemon_not_answering", lang, args))
+	sayRefusal(os.Stderr, "daemon_not_answering", lang, args)
 	return errExit1
 }
 

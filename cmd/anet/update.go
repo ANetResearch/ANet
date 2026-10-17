@@ -192,6 +192,6 @@ func mismatchArgs(variant string, compiled []string) a2ashape.Args {
 // refuseUpdate says why anet update downloads nothing and ends with status 1.
 func refuseUpdate(key string, args a2ashape.Args) error {
 	lang := a2ashape.Lang()
-	say(os.Stderr, a2ashape.Sentence(key, lang, args), a2ashape.Next(key, lang, args))
+	sayRefusal(os.Stderr, key, lang, args)
 	return errExit1
 }

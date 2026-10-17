@@ -122,7 +122,7 @@ func TestRetentionSetNeedsTTY(t *testing.T) {
 	withTTY(t, "")
 	for _, value := range []string{"7d", "90d", "forever"} {
 		args := a2ashape.Args{"action": "retention", "command": "anet retention set " + value}
-		want := a2ashape.Sentence("tty_required", a2ashape.Lang(), args) + "\n" + nextPrefix +
+		want := a2ashape.Sentence("tty_required", a2ashape.Lang(), args) + " [tty_required]\n" + nextPrefix +
 			a2ashape.Next("tty_required", a2ashape.Lang(), args) + "\n"
 
 		c, sent := retentionCtl(t, "30d", 3)
@@ -209,7 +209,7 @@ func TestRetentionOfflineRepair(t *testing.T) {
 	if err := daemon.CheckConfigForStart(l); err == nil {
 		t.Fatal("the daemon would start with content_retention 30")
 	}
-	invalid := a2ashape.Sentence("retention_invalid", lang, nil) + "\n" + nextPrefix + a2ashape.Next("retention_invalid", lang, nil) + "\n"
+	invalid := a2ashape.Sentence("retention_invalid", lang, nil) + " [retention_invalid]\n" + nextPrefix + a2ashape.Next("retention_invalid", lang, nil) + "\n"
 	if err, out, errOut := runRetentionCmd(t, l, nil); !errors.Is(err, errExit1) || out != "" || errOut != invalid {
 		t.Fatalf("show: %v %q %q", err, out, errOut)
 	}

@@ -244,7 +244,7 @@ func guide(layout daemon.Layout) {
 	}
 	if !running {
 		args := a2ashape.Args{"path": layout.Root}
-		say(w, a2ashape.Sentence("daemon_not_running", lang, args), a2ashape.Next("daemon_not_running", lang, args))
+		sayRefusal(w, "daemon_not_running", lang, args)
 		fmt.Fprintln(w)
 		renderHelpCommon(w, lang)
 		return

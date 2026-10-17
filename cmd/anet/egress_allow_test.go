@@ -68,7 +68,7 @@ func TestEgressAllowNeedsATerminalToAdd(t *testing.T) {
 	withTTY(t, "")
 	err, out := runEgress(t, c, "--egress-allow", "pypi.org,files.pythonhosted.org")
 	args := a2ashape.Args{"action": "egress", "command": "anet autoreply set --egress-allow pypi.org,files.pythonhosted.org"}
-	want := a2ashape.Sentence("tty_required", a2ashape.Lang(), args) + "\n" + nextPrefix +
+	want := a2ashape.Sentence("tty_required", a2ashape.Lang(), args) + " [tty_required]\n" + nextPrefix +
 		a2ashape.Next("tty_required", a2ashape.Lang(), args) + "\n"
 	if !errors.Is(err, errExit1) || out != want {
 		t.Errorf("without a terminal: %v\n%q\nwant\n%q", err, out, want)
@@ -131,7 +131,7 @@ func TestEgressAllowIsCheckedFirst(t *testing.T) {
 		tty := withTTY(t, "yes")
 		err, out := runEgress(t, c, "--egress-allow", tc.value)
 		_, ref := autoreply.CheckEgressAllow(strings.Split(tc.value, ","), "")
-		if !errors.Is(err, errExit1) || ref == nil || ref.Key != tc.key || out != a2ashape.Sentence(ref.Key, a2ashape.Lang(), ref.Args)+"\n" {
+		if !errors.Is(err, errExit1) || ref == nil || ref.Key != tc.key || out != a2ashape.Sentence(ref.Key, a2ashape.Lang(), ref.Args)+" ["+ref.Key+"]\n" {
 			t.Errorf("%s: %v %q", tc.value, err, out)
 		}
 		if paths, _ := sent(); len(paths) != 0 || tty.prompt.Len() != 0 {

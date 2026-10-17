@@ -252,7 +252,7 @@ func diagnoseNoDaemon(base, dataDir string, cause error) error {
 	}
 	lang := a2ashape.Lang()
 	args := a2ashape.Args{"path": dataDir}
-	say(errW(), a2ashape.Sentence("daemon_not_running", lang, args), a2ashape.Next("daemon_not_running", lang, args))
+	sayRefusal(errW(), "daemon_not_running", lang, args)
 	typed := commandLine()
 	for _, e := range runningElsewhere(base) {
 		fmt.Fprintln(errW(), nextPrefix+elsewhereCommand(e, typed))
