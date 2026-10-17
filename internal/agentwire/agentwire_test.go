@@ -1070,3 +1070,16 @@ func TestUnwireOfUnparsableJSONGivesNothingToAdd(t *testing.T) {
 		t.Fatalf("%v\n%s", r.Err, h.read(".cursor/mcp.json"))
 	}
 }
+
+// What a tool's own CLI printed is repeated in one bounded line without
+// control characters.
+func TestCLIErrorIsBoundedAndPlain(t *testing.T) {
+	out := []byte("\x1b[31mboom\x07 " + strings.Repeat("x", 500) + "\nsecond line")
+	got := cliError(errors.New("exit 1"), out)
+	if strings.ContainsAny(got, "\x1b\x07\n") || len([]rune(got)) > cliErrorMax+3 || !strings.HasPrefix(got, "[31mboom") {
+		t.Fatalf("%q", got)
+	}
+	if cliError(errors.New("exit 1"), nil) != "exit 1" {
+		t.Fatal("the start error is the fallback")
+	}
+}

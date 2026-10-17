@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode"
 )
 
 // change is one planned edit. Planning reads, applying writes; the split
@@ -249,10 +250,25 @@ func short(o *Options, p string) string {
 }
 
 // cliError is the first line of what a tool's own CLI said when it failed, or
-// the error from starting it: enough to tell why, and bounded.
+// the error from starting it: enough to tell why, and bounded. Control
+// characters (terminal escapes among them) are dropped, so the line cannot
+// rewrite what anet prints around it.
 func cliError(err error, out []byte) string {
-	if line, _, _ := strings.Cut(strings.TrimSpace(string(out)), "\n"); line != "" {
-		return line
+	line, _, _ := strings.Cut(strings.TrimSpace(string(out)), "\n")
+	if line == "" {
+		line = err.Error()
 	}
-	return err.Error()
+	line = strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return -1
+		}
+		return r
+	}, line)
+	if r := []rune(line); len(r) > cliErrorMax {
+		line = string(r[:cliErrorMax]) + "..."
+	}
+	return line
 }
+
+// cliErrorMax bounds the part of a tool's own message that anet repeats.
+const cliErrorMax = 200
