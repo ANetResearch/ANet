@@ -62,11 +62,14 @@ func TestAutoReplySetSendsOnlyWhatItNames(t *testing.T) {
 		}
 	}
 	// --require-image is removed (ux §4.3): cli_removed, exit 2, and nothing is sent.
-	for _, flag := range []string{"--require-image", "--require-image=false"} {
+	// So are the 0.2 flags whose values are now fixed: a 0.2-era script hears that, not "unknown flag".
+	for _, flag := range []string{"--require-image", "--require-image=false", "--max-auto-replies", "--max-auto-replies=5",
+		"--poll-interval", "--poll-interval=10"} {
 		h := newCLIHome(t, "C")
 		rc := newRecordingControl(t, h)
+		name, _, _ := strings.Cut(strings.TrimPrefix(flag, "--"), "=")
 		if _, stderr, code := runCLIStdin(t, h, "", []string{"autoreply", "set", flag}); code != 2 || len(rc.bodies()) != 0 ||
-			!strings.Contains(stderr, "require-image") {
+			!strings.Contains(stderr, name) || strings.Contains(stderr, "unknown flag") {
 			t.Fatalf("%s: exit %d, %d requests: %s", flag, code, len(rc.bodies()), stderr)
 		}
 	}
