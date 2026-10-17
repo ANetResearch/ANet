@@ -1,0 +1,242 @@
+# Reason codes of anet: the register of every code ever published.
+#
+# A reason code is a stable public interface. Scripts match on the code, never
+# on the sentence, so the meaning of a code never changes, a code is never
+# renamed, and a code that has been published is never used again for another
+# meaning. This file is edited by hand and deliberately; there is no
+# regeneration. internal/a2ashape/codes_registry_test.go holds it against the
+# reason table in reasons.go, and docs/_tools/gen_reason_codes.py renders it
+# into docs/reference/reason-codes.rst.
+#
+# One line per code, sorted by code, fields separated by a tab:
+#
+#     code   since   status   [retired   [replacement]]
+#
+#   code         the Code of a row of the reason table (not a dotted sentence
+#                key, not an "x402:" row).
+#   since        the first anet version that emitted the code: 0.3.0, 0.3.1,
+#                0.3.2 or 0.3.3, in the form major.minor.patch.
+#   status       active: the table has a row for the code.
+#                retired: the table has no row for it any more. The line
+#                stays, so the name is never reused.
+#   retired      for a retired code, the version that removed the row.
+#   replacement  for a retired code, optionally the code that took its place.
+#
+# To add a code, append its line with the version being prepared. To retire
+# one, change its status, add the retiring version, and remove the row from
+# the table in the same commit. See docs/contributing.rst.
+agent_unsupported	0.3.0	active
+aid_invalid	0.3.0	active
+allow_confirm	0.3.0	active
+api_base_insecure	0.3.0	active
+api_key_empty	0.3.0	active
+api_key_on_argv	0.3.0	active
+approve_confirm	0.3.0	active
+args_reserved_key	0.3.0	active
+args_too_large	0.3.0	active
+auth_window_too_long	0.3.0	active
+backend_failed	0.3.0	active
+bad_envelope	0.3.0	active
+bad_image	0.3.0	active
+bad_request	0.3.0	active
+balance_mismatch	0.3.0	active
+binding_mismatch	0.3.0	active
+budget	0.3.0	active
+budget_invalid	0.3.0	active
+build_tag_pending	0.3.0	active
+busy	0.3.0	active
+c1_uid_refused	0.3.0	active
+c1_version	0.3.0	active
+caller_busy	0.3.0	active
+canceled	0.3.0	active
+capability_not_public	0.3.0	active
+capability_not_served	0.3.0	active
+card_price_unavailable	0.3.0	active
+cli_removed	0.3.0	active
+client_payload_unsupported	0.3.0	active
+clock_skew	0.3.0	active
+config_invalid	0.3.0	active
+config_key_removed	0.3.0	active
+connection_lost	0.3.0	active
+credential_refused	0.3.0	active
+daemon_not_answering	0.3.0	active
+daemon_not_running	0.3.0	active
+daemon_running	0.3.0	active
+datadir_too_new	0.3.0	active
+deduplicated	0.3.0	active
+delivery_unconfirmed	0.3.0	active
+denied	0.3.0	active
+egress_allow_invalid	0.3.0	active
+egress_allow_model_host	0.3.0	active
+egress_allow_too_many	0.3.0	active
+egress_confirm	0.3.0	active
+egress_ech	0.3.0	active
+egress_host_not_allowed	0.3.0	active
+egress_host_unresolved	0.3.0	active
+egress_not_tls	0.3.0	active
+egress_plain_http	0.3.0	active
+egress_port	0.3.0	active
+egress_private_address	0.3.0	active
+egress_sni_mismatch	0.3.0	active
+egress_too_large	0.3.0	active
+egress_tunnels	0.3.0	active
+egress_unauthorized	0.3.0	active
+egress_upstream_unreachable	0.3.0	active
+extended_card_not_configured	0.3.0	active
+extended_card_not_offered	0.3.0	active
+extended_card_unavailable	0.3.0	active
+file_type_not_accepted	0.3.0	active
+files_count	0.3.0	active
+files_too_large	0.3.0	active
+fs_isolation_failed	0.3.0	active
+home_unreachable	0.3.0	active
+hub_pending_admission	0.3.0	active
+hub_publication_blocked	0.3.0	active
+hub_refused	0.3.0	active
+hub_retrying	0.3.0	active
+hub_switch_pending_admission	0.3.0	active
+hub_switch_requires_rotation	0.3.0	active
+hub_unreachable	0.3.0	active
+identity_deactivated	0.3.0	active
+identity_file_invalid	0.3.0	active
+identity_stopped	0.3.0	active
+identity_v02	0.3.0	active
+interrupted	0.3.0	active
+invalid	0.3.0	active
+invite_removed	0.3.0	active
+key_compromise	0.3.0	active
+key_state	0.3.0	active
+limits_confirm	0.3.0	active
+limits_summary	0.3.0	active
+local_state_lost	0.3.0	active
+local_write_failed	0.3.0	active
+mailbox_full	0.3.0	active
+message_id_reused	0.3.0	active
+module_absent	0.3.0	active
+needs_operator_approval	0.3.0	active
+netns_failed	0.3.0	active
+no_api_base	0.3.0	active
+no_api_key	0.3.0	active
+no_bwrap	0.3.0	active
+no_cgroup_limits	0.3.0	active
+no_face_in_a	0.3.0	active
+no_face_in_b	0.3.0	active
+no_hub_yet	0.3.0	active
+no_local_task	0.3.0	active
+no_model	0.3.0	active
+no_pending_quote	0.3.0	active
+no_response	0.3.0	active
+no_sandbox_exec	0.3.0	active
+not_accepting	0.3.0	active
+not_requested	0.3.0	active
+notice_stale	0.3.0	active
+old_hub_unacked	0.3.0	active
+omitted_from_ledger	0.3.0	active
+operator_rejected	0.3.0	active
+option_not_offered	0.3.0	active
+over_agent_daily_limit	0.3.0	active
+over_daily_limit	0.3.0	active
+over_single_limit	0.3.0	active
+passphrase_not_utf8	0.3.0	active
+passphrase_too_short	0.3.0	active
+payee_confirm	0.3.0	active
+payee_not_allowed	0.3.0	active
+payee_not_local	0.3.0	active
+payees_unreadable	0.3.0	active
+payer_mismatch	0.3.0	active
+payments_unavailable	0.3.0	active
+peer_cred_unsupported	0.3.0	active
+peer_uid_mismatch	0.3.0	active
+pending_approval	0.3.0	active
+pending_expired	0.3.0	active
+pending_full	0.3.0	active
+platform_unsupported	0.3.0	active
+policy_encoding	0.3.0	active
+policy_field	0.3.0	active
+policy_mcp_servers	0.3.0	active
+policy_path	0.3.0	active
+policy_server_tool	0.3.0	active
+preview_off	0.3.0	active
+probation	0.3.0	active
+proof_expired	0.3.0	active
+proof_invalid	0.3.0	active
+proof_unavailable	0.3.0	active
+provider_policy	0.3.0	active
+quota_caller_per_day	0.3.0	active
+quota_caller_per_min	0.3.0	active
+quote_above_card_price	0.3.0	active
+quote_expired	0.3.0	active
+rail_not_payable	0.3.0	active
+rate_limited	0.3.0	active
+receipt_mismatch	0.3.0	active
+receipt_not_reviewable	0.3.0	active
+recipient_unknown	0.3.0	active
+recipient_unverifiable	0.3.0	active
+recover_not_witness	0.3.0	active
+recover_target_exists	0.3.0	active
+recovery_file_missing	0.3.0	active
+recovery_file_unprotected	0.3.0	active
+recovery_mismatch	0.3.0	active
+recovery_passphrase_wrong	0.3.0	active
+recovery_wrong_identity	0.3.0	active
+redeem_confirm	0.3.0	active
+redelivery_limited	0.3.0	active
+refused	0.3.0	active
+registered	0.3.0	active
+requester_commit_mismatch	0.3.0	active
+result_refused	0.3.0	active
+retention_invalid	0.3.0	active
+review_exists	0.3.0	active
+review_window_closed	0.3.0	active
+rotation_emergency_done	0.3.0	active
+rotation_pending	0.3.0	active
+run_budget_requests	0.3.0	active
+run_budget_upload	0.3.0	active
+sandbox_start_failed	0.3.0	active
+sandbox_unavailable	0.3.0	active
+seccomp_failed	0.3.0	active
+session_unavailable	0.3.0	active
+strangers_busy	0.3.0	active
+task_ended	0.3.0	active
+task_not_found	0.3.0	active
+task_not_open	0.3.0	active
+timeout	0.3.0	active
+too_large	0.3.0	active
+too_large_for_stranger	0.3.0	active
+trusted_direct_confirm	0.3.0	active
+tty_required	0.3.0	active
+unavailable	0.3.0	active
+undeliverable	0.3.0	active
+unknown_code	0.3.0	active
+unknown_debit	0.3.0	active
+update_variant_unknown	0.3.0	active
+userns_blocked	0.3.0	active
+userns_unavailable	0.3.0	active
+wire_a2a_addr_invalid	0.3.3	active
+wire_a2a_needs_hermes	0.3.3	active
+wire_a2a_not_started	0.3.3	active
+wire_a2a_port_foreign	0.3.3	active
+wire_a2a_token_invalid	0.3.3	active
+wire_backup_failed	0.3.3	active
+wire_backup_limit	0.3.3	active
+wire_bad_aid	0.3.3	active
+wire_block_malformed	0.3.3	active
+wire_changed_during_run	0.3.3	active
+wire_cli_failed	0.3.3	active
+wire_conflict	0.3.3	active
+wire_dangling_symlink	0.3.3	active
+wire_home_not_found	0.3.3	active
+wire_io_failed	0.3.3	active
+wire_json_invalid	0.3.3	active
+wire_json_shape	0.3.3	active
+wire_not_plain_json	0.3.3	active
+wire_path_not_absolute	0.3.3	active
+wire_too_new	0.3.0	active
+wire_too_old	0.3.0	active
+wire_tools_failed	0.3.3	active
+wire_unknown_tool	0.3.3	active
+wire_verify_failed	0.3.3	active
+without_configured	0.3.0	active
+witness_hub_leave	0.3.0	active
+witness_unreachable	0.3.0	active
+work_dir_invalid	0.3.0	active
