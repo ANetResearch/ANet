@@ -35,6 +35,32 @@ Reason codes
   with the prefix ``wire_``, for example ``wire_json_invalid`` and ``wire_conflict``.
 
 
+Language
+~~~~~~~~
+
+* English is the default language of every sentence that ``anet`` and ``anet-hub`` print and of
+  every text that is handed to a model. Chinese is an opt-in: it is selected only when
+  ``ANET_LANG`` begins with ``zh``. ``LC_ALL``, ``LC_MESSAGES`` and ``LANG`` are no longer
+  consulted. See :ref:`upgrading-033`.
+* The prompt of the exec backend, the self-check prompt of auto-reply and the audit verdict are
+  English in both languages. The administration interface of the hub answers in English.
+
+Agent integration
+~~~~~~~~~~~~~~~~~
+
+* The output of ``anet agents``, ``anet agents wire`` and ``anet agents unwire`` comes from the
+  reason table, in English by default and in Chinese under ``ANET_LANG=zh-CN``. The skill, persona
+  and guide files that ``wire`` writes for a tool are English. The exit statuses are unchanged.
+* ``anet agents unwire`` no longer prints an entry to add by hand when it cannot parse a JSON
+  file; it names the file and leaves it unchanged.
+
+Fixes
+~~~~~
+
+* The task event stream no longer sends a preview frame twice when the frame arrives while the
+  stream starts.
+
+
 .. _news-0.3.2:
 
 ANet 0.3.2

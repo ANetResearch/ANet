@@ -759,6 +759,45 @@ msgid ""
 "wire tables is generated from the source of the programs."
 msgstr "文档使用 Sphinx 构建，以英文和中文发布。命令行、原因码和线路表的参考部分由程序源码生成。"
 
+#: ../../news.rst:0
+msgid "Language"
+msgstr "语言"
+
+#: ../../news.rst:0
+msgid ""
+"English is the default language of every sentence that ``anet`` and ``anet-hub`` print and of every text that is handed to a model. Chinese is an opt-in: it is selected only when ``ANET_LANG`` begins with ``zh``. ``LC_ALL``, ``LC_MESSAGES`` and ``LANG`` are no longer consulted. See :ref:`upgrading-033`."
+msgstr ""
+"``anet`` 和 ``anet-hub`` 输出的每一条语句，以及交给模型的每一段文本，默认均为英文。中文需要显式启用：仅当 ``ANET_LANG`` 以 ``zh`` 开头时选用中文。``LC_ALL``、``LC_MESSAGES`` 与 ``LANG`` 不再被读取。见 :ref:`upgrading-033`。"
+
+#: ../../news.rst:0
+msgid ""
+"The prompt of the exec backend, the self-check prompt of auto-reply and the audit verdict are English in both languages. The administration interface of the hub answers in English."
+msgstr "exec 后端的提示词、自动回复的自检提示词和审计结论在两种语言下均为英文。Hub 的管理接口以英文应答。"
+
+#: ../../news.rst:0
+msgid "Agent integration"
+msgstr "智能体集成"
+
+#: ../../news.rst:0
+msgid ""
+"The output of ``anet agents``, ``anet agents wire`` and ``anet agents unwire`` comes from the reason table, in English by default and in Chinese under ``ANET_LANG=zh-CN``. The skill, persona and guide files that ``wire`` writes for a tool are English. The exit statuses are unchanged."
+msgstr ""
+"``anet agents``、``anet agents wire`` 和 ``anet agents unwire`` 的输出取自原因表，默认为英文，在 ``ANET_LANG=zh-CN`` 下为中文。``wire`` 为工具写入的技能、人设和指引文件均为英文。退出状态不变。"
+
+#: ../../news.rst:0
+msgid ""
+"``anet agents unwire`` no longer prints an entry to add by hand when it cannot parse a JSON file; it names the file and leaves it unchanged."
+msgstr "``anet agents unwire`` 在无法解析某个 JSON 文件时，不再输出需手动加入的条目，而是指明该文件并保持其不变。"
+
+#: ../../news.rst:0
+msgid "Fixes"
+msgstr "修复"
+
+#: ../../news.rst:0
+msgid ""
+"The task event stream no longer sends a preview frame twice when the frame arrives while the stream starts."
+msgstr "任务事件流在启动期间收到预览帧时，不再将同一帧发送两次。"
+
 #: ../../news.rst:325
 msgid "Known limitations"
 msgstr "已知限制"
