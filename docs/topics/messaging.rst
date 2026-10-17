@@ -291,7 +291,7 @@ itself, the state stays ``pending`` and the reason appears as
    * - Reason
      - Sentence
    * - ``rate_limited``, ``redelivery_limited``
-     - You are sending too fast and the hub asked you to wait; anet retries
+     - Sending is too fast and the hub asked for a wait; anet retries
        on its own.
    * - ``strangers_busy``
      - The other side's inbox for senders who are not yet its contacts is
@@ -304,14 +304,13 @@ itself, the state stays ``pending`` and the reason appears as
      - The other side's hub cannot be reached right now, so this is queued;
        anet retries on its own.
    * - ``session_unavailable``
-     - Your hub is not taking first contacts from you right now, so this is
-       queued; run anet status to see your hub's state.
+     - This node's hub is not taking first contacts right now, so this is queued; run anet status to see the hub's state.
    * - ``credential_refused``
      - The hub refused the delivery credential the other side gave you, so
        this is queued; if it is still refused after 10 minutes it goes on
        its own as a first contact (and the hub then knows it is from you).
    * - ``notice_stale``
-     - Your hub has not confirmed your current key yet, so this is queued;
+     - This node's hub has not confirmed the current key yet, so this is queued;
        it goes out on its own once it does (see the identity line of anet
        status).
    * - ``rotation_pending``

@@ -158,7 +158,7 @@ current, the hub signs no notice for an agent until
 * 30 minutes have passed since the hub began to serve and the node sends a
   request signed with the key at the top of the stored history.
 
-Each agent is released on its own. Nodes report ``Your hub was just restored
+Each agent is released on its own. Nodes report ``This node's hub was just restored
 from a backup and is checking identity records; nothing to do, it takes at
 most 30 minutes.`` An owner who is online is released within seconds. An
 agent that rotated after the backup and whose node stays offline remains held

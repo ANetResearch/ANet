@@ -44,18 +44,18 @@ The other side refused the message when it arrived. The reason travels back with
      - retry later
    * - ``caller_busy``
      - R UNAVAILABLE
-     - You still have a call to this capability running there, so this one was not run; send it again when that one ends.
-     - 你在对方那里还有一个同一能力的调用没结束，这次没有执行；请等它结束后再发。
+     - A call to this capability is still running there, so this one was not run; send it again when that one ends.
+     - 对方那里仍有一个对同一能力的调用未结束，这次没有执行；请待其结束后再发。
      - retry later
    * - ``quota_caller_per_min``
      - R UNAVAILABLE
-     - You have used up this minute's calls to this capability, so it was not run; send it again in {retry}.
-     - 你这一分钟对这项能力的调用次数已用完，没有执行；请在 {retry} 后再发。
+     - This minute's calls to this capability are used up, so it was not run; send it again in {retry}.
+     - 本分钟内对这项能力的调用次数已用完，没有执行；请在 {retry} 后再发。
      - retry later
    * - ``quota_caller_per_day``
      - R UNAVAILABLE
-     - You have used up today's (UTC) calls to this capability, so it was not run; send it again in {retry}.
-     - 你今天（UTC）对这项能力的调用次数已用完，没有执行；请在 {retry} 后再发。
+     - Today's (UTC) calls to this capability are used up, so it was not run; send it again in {retry}.
+     - 今天（UTC）对这项能力的调用次数已用完，没有执行；请在 {retry} 后再发。
      - retry later
    * - ``args_too_large``
      - R UNAVAILABLE
@@ -308,13 +308,13 @@ Messages sent by this node: terminal failures, waits, the outbox and the deliver
      - ``anet update``
    * - ``rate_limited``
      - W
-     - You are sending too fast and the hub asked you to wait; ``anet`` retries on its own.
-     - 你发得太快，hub 要求稍等；\ ``anet`` 会自动重试。
+     - Sending is too fast and the hub asked for a wait; ``anet`` retries on its own.
+     - 发送过快，hub 要求稍等；\ ``anet`` 会自动重试。
      - auto
    * - ``redelivery_limited``
      - W
-     - You are sending too fast and the hub asked you to wait; ``anet`` retries on its own.
-     - 你发得太快，hub 要求稍等；\ ``anet`` 会自动重试。
+     - Sending is too fast and the hub asked for a wait; ``anet`` retries on its own.
+     - 发送过快，hub 要求稍等；\ ``anet`` 会自动重试。
      - auto
    * - ``strangers_busy``
      - W
@@ -333,8 +333,8 @@ Messages sent by this node: terminal failures, waits, the outbox and the deliver
      - auto
    * - ``session_unavailable``
      - W warn
-     - Your hub is not taking first contacts from you right now, so this is queued; run ``anet status`` to see your hub's state.
-     - 你的 hub 暂时不接受你的首次联系，信在排队；请运行 ``anet status`` 查看 hub 状态。
+     - This node's hub is not taking first contacts right now, so this is queued; run ``anet status`` to see the hub's state.
+     - 本节点的 hub 暂时不接受首次联系，信在排队；请运行 ``anet status`` 查看 hub 状态。
      - ``anet status``
    * - ``credential_refused``
      - W
@@ -343,8 +343,8 @@ Messages sent by this node: terminal failures, waits, the outbox and the deliver
      - auto
    * - ``notice_stale.wait``
      - W
-     - Your hub has not confirmed your current key yet, so this is queued; it goes out on its own once it does (see the identity line of ``anet status``).
-     - 你的 hub 还没确认你的最新密钥，信在排队；确认后会自动发出，详见 ``anet status`` 的身份行。
+     - This node's hub has not confirmed the current key yet, so this is queued; it goes out on its own once it does (see the identity line of ``anet status``).
+     - 本节点的 hub 还没确认最新密钥，信在排队；确认后会自动发出，详见 ``anet status`` 的身份行。
      - auto
    * - ``rotation_pending.wait``
      - W
@@ -378,8 +378,8 @@ Messages sent by this node: terminal failures, waits, the outbox and the deliver
      - ``anet status``
    * - ``no_response_after.set``
      - I ok
-     - A task you send fails if its delivery is not confirmed within {limit}, or if it is confirmed but the other side does not answer within {limit} after that; a later answer is still recorded.
-     - 你发出的任务 {limit} 内没有确认送达即算失败；确认送达后 {limit} 内对方没有任何回应也算失败，之后到达的答复仍会记下。
+     - A task this node sends fails if its delivery is not confirmed within {limit}, or if it is confirmed but the other side does not answer within {limit} after that; a later answer is still recorded.
+     - 本节点发出的任务 {limit} 内没有确认送达即算失败；确认送达后 {limit} 内对方没有任何回应也算失败，之后到达的答复仍会记下。
      - 
    * - ``no_response_after.off``
      - I info
@@ -657,8 +657,8 @@ Identity operations and states, tasks ended by identity events, local data, the 
      - start over
    * - ``key_compromise``
      - F
-     - You rotated your keys in an emergency, so all tasks in progress were ended to stop the leaked keys from being used; start them again if you still need them.
-     - 你做了紧急密钥轮换，为防泄露的密钥继续被使用，在途任务已全部结束；需要的话请重新发起。
+     - An emergency key rotation was made, so all tasks in progress were ended to stop the leaked keys from being used; start them again if still needed.
+     - 已做紧急密钥轮换，为防泄露的密钥继续被使用，在途任务已全部结束；需要的话请重新发起。
      - start over
    * - ``key_compromise.peer``
      - F
@@ -712,8 +712,8 @@ Identity operations and states, tasks ended by identity events, local data, the 
      - ``anet hub-register {official_hub}``
    * - ``witness_unreachable``
      - C
-     - Your witness hub {hub} cannot be reached, and a scheduled rotation needs it online; try again later, or if a key has leaked use ``anet identity`` rotate ``--emergency``.
-     - 连不上你的见证 hub {hub}，计划内轮换需要它在线；请稍后重试，确有泄露请用 ``anet identity`` rotate ``--emergency``\ 。
+     - The witness hub {hub} cannot be reached, and a scheduled rotation needs it online; try again later, or if a key has leaked use ``anet identity`` rotate ``--emergency``.
+     - 连不上本节点的见证 hub {hub}，计划内轮换需要它在线；请稍后重试，确有泄露请用 ``anet identity`` rotate ``--emergency``\ 。
      - retry later
    * - ``rotation_pending``
      - C S warn
@@ -782,13 +782,13 @@ Identity operations and states, tasks ended by identity events, local data, the 
      - 
    * - ``identity.confirm_aging``
      - S warn
-     - Your hub has not confirmed your key for {dur}; check your connection to it.
-     - 你的 hub 已 {dur} 没有确认你的密钥；请检查与 hub 的连接。
+     - This node's hub has not confirmed its key for {dur}; check the connection to the hub.
+     - 本节点的 hub 已 {dur} 没有确认密钥；请检查与 hub 的连接。
      - ``anet doctor``
    * - ``notice_stale``
      - S fail
-     - Your hub has not confirmed your key for {dur}, so outgoing messages are queued; check your connection to it, and switch hubs if it stays down.
-     - 你的 hub 已 {dur} 没有确认你的密钥，发出的消息在排队；请检查与 hub 的连接，hub 长期不可用时请换 hub。
+     - This node's hub has not confirmed its key for {dur}, so outgoing messages are queued; check the connection to the hub, and switch hubs if it stays down.
+     - 本节点的 hub 已 {dur} 没有确认密钥，发出的消息在排队；请检查与 hub 的连接，hub 长期不可用时请换 hub。
      - ``anet doctor``
    * - ``old_hub_unacked``
      - S info
@@ -797,13 +797,13 @@ Identity operations and states, tasks ended by identity events, local data, the 
      - 
    * - ``identity.quarantine``
      - S warn
-     - Your hub was just restored from a backup and is checking identity records; nothing to do, it takes at most 30 minutes.
-     - 你的 hub 刚从备份恢复，正在核对身份记录；不需要操作，最多 30 分钟。
+     - This node's hub was just restored from a backup and is checking identity records; nothing to do, it takes at most 30 minutes.
+     - 本节点的 hub 刚从备份恢复，正在核对身份记录；不需要操作，最多 30 分钟。
      - 
    * - ``identity.hub_record_invalid``
      - S warn
-     - Your witness hub {hub} returned an identity record that does not verify; this node's identity is not affected. Send this message to the hub's operator, and switch hubs if it keeps happening.
-     - 你的见证 hub {hub} 给出的身份记录验证不过，本机身份不受影响；请把这条信息发给 hub 运营者，持续出现时请换 hub。
+     - The witness hub {hub} returned an identity record that does not verify; this node's identity is not affected. Send this message to the hub's operator, and switch hubs if it keeps happening.
+     - 本节点的见证 hub {hub} 给出的身份记录验证不过，本机身份不受影响；请把这条信息发给 hub 运营者，持续出现时请换 hub。
      - 
    * - ``identity.hub_kel_fork``
      - S warn
@@ -812,8 +812,8 @@ Identity operations and states, tasks ended by identity events, local data, the 
      - 
    * - ``identity.hub_unauthorized``
      - S warn
-     - Your hub refused this node's signed requests {n} times recently; check it with ``anet status``, and switch hubs if this goes on.
-     - 你的 hub 最近 {n} 次拒绝了本节点的签名请求；请运行 ``anet status`` 查看 hub 状态，持续出现时请换 hub。
+     - This node's hub refused its signed requests {n} times recently; check it with ``anet status``, and switch hubs if this goes on.
+     - 本节点的 hub 最近 {n} 次拒绝了本节点的签名请求；请运行 ``anet status`` 查看 hub 状态，持续出现时请换 hub。
      - ``anet status``
    * - ``identity.unprotected``
      - S warn
@@ -1737,7 +1737,7 @@ Confirmation prompts and common lines printed by the command line.
    * - ``identity.rotate.emergency_witness_down``
      - T
      - Witness hub {hub} is unreachable: the old key stops here now and the rotation is published when the hub is back; sending and receiving pause until then. If it is gone for good, press Ctrl-C and switch hubs first (``anet hub-register`` <new hub>).
-     - 你的见证 hub {hub} 现在连不上：紧急轮换会先停用本机的旧密钥，等它恢复后自动发布，期间暂停收发。若它已永久关闭，请按 Ctrl-C 取消，先换 hub（\ ``anet hub-register`` <新 hub>）再做紧急轮换。
+     - 本节点的见证 hub {hub} 现在连不上：紧急轮换会先停用本机的旧密钥，等它恢复后自动发布，期间暂停收发。若它已永久关闭，请按 Ctrl-C 取消，先换 hub（\ ``anet hub-register`` <新 hub>）再做紧急轮换。
      - 
    * - ``identity.rotate.emergency_done_seq``
      - I
@@ -1806,8 +1806,8 @@ Confirmation prompts and common lines printed by the command line.
      - 
    * - ``identity.rm.dip_unacked``
      - T
-     - Your witness hub has not confirmed the deactivation yet; after removal ``anet`` stops retrying, and others may keep sending to this identity.
-     - 你的见证 hub 还没确认这次注销；现在删除后 ``anet`` 不会再重试，别人可能继续给这个身份发信。
+     - The witness hub has not confirmed the deactivation yet; after removal ``anet`` stops retrying, and others may keep sending to this identity.
+     - 本节点的见证 hub 还没确认这次注销；现在删除后 ``anet`` 不会再重试，别人可能继续给这个身份发信。
      - 
    * - ``autoreply.updated``
      - I
@@ -1941,8 +1941,8 @@ Confirmation prompts and common lines printed by the command line.
      - 
    * - ``audit.proofs_ok``
      - I
-     - Your balance proofs: {n} periods checked, latest {time} balance {amount} credits.
-     - 你的余额证明：{n} 个纪元核对通过，最新 {time} 余额 {amount} credits。
+     - Balance proofs: {n} periods checked, latest {time} balance {amount} credits.
+     - 余额证明：{n} 个纪元核对通过，最新 {time} 余额 {amount} credits。
      - 
    * - ``audit.none``
      - I
@@ -2095,8 +2095,8 @@ Sentences that only the diagnostic report prints.
      - 
    * - ``sender_privacy.grants_summary``
      - S info
-     - You hold {n} delivery credentials from others (your messages to them carry no sender identity); you have issued {m}.
-     - 你持有 {n} 个对方给的投递凭据（给他们发信时信里不带你的身份）；你给出了 {m} 个。
+     - This node holds {n} delivery credentials from others (its messages to them carry no sender identity); it has issued {m}.
+     - 本节点持有 {n} 个对方给的投递凭据（向对方发信时信里不带本节点的身份）；已给出 {m} 个。
      - 
    * - ``sender_privacy.withdrawals_pending``
      - S warn

@@ -159,7 +159,7 @@ Payments
    * - ``anet reconcile``
      - check this node's payment record against the hub's ledger
    * - ``anet audit-hub``
-     - check the hub's issuance chain and your balance proofs (also: ``anet audit`` hub)
+     - check the hub's issuance chain and this node's balance proofs (also: ``anet audit`` hub)
 
 Records and checks
 ~~~~~~~~~~~~~~~~~~
@@ -197,7 +197,7 @@ Tools
    * - Invocation
      - Description
    * - ``anet agents wire [--all|<tool>…] [--refresh] [--a2a <aid>…]``
-     - give your coding agents anet's MCP tools and guide (cursor\|claude\|codex\|opencode\|openclaw\|hermes; every file it edits is backed up)
+     - give your coding agents anet's MCP tools and guide (claude\|codex\|cursor\|opencode\|hermes; every file it edits is backed up)
    * - ``anet agents unwire [--all|<tool>…] [--a2a <aid>…]``
      - remove what wire added
    * - ``anet agents``

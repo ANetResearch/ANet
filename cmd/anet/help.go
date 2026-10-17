@@ -100,7 +100,7 @@ func helpSections() []helpSection {
 			{"balance", "hub 账本上的余额与流水", "your balance on the hub's ledger, and its entries", false},
 			{"redeem <amount> [--ref R]", "把 credits 兑付回 hub；要在终端确认", "give credits back to the hub; asks on the terminal", false},
 			{"reconcile", "把本节点的付款记录与 hub 的账核对", "check this node's payment record against the hub's ledger", false},
-			{"audit-hub", "核对 hub 的发放链与你的余额证明（也可写 anet audit hub）", "check the hub's issuance chain and your balance proofs (also: anet audit hub)", false},
+			{"audit-hub", "核对 hub 的发放链与本节点的余额证明（也可写 anet audit hub）", "check the hub's issuance chain and this node's balance proofs (also: anet audit hub)", false},
 		}},
 		{"记录与核验", "Records and checks", []helpEntry{
 			{"retention [--json]", "任务结束后内容保存多久（缺省 30 天；公开调用 7 天）", "how long task content is kept after a task ends (30 days unless you changed it; public calls 7 days)", false},

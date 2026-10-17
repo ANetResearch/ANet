@@ -550,8 +550,8 @@ msgstr "``rate_limited``\\ 、\\ ``redelivery_limited``"
 
 #: ../../topics/messaging.rst:296
 msgid ""
-"You are sending too fast and the hub asked you to wait; anet retries on "
-"its own."
+"Sending is too fast and the hub asked for a wait; anet retries on its "
+"own."
 msgstr "发送过快，Hub 要求等待；anet 会自行重试。"
 
 #: ../../topics/messaging.rst:298
@@ -590,8 +590,8 @@ msgstr "``session_unavailable``"
 
 #: ../../topics/messaging.rst:309
 msgid ""
-"Your hub is not taking first contacts from you right now, so this is "
-"queued; run anet status to see your hub's state."
+"This node's hub is not taking first contacts right now, so this is "
+"queued; run anet status to see the hub's state."
 msgstr "本方 Hub 目前不接受来自本节点的首次联系，因此消息排队；运行 anet status 查看 Hub 的状态。"
 
 #: ../../topics/messaging.rst:311
@@ -611,8 +611,9 @@ msgstr "``notice_stale``"
 
 #: ../../topics/messaging.rst:316
 msgid ""
-"Your hub has not confirmed your current key yet, so this is queued; it "
-"goes out on its own once it does (see the identity line of anet status)."
+"This node's hub has not confirmed the current key yet, so this is "
+"queued; it goes out on its own once it does (see the identity line of "
+"anet status)."
 msgstr "本方 Hub 尚未确认当前密钥，因此消息排队；确认后将自动发出（参见 anet status 的身份一行）。"
 
 #: ../../topics/messaging.rst:319

@@ -394,6 +394,9 @@ func render(r Row, key string, lang Language, args Args) string {
 		b.WriteString(head)
 		b.WriteString(v)
 		last = loc[1]
+		if lang == Chinese && name == "name" && strings.HasPrefix(t[last:], "模块") && endsASCIIAlnum(v) {
+			b.WriteByte(' ') // "MCP 模块", not "MCP模块"
+		}
 		if lang == Chinese && endsHan(v) && startsSpaceHan(t[last:]) {
 			last++ // "{limit} 内" with "15 分钟" is "15 分钟内"
 		}
@@ -408,6 +411,14 @@ func render(r Row, key string, lang Language, args Args) string {
 func startsHan(s string) bool {
 	r, _ := utf8.DecodeRuneInString(s)
 	return unicode.Is(unicode.Han, r)
+}
+
+func endsASCIIAlnum(s string) bool {
+	if s == "" {
+		return false
+	}
+	c := s[len(s)-1]
+	return c >= '0' && c <= '9' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z'
 }
 
 func endsHan(s string) bool {
@@ -1448,16 +1459,16 @@ var reasonTable = []Row{
 		En:       "The other side is too busy right now and did not run it; send it again in {retry}.",
 		NextKind: NextRetryLater},
 	{Code: "caller_busy", Class: ClassR, A2A: A2A{Effect: effectUnavailable},
-		Zh:       "你在对方那里还有一个同一能力的调用没结束，这次没有执行；请等它结束后再发。",
-		En:       "You still have a call to this capability running there, so this one was not run; send it again when that one ends.",
+		Zh:       "对方那里仍有一个对同一能力的调用未结束，这次没有执行；请待其结束后再发。",
+		En:       "A call to this capability is still running there, so this one was not run; send it again when that one ends.",
 		NextKind: NextRetryLater},
 	{Code: "quota_caller_per_min", Class: ClassR, A2A: A2A{Effect: effectUnavailable},
-		Zh:       "你这一分钟对这项能力的调用次数已用完，没有执行；请在 {retry} 后再发。",
-		En:       "You have used up this minute's calls to this capability, so it was not run; send it again in {retry}.",
+		Zh:       "本分钟内对这项能力的调用次数已用完，没有执行；请在 {retry} 后再发。",
+		En:       "This minute's calls to this capability are used up, so it was not run; send it again in {retry}.",
 		NextKind: NextRetryLater},
 	{Code: "quota_caller_per_day", Class: ClassR, A2A: A2A{Effect: effectUnavailable},
-		Zh:       "你今天（UTC）对这项能力的调用次数已用完，没有执行；请在 {retry} 后再发。",
-		En:       "You have used up today's (UTC) calls to this capability, so it was not run; send it again in {retry}.",
+		Zh:       "今天（UTC）对这项能力的调用次数已用完，没有执行；请在 {retry} 后再发。",
+		En:       "Today's (UTC) calls to this capability are used up, so it was not run; send it again in {retry}.",
 		NextKind: NextRetryLater},
 	{Code: "args_too_large", Class: ClassR, A2A: A2A{Effect: effectUnavailable},
 		Zh:       "参数超过对方的上限，没有执行；请缩短参数后重发（上限见 anet card {peer}）。",
@@ -1635,12 +1646,12 @@ var reasonTable = []Row{
 
 	// ux §1.4 C2: waits (anet.delivery_wait); the task is unchanged and status.message is not written.
 	{Code: "rate_limited", Class: ClassW,
-		Zh:       "你发得太快，hub 要求稍等；anet 会自动重试。",
-		En:       "You are sending too fast and the hub asked you to wait; anet retries on its own.",
+		Zh:       "发送过快，hub 要求稍等；anet 会自动重试。",
+		En:       "Sending is too fast and the hub asked for a wait; anet retries on its own.",
 		NextKind: NextAuto},
 	{Code: "redelivery_limited", Class: ClassW,
-		Zh:       "你发得太快，hub 要求稍等；anet 会自动重试。",
-		En:       "You are sending too fast and the hub asked you to wait; anet retries on its own.",
+		Zh:       "发送过快，hub 要求稍等；anet 会自动重试。",
+		En:       "Sending is too fast and the hub asked for a wait; anet retries on its own.",
 		NextKind: NextAuto},
 	{Code: "strangers_busy", Class: ClassW,
 		Zh:       "对方接收非联系人来信的通道已满，信在排队；对方取信后会自动送出。",
@@ -1655,16 +1666,16 @@ var reasonTable = []Row{
 		En:       "The other side's hub cannot be reached right now, so this is queued; anet retries on its own.",
 		NextKind: NextAuto},
 	{Code: "session_unavailable", Class: ClassW, Level: LevelWarn,
-		Zh:       "你的 hub 暂时不接受你的首次联系，信在排队；请运行 anet status 查看 hub 状态。",
-		En:       "Your hub is not taking first contacts from you right now, so this is queued; run anet status to see your hub's state.",
+		Zh:       "本节点的 hub 暂时不接受首次联系，信在排队；请运行 anet status 查看 hub 状态。",
+		En:       "This node's hub is not taking first contacts right now, so this is queued; run anet status to see the hub's state.",
 		NextKind: NextCommand, Next: "anet status"},
 	{Code: "credential_refused", Class: ClassW,
 		Zh:       "hub 拒绝了对方给你的投递凭据，信在排队；10 分钟后仍被拒就会自动改走首次联系（hub 会因此知道是你发的）。",
 		En:       "The hub refused the delivery credential the other side gave you, so this is queued; if it is still refused after 10 minutes it goes on its own as a first contact (and the hub then knows it is from you).",
 		NextKind: NextAuto},
 	{Code: "notice_stale", Variant: "wait", Class: ClassW,
-		Zh:       "你的 hub 还没确认你的最新密钥，信在排队；确认后会自动发出，详见 anet status 的身份行。",
-		En:       "Your hub has not confirmed your current key yet, so this is queued; it goes out on its own once it does (see the identity line of anet status).",
+		Zh:       "本节点的 hub 还没确认最新密钥，信在排队；确认后会自动发出，详见 anet status 的身份行。",
+		En:       "This node's hub has not confirmed the current key yet, so this is queued; it goes out on its own once it does (see the identity line of anet status).",
 		NextKind: NextAuto},
 	{Code: "rotation_pending", Variant: "wait", Class: ClassW,
 		Zh:       "密钥轮换正在发布，信在排队；发布完成后会自动发出。",
@@ -1692,8 +1703,8 @@ var reasonTable = []Row{
 
 	// ux §1.4 C5: what no_response_after means (doctor tasks.no_response).
 	{Code: "no_response_after.set", Class: ClassI, Level: LevelOK,
-		Zh: "你发出的任务 {limit} 内没有确认送达即算失败；确认送达后 {limit} 内对方没有任何回应也算失败，之后到达的答复仍会记下。",
-		En: "A task you send fails if its delivery is not confirmed within {limit}, or if it is confirmed but the other side does not answer within {limit} after that; a later answer is still recorded."},
+		Zh: "本节点发出的任务 {limit} 内没有确认送达即算失败；确认送达后 {limit} 内对方没有任何回应也算失败，之后到达的答复仍会记下。",
+		En: "A task this node sends fails if its delivery is not confirmed within {limit}, or if it is confirmed but the other side does not answer within {limit} after that; a later answer is still recorded."},
 	{Code: "no_response_after.off", Class: ClassI, Level: LevelInfo,
 		Zh: "no_response_after 为 0：没有确认送达的任务会一直重发，14 天后过期才算失败；已确认而对方一直不回应的任务保持等待，不会自动算失败。",
 		En: "no_response_after is 0: a task whose delivery is not confirmed is resent until it expires after 14 days, and a confirmed task the other side never answers keeps waiting and does not fail on its own."},
@@ -1857,8 +1868,8 @@ var reasonTable = []Row{
 		En:       "The other node's data went back to an older state (for example a restored backup), and it ended this task; start it again if you still need it.",
 		NextKind: NextStartOver},
 	{Code: "key_compromise", Class: ClassF,
-		Zh:       "你做了紧急密钥轮换，为防泄露的密钥继续被使用，在途任务已全部结束；需要的话请重新发起。",
-		En:       "You rotated your keys in an emergency, so all tasks in progress were ended to stop the leaked keys from being used; start them again if you still need them.",
+		Zh:       "已做紧急密钥轮换，为防泄露的密钥继续被使用，在途任务已全部结束；需要的话请重新发起。",
+		En:       "An emergency key rotation was made, so all tasks in progress were ended to stop the leaked keys from being used; start them again if still needed.",
 		NextKind: NextStartOver},
 	{Code: "key_compromise", Variant: "peer", Class: ClassF,
 		Zh:       "对方做了紧急密钥轮换并结束了这个任务；重新发起即可，会自动使用对方的新密钥。",
@@ -1903,8 +1914,8 @@ var reasonTable = []Row{
 		En:       "Not joined to a hub yet, so nothing can be sent or received; run anet hub-register {official_hub} to join the official public hub, or use your organization's hub URL instead.",
 		NextKind: NextCommand, Next: "anet hub-register {official_hub}"},
 	{Code: "witness_unreachable", Class: ClassC,
-		Zh:       "连不上你的见证 hub {hub}，计划内轮换需要它在线；请稍后重试，确有泄露请用 anet identity rotate --emergency。",
-		En:       "Your witness hub {hub} cannot be reached, and a scheduled rotation needs it online; try again later, or if a key has leaked use anet identity rotate --emergency.",
+		Zh:       "连不上本节点的见证 hub {hub}，计划内轮换需要它在线；请稍后重试，确有泄露请用 anet identity rotate --emergency。",
+		En:       "The witness hub {hub} cannot be reached, and a scheduled rotation needs it online; try again later, or if a key has leaked use anet identity rotate --emergency.",
 		NextKind: NextRetryLater},
 	{Code: "rotation_pending", Class: ClassC | ClassS, Level: LevelWarn,
 		Zh:       "上一次密钥轮换还在发布，期间暂停收发（不会丢消息）；anet 会自动重试，可用 anet identity status 查看。",
@@ -1962,28 +1973,28 @@ var reasonTable = []Row{
 		Zh: "{name} {aid8}，密钥已由 {hub} 确认（{ago}前）。",
 		En: "{name} {aid8}, key confirmed by {hub} {ago} ago."},
 	{Code: "identity.confirm_aging", Class: ClassS, Level: LevelWarn,
-		Zh:       "你的 hub 已 {dur} 没有确认你的密钥；请检查与 hub 的连接。",
-		En:       "Your hub has not confirmed your key for {dur}; check your connection to it.",
+		Zh:       "本节点的 hub 已 {dur} 没有确认密钥；请检查与 hub 的连接。",
+		En:       "This node's hub has not confirmed its key for {dur}; check the connection to the hub.",
 		NextKind: NextCommand, Next: "anet doctor"},
 	{Code: "notice_stale", Class: ClassS, Level: LevelFail,
-		Zh:       "你的 hub 已 {dur} 没有确认你的密钥，发出的消息在排队；请检查与 hub 的连接，hub 长期不可用时请换 hub。",
-		En:       "Your hub has not confirmed your key for {dur}, so outgoing messages are queued; check your connection to it, and switch hubs if it stays down.",
+		Zh:       "本节点的 hub 已 {dur} 没有确认密钥，发出的消息在排队；请检查与 hub 的连接，hub 长期不可用时请换 hub。",
+		En:       "This node's hub has not confirmed its key for {dur}, so outgoing messages are queued; check the connection to the hub, and switch hubs if it stays down.",
 		NextKind: NextCommand, Next: "anet doctor"},
 	{Code: "old_hub_unacked", Class: ClassS, Level: LevelInfo,
 		Zh: "新 hub 已生效；旧 hub {hub} 还没确认收到这次轮换，anet 会继续重试，不需要操作。",
 		En: "The new hub is in use; the old hub {hub} has not confirmed this rotation yet, and anet keeps trying; nothing to do."},
 	{Code: "identity.quarantine", Class: ClassS, Level: LevelWarn,
-		Zh: "你的 hub 刚从备份恢复，正在核对身份记录；不需要操作，最多 30 分钟。",
-		En: "Your hub was just restored from a backup and is checking identity records; nothing to do, it takes at most 30 minutes."},
+		Zh: "本节点的 hub 刚从备份恢复，正在核对身份记录；不需要操作，最多 30 分钟。",
+		En: "This node's hub was just restored from a backup and is checking identity records; nothing to do, it takes at most 30 minutes."},
 	{Code: "identity.hub_record_invalid", Class: ClassS, Level: LevelWarn,
-		Zh: "你的见证 hub {hub} 给出的身份记录验证不过，本机身份不受影响；请把这条信息发给 hub 运营者，持续出现时请换 hub。",
-		En: "Your witness hub {hub} returned an identity record that does not verify; this node's identity is not affected. Send this message to the hub's operator, and switch hubs if it keeps happening."},
+		Zh: "本节点的见证 hub {hub} 给出的身份记录验证不过，本机身份不受影响；请把这条信息发给 hub 运营者，持续出现时请换 hub。",
+		En: "The witness hub {hub} returned an identity record that does not verify; this node's identity is not affected. Send this message to the hub's operator, and switch hubs if it keeps happening."},
 	{Code: "identity.hub_kel_fork", Class: ClassS, Level: LevelWarn,
 		Zh: "有 {n} 份对等 hub 的身份记录与本机保存的不一致，已保留原记录；请把这条信息发给你的 hub 运营者。",
 		En: "{n} identity records of peer hubs did not match the ones this node keeps, so the kept ones stay; send this message to your hub's operator."},
 	{Code: "identity.hub_unauthorized", Class: ClassS, Level: LevelWarn,
-		Zh:       "你的 hub 最近 {n} 次拒绝了本节点的签名请求；请运行 anet status 查看 hub 状态，持续出现时请换 hub。",
-		En:       "Your hub refused this node's signed requests {n} times recently; check it with anet status, and switch hubs if this goes on.",
+		Zh:       "本节点的 hub 最近 {n} 次拒绝了本节点的签名请求；请运行 anet status 查看 hub 状态，持续出现时请换 hub。",
+		En:       "This node's hub refused its signed requests {n} times recently; check it with anet status, and switch hubs if this goes on.",
 		NextKind: NextCommand, Next: "anet status"},
 	{Code: "identity.unprotected", Class: ClassS, Level: LevelWarn,
 		Zh:       "身份还没有设恢复口令：数据目录一旦泄露，身份可能被抢走且无法找回。请在终端运行 anet identity protect。",
@@ -2551,7 +2562,7 @@ var reasonTable = []Row{
 		Zh: "· 更换本机控制令牌与 A2A 令牌，并设置恢复口令（数据目录里未设口令的恢复文件随即删除）",
 		En: "· replace this node's control and A2A tokens, and set a recovery passphrase (the unprotected recovery file in the data directory is then deleted)"},
 	{Code: "identity.rotate.emergency_witness_down", Class: ClassT,
-		Zh: "你的见证 hub {hub} 现在连不上：紧急轮换会先停用本机的旧密钥，等它恢复后自动发布，期间暂停收发。若它已永久关闭，请按 Ctrl-C 取消，先换 hub（anet hub-register <新 hub>）再做紧急轮换。",
+		Zh: "本节点的见证 hub {hub} 现在连不上：紧急轮换会先停用本机的旧密钥，等它恢复后自动发布，期间暂停收发。若它已永久关闭，请按 Ctrl-C 取消，先换 hub（anet hub-register <新 hub>）再做紧急轮换。",
 		En: "Witness hub {hub} is unreachable: the old key stops here now and the rotation is published when the hub is back; sending and receiving pause until then. If it is gone for good, press Ctrl-C and switch hubs first (anet hub-register <new hub>)."},
 	{Code: "identity.rotate.emergency_done_seq", Class: ClassI,
 		Zh: "已完成：密钥序号 {from} → {to}。",
@@ -2593,8 +2604,8 @@ var reasonTable = []Row{
 		Zh: "删除本机数据不会注销这个身份；要注销请先运行 anet identity deactivate。",
 		En: "Removing local data does not deactivate this identity; to deactivate it, run anet identity deactivate first."},
 	{Code: "identity.rm.dip_unacked", Class: ClassT,
-		Zh: "你的见证 hub 还没确认这次注销；现在删除后 anet 不会再重试，别人可能继续给这个身份发信。",
-		En: "Your witness hub has not confirmed the deactivation yet; after removal anet stops retrying, and others may keep sending to this identity."},
+		Zh: "本节点的见证 hub 还没确认这次注销；现在删除后 anet 不会再重试，别人可能继续给这个身份发信。",
+		En: "The witness hub has not confirmed the deactivation yet; after removal anet stops retrying, and others may keep sending to this identity."},
 
 	// ux §1.4 M3: auto-reply and the sandbox.
 	{Code: "autoreply.updated", Class: ClassI,
@@ -2678,8 +2689,8 @@ var reasonTable = []Row{
 		Zh: "hub 发放链：{n} 个纪元，签名与链接都有效，与本机上次记录的链头一致。",
 		En: "The hub's issuance chain: {n} periods, signatures and links valid, matching the head this node last recorded."},
 	{Code: "audit.proofs_ok", Class: ClassI,
-		Zh: "你的余额证明：{n} 个纪元核对通过，最新 {time} 余额 {amount} credits。",
-		En: "Your balance proofs: {n} periods checked, latest {time} balance {amount} credits."},
+		Zh: "余额证明：{n} 个纪元核对通过，最新 {time} 余额 {amount} credits。",
+		En: "Balance proofs: {n} periods checked, latest {time} balance {amount} credits."},
 	{Code: "audit.none", Class: ClassI,
 		Zh: "没有发现问题。",
 		En: "No problems found."},
@@ -2792,8 +2803,8 @@ var reasonTable = []Row{
 		Zh: "本机时钟与 hub 相差 {n} 秒。",
 		En: "This computer's clock is {n} seconds off from the hub."},
 	{Code: "sender_privacy.grants_summary", Class: ClassS, Level: LevelInfo,
-		Zh: "你持有 {n} 个对方给的投递凭据（给他们发信时信里不带你的身份）；你给出了 {m} 个。",
-		En: "You hold {n} delivery credentials from others (your messages to them carry no sender identity); you have issued {m}."},
+		Zh: "本节点持有 {n} 个对方给的投递凭据（向对方发信时信里不带本节点的身份）；已给出 {m} 个。",
+		En: "This node holds {n} delivery credentials from others (its messages to them carry no sender identity); it has issued {m}."},
 	{Code: "sender_privacy.withdrawals_pending", Class: ClassS, Level: LevelWarn,
 		Zh: "有 {n} 个投递凭据的收回超过 1 小时没送到 hub；anet 会自动重试，请检查与 hub 的连接。",
 		En: "{n} withdrawn delivery credentials have not reached the hub for over an hour; anet keeps retrying on its own; check your connection to the hub."},
