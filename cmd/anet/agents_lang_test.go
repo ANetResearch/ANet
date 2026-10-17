@@ -87,21 +87,9 @@ func runAgentsCLI(t *testing.T, h *cliHome, args []string, extra ...string) (std
 	return out.String(), errb.String(), code
 }
 
-// skipUnlessSelectorIsANETLANG skips a test that depends on the language
-// coming from ANET_LANG alone (core G13) while the selector still reads the
-// locale variables.
-func skipUnlessSelectorIsANETLANG(t *testing.T) {
-	t.Helper()
-	env := func(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
-	if a2ashape.LangFrom(env(map[string]string{"LANG": "zh_CN.UTF-8"})) == a2ashape.Chinese {
-		t.Skip("the language selector still reads LANG")
-	}
-}
-
 // The output of `anet agents wire` is English when ANET_LANG is unset, even
 // under a Chinese locale, and every line carries no Chinese.
 func TestAgentsWireIsEnglishUnderChineseLocale(t *testing.T) {
-	skipUnlessSelectorIsANETLANG(t)
 	h := newCLIHome(t, "zh_CN.UTF-8")
 	out, errs, code := runAgentsCLI(t, h, []string{"agents", "wire", "cursor", "workbuddy"}, agentsEnv(t)...)
 	if code != 0 {
@@ -124,7 +112,6 @@ func TestAgentsWireIsEnglishUnderChineseLocale(t *testing.T) {
 
 // ANET_LANG=zh-CN switches the same lines to Chinese.
 func TestAgentsWireIsChineseWithANETLANG(t *testing.T) {
-	skipUnlessSelectorIsANETLANG(t)
 	h := newCLIHome(t, "en_US.UTF-8")
 	out, errs, code := runAgentsCLI(t, h, []string{"agents", "wire", "cursor"}, agentsEnv(t, "ANET_LANG=zh-CN")...)
 	if code != 0 || !strings.Contains(out, "已写入") || !strings.Contains(out, "重启这些工具") {
