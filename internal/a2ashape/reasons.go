@@ -1262,6 +1262,9 @@ type StatusInput struct {
 	// takes its place.
 	Hub     Said
 	HubWire *Said
+	// HubThen is a sentence that follows the hub line (hub.next_check while a hub waits to admit this
+	// node).
+	HubThen *Said
 	// HubRegistered hides the clock sentences of the privacy line when
 	// false.
 	HubRegistered bool
@@ -1402,7 +1405,7 @@ func StatusSummary(in StatusInput, lang Language) []SummaryLine {
 	if in.HubWire != nil && in.HubWire.Key != "" {
 		hub = in.HubWire
 	}
-	add(TopicHub, hub, nil)
+	add(TopicHub, hub, in.HubThen)
 	add(TopicDelivery, in.Delivery, nil)
 	add(TopicInbound, &in.Inbound, nil)
 	add(TopicSandbox, in.Sandbox, in.SandboxBudget)
@@ -2732,6 +2735,10 @@ var reasonTable = []Row{
 	{Code: "delivery.ends_at", Class: ClassI,
 		Zh: "到 {time} 仍未送达，任务会以失败结束。",
 		En: "If it is still not delivered by {time}, the task fails."},
+
+	{Code: "hub.next_check", Class: ClassI,
+		Zh: "anet 将在 {time} 再次向 hub 确认。",
+		En: "anet asks the hub again at {time}."},
 
 	// ux §3.4 (g): what an agent is told (SKILL.md, llms.txt and site.json carry it word for word).
 	{Code: "agent_hint.join", Class: ClassI,

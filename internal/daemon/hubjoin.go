@@ -354,8 +354,8 @@ func checkHubURL(s string) error {
 
 // --- the retry rhythm (AD-3) ---
 
-// joinSchedule is the wait after the n-th failed attempt in a row; after
-// the last, every 10 minutes.
+// joinSchedule is the generic wait after the n-th failed attempt in a row; after
+// the last, every 10 minutes. The join loop caps it at joinRetryCap.
 var joinSchedule = []time.Duration{15 * time.Second, 30 * time.Second, time.Minute, 2 * time.Minute,
 	5 * time.Minute, 10 * time.Minute}
 
@@ -363,16 +363,17 @@ const (
 	// joinBackoffMax is the longest wait of the schedule: once admitted, a
 	// node finishes joining at most this long after (AD-3).
 	joinBackoffMax = 10 * time.Minute
+	// joinRetryCap is the longest wait between two attempts to join when the hub names none.
+	joinRetryCap = time.Minute
 	// joinRetryAfterMax bounds a hub's Retry-After: registration_quota
 	// names the next UTC midnight, never more than a day away, and a hub
 	// asking for longer would park the join for good.
 	joinRetryAfterMax = 24 * time.Hour
 )
 
-// joinBackoff is the wait before the next attempt after attempts failed in
-// a row (AD-3, P-BACKOFF): 15 s, 30 s, 1, 2, 5 and 10 minutes, then every
-// 10 minutes; never less than the hub's Retry-After (bounded to a day).
-func joinBackoff(attempts int, retryAfter time.Duration) time.Duration {
+// slowBackoff is the generic schedule: 15 s, 30 s, 1, 2, 5 and 10 minutes, then every 10 minutes. The
+// witness publication retry (identity_ops.go) uses it as it is.
+func slowBackoff(attempts int) time.Duration {
 	d := joinBackoffMax
 	if i := attempts - 1; i < len(joinSchedule) {
 		if i < 0 {
@@ -380,6 +381,15 @@ func joinBackoff(attempts int, retryAfter time.Duration) time.Duration {
 		}
 		d = joinSchedule[i]
 	}
+	return d
+}
+
+// joinBackoff is the wait before the next attempt to join after attempts failed in a row (AD-3,
+// P-BACKOFF): 15 s, 30 s, then every minute (joinRetryCap); never less than the hub's Retry-After
+// (bounded to a day). The cap keeps a node that an operator admits late from waiting for minutes
+// after the admission; one question a minute is a small load for a hub.
+func joinBackoff(attempts int, retryAfter time.Duration) time.Duration {
+	d := min(slowBackoff(attempts), joinRetryCap)
 	if retryAfter > joinRetryAfterMax {
 		retryAfter = joinRetryAfterMax
 	}

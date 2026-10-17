@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
 )
@@ -135,5 +136,43 @@ func TestSummaryCarriesWordedMembers(t *testing.T) {
 	}
 	if st, _ := sandboxSaid(nil); st != nil {
 		t.Error("sandbox line without a member")
+	}
+}
+
+// While a hub waits to admit this node, the hub line of the summary says when anet asks it again; once
+// the node is registered the sentence is gone.
+func TestStatusSummaryNamesTheNextCheckWhileWaitingForAdmission(t *testing.T) {
+	srv := newFakeHub(t)
+	fh := fakeHubAt(t, srv.URL)
+	fh.mu.Lock()
+	fh.admission = fakeAdmitClosed
+	fh.mu.Unlock()
+	d, _ := joinDaemon(t)
+	if code, out := controlCall(t, d.hHubRegister, "/hub-register", hubRegisterBody(srv.URL, `,"next_digest":"`+testDigest+`"`)); code != 200 ||
+		out["state"] != JoinPendingAdmission {
+		t.Fatalf("join a closed hub: %d %v", code, out)
+	}
+	rec := d.joinSnapshot()
+	if rec == nil || rec.NextAttemptAt == 0 {
+		t.Fatalf("no next attempt recorded: %+v", rec)
+	}
+	for _, lang := range []a2ashape.Language{a2ashape.English, a2ashape.Chinese} {
+		var hub *a2ashape.SummaryLine
+		lines := d.statusSummary(map[string]any{}, lang)
+		for i := range lines {
+			if lines[i].Topic == a2ashape.TopicHub {
+				hub = &lines[i]
+			}
+		}
+		if hub == nil {
+			t.Fatalf("no hub line: %+v", lines)
+		}
+		tail := a2ashape.Sentence("hub.next_check", lang, a2ashape.Args{"time": time.UnixMilli(rec.NextAttemptAt), "now": time.Now()})
+		if !strings.HasSuffix(hub.Text, tail) {
+			t.Errorf("%v: hub line %q does not end with %q", lang, hub.Text, tail)
+		}
+	}
+	if w := joinBackoff(rec.Attempts, 0); w > time.Minute {
+		t.Errorf("the wait between two questions is %v, more than a minute", w)
 	}
 }

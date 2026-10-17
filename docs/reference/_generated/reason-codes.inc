@@ -426,6 +426,11 @@ Messages sent by this node: terminal failures, waits, the outbox and the deliver
      - If it is still not delivered by {time}, the task fails.
      - 到 {time} 仍未送达，任务会以失败结束。
      - 
+   * - ``hub.next_check``
+     - I
+     - ``anet`` asks the hub again at {time}.
+     - ``anet`` 将在 {time} 再次向 hub 确认。
+     - 
 
 .. _reason-codes-d:
 

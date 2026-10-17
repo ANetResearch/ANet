@@ -316,7 +316,7 @@ A hub that admits agents by AID answers with a pending state. The command then
 prints the ``anet-hub admit <AID>`` line that the hub operator must run, and the
 daemon completes the registration in the background once the operator has
 admitted the AID, with retries starting at 15 seconds and backing off to every
-10 minutes. The hub on ``https://hub.agentnetwork.org.cn`` accepts registrations
+minute. The hub on ``https://hub.agentnetwork.org.cn`` accepts registrations
 without operator action, protected by a proof of work, a daily quota per
 address range and a probation period.
 

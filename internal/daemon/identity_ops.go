@@ -1125,7 +1125,7 @@ func (d *Daemon) schedulePublish(now bool) {
 		return
 	}
 	d.idOps.pubFailures++
-	wait := min(joinBackoff(d.idOps.pubFailures, 0), publishRetryMax.get())
+	wait := min(slowBackoff(d.idOps.pubFailures), publishRetryMax.get())
 	d.idOps.pubNextAt = time.Now().Add(wait)
 }
 

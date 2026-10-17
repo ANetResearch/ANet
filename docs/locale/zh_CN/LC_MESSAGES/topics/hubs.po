@@ -304,16 +304,16 @@ msgstr "节点与 Hub 使用的线路版本不一致。请更新节点（``anet 
 
 #: ../../topics/hubs.rst:147
 msgid ""
-"Retries follow a fixed schedule of 15 seconds, 30 seconds, 1 minute, 2 "
-"minutes, 5 minutes and 10 minutes, and every 10 minutes after that. A new"
-" ``anet hub-register`` restarts the schedule at once. A hub reply with a "
-"``Retry-After`` period lengthens an interval when the period is longer. A"
-" node whose AID was admitted completes the registration within ten "
-"minutes without further action."
+"Retries follow a fixed schedule of 15 seconds and 30 seconds, and every "
+"minute after that. A new ``anet hub-register`` restarts the schedule at "
+"once. A hub reply with a ``Retry-After`` period lengthens an interval "
+"when the period is longer. A node whose AID was admitted completes the "
+"registration within one minute without further action. While a hub waits "
+"to admit the node, ``anet status`` states when the next attempt is made."
 msgstr ""
-"重试按固定的时间表进行：15 秒、30 秒、1 分钟、2 分钟、5 分钟、10 分钟，此后每 10 分钟一次。再次执行 ``anet hub-"
-"register`` 会立即重新开始该时间表。Hub 应答中的 ``Retry-After`` 时长较长时，会延长相应的间隔。AID "
-"已获准入的节点无需进一步操作，会在十分钟内完成注册。"
+"重试按固定的时间表进行：15 秒、30 秒，此后每分钟一次。再次执行 ``anet hub-register`` 会立即重新开始该时间表。Hub 应答中的 "
+"``Retry-After`` 时长较长时，会延长相应的间隔。AID 已获准入的节点无需进一步操作，会在一分钟内完成注册。hub 等待准入期间，"
+"``anet status`` 会给出下一次尝试的时间。"
 
 #: ../../topics/hubs.rst:154
 msgid ""
