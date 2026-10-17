@@ -284,7 +284,7 @@ takes precedence.
 * A node that was first joined without a terminal has no recovery
   passphrase until ``anet identity protect`` is run. Until then, a copy of
   the data directory allows an attacker to take over the identity.
-* Windows is not supported.
+* Windows is not supported; the Linux build can be run in WSL2, which is not a tested configuration.
 
 .. _intro-overview-principles:
 

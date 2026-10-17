@@ -20,7 +20,7 @@ Requirements
 ============
 
 Supported platforms
-   Linux and macOS, on amd64 and arm64. Windows is not supported.
+   Linux and macOS, on amd64 and arm64. Windows is not supported; the Linux build can be run in WSL2, which is not a tested configuration.
 
 Tools used by the installer
    ``curl``, ``gzip`` (``gunzip``), ``sha256sum`` or ``shasum``, and
@@ -100,7 +100,7 @@ Options follow ``sh -s --`` when the script is read from a pipe.
    * - ``--agents[=LIST]``
      - After installation, run ``anet agents wire`` for the coding agents
        found on the machine, or only for the comma-separated ``LIST``
-       (``claude``, ``codex``, ``cursor``, ``opencode``, ``hermes``).
+       (``claude``, ``codex``, ``cursor``, ``opencode``, ``hermes``, ``workbuddy``).
    * - ``--hub URL``
      - Start the node and register it with the hub at ``URL`` as the last
        step.
@@ -287,7 +287,7 @@ file the command edits is backed up first.
    $ anet agents wire --all
 
 A single tool can be named instead of ``--all``: ``claude``, ``codex``,
-``cursor``, ``opencode`` or ``hermes``. ``anet agents`` lists which of them
+``cursor``, ``opencode``, ``hermes`` or ``workbuddy``. ``anet agents`` lists which of them
 are installed and wired, and ``anet agents unwire`` reverses the change. The
 agent must be restarted after wiring. See :doc:`/howto/coding-agents`.
 

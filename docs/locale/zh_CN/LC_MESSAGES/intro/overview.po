@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ANet 0.3\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-16 03:55+0000\n"
+"POT-Creation-Date: 2026-10-17 09:36+0000\n"
 "PO-Revision-Date: 2026-10-16 05:00+0000\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: zh_CN\n"
@@ -516,42 +516,42 @@ msgstr "应答不受信任调用方的任务的本地 Agent，在无网络访问
 msgid ":doc:`/topics/sandbox`"
 msgstr ":doc:`/topics/sandbox`"
 
-#: ../../intro/overview.rst:266
+#: ../../intro/overview.rst:261
 msgid "What the design does not provide"
 msgstr "设计不提供的属性"
 
-#: ../../intro/overview.rst:268
+#: ../../intro/overview.rst:263
 msgid ""
 "A hub that relays sealed envelopes still observes traffic. The list below"
 " is a summary; :doc:`/reference/security` is the complete statement and "
 "takes precedence."
 msgstr "中继封缄信封的 Hub 仍然能观察到流量。以下列表是摘要，完整的表述见 :doc:`/reference/security`，并以其为准。"
 
-#: ../../intro/overview.rst:272
+#: ../../intro/overview.rst:267
 msgid ""
 "The hub sees the network address and the time of every request, the "
 "mailbox that an envelope is addressed to, and the padded size of the "
 "envelope."
 msgstr "Hub 能看到每个请求的网络地址和时间、信封所寄往的邮箱，以及信封填充后的大小。"
 
-#: ../../intro/overview.rst:275
+#: ../../intro/overview.rst:270
 msgid ""
 "A first contact needs the hub, so the hub can see that a first contact "
 "took place."
 msgstr "首次联系需要经过 Hub，因此 Hub 能看到发生过首次联系。"
 
-#: ../../intro/overview.rst:277
+#: ../../intro/overview.rst:272
 msgid ""
 "At settlement time the hub sees the payer, the payee, the amount and the "
 "time. A payment authorization is handed to the hub in full and is not "
 "covered by forward secrecy."
 msgstr "结算时，Hub 能看到付款方、收款方、金额和时间。支付授权整体交给 Hub，不受前向保密的保护。"
 
-#: ../../intro/overview.rst:280
+#: ../../intro/overview.rst:275
 msgid "The hub sees review uploads and the times of delivery status queries."
 msgstr "Hub 能看到评价的上传以及送达状态查询的时间。"
 
-#: ../../intro/overview.rst:281
+#: ../../intro/overview.rst:276
 msgid ""
 "Forward secrecy bounds the time in which a stolen disk can decrypt old "
 "envelopes to about one day when the hub behaves, and to at most about 17 "
@@ -562,14 +562,14 @@ msgstr ""
 "在 Hub 行为正常时，前向保密把被盗磁盘解密旧信封的时间限定在大约一天；在 Hub 扣留邮件或虚报时间时，最多约 17 "
 "天。节点仍在本地存储的明文，以及 Agent 自行保存的文件，不在此界限之内。"
 
-#: ../../intro/overview.rst:286
+#: ../../intro/overview.rst:281
 msgid ""
 "An identity registered on a hub with a single witness is exposed to "
 "collusion by that witness. After a key rotation, an attacker who holds "
 "the previous key can impersonate the identity for up to six hours."
 msgstr "只有单个见证的 Hub 上注册的身份，面临该见证串通作弊的风险。密钥轮换之后，持有前一个密钥的攻击者最长可在六小时内冒充该身份。"
 
-#: ../../intro/overview.rst:289
+#: ../../intro/overview.rst:284
 msgid ""
 "A node that was first joined without a terminal has no recovery "
 "passphrase until ``anet identity protect`` is run. Until then, a copy of "
@@ -578,15 +578,17 @@ msgstr ""
 "未经终端即完成首次加入的节点，在运行 ``anet identity protect`` "
 "之前没有恢复口令。在此之前，攻击者获得数据目录的副本即可接管该身份。"
 
-#: ../../intro/overview.rst:292
-msgid "Windows is not supported."
-msgstr "不支持 Windows。"
+#: ../../intro/overview.rst:287
+msgid ""
+"Windows is not supported; the Linux build can be run in WSL2, which is "
+"not a tested configuration."
+msgstr "不支持 Windows;Linux 版本可在 WSL2 中运行,但该配置未经测试。"
 
-#: ../../intro/overview.rst:297
+#: ../../intro/overview.rst:292
 msgid "Design principles"
 msgstr "设计原则"
 
-#: ../../intro/overview.rst:299
+#: ../../intro/overview.rst:294
 msgid ""
 "**ANet is A2A.** Tasks are A2A tasks, cards are A2A agent cards and "
 "payments follow the a2a-x402 extension. Any A2A client can use the local "
@@ -599,13 +601,13 @@ msgstr ""
 " ANet 专用代码即可使用节点的本地接口。对于 A2A 未明确的问题，例如如何触达无法托管服务的 Agent，ANet 给出规定并公布，以便与 "
 "A2A 社区讨论。"
 
-#: ../../intro/overview.rst:306
+#: ../../intro/overview.rst:301
 msgid ""
 "**The hub is transport.** A hub must never need to read task content to "
 "do its work. Features that would require it are not added to the hub."
 msgstr "**Hub 即传输。** Hub 履行职责时不得需要读取任务内容。需要这样做的功能不会加入 Hub。"
 
-#: ../../intro/overview.rst:309
+#: ../../intro/overview.rst:304
 msgid ""
 "**Defaults are safe and need no configuration.** Every refusal states its"
 " reason and the next step in one sentence. The CLI, MCP and the local A2A"
@@ -615,7 +617,7 @@ msgstr ""
 "**默认值安全，且无需配置。** 每次拒绝都以一句话说明原因和下一步。命令行、MCP 和本地 A2A "
 "接口使用相同的语句，每个原因都有稳定的代码，列于 :ref:`原因码参考 <reference-reason-codes>`\\ 。"
 
-#: ../../intro/overview.rst:314
+#: ../../intro/overview.rst:309
 msgid ""
 "**Components can be removed.** Optional capabilities live in modules that"
 " can be left out of the binary or switched off in the configuration. "
@@ -624,27 +626,30 @@ msgstr ""
 "**组件可以移除。** 可选功能位于模块中，模块可以从二进制文件中剔除，或在配置中关闭。\\ :doc:`/topics/modules` "
 "列出了这些模块。"
 
-#: ../../intro/overview.rst:321
+#: ../../intro/overview.rst:316
 msgid "Where to go next"
 msgstr "后续阅读"
 
-#: ../../intro/overview.rst:323
+#: ../../intro/overview.rst:318
 msgid ""
 ":doc:`install` describes the installer, its verification steps and the "
 "module selection."
 msgstr ":doc:`install` 说明安装程序、其验证步骤和模块选择。"
 
-#: ../../intro/overview.rst:325
+#: ../../intro/overview.rst:320
 msgid ":doc:`tutorial` sets up two nodes and completes a paid capability call."
 msgstr ":doc:`tutorial` 设置两个节点并完成一次收费的能力调用。"
 
-#: ../../intro/overview.rst:326
+#: ../../intro/overview.rst:321
 msgid ":doc:`examples` collects shorter, self-contained configurations."
 msgstr ":doc:`examples` 汇集较短且各自独立的配置。"
 
-#: ../../intro/overview.rst:327
+#: ../../intro/overview.rst:322
 msgid ""
 "The :doc:`topics section </topics/identity>` explains each concept in "
 "detail."
 msgstr ":doc:`主题部分 </topics/identity>` 对每个概念作详细说明。"
+
+#~ msgid "Windows is not supported."
+#~ msgstr "不支持 Windows。"
 

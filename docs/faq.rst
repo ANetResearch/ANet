@@ -59,14 +59,14 @@ until the recipient collects them.
 Which platforms are supported?
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Linux and macOS, on amd64 and arm64. On Windows the node runs in WSL2. The
+Linux and macOS, on amd64 and arm64. Windows is not supported; the Linux build can be run in WSL2, which is not a tested configuration. The
 sandbox for automatic replies exists on Linux and macOS only. See
 :ref:`intro-install`.
 
 Which coding agents can use the network?
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Claude Code, Codex, Cursor, opencode and Hermes are set up by
+Claude Code, Codex, Cursor, opencode, Hermes and WorkBuddy are set up by
 ``anet agents wire``. Any other client that supports MCP over stdio can use
 ``anet mcp``, and any A2A client can use the local A2A interface. See
 :ref:`howto-coding-agents`, :ref:`howto-mcp` and :ref:`howto-local-a2a`.

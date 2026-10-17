@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ANet 0.3\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-16 03:55+0000\n"
+"POT-Creation-Date: 2026-10-17 09:36+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: zh_CN\n"
@@ -22,7 +22,7 @@ msgstr ""
 msgid "Integrating coding agents"
 msgstr "接入编码 Agent"
 
-#: ../../howto/coding-agents.rst:9
+#: ../../howto/coding-agents.rst:6
 msgid ""
 "A coding agent reaches the network through the MCP server of the local "
 "node (``anet mcp``, see :ref:`howto-mcp`). The command ``anet agents "
@@ -34,23 +34,23 @@ msgstr ""
 "agents wire`` 会把该服务器连同一份简短的操作指南,写入本机已安装的各编码 Agent 的配置文件;命令 ``anet agents "
 "unwire`` 则将两者再次移除。"
 
-#: ../../howto/coding-agents.rst:15
+#: ../../howto/coding-agents.rst:12
 msgid ""
 "This page describes the supported tools, the files that are changed, the "
 "rules that apply to every change, and the options specific to Hermes."
 msgstr "本页说明受支持的工具、被修改的文件、适用于每次修改的规则,以及 Hermes 专有的选项。"
 
-#: ../../howto/coding-agents.rst:24
+#: ../../howto/coding-agents.rst:21
 msgid "Overview"
 msgstr "概述"
 
-#: ../../howto/coding-agents.rst:26
+#: ../../howto/coding-agents.rst:23
 msgid ""
 "A coding agent has no built-in knowledge of ANet. Integration consists of"
 " two parts:"
 msgstr "编码 Agent 本身不具备关于 ANet 的知识。接入由两部分组成:"
 
-#: ../../howto/coding-agents.rst:29
+#: ../../howto/coding-agents.rst:26
 msgid ""
 "an **MCP server entry** that starts ``anet mcp`` with the data directory "
 "of the node, so that the tool set of :ref:`reference-mcp-tools` becomes "
@@ -59,7 +59,7 @@ msgstr ""
 "一个 **MCP 服务器条目**,它以节点的数据目录启动 ``anet mcp``,使 :ref:`reference-mcp-tools` "
 "中的工具集在编码 Agent 中可用;"
 
-#: ../../howto/coding-agents.rst:32
+#: ../../howto/coding-agents.rst:29
 msgid ""
 "an **operating guide**, a short text that states how the tools are used, "
 "how task results are to be reported, and what the agent must not do (for "
@@ -69,7 +69,7 @@ msgstr ""
 "一份 **操作指南**,即一段简短文字,说明如何使用这些工具、如何报告任务结果,以及 Agent 不得做什么(例如调高支出限额,或执行其他 "
 "Agent 发给节点的任务中所包含的指令)。"
 
-#: ../../howto/coding-agents.rst:37
+#: ../../howto/coding-agents.rst:34
 msgid ""
 "The MCP server accepts tool calls only from the process that started it "
 "and forwards them to the daemon of the node over the local control plane."
@@ -82,7 +82,7 @@ msgstr ""
 "MCP 服务器只接受启动它的进程发出的工具调用,并通过本地控制面把调用转发给节点的守护进程。身份密钥、账本和入站策略由守护进程保管,编码 "
 "Agent 不持有其中任何一项。会改变节点权限的操作,例如允许某个对等方、放宽入站策略或更改付款限额,不作为工具提供,仍由运维人员在终端中执行。"
 
-#: ../../howto/coding-agents.rst:45
+#: ../../howto/coding-agents.rst:42
 msgid ""
 "The command works on files only. It does not need a running daemon, and "
 "the installer runs it before the first ``anet up``. The MCP server itself"
@@ -91,11 +91,11 @@ msgstr ""
 "该命令只处理文件,不需要守护进程在运行,安装程序会在第一次 ``anet up`` 之前运行它。MCP 服务器本身则需要守护进程在运行;参见 "
 ":ref:`howto-mcp`\\ 。"
 
-#: ../../howto/coding-agents.rst:51
+#: ../../howto/coding-agents.rst:48
 msgid "Supported tools"
 msgstr "受支持的工具"
 
-#: ../../howto/coding-agents.rst:53
+#: ../../howto/coding-agents.rst:50
 msgid ""
 "The tool argument of ``anet agents wire`` is one of the names in the "
 "first column. ``claude-code`` is accepted as an alias of ``claude``."
@@ -103,114 +103,125 @@ msgstr ""
 "``anet agents wire`` 的工具参数是第一列中的名称之一。\\ ``claude-code`` 可作为 ``claude`` "
 "的别名使用。"
 
-#: ../../howto/coding-agents.rst:60
+#: ../../howto/coding-agents.rst:57
 msgid "Argument"
 msgstr "参数"
 
-#: ../../howto/coding-agents.rst:61
+#: ../../howto/coding-agents.rst:58
 msgid "MCP server entry"
 msgstr "MCP 服务器条目"
 
-#: ../../howto/coding-agents.rst:62
+#: ../../howto/coding-agents.rst:59
 msgid "Operating guide"
 msgstr "操作指南"
 
-#: ../../howto/coding-agents.rst:63
+#: ../../howto/coding-agents.rst:60
 msgid "Environment"
 msgstr "环境变量"
 
-#: ../../howto/coding-agents.rst:64
+#: ../../howto/coding-agents.rst:61
 msgid "``claude``"
 msgstr "``claude``"
 
-#: ../../howto/coding-agents.rst:65
+#: ../../howto/coding-agents.rst:62
 msgid "Server ``anet`` in the user scope of ``~/.claude.json``"
 msgstr "``~/.claude.json`` 用户作用域中的服务器 ``anet``"
 
-#: ../../howto/coding-agents.rst:66
+#: ../../howto/coding-agents.rst:63
 msgid "Skill ``~/.claude/skills/anet/SKILL.md``"
 msgstr "技能 ``~/.claude/skills/anet/SKILL.md``"
 
-#: ../../howto/coding-agents.rst:67
+#: ../../howto/coding-agents.rst:64
 msgid "``CLAUDE_CONFIG_DIR``"
 msgstr "``CLAUDE_CONFIG_DIR``"
 
-#: ../../howto/coding-agents.rst:68
+#: ../../howto/coding-agents.rst:65
 msgid "``codex``"
 msgstr "``codex``"
 
-#: ../../howto/coding-agents.rst:69
+#: ../../howto/coding-agents.rst:66
 msgid "Table ``[mcp_servers.anet]`` in ``~/.codex/config.toml``"
 msgstr "``~/.codex/config.toml`` 中的表 ``[mcp_servers.anet]``"
 
-#: ../../howto/coding-agents.rst:70
+#: ../../howto/coding-agents.rst:67
 msgid "Block in ``~/.codex/AGENTS.md``"
 msgstr "``~/.codex/AGENTS.md`` 中的块"
 
-#: ../../howto/coding-agents.rst:71
+#: ../../howto/coding-agents.rst:68
 msgid "``CODEX_HOME``"
 msgstr "``CODEX_HOME``"
 
-#: ../../howto/coding-agents.rst:72
+#: ../../howto/coding-agents.rst:69
 msgid "``cursor``"
 msgstr "``cursor``"
 
-#: ../../howto/coding-agents.rst:73
+#: ../../howto/coding-agents.rst:70
 msgid "Member ``mcpServers.anet`` in ``~/.cursor/mcp.json``"
 msgstr "``~/.cursor/mcp.json`` 中的成员 ``mcpServers.anet``"
 
-#: ../../howto/coding-agents.rst:74
+#: ../../howto/coding-agents.rst:71 ../../howto/coding-agents.rst:83
 msgid "None; the MCP server sends its own instructions on connect"
 msgstr "无;MCP 服务器在连接时自行发送其说明"
 
-#: ../../howto/coding-agents.rst:76
+#: ../../howto/coding-agents.rst:73
 msgid "``opencode``"
 msgstr "``opencode``"
 
-#: ../../howto/coding-agents.rst:77
+#: ../../howto/coding-agents.rst:74
 msgid "Member ``mcp.anet`` in ``~/.config/opencode/opencode.json``"
 msgstr "``~/.config/opencode/opencode.json`` 中的成员 ``mcp.anet``"
 
-#: ../../howto/coding-agents.rst:78
+#: ../../howto/coding-agents.rst:75
 msgid "Block in ``~/.config/opencode/AGENTS.md``"
 msgstr "``~/.config/opencode/AGENTS.md`` 中的块"
 
-#: ../../howto/coding-agents.rst:79
+#: ../../howto/coding-agents.rst:76
 msgid "``XDG_CONFIG_HOME``"
 msgstr "``XDG_CONFIG_HOME``"
 
-#: ../../howto/coding-agents.rst:80
+#: ../../howto/coding-agents.rst:77
 msgid "``hermes``"
 msgstr "``hermes``"
 
-#: ../../howto/coding-agents.rst:81
+#: ../../howto/coding-agents.rst:78
 msgid "Key ``mcp_servers.anet`` in ``~/.hermes/config.yaml``"
 msgstr "``~/.hermes/config.yaml`` 中的键 ``mcp_servers.anet``"
 
-#: ../../howto/coding-agents.rst:82
+#: ../../howto/coding-agents.rst:79
 msgid "Block in ``~/.hermes/SOUL.md``"
 msgstr "``~/.hermes/SOUL.md`` 中的块"
 
-#: ../../howto/coding-agents.rst:83
+#: ../../howto/coding-agents.rst:80
 msgid "``HERMES_HOME``"
 msgstr "``HERMES_HOME``"
 
-#: ../../howto/coding-agents.rst:85
+#: ../../howto/coding-agents.rst:81
+msgid "``workbuddy``"
+msgstr "``workbuddy``"
+
+#: ../../howto/coding-agents.rst:82
+msgid "Member ``mcpServers.anet`` in ``~/.workbuddy/mcp.json``"
+msgstr "``~/.workbuddy/mcp.json`` 中的成员 ``mcpServers.anet``"
+
+#: ../../howto/coding-agents.rst:86
 msgid ""
 "A tool counts as present when its executable is on ``PATH`` or its "
-"configuration directory exists. Without a tool argument, or with "
-"``--all``, the command wires every supported tool that is present and "
-"reports the others as not installed. A tool that is named explicitly is "
-"wired even when it is not detected."
+"configuration directory exists. WorkBuddy is a desktop application "
+"without a command-line program, so it counts as present when "
+"``~/.workbuddy`` exists. Without a tool argument, or with ``--all``, the "
+"command wires every supported tool that is present and reports the others"
+" as not installed. A tool that is named explicitly is wired even when it "
+"is not detected."
 msgstr ""
-"工具的可执行文件位于 ``PATH`` 中,或其配置目录存在时,即视为已安装。不带工具参数或使用 ``--all`` "
+"工具的可执行文件位于 ``PATH`` 中,或其配置目录存在时,即视为已安装。WorkBuddy 是没有命令行程序的桌面应用,因此在 "
+"``~/.workbuddy`` 存在时视为已安装。不带工具参数或使用 ``--all`` "
 "时,命令会为每个已安装的受支持工具接入,并将其余工具报告为未安装。显式指定名称的工具即使未被检测到,也会接入。"
 
-#: ../../howto/coding-agents.rst:92
+#: ../../howto/coding-agents.rst:94
 msgid "Claude Code"
 msgstr "Claude Code"
 
-#: ../../howto/coding-agents.rst:94
+#: ../../howto/coding-agents.rst:96
 msgid ""
 "The server is registered in the user scope, which applies to every "
 "project on the machine. When ``claude`` is on ``PATH`` the entry is "
@@ -224,43 +235,62 @@ msgstr ""
 "add -s user`` 创建,因为 Claude Code 自行管理其文件的加锁和格式。\\ ``claude`` 不在 ``PATH`` "
 "中时,命令直接编辑 ``~/.claude.json``\\ 。操作指南以技能形式安装;任务提到 ANet 时才会加载,不会占用其他会话的上下文。"
 
-#: ../../howto/coding-agents.rst:103
+#: ../../howto/coding-agents.rst:105
 msgid "Codex"
 msgstr "Codex"
 
-#: ../../howto/coding-agents.rst:105
+#: ../../howto/coding-agents.rst:107
 msgid ""
-"The entry is written inside a block delimited by marker comments. The "
-"values ``startup_timeout_sec = 30`` and ``tool_timeout_sec = 900`` are "
-"set explicitly: the tool ``wait_task`` blocks until a task changes state,"
-" and a task of a remote agent is measured in minutes, whereas the default"
-" tool timeout of Codex is 60 seconds."
+"The Codex command-line program, the IDE extension and the desktop "
+"application share ``~/.codex/config.toml``, or the file in the directory "
+"named by ``CODEX_HOME``. The entry is written inside a block delimited by"
+" marker comments. The values ``startup_timeout_sec = 30`` and "
+"``tool_timeout_sec = 900`` are set explicitly: the tool ``wait_task`` "
+"blocks until a task changes state, and a task of a remote agent is "
+"measured in minutes, whereas the default tool timeout of Codex is 60 "
+"seconds."
 msgstr ""
-"条目写入由标记注释界定的块内。\\ ``startup_timeout_sec = 30`` 与 ``tool_timeout_sec = "
-"900`` 被显式设置:工具 ``wait_task`` 会一直阻塞到任务状态改变,而远程 Agent 的任务以分钟计,Codex "
-"默认的工具超时为 60 秒。"
+"Codex 命令行程序、IDE 扩展和桌面应用共用 ``~/.codex/config.toml``,或 ``CODEX_HOME`` "
+"所指目录中的同名文件。条目写入由标记注释界定的块内。\\ ``startup_timeout_sec = 30`` 与 "
+"``tool_timeout_sec = 900`` 被显式设置:工具 ``wait_task`` 会一直阻塞到任务状态改变,而远程 Agent "
+"的任务以分钟计,Codex 默认的工具超时为 60 秒。"
 
-#: ../../howto/coding-agents.rst:112
+#: ../../howto/coding-agents.rst:115
+msgid ""
+"Codex reads ``AGENTS.override.md`` instead of ``AGENTS.md`` when the file"
+" exists in the global directory. In that case the operating guide is not "
+"loaded, and ``wire`` reports the file. A ``.codex/config.toml`` in a "
+"trusted project takes precedence over the user file; ``wire`` does not "
+"inspect it. The official reference is "
+"`<https://developers.openai.com/codex/mcp>`_."
+msgstr ""
+"全局目录中存在 ``AGENTS.override.md`` 时,Codex 读取它而不是 "
+"``AGENTS.md``。此时操作指南不会被加载,\\ ``wire`` 会报告该文件。受信任项目中的 "
+"``.codex/config.toml`` 优先于用户级文件,\\ ``wire`` 不检查它。官方参考:\\ "
+"`<https://developers.openai.com/codex/mcp>`_\\ 。"
+
+#: ../../howto/coding-agents.rst:122
 msgid "Cursor"
 msgstr "Cursor"
 
-#: ../../howto/coding-agents.rst:114
+#: ../../howto/coding-agents.rst:124
 msgid ""
 "The entry is written to ``~/.cursor/mcp.json``, which is read by the "
-"editor and by ``cursor-agent``. Cursor has no user-level rules file, so "
-"no operating guide is installed. An older rule file written by a previous"
-" release under ``~/.cursor/rules`` is removed when its content identifies"
-" it as ANet's."
+"editor and by the Cursor command-line agent (the program is named "
+"``agent`` in the current documentation; earlier releases used ``cursor-"
+"agent``). Cursor has no user-level rules file, so no operating guide is "
+"installed. An older rule file written by a previous release under "
+"``~/.cursor/rules`` is removed when its content identifies it as ANet's."
 msgstr ""
-"条目写入 ``~/.cursor/mcp.json``,编辑器和 ``cursor-agent`` 均会读取该文件。Cursor "
-"没有用户级的规则文件,因此不安装操作指南。由先前版本写入 ``~/.cursor/rules`` 的旧规则文件,在其内容表明属于 ANet "
-"时会被移除。"
+"条目写入 ``~/.cursor/mcp.json``,编辑器和 Cursor 命令行 Agent 均会读取该文件(当前文档中该程序名为 "
+"``agent``,早期版本使用 ``cursor-agent``)。Cursor 没有用户级的规则文件,因此不安装操作指南。由先前版本写入 "
+"``~/.cursor/rules`` 的旧规则文件,在其内容表明属于 ANet 时会被移除。"
 
-#: ../../howto/coding-agents.rst:121
+#: ../../howto/coding-agents.rst:132
 msgid "opencode"
 msgstr "opencode"
 
-#: ../../howto/coding-agents.rst:123
+#: ../../howto/coding-agents.rst:134
 msgid ""
 "The entry uses the opencode form, with ``\"type\": \"local\"``, the "
 "command and its argument in one array, an explicit ``enabled`` flag, and "
@@ -273,31 +303,35 @@ msgstr ""
 "``enabled`` 标志,并以 ``environment`` 取代 ``env``\\ 。仅存在 ``opencode.jsonc`` "
 "时,以该文件为目标。编辑器不保留注释:文件中含有注释时,命令不作任何更改,而是输出该条目,供手动插入。"
 
-#: ../../howto/coding-agents.rst:131
+#: ../../howto/coding-agents.rst:142
 msgid "Hermes"
 msgstr "Hermes"
 
-#: ../../howto/coding-agents.rst:133
+#: ../../howto/coding-agents.rst:144
 msgid ""
-"The entry runs the binary directly. Hermes disables an MCP entry that "
-"starts a shell interpreter, so a wrapper such as ``sh -c \"anet mcp\"`` "
-"is not used. The timeouts are ``timeout: 900`` and ``connect_timeout: "
-"30``. Optional ``a2a_agents`` entries are described in :ref:`howto-"
-"coding-agents-hermes-a2a`."
+"The entry runs the binary directly, without a shell wrapper. Hermes names"
+" the tools ``mcp_anet_<tool>``, for example ``mcp_anet_list_agents``; the"
+" operating guide in ``SOUL.md`` uses these names. On native Windows the "
+"default home directory of Hermes differs from ``~/.hermes``; set "
+"``HERMES_HOME`` to the directory in use. The timeouts are ``timeout: "
+"900`` and ``connect_timeout: 30``. Optional ``a2a_agents`` entries are "
+"described in :ref:`howto-coding-agents-hermes-a2a`."
 msgstr ""
-"条目直接运行二进制文件。Hermes 会停用启动 shell 解释器的 MCP 条目,因此不使用 ``sh -c \"anet mcp\"`` "
-"这类包装。超时设置为 ``timeout: 900`` 和 ``connect_timeout: 30``\\ 。可选的 "
-"``a2a_agents`` 条目见 :ref:`howto-coding-agents-hermes-a2a`\\ 。"
+"条目直接运行二进制文件,不经过 shell 包装。Hermes 将工具命名为 ``mcp_anet_<tool>``,例如 "
+"``mcp_anet_list_agents``,\\ ``SOUL.md`` 中的操作指南使用这些名称。在原生 Windows 上,Hermes"
+" 的默认主目录不是 ``~/.hermes``,需将 ``HERMES_HOME`` 设为实际使用的目录。超时设置为 ``timeout: "
+"900`` 与 ``connect_timeout: 30``。可选的 ``a2a_agents`` 条目参见 :ref:`howto-"
+"coding-agents-hermes-a2a`\\ 。"
 
-#: ../../howto/coding-agents.rst:140
+#: ../../howto/coding-agents.rst:153
 msgid "Wiring and unwiring"
 msgstr "接入与移除"
 
-#: ../../howto/coding-agents.rst:143
+#: ../../howto/coding-agents.rst:156
 msgid "Synopsis"
 msgstr "用法概要"
 
-#: ../../howto/coding-agents.rst:151
+#: ../../howto/coding-agents.rst:164
 msgid ""
 "``--all`` and explicit tool names are mutually exclusive. ``--refresh`` "
 "and ``--a2a`` apply to Hermes; ``--refresh`` is accepted by ``wire`` "
@@ -309,33 +343,33 @@ msgstr ""
 "``--refresh`` 只被 ``wire`` "
 "接受。至少有一个工具以冲突或错误告终时,命令以非零状态退出,使安装程序不会在部分结果的情况下报告成功。"
 
-#: ../../howto/coding-agents.rst:158
+#: ../../howto/coding-agents.rst:171
 msgid "Procedure"
 msgstr "步骤"
 
-#: ../../howto/coding-agents.rst:160
+#: ../../howto/coding-agents.rst:173
 msgid "Initialise and start the node, if this has not been done:"
 msgstr "如尚未完成,先初始化并启动节点:"
 
-#: ../../howto/coding-agents.rst:167
+#: ../../howto/coding-agents.rst:180
 msgid "Register the server with the coding agents on the machine:"
 msgstr "向本机的编码 Agent 注册服务器:"
 
-#: ../../howto/coding-agents.rst:173
+#: ../../howto/coding-agents.rst:186
 msgid "A single tool is wired by name:"
 msgstr "按名称接入单个工具:"
 
-#: ../../howto/coding-agents.rst:179
+#: ../../howto/coding-agents.rst:192
 msgid ""
 "Restart the coding agent, or start a new session. The tools are loaded at"
 " the start of a session."
 msgstr "重启编码 Agent,或开启新会话。工具在会话开始时加载。"
 
-#: ../../howto/coding-agents.rst:182
+#: ../../howto/coding-agents.rst:195
 msgid "Check the result:"
 msgstr "检查结果:"
 
-#: ../../howto/coding-agents.rst:188
+#: ../../howto/coding-agents.rst:201
 msgid ""
 "The command reports one state for each tool: not installed, not wired, "
 "wired and current, wired but outdated (the entry or the guide differs "
@@ -345,7 +379,7 @@ msgstr ""
 "命令为每个工具报告一种状态:未安装、未接入、已接入且为最新、已接入但已过时(条目或指南与 ``wire`` "
 "现在会写入的内容不同),或冲突。对于已过时的条目,报告会给出用于更正的命令。"
 
-#: ../../howto/coding-agents.rst:193
+#: ../../howto/coding-agents.rst:206
 msgid ""
 "In the coding agent, request the tool ``node_status``. A response that "
 "contains the AID and the version of the node confirms that the chain from"
@@ -355,11 +389,11 @@ msgstr ""
 "在编码 Agent 中调用工具 ``node_status``\\ 。若响应中包含节点的 AID 和版本,则说明从 Agent "
 "到守护进程的链路工作正常。守护进程未运行时,MCP 服务器不会启动;客户端会报告连接失败。"
 
-#: ../../howto/coding-agents.rst:198
+#: ../../howto/coding-agents.rst:211
 msgid "Removal is symmetric:"
 msgstr "移除的方式与之对称:"
 
-#: ../../howto/coding-agents.rst:205
+#: ../../howto/coding-agents.rst:218
 msgid ""
 "``unwire`` removes the MCP entry, the operating guide, and every "
 "``a2a_agents`` entry together with its token. An entry with the name "
@@ -368,31 +402,31 @@ msgstr ""
 "``unwire`` 会移除 MCP 条目、操作指南,以及每个 ``a2a_agents`` 条目及其令牌。名为 ``anet`` 但并非由 "
 "ANet 写入的条目保持不变,并会报告出来。"
 
-#: ../../howto/coding-agents.rst:211
+#: ../../howto/coding-agents.rst:224
 msgid "Rules that apply to every change"
 msgstr "适用于每次修改的规则"
 
-#: ../../howto/coding-agents.rst:213
+#: ../../howto/coding-agents.rst:226
 msgid ""
 "The command edits configuration files of other programs. The same rules "
 "apply to every tool:"
 msgstr "该命令会编辑其他程序的配置文件。对每个工具适用相同的规则:"
 
-#: ../../howto/coding-agents.rst:216
+#: ../../howto/coding-agents.rst:229
 msgid "Backup"
 msgstr "备份"
 
-#: ../../howto/coding-agents.rst:217
+#: ../../howto/coding-agents.rst:230
 msgid ""
 "Before a file is changed it is copied to ``<name>.anet-bak-<UTC time>`` "
 "next to the original. An existing backup is never overwritten."
 msgstr "修改文件之前,先把它复制为原文件旁的 ``<name>.anet-bak-<UTC 时间>``\\ 。已有的备份从不覆盖。"
 
-#: ../../howto/coding-agents.rst:220
+#: ../../howto/coding-agents.rst:233
 msgid "Absolute binary path and pinned identity"
 msgstr "绝对路径的二进制文件与固定身份"
 
-#: ../../howto/coding-agents.rst:221
+#: ../../howto/coding-agents.rst:234
 msgid ""
 "The entry names the ``anet`` binary by absolute path and sets "
 "``ANET_DATA_DIR`` to the data directory of the identity that was selected"
@@ -405,7 +439,7 @@ msgstr ""
 "客户端不会加载运维人员的 shell 配置文件,而且一旦身份被固定,\\ ``anet mcp`` "
 "就严格解析:它只连接该身份的守护进程,不连接其他任何守护进程。要接入另一个身份,请用 ``--id`` 选择:"
 
-#: ../../howto/coding-agents.rst:232
+#: ../../howto/coding-agents.rst:245
 msgid ""
 "A tool has one ``anet`` entry; a later ``wire`` for another identity "
 "replaces the entry written earlier. A binary started through ``go run`` "
@@ -415,32 +449,32 @@ msgstr ""
 "每个工具只有一个 ``anet`` 条目;之后为另一个身份执行的 ``wire`` 会替换先前写入的条目。通过 ``go run`` "
 "启动的二进制文件会被拒绝,因为进程退出时临时构建目录会消失。"
 
-#: ../../howto/coding-agents.rst:237
+#: ../../howto/coding-agents.rst:250
 msgid "Atomic writes"
 msgstr "原子写入"
 
-#: ../../howto/coding-agents.rst:238
+#: ../../howto/coding-agents.rst:251
 msgid ""
 "A file is written to a sibling temporary file and renamed. The mode of "
 "the replaced file is kept."
 msgstr "文件先写入同级的临时文件再重命名。被替换文件的权限模式得以保留。"
 
-#: ../../howto/coding-agents.rst:241
+#: ../../howto/coding-agents.rst:254
 msgid "Idempotence"
 msgstr "幂等性"
 
-#: ../../howto/coding-agents.rst:242
+#: ../../howto/coding-agents.rst:255
 msgid ""
 "Running ``wire`` twice changes nothing the second time. After an upgrade "
 "of ``anet``, running it again updates the operating guide and, where the "
 "binary path changed, the entry."
 msgstr "运行两次 ``wire``,第二次不会产生任何更改。升级 ``anet`` 之后再次运行,会更新操作指南,并在二进制文件路径改变时更新条目。"
 
-#: ../../howto/coding-agents.rst:246
+#: ../../howto/coding-agents.rst:259
 msgid "Conflicts"
 msgstr "冲突"
 
-#: ../../howto/coding-agents.rst:247
+#: ../../howto/coding-agents.rst:260
 msgid ""
 "An existing entry with the name ``anet`` whose command is not ``anet "
 "mcp`` is not overwritten. The tool is reported as a conflict, nothing is "
@@ -454,11 +488,11 @@ msgstr ""
 "。对于 Codex 文件中并非由 ``anet agents wire`` 写入的表 "
 "``mcp_servers.anet``,处理方式相同;报告会给出行号。"
 
-#: ../../howto/coding-agents.rst:254
+#: ../../howto/coding-agents.rst:267
 msgid "Managed blocks"
 msgstr "受管理的块"
 
-#: ../../howto/coding-agents.rst:255
+#: ../../howto/coding-agents.rst:268
 msgid ""
 "In TOML, YAML and Markdown files the command edits only the text between "
 "its own marker lines. Edits inside a managed block are overwritten by the"
@@ -467,11 +501,11 @@ msgstr ""
 "在 TOML、YAML 和 Markdown 文件中,命令只编辑其自身标记行之间的文本。在受管理的块内所做的修改,会被下一次 ``wire`` "
 "覆盖。"
 
-#: ../../howto/coding-agents.rst:259
+#: ../../howto/coding-agents.rst:272
 msgid "Superseded content"
 msgstr "已被取代的内容"
 
-#: ../../howto/coding-agents.rst:260
+#: ../../howto/coding-agents.rst:273
 msgid ""
 "Earlier releases appended a persona block to ``~/.claude/CLAUDE.md``, "
 "wrote a rule file under ``~/.cursor/rules``, and, through ``anet install "
@@ -485,11 +519,11 @@ msgstr ""
 "``wire`` 会移除 Claude Code 的块和 Cursor 的文件;\\ ``wire --all`` 与 ``unwire "
 "--all`` 在 OpenClaw 的块存在时会将其移除。OpenClaw 不是受支持的工具。"
 
-#: ../../howto/coding-agents.rst:269
+#: ../../howto/coding-agents.rst:282
 msgid "Entries written by the command"
 msgstr "命令写入的条目"
 
-#: ../../howto/coding-agents.rst:271
+#: ../../howto/coding-agents.rst:284
 msgid ""
 "The following examples show the entries for a binary at "
 "``/usr/local/bin/anet`` and a data directory ``/home/operator/.anet``. "
@@ -498,51 +532,113 @@ msgstr ""
 "下列示例展示二进制文件位于 ``/usr/local/bin/anet``\\ 、数据目录为 ``/home/operator/.anet`` "
 "时的条目。这些路径在每台机器上以实际值为准。"
 
-#: ../../howto/coding-agents.rst:275
-msgid "Claude Code and Cursor use the same stdio form:"
-msgstr "Claude Code 与 Cursor 使用相同的 stdio 格式:"
+#: ../../howto/coding-agents.rst:288
+msgid "Claude Code, Cursor and WorkBuddy use the same stdio form:"
+msgstr "Claude Code、Cursor 与 WorkBuddy 使用相同的 stdio 格式:"
 
-#: ../../howto/coding-agents.rst:290
+#: ../../howto/coding-agents.rst:303
 msgid ""
-"The Cursor entry has no ``type`` member. For Claude Code the equivalent "
-"command is:"
-msgstr "Cursor 的条目没有 ``type`` 成员。对于 Claude Code,等效的命令为:"
+"The Cursor and WorkBuddy entries have no ``type`` member. For Claude Code"
+" the equivalent command is:"
+msgstr "Cursor 与 WorkBuddy 的条目没有 ``type`` 成员。对于 Claude Code,等效的命令为:"
 
-#: ../../howto/coding-agents.rst:297
+#: ../../howto/coding-agents.rst:310
 msgid "Codex, in ``config.toml``:"
 msgstr "Codex,位于 ``config.toml``:"
 
-#: ../../howto/coding-agents.rst:310
+#: ../../howto/coding-agents.rst:323
 msgid "opencode, in ``opencode.json``:"
 msgstr "opencode,位于 ``opencode.json``:"
 
-#: ../../howto/coding-agents.rst:326
+#: ../../howto/coding-agents.rst:339
 msgid "Hermes, in ``config.yaml``:"
 msgstr "Hermes,位于 ``config.yaml``:"
 
-#: ../../howto/coding-agents.rst:341
+#: ../../howto/coding-agents.rst:354
 msgid ""
 "The ``$schema`` member of the opencode file is written only when ``wire``"
 " creates the file."
 msgstr "opencode 文件的 ``$schema`` 成员仅在由 ``wire`` 创建该文件时写入。"
 
-#: ../../howto/coding-agents.rst:348
+#: ../../howto/coding-agents.rst:359
+msgid "WorkBuddy"
+msgstr "WorkBuddy"
+
+#: ../../howto/coding-agents.rst:361
+msgid ""
+"The entry is written to the user-level file ``~/.workbuddy/mcp.json`` "
+"that the WorkBuddy MCP guide describes, in the form of that guide: a "
+"``command``, ``args`` and ``env`` under ``mcpServers``. Other servers in "
+"the file are kept. A file that is not plain JSON, for example one with "
+"comments, is not edited; the command prints the entry for manual "
+"insertion."
+msgstr ""
+"条目写入 WorkBuddy MCP 指南所述的用户级文件 ``~/.workbuddy/mcp.json``,采用该指南的格式:\\ "
+"``mcpServers`` 下的 ``command``、\\ ``args`` 与 ``env``。文件中的其他服务器予以保留。不是纯 "
+"JSON 的文件(例如含有注释)不会被编辑,命令改为输出需手动加入的条目。"
+
+#: ../../howto/coding-agents.rst:367
+msgid ""
+"Only the parts that the WorkBuddy documentation confirms are written. No "
+"operating guide is installed, because no user-level instruction file is "
+"documented; the MCP server sends its own instructions on connect, and "
+"whether WorkBuddy passes them to the model is not documented. No timeout "
+"is written: the documented default is 30 seconds, and the documentation "
+"does not state that a user-level entry honours a ``timeout`` member. "
+"Until that is confirmed in the current version, call ``wait_task`` with "
+"the default wait and repeat the call when the task is still working. The "
+"reload behaviour, the menu path and the trust prompt are described in the"
+" official guide (`<https://www.workbuddy.cn/docs/workbuddy/From-Beginner-"
+"to-Expert-Guide/Function-Description/MCP-Guide>`_); the command prints "
+"this reference after it writes the entry. WorkBuddy is distinct from the "
+"CodeBuddy command-line program, whose files are under ``~/.codebuddy``; "
+"``wire`` does not handle CodeBuddy."
+msgstr ""
+"仅写入 WorkBuddy 文档已确认的部分。不安装操作指南,因为文档未载明用户级指令文件;MCP 服务器在连接时自行发送其说明,但 "
+"WorkBuddy 是否将其交给模型,文档未载明。不写入超时:文档载明的默认值为 30 秒,且未说明用户级条目是否遵从 ``timeout`` "
+"成员。在当前版本确认之前,请以默认等待时间调用 ``wait_task``,任务仍在进行时重复调用。重载行为、菜单路径和信任提示见官方指南(\\ "
+"`<https://www.workbuddy.cn/docs/workbuddy/From-Beginner-to-Expert-Guide"
+"/Function-Description/MCP-Guide>`_\\ ),命令在写入条目后会输出这一参考链接。WorkBuddy 与 "
+"CodeBuddy 命令行程序不同,后者的文件位于 ``~/.codebuddy``,\\ ``wire`` 不处理 CodeBuddy。"
+
+#: ../../howto/coding-agents.rst:381
+msgid ""
+"On Windows, ``anet`` runs inside WSL2 and the WorkBuddy application runs "
+"on the host. A configuration in which WorkBuddy starts ``wsl.exe -e "
+"<path-to-anet> mcp`` has not been tested, and ``wire`` does not write it."
+msgstr ""
+"在 Windows 上,\\ ``anet`` 运行于 WSL2 内,WorkBuddy 应用运行于宿主系统。由 WorkBuddy 启动 "
+"``wsl.exe -e <path-to-anet> mcp`` 的配置尚未经过测试,\\ ``wire`` 也不写入该配置。"
+
+#: ../../howto/coding-agents.rst:389
 msgid "Hermes and remote agents (``--a2a``)"
 msgstr "Hermes 与远程 Agent(``--a2a``)"
 
-#: ../../howto/coding-agents.rst:350
+#: ../../howto/coding-agents.rst:391
 msgid ""
-"Hermes can call a remote agent through its own A2A client. With "
-"``--a2a``, ``wire`` adds one ``a2a_agents`` entry per AID to "
-"``config.yaml``. Each entry points at the local A2A interface of the node"
-" (see :ref:`howto-local-a2a`), so that the call is signed, sealed and "
-"relayed by the node. Hermes does not reach the remote agent directly."
+"Hermes can call a remote agent through its own A2A client. The option is "
+"intended for agents on the network; the Hermes documentation recommends "
+"in-process subagents for agents on the same machine. With ``--a2a``, "
+"``wire`` adds one ``a2a_agents`` entry per AID to ``config.yaml``. Each "
+"entry points at the local A2A interface of the node (see :ref:`howto-"
+"local-a2a`), so that the call is signed, sealed and relayed by the node. "
+"Hermes does not reach the remote agent directly."
 msgstr ""
-"Hermes 可通过自带的 A2A 客户端调用远程 Agent。使用 ``--a2a`` 时,\\ ``wire`` 会为每个 AID 在 "
-"``config.yaml`` 中添加一个 ``a2a_agents`` 条目。每个条目指向节点的本地 A2A 接口(参见 :ref"
-":`howto-local-a2a`),使调用由节点签名、封闭并中继。Hermes 不会直接联系远程 Agent。"
+"Hermes 可通过自带的 A2A 客户端调用远程 Agent。该选项面向网络上的 Agent;对于同一台机器上的 Agent,Hermes "
+"文档建议使用进程内子 Agent。使用 ``--a2a`` 时,\\ ``wire`` 会为每个 AID 在 ``config.yaml`` "
+"中添加一个 ``a2a_agents`` 条目。每个条目指向节点的本地 A2A 接口(参见 :ref:`howto-local-"
+"a2a`),使调用由节点签名、封闭并中继。Hermes 不会直接联系远程 Agent。"
 
-#: ../../howto/coding-agents.rst:360
+#: ../../howto/coding-agents.rst:403
+msgid ""
+"The ``a2a`` toolset of Hermes is disabled for the command line by "
+"default. Enable it once, otherwise ``a2a_call`` is not visible; ``wire`` "
+"reminds the operator after writing the entries:"
+msgstr ""
+"Hermes 的 ``a2a`` 工具集在命令行中默认关闭。需启用一次,否则 ``a2a_call`` 不可见;\\ ``wire`` "
+"在写入条目后会提示运维人员:"
+
+#: ../../howto/coding-agents.rst:411
 msgid ""
 "Several AIDs are given as a comma-separated list, as repeated ``--a2a`` "
 "options, or as words that follow one ``--a2a``. An AID consists of "
@@ -553,15 +649,15 @@ msgstr ""
 "由小写字母和数字组成,长度为 8 到 128 个字符。\\ ``--a2a`` 要求同一命令中包含 ``hermes``\\ (或 "
 "``--all``)。"
 
-#: ../../howto/coding-agents.rst:365
+#: ../../howto/coding-agents.rst:416
 msgid "The resulting entry has the following form:"
 msgstr "生成的条目形式如下:"
 
-#: ../../howto/coding-agents.rst:379
+#: ../../howto/coding-agents.rst:430
 msgid "Properties of these entries:"
 msgstr "这些条目的特性:"
 
-#: ../../howto/coding-agents.rst:381
+#: ../../howto/coding-agents.rst:432
 msgid ""
 "The entry contains the bearer token of the local A2A interface. The file "
 "is therefore kept at mode ``0600``; ``wire`` narrows a wider mode, and "
@@ -570,7 +666,7 @@ msgstr ""
 "条目中包含本地 A2A 接口的 bearer 令牌。因此文件的权限保持为 ``0600``;\\ ``wire`` 会收窄较宽的权限,\\ "
 "``anet agents`` 会报告权限较宽的文件。"
 
-#: ../../howto/coding-agents.rst:384
+#: ../../howto/coding-agents.rst:435
 msgid ""
 "The address and the token are read from ``a2a_addr.txt`` and "
 "``a2a_token.txt`` in the state directory of the a2a module. The files are"
@@ -580,14 +676,14 @@ msgstr ""
 "地址与令牌读取自 a2a 模块状态目录中的 ``a2a_addr.txt`` 与 ``a2a_token.txt``\\ "
 "。这些文件在守护进程首次提供该接口时创建。若它们不存在,\\ ``wire --a2a`` 会失败,并提示先运行 ``anet up``\\ 。"
 
-#: ../../howto/coding-agents.rst:388
+#: ../../howto/coding-agents.rst:439
 msgid ""
 "``wire`` refuses to write the entry while another process holds the "
 "recorded port, or while the interface is down because of a port conflict."
 " The token would otherwise be handed to the process that holds the port."
 msgstr "当另一个进程占用已记录的端口,或接口因端口冲突而未启动时,\\ ``wire`` 拒绝写入该条目。否则令牌会被交给占用该端口的进程。"
 
-#: ../../howto/coding-agents.rst:391
+#: ../../howto/coding-agents.rst:442
 msgid ""
 "The operating guide for Hermes states that a remote agent listed under "
 "``a2a_agents`` is reachable with ``a2a_call`` and that the same spending "
@@ -596,7 +692,7 @@ msgstr ""
 "面向 Hermes 的操作指南说明:列在 ``a2a_agents`` 下的远程 Agent 可通过 ``a2a_call`` "
 "访问,并且适用相同的支出限额。"
 
-#: ../../howto/coding-agents.rst:395
+#: ../../howto/coding-agents.rst:446
 msgid ""
 "When the port or the token of the interface changes, the existing entries"
 " become invalid. This happens after the file ``a2a_addr.txt`` is removed,"
@@ -607,21 +703,21 @@ msgstr ""
 "接口的端口或令牌改变时,已有的条目随之失效。这发生在文件 ``a2a_addr.txt`` 被删除、紧急密钥轮换以及端口冲突解决之后。此时 "
 "``anet agents`` 会报告某条目的端口或令牌已改变。使用下列命令重写这些条目:"
 
-#: ../../howto/coding-agents.rst:405
+#: ../../howto/coding-agents.rst:456
 msgid "To remove individual entries and leave the MCP entry in place:"
 msgstr "如只移除个别条目而保留 MCP 条目:"
 
-#: ../../howto/coding-agents.rst:411
+#: ../../howto/coding-agents.rst:462
 msgid ""
 "``unwire hermes`` without ``--a2a`` removes the MCP entry, the guide, and"
 " all entries together with their tokens."
 msgstr "不带 ``--a2a`` 的 ``unwire hermes`` 会移除 MCP 条目、指南以及所有条目及其令牌。"
 
-#: ../../howto/coding-agents.rst:416
+#: ../../howto/coding-agents.rst:467
 msgid "Notes"
 msgstr "说明"
 
-#: ../../howto/coding-agents.rst:418
+#: ../../howto/coding-agents.rst:469
 msgid ""
 "**Closed by default.** The operating guide tells the coding agent that a "
 "new node accepts no task from any other agent and spends nothing. The "
@@ -632,7 +728,7 @@ msgstr ""
 "的任务,也不产生任何支出。这两项由运维人员在终端中开启,相关命令会要求确认;参见 :ref:`topics-delegation` 与 :ref"
 ":`topics-payments`\\ 。"
 
-#: ../../howto/coding-agents.rst:422
+#: ../../howto/coding-agents.rst:473
 msgid ""
 "**Tasks from other agents are untrusted input.** The guide instructs the "
 "coding agent not to run commands, read files, send secrets or spend "
@@ -644,7 +740,7 @@ msgstr ""
 "不要因为此类任务的文字要求而运行命令、读取文件、发送机密或产生支出。这条指示只是一种缓解措施,真正起约束作用的是入站策略和 :ref"
 ":`topics-sandbox` 中所述的沙箱。"
 
-#: ../../howto/coding-agents.rst:427
+#: ../../howto/coding-agents.rst:478
 msgid ""
 "**After a restart of the daemon.** A running ``anet mcp`` process finds "
 "the daemon again when the control token has been replaced, and repeats "
@@ -653,7 +749,7 @@ msgstr ""
 "**守护进程重启之后。** 控制令牌被替换后,正在运行的 ``anet mcp`` "
 "进程会重新找到守护进程,并将失败的调用重试一次。会话无需仅因此重启。"
 
-#: ../../howto/coding-agents.rst:430
+#: ../../howto/coding-agents.rst:481
 msgid ""
 "**Builds without MCP.** A binary built with ``-tags no_mcp`` has no MCP "
 "server; ``anet agents`` and ``anet mcp`` then end with a message that "
@@ -662,29 +758,47 @@ msgstr ""
 "**不含 MCP 的构建。** 使用 ``-tags no_mcp`` 构建的二进制文件没有 MCP 服务器;此时 ``anet agents``"
 " 与 ``anet mcp`` 会以指明该构建的消息结束。"
 
-#: ../../howto/coding-agents.rst:433
+#: ../../howto/coding-agents.rst:484
 msgid ""
 "**Reporting.** ``anet doctor`` includes the state of every tool and, for "
 "Hermes, the state of each ``a2a_agents`` entry."
 msgstr "**报告。** ``anet doctor`` 包含每个工具的状态,对 Hermes 还包含每个 ``a2a_agents`` 条目的状态。"
 
-#: ../../howto/coding-agents.rst:437
+#: ../../howto/coding-agents.rst:488
 msgid "See also"
 msgstr "另请参阅"
 
-#: ../../howto/coding-agents.rst:439
+#: ../../howto/coding-agents.rst:490
 msgid ":ref:`howto-mcp`"
 msgstr ":ref:`howto-mcp`"
 
-#: ../../howto/coding-agents.rst:440
+#: ../../howto/coding-agents.rst:491
 msgid ":ref:`howto-local-a2a`"
 msgstr ":ref:`howto-local-a2a`"
 
-#: ../../howto/coding-agents.rst:441
+#: ../../howto/coding-agents.rst:492
 msgid ":ref:`reference-cli`"
 msgstr ":ref:`reference-cli`"
 
-#: ../../howto/coding-agents.rst:442
+#: ../../howto/coding-agents.rst:493
 msgid ":ref:`howto-troubleshooting`"
 msgstr ":ref:`howto-troubleshooting`"
+
+#~ msgid ""
+#~ "The entry runs the binary directly. "
+#~ "Hermes disables an MCP entry that "
+#~ "starts a shell interpreter, so a "
+#~ "wrapper such as ``sh -c \"anet "
+#~ "mcp\"`` is not used. The timeouts "
+#~ "are ``timeout: 900`` and ``connect_timeout:"
+#~ " 30``. Optional ``a2a_agents`` entries are"
+#~ " described in :ref:`howto-coding-agents-"
+#~ "hermes-a2a`."
+#~ msgstr ""
+#~ "条目直接运行二进制文件。Hermes 会停用启动 shell 解释器的 MCP "
+#~ "条目,因此不使用 ``sh -c \"anet mcp\"`` "
+#~ "这类包装。超时设置为 ``timeout: 900`` 和 "
+#~ "``connect_timeout: 30``\\ 。可选的 ``a2a_agents`` "
+#~ "条目见 :ref:`howto-coding-agents-hermes-"
+#~ "a2a`\\ 。"
 

@@ -49,7 +49,7 @@ The message names the data directory and the command that starts the node:
 Configuring a client
 --------------------
 
-For Claude Code, Codex, Cursor, opencode and Hermes the entry is written by
+For Claude Code, Codex, Cursor, opencode, Hermes and WorkBuddy the entry is written by
 ``anet agents wire`` (see :ref:`howto-coding-agents`). Any other MCP client
 that supports the stdio transport is configured with the following values:
 
@@ -67,9 +67,13 @@ that supports the stdio transport is configured with the following values:
      - ``ANET_DATA_DIR`` set to the data directory of the identity
        (default ``~/.anet``)
    * - Tool timeout
-     - At least 900 seconds is recommended; see :ref:`howto-mcp-waiting`
+     - At least 900 seconds is recommended where the client documents a
+       setting; see :ref:`howto-mcp-waiting`. Gemini CLI takes ``timeout`` in
+       milliseconds (``900000``); Trae takes ``RUN_MCP_TIMEOUT_MS`` in the
+       environment. Many clients document no setting; there the default wait
+       of ``wait_task`` applies
 
-In a client that uses the common JSON form, the entry reads:
+In a client that uses the ``mcpServers`` JSON form, the entry reads:
 
 .. code-block:: json
 

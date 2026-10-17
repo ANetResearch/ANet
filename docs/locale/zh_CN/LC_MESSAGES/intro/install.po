@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ANet 0.3\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-16 14:35+0000\n"
+"POT-Creation-Date: 2026-10-17 09:39+0000\n"
 "PO-Revision-Date: 2026-10-16 05:00+0000\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: zh_CN\n"
@@ -16,7 +16,7 @@ msgstr ""
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"Generated-By: Babel 2.10.3\n"
+"Generated-By: Babel 2.18.0\n"
 
 #: ../../intro/install.rst:5
 msgid "Installation"
@@ -46,8 +46,10 @@ msgid "Supported platforms"
 msgstr "支持的平台"
 
 #: ../../intro/install.rst:23
-msgid "Linux and macOS, on amd64 and arm64. Windows is not supported."
-msgstr "amd64 与 arm64 架构上的 Linux 和 macOS。不支持 Windows。"
+msgid ""
+"Linux and macOS, on amd64 and arm64. Windows is not supported; the Linux "
+"build can be run in WSL2, which is not a tested configuration."
+msgstr "amd64 与 arm64 架构上的 Linux 和 macOS。不支持 Windows;Linux 版本可在 WSL2 中运行,但该配置未经测试。"
 
 #: ../../intro/install.rst:25
 msgid "Tools used by the installer"
@@ -208,11 +210,11 @@ msgstr "``--agents[=LIST]``"
 msgid ""
 "After installation, run ``anet agents wire`` for the coding agents found "
 "on the machine, or only for the comma-separated ``LIST`` (``claude``, "
-"``codex``, ``cursor``, ``opencode``, ``hermes``)."
+"``codex``, ``cursor``, ``opencode``, ``hermes``, ``workbuddy``)."
 msgstr ""
 "安装完成后，对本机上发现的编程 Agent 运行 ``anet agents wire``，或仅对以逗号分隔的 ``LIST`` "
 "运行（``claude``\\ 、\\ ``codex``\\ 、\\ ``cursor``\\ 、\\ ``opencode``\\ 、\\ "
-"``hermes``）。"
+"``hermes``\\ 、\\ ``workbuddy``）。"
 
 #: ../../intro/install.rst:104
 msgid "``--hub URL``"
@@ -377,8 +379,7 @@ msgstr "不向名单之外的调用方开放任何能力。"
 msgid "``payments.auto_max``"
 msgstr "``payments.auto_max``"
 
-#: ../../intro/install.rst:217
-#: ../../intro/install.rst:220
+#: ../../intro/install.rst:217 ../../intro/install.rst:220
 msgid "``0``"
 msgstr "``0``"
 
@@ -503,14 +504,15 @@ msgstr ""
 #: ../../intro/install.rst:289
 msgid ""
 "A single tool can be named instead of ``--all``: ``claude``, ``codex``, "
-"``cursor``, ``opencode`` or ``hermes``. ``anet agents`` lists which of "
-"them are installed and wired, and ``anet agents unwire`` reverses the "
-"change. The agent must be restarted after wiring. See :doc:`/howto"
-"/coding-agents`."
+"``cursor``, ``opencode``, ``hermes`` or ``workbuddy``. ``anet agents`` "
+"lists which of them are installed and wired, and ``anet agents unwire`` "
+"reverses the change. The agent must be restarted after wiring. See "
+":doc:`/howto/coding-agents`."
 msgstr ""
 "可以指定单个工具来代替 ``--all``：``claude``\\ 、\\ ``codex``\\ 、\\ ``cursor``\\ 、\\ "
-"``opencode`` 或 ``hermes``\\ 。\\ ``anet agents`` 列出其中已安装和已配置的工具，``anet "
-"agents unwire`` 撤销该变更。配置之后须重启 Agent。参见 :doc:`/howto/coding-agents`\\ 。"
+"``opencode``\\ 、\\ ``hermes`` 或 ``workbuddy``\\ 。\\ ``anet agents`` "
+"列出其中已安装和已配置的工具，``anet agents unwire`` 撤销该变更。配置之后须重启 Agent。参见 :doc:`/howto"
+"/coding-agents`\\ 。"
 
 #: ../../intro/install.rst:297
 msgid "Selecting modules"
@@ -532,8 +534,7 @@ msgid ""
 "credit are disabled at run time until the operator configures them."
 msgstr "除 ``shell`` 之外的所有模块。代表其他节点行事或花费额度的模块，在运维者完成配置之前，于运行时处于停用状态。"
 
-#: ../../intro/install.rst:306
-#: ../../intro/install.rst:345
+#: ../../intro/install.rst:306 ../../intro/install.rst:345
 msgid "``shell``"
 msgstr "``shell``"
 

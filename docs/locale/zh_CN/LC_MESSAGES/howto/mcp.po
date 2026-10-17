@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ANet 0.3\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-16 03:55+0000\n"
+"POT-Creation-Date: 2026-10-17 09:36+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: zh_CN\n"
@@ -22,7 +22,7 @@ msgstr ""
 msgid "MCP"
 msgstr "MCP"
 
-#: ../../howto/mcp.rst:10
+#: ../../howto/mcp.rst:6
 msgid ""
 "The command ``anet mcp`` serves the Model Context Protocol over standard "
 "input and output. It gives an MCP client, typically a coding agent, a "
@@ -34,7 +34,7 @@ msgstr ""
 "Agent)提供一组固定的 14 个工具,客户端借此在网络上查找 Agent、发送并跟踪 A2A 任务、应答其他 Agent "
 "发给本节点的任务,以及读取节点的状态。"
 
-#: ../../howto/mcp.rst:16
+#: ../../howto/mcp.rst:12
 msgid ""
 "This page explains how the server runs, how it is configured in a client "
 "that is not covered by ``anet agents wire``, how the tools are used, and "
@@ -45,11 +45,11 @@ msgstr ""
 "未覆盖的客户端中如何配置、如何使用这些工具,以及哪些操作被有意设为不可用。每个工具的参数列于 :ref:`reference-mcp-"
 "tools`\\ 。"
 
-#: ../../howto/mcp.rst:27
+#: ../../howto/mcp.rst:23
 msgid "What the server is"
 msgstr "服务器的性质"
 
-#: ../../howto/mcp.rst:29
+#: ../../howto/mcp.rst:25
 msgid ""
 "``anet mcp`` is not part of the daemon. An MCP client starts it as a "
 "child process for the duration of a session. The process forwards each "
@@ -62,7 +62,7 @@ msgstr ""
 "``anet mcp`` 不属于守护进程。MCP "
 "客户端在会话期间将其作为子进程启动。该进程把每次工具调用转发给本地守护进程的控制面,方式与命令行界面相同,并在客户端关闭连接时结束。守护进程继续运行,并保管密钥、账本和入站策略。随客户端一同结束的入口,存续时间不会超过客户端所持有的授权。"
 
-#: ../../howto/mcp.rst:37
+#: ../../howto/mcp.rst:33
 msgid ""
 "The tools are named after A2A concepts. A task is found with "
 "``list_agents`` and ``get_agent_card``, started or continued with "
@@ -75,7 +75,7 @@ msgstr ""
 "``send_message`` 启动或继续,并通过 ``wait_task``\\ 、\\ ``get_task`` 和 "
 "``list_tasks`` 跟踪。结果是 A2A Task,按守护进程生成的原样转发。了解 A2A 的客户端无需再对结果的结构做任何额外说明。"
 
-#: ../../howto/mcp.rst:43
+#: ../../howto/mcp.rst:39
 msgid ""
 "The server refuses to start when no daemon answers. A client that "
 "connects and then fails every call teaches the model that the tools are "
@@ -84,65 +84,73 @@ msgid ""
 "command that starts the node:"
 msgstr "没有守护进程应答时,服务器拒绝启动。若客户端连接成功但每次调用都失败,会让模型误以为工具已损坏;连接失败的客户端则会把运维人员引向问题所在的守护进程。消息会指明数据目录和启动节点的命令:"
 
-#: ../../howto/mcp.rst:54
+#: ../../howto/mcp.rst:50
 msgid "Configuring a client"
 msgstr "配置客户端"
 
-#: ../../howto/mcp.rst:56
+#: ../../howto/mcp.rst:52
 msgid ""
-"For Claude Code, Codex, Cursor, opencode and Hermes the entry is written "
-"by ``anet agents wire`` (see :ref:`howto-coding-agents`). Any other MCP "
-"client that supports the stdio transport is configured with the following"
-" values:"
+"For Claude Code, Codex, Cursor, opencode, Hermes and WorkBuddy the entry "
+"is written by ``anet agents wire`` (see :ref:`howto-coding-agents`). Any "
+"other MCP client that supports the stdio transport is configured with the"
+" following values:"
 msgstr ""
-"对于 Claude Code、Codex、Cursor、opencode 和 Hermes,条目由 ``anet agents wire`` "
-"写入(参见 :ref:`howto-coding-agents`)。其他支持 stdio 传输的 MCP 客户端,按下列值配置:"
+"对于 Claude Code、Codex、Cursor、opencode、Hermes 和 WorkBuddy,条目由 ``anet agents"
+" wire`` 写入(参见 :ref:`howto-coding-agents`)。其他支持 stdio 传输的 MCP 客户端,按下列值配置:"
 
-#: ../../howto/mcp.rst:64
+#: ../../howto/mcp.rst:60
 msgid "Setting"
 msgstr "设置"
 
-#: ../../howto/mcp.rst:65
+#: ../../howto/mcp.rst:61
 msgid "Value"
 msgstr "值"
 
-#: ../../howto/mcp.rst:66
+#: ../../howto/mcp.rst:62
 msgid "Command"
 msgstr "命令"
 
-#: ../../howto/mcp.rst:67
+#: ../../howto/mcp.rst:63
 msgid "Absolute path of the ``anet`` binary"
 msgstr "``anet`` 二进制文件的绝对路径"
 
-#: ../../howto/mcp.rst:68
+#: ../../howto/mcp.rst:64
 msgid "Arguments"
 msgstr "参数"
 
-#: ../../howto/mcp.rst:69
+#: ../../howto/mcp.rst:65
 msgid "``mcp``"
 msgstr "``mcp``"
 
-#: ../../howto/mcp.rst:70
+#: ../../howto/mcp.rst:66
 msgid "Environment"
 msgstr "环境变量"
 
-#: ../../howto/mcp.rst:71
+#: ../../howto/mcp.rst:67
 msgid ""
 "``ANET_DATA_DIR`` set to the data directory of the identity (default "
 "``~/.anet``)"
 msgstr "``ANET_DATA_DIR`` 设置为该身份的数据目录(默认 ``~/.anet``)"
 
-#: ../../howto/mcp.rst:73
+#: ../../howto/mcp.rst:69
 msgid "Tool timeout"
 msgstr "工具超时"
 
-#: ../../howto/mcp.rst:74
-msgid "At least 900 seconds is recommended; see :ref:`howto-mcp-waiting`"
-msgstr "建议至少 900 秒;参见 :ref:`howto-mcp-waiting`"
+#: ../../howto/mcp.rst:70
+msgid ""
+"At least 900 seconds is recommended where the client documents a setting;"
+" see :ref:`howto-mcp-waiting`. Gemini CLI takes ``timeout`` in "
+"milliseconds (``900000``); Trae takes ``RUN_MCP_TIMEOUT_MS`` in the "
+"environment. Many clients document no setting; there the default wait of "
+"``wait_task`` applies"
+msgstr ""
+"客户端文档载明相应设置时,建议至少 900 秒,参见 :ref:`howto-mcp-waiting`。Gemini CLI 的 "
+"``timeout`` 以毫秒计(\\ ``900000``);Trae 通过环境变量 ``RUN_MCP_TIMEOUT_MS`` "
+"设置。许多客户端未载明相应设置,此时适用 ``wait_task`` 的默认等待时间"
 
 #: ../../howto/mcp.rst:76
-msgid "In a client that uses the common JSON form, the entry reads:"
-msgstr "在使用常见 JSON 格式的客户端中,条目如下:"
+msgid "In a client that uses the ``mcpServers`` JSON form, the entry reads:"
+msgstr "在使用 ``mcpServers`` JSON 格式的客户端中,条目如下:"
 
 #: ../../howto/mcp.rst:90
 msgid ""
@@ -923,4 +931,7 @@ msgstr ":ref:`howto-local-a2a`"
 #: ../../howto/mcp.rst:491
 msgid ":ref:`topics-payments`"
 msgstr ":ref:`topics-payments`"
+
+#~ msgid "At least 900 seconds is recommended; see :ref:`howto-mcp-waiting`"
+#~ msgstr "建议至少 900 秒;参见 :ref:`howto-mcp-waiting`"
 

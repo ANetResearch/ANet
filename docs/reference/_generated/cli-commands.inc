@@ -197,7 +197,7 @@ Tools
    * - Invocation
      - Description
    * - ``anet agents wire [--all|<tool>…] [--refresh] [--a2a <aid>…]``
-     - give your coding agents anet's MCP tools and guide (claude\|codex\|cursor\|opencode\|hermes; every file it edits is backed up)
+     - give your coding agents anet's MCP tools and guide (claude\|codex\|cursor\|opencode\|hermes\|workbuddy; every file it edits is backed up)
    * - ``anet agents unwire [--all|<tool>…] [--a2a <aid>…]``
      - remove what wire added
    * - ``anet agents``

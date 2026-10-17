@@ -78,9 +78,14 @@ column. ``claude-code`` is accepted as an alias of ``claude``.
      - Key ``mcp_servers.anet`` in ``~/.hermes/config.yaml``
      - Block in ``~/.hermes/SOUL.md``
      - ``HERMES_HOME``
+   * - ``workbuddy``
+     - Member ``mcpServers.anet`` in ``~/.workbuddy/mcp.json``
+     - None; the MCP server sends its own instructions on connect
+     -
 
 A tool counts as present when its executable is on ``PATH`` or its
-configuration directory exists. Without a tool argument, or with ``--all``,
+configuration directory exists. WorkBuddy is a desktop application without a
+command-line program, so it counts as present when ``~/.workbuddy`` exists. Without a tool argument, or with ``--all``,
 the command wires every supported tool that is present and reports the
 others as not installed. A tool that is named explicitly is wired even when it
 is not detected.
@@ -99,17 +104,26 @@ other sessions.
 Codex
 ~~~~~
 
-The entry is written inside a block delimited by marker comments. The values
+The Codex command-line program, the IDE extension and the desktop application
+share ``~/.codex/config.toml``, or the file in the directory named by
+``CODEX_HOME``. The entry is written inside a block delimited by marker comments. The values
 ``startup_timeout_sec = 30`` and ``tool_timeout_sec = 900`` are set explicitly:
 the tool ``wait_task`` blocks until a task changes state, and a task of a
 remote agent is measured in minutes, whereas the default tool timeout of
 Codex is 60 seconds.
 
+Codex reads ``AGENTS.override.md`` instead of ``AGENTS.md`` when the file
+exists in the global directory. In that case the operating guide is not
+loaded, and ``wire`` reports the file. A ``.codex/config.toml`` in a trusted
+project takes precedence over the user file; ``wire`` does not inspect it. The
+official reference is `<https://developers.openai.com/codex/mcp>`_.
+
 Cursor
 ~~~~~~
 
 The entry is written to ``~/.cursor/mcp.json``, which is read by the editor
-and by ``cursor-agent``. Cursor has no user-level rules file, so no
+and by the Cursor command-line agent (the program is named ``agent`` in the
+current documentation; earlier releases used ``cursor-agent``). Cursor has no user-level rules file, so no
 operating guide is installed. An older rule file written by a previous
 release under ``~/.cursor/rules`` is removed when its content identifies it
 as ANet's.
@@ -127,9 +141,11 @@ insertion.
 Hermes
 ~~~~~~
 
-The entry runs the binary directly. Hermes disables an MCP entry that starts
-a shell interpreter, so a wrapper such as ``sh -c "anet mcp"`` is not used.
-The timeouts are ``timeout: 900`` and ``connect_timeout: 30``. Optional
+The entry runs the binary directly, without a shell wrapper. Hermes names
+the tools ``mcp_anet_<tool>``, for example ``mcp_anet_list_agents``; the
+operating guide in ``SOUL.md`` uses these names. On native Windows the
+default home directory of Hermes differs from ``~/.hermes``; set
+``HERMES_HOME`` to the directory in use. The timeouts are ``timeout: 900`` and ``connect_timeout: 30``. Optional
 ``a2a_agents`` entries are described in :ref:`howto-coding-agents-hermes-a2a`.
 
 
@@ -269,7 +285,7 @@ The following examples show the entries for a binary at
 ``/usr/local/bin/anet`` and a data directory ``/home/operator/.anet``.
 The paths are replaced by the actual values on each machine.
 
-Claude Code and Cursor use the same stdio form:
+Claude Code, Cursor and WorkBuddy use the same stdio form:
 
 .. code-block:: json
 
@@ -284,7 +300,7 @@ Claude Code and Cursor use the same stdio form:
      }
    }
 
-The Cursor entry has no ``type`` member. For Claude Code the equivalent
+The Cursor and WorkBuddy entries have no ``type`` member. For Claude Code the equivalent
 command is:
 
 .. code-block:: console
@@ -339,12 +355,42 @@ The ``$schema`` member of the opencode file is written only when ``wire``
 creates the file.
 
 
+WorkBuddy
+~~~~~~~~~
+
+The entry is written to the user-level file ``~/.workbuddy/mcp.json`` that
+the WorkBuddy MCP guide describes, in the form of that guide: a ``command``,
+``args`` and ``env`` under ``mcpServers``. Other servers in the file are kept.
+A file that is not plain JSON, for example one with comments, is not edited;
+the command prints the entry for manual insertion.
+
+Only the parts that the WorkBuddy documentation confirms are written. No
+operating guide is installed, because no user-level instruction file is
+documented; the MCP server sends its own instructions on connect, and whether
+WorkBuddy passes them to the model is not documented. No timeout is written:
+the documented default is 30 seconds, and the documentation does not state
+that a user-level entry honours a ``timeout`` member. Until that is confirmed
+in the current version, call ``wait_task`` with the default wait and repeat the
+call when the task is still working. The reload behaviour, the menu path and
+the trust prompt are described in the official guide
+(`<https://www.workbuddy.cn/docs/workbuddy/From-Beginner-to-Expert-Guide/Function-Description/MCP-Guide>`_);
+the command prints this reference after it writes the entry. WorkBuddy is
+distinct from the CodeBuddy command-line program, whose files are under
+``~/.codebuddy``; ``wire`` does not handle CodeBuddy.
+
+On Windows, ``anet`` runs inside WSL2 and the WorkBuddy application runs on
+the host. A configuration in which WorkBuddy starts ``wsl.exe -e <path-to-anet>
+mcp`` has not been tested, and ``wire`` does not write it.
+
+
 .. _howto-coding-agents-hermes-a2a:
 
 Hermes and remote agents (``--a2a``)
 ------------------------------------
 
-Hermes can call a remote agent through its own A2A client. With ``--a2a``,
+Hermes can call a remote agent through its own A2A client. The option is
+intended for agents on the network; the Hermes documentation recommends
+in-process subagents for agents on the same machine. With ``--a2a``,
 ``wire`` adds one ``a2a_agents`` entry per AID to ``config.yaml``. Each entry
 points at the local A2A interface of the node (see :ref:`howto-local-a2a`),
 so that the call is signed, sealed and relayed by the node. Hermes does not
@@ -353,6 +399,14 @@ reach the remote agent directly.
 .. code-block:: console
 
    $ anet agents wire hermes --a2a <aid-of-remote-agent>
+
+The ``a2a`` toolset of Hermes is disabled for the command line by default.
+Enable it once, otherwise ``a2a_call`` is not visible; ``wire`` reminds the
+operator after writing the entries:
+
+.. code-block:: console
+
+   $ hermes tools enable a2a --platform cli
 
 Several AIDs are given as a comma-separated list, as repeated ``--a2a``
 options, or as words that follow one ``--a2a``. An AID consists of lowercase

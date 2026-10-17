@@ -576,7 +576,7 @@ Tools
 
 ``anet agents wire [--all|<tool>...] [--refresh] [--a2a <aid>...]`` registers the
 MCP server of ``anet`` and a usage guide with coding agents. The supported tools
-are ``claude``, ``codex``, ``cursor``, ``opencode`` and ``hermes``;
+are ``claude``, ``codex``, ``cursor``, ``opencode``, ``hermes`` and ``workbuddy``;
 every file that the command edits is backed up first. ``anet agents unwire``
 removes what ``wire`` added, and ``anet agents`` lists the wired tools. ``anet
 mcp`` serves MCP over standard input and output; ``anet agents wire`` registers
