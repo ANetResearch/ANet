@@ -42,7 +42,7 @@ func TestAPIKeyOnTheCommandLineIsRefusedBeforeTheDaemon(t *testing.T) {
 				fc := newFakeControl(t, h)
 				before := snapshotDir(t, h.root)
 				stdout, stderr, code := runCLI(t, h, args)
-				l := a2ashape.LangFrom(func(k string) string { return map[string]string{"LANG": lang}[k] })
+				l := a2ashape.LangFrom(func(k string) string { return map[string]string{"ANET_LANG": lang}[k] })
 				want := a2ashape.Sentence("api_key_on_argv", l, nil)
 				if code != 2 || stdout != "" || stderr != want+"\n" {
 					t.Errorf("exit %d, stdout %q, stderr %q; want 2 and %q", code, stdout, stderr, want)

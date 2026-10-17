@@ -114,7 +114,7 @@ func TestContentExpiresAt(t *testing.T) {
 // TestKeptLine (UX-C2 line 4): the retention in the sentence is the one
 // that applies to the task.
 func TestKeptLine(t *testing.T) {
-	t.Setenv("LANG", "C")
+	t.Setenv("ANET_LANG", "C")
 	at := time.Date(2026, 10, 1, 15, 30, 0, 0, time.UTC)
 	r30, _ := interactions.ParseRetention("30d")
 	for _, c := range []struct {
@@ -141,7 +141,7 @@ func TestKeptLine(t *testing.T) {
 // state wrote it; the next step is the emergency rotation for the plain
 // local_state_lost only.
 func TestPeerVariantSelection(t *testing.T) {
-	t.Setenv("LANG", "C")
+	t.Setenv("ANET_LANG", "C")
 	at := time.Date(2026, 10, 1, 15, 30, 0, 0, time.UTC)
 	for _, reason := range []string{"local_state_lost", "key_compromise"} {
 		ix := ended(interactions.RoleOutbound, "", interactions.StateFailed, at)

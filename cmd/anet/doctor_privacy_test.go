@@ -36,7 +36,7 @@ func privacyFindings(t *testing.T, layout daemon.Layout, st map[string]any, hub 
 func init() { copyOnWriteProbe = func(string) bool { return false } }
 
 func TestDoctorPrivacyChecks(t *testing.T) {
-	t.Setenv("LANG", "C")
+	t.Setenv("ANET_LANG", "C")
 	layout := daemon.NewLayout(t.TempDir())
 	privacy := func(m map[string]any) map[string]any {
 		base := map[string]any{"content_retention": "30d", "clock": "ok", "clock_skew_s": float64(-3), "deletion": "normal",
@@ -103,7 +103,7 @@ func sameFindings(a, b string) bool {
 // read; a ring that cannot be judged is unknown, a value that is not a
 // setting is a fail.
 func TestDoctorPrivacyWithoutTheDaemon(t *testing.T) {
-	t.Setenv("LANG", "C")
+	t.Setenv("ANET_LANG", "C")
 	dir := t.TempDir()
 	layout := daemon.NewLayout(dir)
 	if got := strings.Join(privacyFindings(t, layout, nil, ""), "|"); !strings.Contains(got, "clock info clock.no_hub") ||

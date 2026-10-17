@@ -36,27 +36,23 @@ const OfficialHubURL = "https://hub.agentnetwork.org.cn"
 type Language uint8
 
 // The two languages. English is the zero value: an environment that names
-// no language gets English (core G13).
+// no ANET_LANG gets English.
 const (
 	English Language = iota
 	Chinese
 )
 
-// Lang is this process's language (core G13): the first non-empty of LC_ALL,
-// LC_MESSAGES and LANG; Chinese when it begins with "zh", English otherwise.
-// There is no setting and no per-client choice: the daemon renders, and the
-// CLI and MCP pass its sentences on unchanged (UX-C7).
+// Lang is this process's language: Chinese only when ANET_LANG begins with
+// "zh" (case-insensitive), English for any other value or when it is unset.
+// LC_ALL, LC_MESSAGES and LANG are not consulted. There is no per-client
+// choice: the daemon renders, and the CLI and MCP pass its sentences on
+// unchanged (UX-C7). Text handed to a model is English in both languages.
 func Lang() Language { return LangFrom(os.Getenv) }
 
 // LangFrom is Lang over another environment.
 func LangFrom(getenv func(string) string) Language {
-	for _, k := range []string{"LC_ALL", "LC_MESSAGES", "LANG"} {
-		if v := getenv(k); v != "" {
-			if strings.HasPrefix(v, "zh") {
-				return Chinese
-			}
-			return English
-		}
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(getenv("ANET_LANG"))), "zh") {
+		return Chinese
 	}
 	return English
 }
@@ -102,7 +98,8 @@ const (
 	// ClassT: a terminal prompt or confirmation line.
 	ClassT
 	// ClassModel: the egress refusals of ux §1.4 I, read by the agent in the
-	// sandbox and never by the user.
+	// sandbox and never by the user. They render in English whatever the
+	// language of the process.
 	ClassModel
 )
 
@@ -348,6 +345,9 @@ func render(r Row, key string, lang Language, args Args) string {
 	if r.NoSentence {
 		return ""
 	}
+	if r.Class&ClassModel != 0 {
+		lang = English // read by the agent in the sandbox: English in both languages
+	}
 	t := r.template(lang)
 	if !present(args, "retry") {
 		// UX-G8: no wait time — "在 {retry} 后" is "稍后", "in {retry}" "later".
@@ -437,6 +437,9 @@ func startsSpaceHan(s string) bool {
 // renderNext fills a row's command; "" when it has none or a value is
 // missing.
 func renderNext(r Row, lang Language, args Args) string {
+	if r.Class&ClassModel != 0 {
+		lang = English
+	}
 	t := r.nextTemplate(lang)
 	if t == "" {
 		return ""

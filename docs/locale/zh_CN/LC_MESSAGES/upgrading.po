@@ -397,3 +397,18 @@ msgid ""
 " that, copy files that are to be kept, for example exported evidence."
 msgstr "0.2 数据目录在不再需要时可以删除。删除之前，请先复制需要保留的文件，例如已导出的证据。"
 
+#: ../../upgrading.rst:1
+msgid "Upgrading to 0.3.3"
+msgstr "升级到 0.3.3"
+
+#: ../../upgrading.rst:1
+msgid "Version 0.3.3 is an in-place upgrade of 0.3.x. One behavior changes."
+msgstr "0.3.3 是 0.3.x 的原地升级。有一项行为发生变化。"
+
+#: ../../upgrading.rst:1
+msgid "Output is English on every system, including a system with a Chinese locale. Before 0.3.3, anet and anet-hub chose Chinese when ``LC_ALL``, ``LC_MESSAGES`` or ``LANG`` began with ``zh``. Since 0.3.3 only the variable ``ANET_LANG`` selects Chinese, and the locale variables are not consulted. To keep Chinese sentences, set the variable in the environment of the daemon, of the command line and of the hub:"
+msgstr "在所有系统上，包括使用中文区域设置的系统，输出均为英文。0.3.3 之前，当 ``LC_ALL``、``LC_MESSAGES`` 或 ``LANG`` 以 ``zh`` 开头时，anet 和 anet-hub 选择中文。自 0.3.3 起，只有变量 ``ANET_LANG`` 选择中文，区域设置变量不再参与判断。要保留中文语句，请在守护进程、命令行和 hub 的环境中设置该变量："
+
+#: ../../upgrading.rst:1
+msgid "Any value that begins with ``zh`` in any letter case selects Chinese; any other value, or no value, selects English. Scripts that match the Chinese text of a sentence need the variable set, or need to match the English text. The sentences that anet hands to a model, such as the egress refusals read by a sandboxed agent, are English in both languages. See :doc:`reference/reason-codes`."
+msgstr "以 ``zh`` 开头的值（不区分大小写）选择中文；其他值或未设置时选择英文。匹配语句中文文本的脚本需要设置该变量，或改为匹配英文文本。anet 交给模型的语句，例如沙箱中的 agent 所读取的出站拒绝语句，在两种语言下均为英文。参见 :doc:`reference/reason-codes`\\ 。"

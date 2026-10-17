@@ -791,16 +791,8 @@ msgid ""
 msgstr "从备份恢复数据库。要求 hub 已停止(:ref:`ops-backup`)。"
 
 #: ../../ops/hub.rst:469
-msgid ""
-"A subcommand pointed at a directory that holds no hub refuses to run and "
-"changes nothing. The subcommands print sentences in the language selected"
-" by ``LC_ALL``, ``LC_MESSAGES`` or ``LANG`` (the first one set): Chinese "
-"when the value starts with ``zh``, English otherwise. Lists and figures "
-"are printed as tab-separated data and are not translated."
-msgstr ""
-"指向不含 hub 的目录时,子命令会拒绝运行,且不改动任何内容。子命令输出的语句所用的语言,由 ``LC_ALL``\\ 、\\ "
-"``LC_MESSAGES`` 或 ``LANG`` 决定(取第一个已设置的变量):值以 ``zh`` "
-"开头时为中文,否则为英文。列表和数值以制表符分隔的数据输出,不做翻译。"
+msgid "A subcommand pointed at a directory that holds no hub refuses to run and changes nothing. The subcommands print sentences in the language selected by ``ANET_LANG``: Chinese when the value begins with ``zh`` (any letter case), English otherwise, including when it is unset. ``LC_ALL``, ``LC_MESSAGES`` and ``LANG`` are not consulted. Lists and figures are printed as tab-separated data and are not translated."
+msgstr "指向不含 hub 的目录时，子命令会拒绝运行，且不改动任何内容。子命令输出的语句所用的语言由 ``ANET_LANG`` 决定：值以 ``zh`` 开头（不区分大小写）时为中文，否则为英文，未设置时同样为英文。``LC_ALL``、``LC_MESSAGES`` 和 ``LANG`` 不再参与判断。列表和数值以制表符分隔的数据输出，不做翻译。"
 
 #: ../../ops/hub.rst:479
 msgid "Hub identity and recovery passphrase"

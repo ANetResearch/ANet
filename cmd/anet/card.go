@@ -7,11 +7,12 @@ package main
 // for its extended card only when the agent charges or this node is on its
 // list (core CORE-K23 rule 2), waiting up to 10 seconds.
 //
-//	翻译助手  bafyrei…6kx2wxyz(已验证,密钥已确认)  部分收费
+//	Translator  bafyrei…6kx2wxyz (verified, key confirmed)  partly paid
 //	  translate   3 credits
 //	  summarize   5 credits
-//	  chat        免费
-//	价格由对方签名,取于 10-01 14:05;付款时以任务里的报价为准,高于这里的价格不会自动付。
+//	  chat        free
+//	Prices are signed by the other side, taken 10-01 14:05; at payment the
+//	quote in the task governs, and a price above these is not paid automatically.
 //
 // The lines are ux M4's card.header, card.price or card.price_free (or
 // card.price_unknown when the prices should have been had and were not),

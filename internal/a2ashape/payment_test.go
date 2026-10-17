@@ -97,7 +97,7 @@ func TestNoPaymentExtensionNotActivated(t *testing.T) {
 func TestPaymentRefusalDetailIsTheTablesSentence(t *testing.T) {
 	for _, lang := range []string{"zh_CN.UTF-8", "en_US.UTF-8"} {
 		t.Run(lang, func(t *testing.T) {
-			t.Setenv("LC_ALL", lang)
+			t.Setenv("ANET_LANG", lang)
 			for _, reason := range []string{x402a2a.ReasonClientPayloadUnsupported, x402a2a.ReasonOptionNotOffered, x402a2a.ReasonRailNotPayable} {
 				got, want := a2ashape.PaymentRefusalDetail(reason), a2ashape.Sentence(reason, a2ashape.Lang(), nil)
 				if got != want || got == "" || got == reason {

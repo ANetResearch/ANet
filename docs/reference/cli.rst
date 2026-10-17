@@ -95,9 +95,12 @@ with status 1. It does not print the JSON body.
 Language
 ~~~~~~~~
 
-Sentences are rendered by the daemon in the language of its environment:
-``LC_ALL``, then ``LC_MESSAGES``, then ``LANG``. A value that begins with ``zh``
-selects Chinese; any other value, or no value, selects English. The invocation
+Sentences are rendered in English. The environment variable ``ANET_LANG``
+selects Chinese when its value begins with ``zh``, in any letter case, for
+example ``zh``, ``zh-CN`` or ``zh_CN.UTF-8``; any other value, or no value,
+selects English. ``LC_ALL``, ``LC_MESSAGES`` and ``LANG`` are not consulted.
+Text that anet hands to a model, such as the egress refusals read by a sandboxed
+agent, is English in both languages. The invocation
 column of ``anet help`` is the same in both languages, so that a command copied
 from one language works in the other. See :doc:`reason-codes`.
 

@@ -70,7 +70,7 @@ func TestInstallShRefusesTheRemovedInviteFlags(t *testing.T) {
 	for _, lang := range []struct {
 		env  string
 		lang a2ashape.Language
-	}{{"LANG=C", a2ashape.English}, {"LANG=zh_CN.UTF-8", a2ashape.Chinese}, {"LC_ALL=zh_CN.UTF-8", a2ashape.Chinese}} {
+	}{{"ANET_LANG=en", a2ashape.English}, {"ANET_LANG=zh_CN.UTF-8", a2ashape.Chinese}, {"ANET_LANG=ZH", a2ashape.Chinese}, {"LC_ALL=zh_CN.UTF-8", a2ashape.English}} {
 		for _, c := range []struct{ args, flag string }{
 			{"--hub https://h --token x", "--token"},
 			{"--token=x", "--token"},
@@ -101,7 +101,7 @@ func TestInstallShPassesHubRegisterThrough(t *testing.T) {
 		a2ashape.Sentence("hub_pending_admission", a2ashape.English, a2ashape.Args{"hub": "https://h", "aid": aid}) +
 		"\n  → anet-hub admit " + aid + "\n"
 	for _, exit := range []int{0, 1} {
-		stdout, _, code, calls := runInstallPart(t, []string{"LANG=C", "ANET_INVITE=anetinv_SECRET"}, "--hub https://h --name n", "join_hub", lines, exit)
+		stdout, _, code, calls := runInstallPart(t, []string{"ANET_LANG=en", "ANET_INVITE=anetinv_SECRET"}, "--hub https://h --name n", "join_hub", lines, exit)
 		if code != exit {
 			t.Errorf("exit %d, want hub-register's %d", code, exit)
 		}

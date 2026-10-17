@@ -3,7 +3,7 @@ package stored_test
 // project_test.go is the SI-6 contract test (A2A-DESIGN §1, §17): tasks
 // are written with the store operations the daemon uses, projected, decoded
 // by a2a-go into a2a.Task and encoded again, and the result is checked
-// against the "Task 表示" rules of §11.5 and the invariant that A2A
+// against the "Task representation" rules of §11.5 and the invariant that A2A
 // COMPLETED implies neither effect OK nor a verified receipt.
 
 import (

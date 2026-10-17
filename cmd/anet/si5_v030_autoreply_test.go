@@ -33,7 +33,7 @@ func TestRemovedKeysStopAnetDaemon(t *testing.T) {
 		"modules.p2p.dial_timeout_ms": 500, "modules.p2p.reach_timeout_ms": 500,
 	}
 	for _, lang := range []string{"C", "zh_CN.UTF-8"} {
-		l := a2ashape.LangFrom(func(k string) string { return map[string]string{"LANG": lang}[k] })
+		l := a2ashape.LangFrom(func(k string) string { return map[string]string{"ANET_LANG": lang}[k] })
 		for _, key := range slices.Sorted(maps.Keys(keys)) {
 			value := keys[key]
 			t.Run(lang+"/"+key, func(t *testing.T) {
@@ -72,7 +72,7 @@ func TestRemovedKeysStopAnetDaemon(t *testing.T) {
 				}
 				// doctor says it in the same words.
 				env := testDoctorEnv(t)
-				env.getenv = func(k string) string { return map[string]string{"LANG": lang}[k] }
+				env.getenv = func(k string) string { return map[string]string{"ANET_LANG": lang}[k] }
 				rep, err := collectDoctor(layout, env)
 				if err != nil {
 					t.Fatal(err)

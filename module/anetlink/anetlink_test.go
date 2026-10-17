@@ -117,7 +117,7 @@ func TestStartRefusesAnImpostorListener(t *testing.T) {
 // An anetlinkd of another C1 version is named as that at start: both
 // programs need the same release (ux §1.4 J, c1_version).
 func TestStartNamesAnotherC1Version(t *testing.T) {
-	t.Setenv("LANG", "C")
+	t.Setenv("ANET_LANG", "C")
 	sock := filepath.Join(t.TempDir(), "c1.sock")
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v0/capabilities", func(w http.ResponseWriter, _ *http.Request) {

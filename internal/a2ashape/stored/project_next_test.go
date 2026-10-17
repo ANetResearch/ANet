@@ -40,7 +40,7 @@ func waitingOn(t *testing.T, n a2ashape.PayNote, reason string) a2ashape.Task {
 }
 
 func TestTaskProjectionCarriesNext(t *testing.T) {
-	t.Setenv("LANG", "C")
+	t.Setenv("ANET_LANG", "C")
 	twelve := uint64(12)
 	three := uint64(3)
 	at := time.Date(2026, 10, 10, 9, 0, 0, 0, time.UTC)

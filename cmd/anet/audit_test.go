@@ -101,7 +101,7 @@ func TestAuditAppliesTheDisplayRules(t *testing.T) {
 	var out bytes.Buffer
 	renderAudit(&out, rep)
 	text := out.String()
-	for _, want := range []string{"could not verify (未能核验)", "status UNVERIFIED (not counted as success)",
+	for _, want := range []string{"could not verify", "status UNVERIFIED (not counted as success)",
 		"unknown event, as recorded", "kept as is", "source: " + layout.EvidenceLedgerPath(),
 		"Events — source:", "Summary — source:", "succeeded (OK) 1 of 2"} {
 		if !strings.Contains(text, want) {

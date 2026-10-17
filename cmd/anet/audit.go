@@ -6,7 +6,7 @@ package main
 // verified record by record against the node's key history, with or without
 // a running daemon — and shows it with four rules:
 //
-//   - receipt_verified=false is shown as "could not verify (未能核验)": the
+//   - receipt_verified=false is shown as "could not verify": the
 //     receipt did not check out or could not be checked, which is not the
 //     same as forged and is never shown as fine;
 //   - a capability effect counts as a success only with status OK; an
@@ -62,7 +62,7 @@ func verdictText(v string) string {
 	case verdictVerified:
 		return "verified"
 	case verdictUnverified:
-		return "could not verify (未能核验)"
+		return "could not verify"
 	}
 	return "not recorded"
 }

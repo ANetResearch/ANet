@@ -1,8 +1,8 @@
 package main
 
 // help.go is `anet help`, `anet help --all` and the guide a bare `anet`
-// prints (ux §4.2, UX-G6, UX-C11). The help comes in Chinese and English,
-// chosen like every sentence (a2ashape.Lang: LC_ALL, LC_MESSAGES, LANG);
+// prints (ux §4.2, UX-G6, UX-C11). The help comes in English and Chinese,
+// chosen like every sentence (a2ashape.Lang: English unless ANET_LANG begins with "zh");
 // the invocation column is the same in both, so a command copied from one
 // works in the other. It lists the commands of ux §4.2 that this binary
 // has, and nothing that 0.3.0 removed (ux §4.3); tree_test.go holds the

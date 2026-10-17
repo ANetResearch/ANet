@@ -35,7 +35,7 @@ func privacyOf(t *testing.T, d *Daemon) map[string]any {
 // says is the first row that holds, from the repeated rollback to the
 // retention.
 func TestPrivacyRowPriority(t *testing.T) {
-	t.Setenv("LANG", "C")
+	t.Setenv("ANET_LANG", "C")
 	_, d, _ := registeredPair(t)
 	c := newGateClocks(t, d, uint64(time.Now().UnixMilli()))
 	d.setRollbackMarkForTest(nil)
@@ -118,7 +118,7 @@ func (d *Daemon) setRollbackMarkForTest(m *rollbackMark) {
 // registered at its hub does not say its clock is unconfirmed; the hub line
 // says why, once.
 func TestPrivacyRowSilentWhileNotRegistered(t *testing.T) {
-	t.Setenv("LANG", "C")
+	t.Setenv("ANET_LANG", "C")
 	d := newTestDaemon(t, silentHub, true)
 	c := newGateClocks(t, d, uint64(time.Now().UnixMilli()))
 	c.run(30 * 60 * 1000)
@@ -131,7 +131,7 @@ func TestPrivacyRowSilentWhileNotRegistered(t *testing.T) {
 // TestKeptLongNeedsTheMailbox (FS-U7 row 3): an expired key kept for the
 // mailbox says so after six hours, and not before.
 func TestKeptLongNeedsTheMailbox(t *testing.T) {
-	t.Setenv("LANG", "C")
+	t.Setenv("ANET_LANG", "C")
 	_, d, _ := registeredPair(t)
 	c := newGateClocks(t, d, uint64(time.Now().UnixMilli()))
 	hubSays(d, c.wall.Load())
@@ -157,7 +157,7 @@ func TestKeptLongNeedsTheMailbox(t *testing.T) {
 // plane, the local A2A interface (one agent's scope) and the control plane
 // again through a list carry the same date, the one the sweep deletes by.
 func TestContentExpiresAtSameInThreePlaces(t *testing.T) {
-	t.Setenv("LANG", "C")
+	t.Setenv("ANET_LANG", "C")
 	_, req, prov := registeredPair(t)
 	ctx := context.Background()
 	id, err := req.Delegate(ctx, prov.AID(), "a task that ends", nil)
@@ -211,7 +211,7 @@ func TestContentExpiresAtSameInThreePlaces(t *testing.T) {
 // TaskNotFound with the same sentence — for a task that never was, one of
 // another agent's, and one whose data key is gone.
 func TestNoLocalTaskIsOneSentence(t *testing.T) {
-	t.Setenv("LANG", "C")
+	t.Setenv("ANET_LANG", "C")
 	_, req, prov := registeredPair(t)
 	rec := httptest.NewRecorder()
 	req.hTasksGet(rec, httptest.NewRequest(http.MethodPost, "/tasks/get", strings.NewReader(`{"task_id":"ix_nothere"}`)))
@@ -238,7 +238,7 @@ func TestNoLocalTaskIsOneSentence(t *testing.T) {
 // store gone, no route of the control plane answers 500 with a Go error;
 // each says local_write_failed, in a sentence.
 func TestControlErrorsAreSentences(t *testing.T) {
-	t.Setenv("LANG", "C")
+	t.Setenv("ANET_LANG", "C")
 	_, req, prov := registeredPair(t)
 	id, err := req.Delegate(context.Background(), prov.AID(), "a task", nil)
 	if err != nil {

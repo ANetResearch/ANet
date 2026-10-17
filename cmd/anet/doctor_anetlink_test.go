@@ -68,7 +68,7 @@ func serveLinkd(t *testing.T, health int) string {
 // and returns its anetlink.* and backends.peer_check findings.
 func anetlinkDoctor(t *testing.T, block map[string]any, public ...string) map[string][]map[string]any {
 	t.Helper()
-	t.Setenv("LANG", "C")
+	t.Setenv("ANET_LANG", "C")
 	layout := freshInit(t)
 	kv := map[string]any{}
 	if block != nil {

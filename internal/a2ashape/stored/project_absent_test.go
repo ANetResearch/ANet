@@ -13,7 +13,7 @@ import (
 // reason (ux B-5), and the code is the key without its variant. The task projection says both, with the
 // command that cancels the task.
 func TestQuoteWithoutPaymentModuleHasTheBaseReason(t *testing.T) {
-	t.Setenv("LANG", "C")
+	t.Setenv("ANET_LANG", "C")
 	if got := a2ashape.ReasonCode("module_absent.payment"); got != "module_absent" {
 		t.Fatalf("ReasonCode(module_absent.payment) = %q, want module_absent", got)
 	}

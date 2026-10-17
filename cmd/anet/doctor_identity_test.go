@@ -103,7 +103,7 @@ func checkFinding(t *testing.T, step string, f map[string]doctorCheck, id, statu
 func TestDoctorIdentityChecks(t *testing.T) {
 	env := testDoctorEnv(t)
 	env.getenv = func(k string) string {
-		if k == "LANG" {
+		if k == "ANET_LANG" {
 			return "C"
 		}
 		return ""

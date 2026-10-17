@@ -24,7 +24,7 @@ func TestAnetDaemonRefusesAnEarlierDataDir(t *testing.T) {
 			layout := daemon.NewLayout(h.data)
 			writeEarlierStore(t, layout)
 			before := snapshotDir(t, h.data)
-			l := a2ashape.LangFrom(func(k string) string { return map[string]string{"LANG": lang}[k] })
+			l := a2ashape.LangFrom(func(k string) string { return map[string]string{"ANET_LANG": lang}[k] })
 			want := a2ashape.Sentence("identity_v02", l, nil)
 			for _, args := range [][]string{{"daemon"}, {"up"}} {
 				_, stderr, code := runCLIWithin(t, h, 20*time.Second, args)

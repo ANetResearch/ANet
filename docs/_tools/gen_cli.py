@@ -3,7 +3,7 @@
 
     python3 docs/_tools/gen_cli.py --anet /path/to/anet
 
-The binary is run with LC_ALL=C so that the English help is printed. The output
+The binary is run with ANET_LANG=en so that the English help is printed. The output
 file is committed; rerun the script when the command tree changes.
 """
 import argparse
@@ -40,7 +40,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--anet", default="anet")
     args = ap.parse_args()
-    env = dict(os.environ, LC_ALL="C", LANG="C")
+    env = dict(os.environ, ANET_LANG="en")
     env.pop("LC_MESSAGES", None)
     text = subprocess.run([args.anet, "help", "--all"], check=True, capture_output=True,
                           text=True, env=env).stdout

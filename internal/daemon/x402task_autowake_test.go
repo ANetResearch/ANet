@@ -27,7 +27,7 @@ func drainEvents(ch <-chan Event) []Event {
 }
 
 // A quote within the auto tier is paid by the node itself (A2A-DESIGN §8.3;
-// §8.7: "auto 档内照常自动付款"), so nothing may announce the quote's
+// §8.7: "payment proceeds automatically within the auto tier"), so nothing may announce the quote's
 // input-required before that payment has been tried. Every client that waits
 // on a task wakes on the bus: a blocking /tasks/send, /tasks/wait and MCP
 // wait_task (waitTask stops at input-required), and the local A2A interface's

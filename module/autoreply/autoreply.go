@@ -362,7 +362,7 @@ func (m *autoReplyModule) apply(produce func(cur *AutoReplyConfig) (*AutoReplyCo
 
 // autoReplyDefaultTestPrompt is the synthetic self-check used by `anet autoreply test` when the operator
 // gives no prompt. It exercises the whole backend path (API reachable / agent spawns + returns text).
-const autoReplyDefaultTestPrompt = "自检：请用一句话说明你是谁、由什么驱动、能帮我做什么。"
+const autoReplyDefaultTestPrompt = "Self-check: in one sentence, say who you are, what powers you and what you can help me with."
 
 // TestAutoReply runs the CURRENTLY configured auto-reply backend once against a synthetic single-turn
 // conversation and returns the reply — WITHOUT touching the Hub or creating any identity. This is the

@@ -49,10 +49,10 @@ WITH=""
 
 # build_tag_pending M ZH EN — the sentence build_tag_pending of anet's reason
 # table (internal/a2ashape; a test keeps this text equal to it) in the
-# language anet would choose (LC_ALL, LC_MESSAGES, LANG; Chinese when it begins
-# with zh), on stderr, and exit 2 before anything is built.
+# language anet would choose (Chinese when ANET_LANG begins with zh, English
+# otherwise), on stderr, and exit 2 before anything is built.
 build_tag_pending() {
-  case "${LC_ALL:-${LC_MESSAGES:-${LANG:-}}}" in
+  case "$(printf '%s' "${ANET_LANG:-}" | tr '[:upper:]' '[:lower:]')" in
     zh*) printf '这个版本还不能在构建时去掉%s模块（%s），随 v0.3.x 提供；现在可以用 --without %s 在配置里关闭它，什么都没有构建。\n' "$2" "$1" "$1" >&2 ;;
     *)   printf 'This version cannot leave the %s module (%s) out at build time yet; that comes in v0.3.x. For now you can turn it off in the configuration with --without %s; nothing was built.\n' "$3" "$1" "$1" >&2 ;;
   esac

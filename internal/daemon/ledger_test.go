@@ -226,13 +226,17 @@ func TestReadingAnEmptyChain(t *testing.T) {
 	}
 }
 
-// 一次被杀死的写入只损坏它正在写的那条记录, 那是最后一条。守着它不放会让
-// 节点下线, 而链的完整性由 Import 单独把关 —— 位置能区分这两件事, 错误类型不能。
+// A killed write damages only the record being written, which is the last
+// one. Refusing to start over it would take the node offline, while the
+// integrity of the chain is guarded by Import alone: the position tells the
+// two cases apart, the error type does not.
 //
-// 位置 internal/daemon/ledger.go:openEvidenceLedger; 行为 任何一行解码失败都
-// 返回错误, 调用方 daemon.go:135 直接放弃启动; 影响 一次 OOM 之后 daemon 在
-// systemd 下每 5 秒崩溃重启一次, 节点从网络上消失, 只能手工编辑账本才能恢复;
-// 发现方式 RK3588 板子上转换大模型时 OOM killer 落在 append 中途, 实网复现。
+// Where: internal/daemon/ledger.go:openEvidenceLedger. Behaviour: any line
+// that fails to decode returns an error and the caller (daemon.go) gives up
+// starting. Effect: after one OOM the daemon crashes and restarts every 5
+// seconds under systemd, the node disappears from the network, and only
+// editing the ledger by hand recovers it. Found on an ARM board when the OOM
+// killer struck in the middle of an append during a model conversion.
 func TestATornTrailingRecordDoesNotKeepTheNodeDown(t *testing.T) {
 	self, err := identitytest.Hub()
 	if err != nil {
@@ -255,7 +259,7 @@ func TestATornTrailingRecordDoesNotKeepTheNodeDown(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// 模拟半截写入: 追加一条被截断的记录, 不带换行 —— 进程死在 Write 中途就是这样。
+	// Simulate a half write: append a truncated record with no newline, as a process killed in the middle of Write leaves it.
 	torn := []byte("YmFkIHRvcm4gdGFpbCB3aXRob3V0IGEgdmFsaWQgY2Jvcg")
 	if err := os.WriteFile(path, append(append([]byte{}, good...), torn...), 0o600); err != nil {
 		t.Fatal(err)
@@ -267,7 +271,7 @@ func TestATornTrailingRecordDoesNotKeepTheNodeDown(t *testing.T) {
 	}
 	defer reopened.Close()
 
-	// 丢失必须记在链上, 而不是只进日志 —— 校验链的人看不到日志。
+	// The loss must be recorded on the chain, not only in the log: whoever verifies the chain cannot see the log.
 	_, recs := reopened.Evidence(EvidenceQuery{Limit: 100})
 	var gaps int
 	for _, r := range recs {
@@ -282,7 +286,7 @@ func TestATornTrailingRecordDoesNotKeepTheNodeDown(t *testing.T) {
 		t.Fatalf("三条原记录加一条缺口标记应为 4, 实得 %d", len(recs))
 	}
 
-	// 修好之后还能继续追加, 且再开一次不再报缺口。
+	// After the repair appending continues, and opening again reports no gap.
 	if _, err := reopened.Append(EvReceipt, map[string]any{"after": "repair"}); err != nil {
 		t.Fatal(err)
 	}
@@ -298,8 +302,9 @@ func TestATornTrailingRecordDoesNotKeepTheNodeDown(t *testing.T) {
 	}
 }
 
-// 中间一行坏掉不可能由崩溃造成 —— 文件是追加式的, 崩溃只能伤到正在写的那条。
-// 所以这种形态仍然拒绝启动, 宽容到这里就是纵容篡改。
+// A bad line in the middle cannot be caused by a crash: the file is
+// append-only, and a crash can hurt only the record being written. This shape
+// therefore still refuses to start; leniency here would condone tampering.
 func TestCorruptionInTheMiddleStillRefusesToLoad(t *testing.T) {
 	self, err := identitytest.Hub()
 	if err != nil {
