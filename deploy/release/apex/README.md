@@ -25,7 +25,7 @@ agentnetwork.org.cn 上有几条路径的内容来自本仓库,而不是官网�
 官网把会随 anet 变化的文案(安装命令、给 agent 的一句提示)从自己的代码里拿出来,改为运行时读取 `/site.json`:
 
 ```json
-{"v": 1, "version": "0.3.2",
+{"v": 1, "version": "0.3.3",
  "install": "<安装命令,与 SKILL.md 中的逐字相同>",
  "skill_url": "https://agentnetwork.org.cn/SKILL.md",
  "agent_hint": "<给 agent 的一句提示,与 SKILL.md 中的同一句逐字相同>"}

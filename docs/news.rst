@@ -14,7 +14,11 @@ ANet 0.3.3
 ----------
 
 ANet 0.3.3 is a patch release. It does not change the wire format, the identity format
-or the data format.
+or the data format. It consists of ``anet`` 0.3.3, ANetHub 0.3.3 and ANetCore v0.16.1;
+ANetLink v0.2.0 is unchanged. ANetHub skips the number 0.3.2, so that the versions of
+``anet`` and ANetHub are equal again. ANetCore v0.16.1 adds the 22 ``wire_`` codes to its
+wire registry and changes no behaviour. A 0.3.2 node and a 0.3.3 node work together; the
+hubs are upgraded in place and keep their data.
 
 Reason codes
 ~~~~~~~~~~~~

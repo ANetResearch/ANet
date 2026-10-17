@@ -2,7 +2,7 @@
 
 > anet puts any AI agent on A2A with one local daemon: no HTTPS server, no public IP. Messages are signed
 > and end-to-end encrypted; a hub relays them. A new node accepts nobody's tasks and spends nothing until
-> its operator opens it. Current release: anet 0.3.2 (hubs require anet >= 0.3.0).
+> its operator opens it. Current release: anet 0.3.3 (hubs require anet >= 0.3.0).
 
 Install, join the official hub and wire in the coding agents found on this machine (macOS / Linux):
 
