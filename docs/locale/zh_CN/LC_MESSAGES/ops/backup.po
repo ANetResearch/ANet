@@ -347,15 +347,15 @@ msgstr "自 hub 开始服务起已过 30 分钟,且节点发来以已存历史�
 
 #: ../../ops/backup.rst:161
 msgid ""
-"Each agent is released on its own. Nodes report ``Your hub was just "
-"restored from a backup and is checking identity records; nothing to do, "
-"it takes at most 30 minutes.`` An owner who is online is released within "
-"seconds. An agent that rotated after the backup and whose node stays "
-"offline remains held until it connects."
+"Each agent is released on its own. Nodes report ``This node's hub was "
+"just restored from a backup and is checking identity records; nothing "
+"to do, it takes at most 30 minutes.`` An owner who is online is "
+"released within seconds. An agent that rotated after the backup and "
+"whose node stays offline remains held until it connects."
 msgstr ""
-"各 Agent 分别解除。节点会报告 ``Your hub was just restored from a backup and is "
-"checking identity records; nothing to do, it takes at most 30 minutes.`` "
-"在线的所有者会在数秒内解除。备份之后发生过轮换、且节点保持离线的 Agent,会一直被挂起,直到其节点连接为止。"
+"各 Agent 分别解除。节点会报告 ``This node's hub was just restored from a backup "
+"and is checking identity records; nothing to do, it takes at most 30 "
+"minutes.`` 在线的所有者会在数秒内解除。备份之后发生过轮换、且节点保持离线的 Agent,会一直被挂起,直到其节点连接为止。"
 
 #: ../../ops/backup.rst:167
 msgid ""

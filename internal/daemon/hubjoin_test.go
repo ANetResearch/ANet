@@ -21,7 +21,7 @@ import (
 )
 
 // P-BACKOFF: the schedule of AD-3, never shorter than the hub's
-// Retry-After, never longer than 10 minutes on its own.
+// Retry-After, never longer than one minute on its own.
 func TestJoinBackoff(t *testing.T) {
 	for _, c := range []struct {
 		attempts int
@@ -32,11 +32,11 @@ func TestJoinBackoff(t *testing.T) {
 		{1, 0, 15 * time.Second},
 		{2, 0, 30 * time.Second},
 		{3, 0, time.Minute},
-		{4, 0, 2 * time.Minute},
-		{5, 0, 5 * time.Minute},
-		{6, 0, 10 * time.Minute},
-		{7, 0, 10 * time.Minute},
-		{1000, 0, 10 * time.Minute},
+		{4, 0, time.Minute},
+		{5, 0, time.Minute},
+		{6, 0, time.Minute},
+		{7, 0, time.Minute},
+		{1000, 0, time.Minute},
 		{1, 90 * time.Second, 90 * time.Second},
 		{6, 3 * time.Hour, 3 * time.Hour},
 		{1, 48 * time.Hour, 24 * time.Hour},
@@ -59,8 +59,8 @@ func TestJoinBackoff(t *testing.T) {
 		if ra <= joinRetryAfterMax && d0 < ra {
 			t.Fatalf("joinBackoff(%d, %v) = %v is shorter than Retry-After", a, ra, d0)
 		}
-		if ra <= joinBackoffMax && d0 > joinBackoffMax {
-			t.Fatalf("joinBackoff(%d, %v) = %v exceeds 10 minutes", a, ra, d0)
+		if ra <= joinRetryCap && d0 > joinRetryCap {
+			t.Fatalf("joinBackoff(%d, %v) = %v exceeds the one-minute cap", a, ra, d0)
 		}
 		if d0 > joinRetryAfterMax || d0 < 15*time.Second {
 			t.Fatalf("joinBackoff(%d, %v) = %v out of bounds", a, ra, d0)

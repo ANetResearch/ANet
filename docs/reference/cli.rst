@@ -316,7 +316,7 @@ A hub that admits agents by AID answers with a pending state. The command then
 prints the ``anet-hub admit <AID>`` line that the hub operator must run, and the
 daemon completes the registration in the background once the operator has
 admitted the AID, with retries starting at 15 seconds and backing off to every
-10 minutes. The hub on ``https://hub.agentnetwork.org.cn`` accepts registrations
+minute. The hub on ``https://hub.agentnetwork.org.cn`` accepts registrations
 without operator action, protected by a proof of work, a daily quota per
 address range and a probation period.
 
@@ -576,7 +576,7 @@ Tools
 
 ``anet agents wire [--all|<tool>...] [--refresh] [--a2a <aid>...]`` registers the
 MCP server of ``anet`` and a usage guide with coding agents. The supported tools
-are ``cursor``, ``claude``, ``codex``, ``opencode``, ``openclaw`` and ``hermes``;
+are ``claude``, ``codex``, ``cursor``, ``opencode`` and ``hermes``;
 every file that the command edits is backed up first. ``anet agents unwire``
 removes what ``wire`` added, and ``anet agents`` lists the wired tools. ``anet
 mcp`` serves MCP over standard input and output; ``anet agents wire`` registers

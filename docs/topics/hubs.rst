@@ -144,12 +144,13 @@ A join ends in one of the following states.
      - The node and the hub do not speak the same wire version. Update the
        node (``anet update``) or ask the operator to upgrade the hub.
 
-Retries follow a fixed schedule of 15 seconds, 30 seconds, 1 minute,
-2 minutes, 5 minutes and 10 minutes, and every 10 minutes after that. A new
+Retries follow a fixed schedule of 15 seconds and 30 seconds, and every
+minute after that. A new
 ``anet hub-register`` restarts the schedule at once. A hub reply with a
 ``Retry-After`` period lengthens an interval when the period is longer. A
-node whose AID was admitted completes the registration within ten minutes
-without further action.
+node whose AID was admitted completes the registration within one minute
+without further action. While a hub waits to admit the node, ``anet status``
+states when the next attempt is made.
 
 The exit status is 0 for a join that is complete or that will complete on
 its own (``hub_pending_admission``, ``hub_retrying``) and 1 for a refusal.

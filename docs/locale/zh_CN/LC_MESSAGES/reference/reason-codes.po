@@ -879,15 +879,15 @@ msgstr "``caller_busy``"
 
 #: ../../reference/_generated/reason-codes.inc:47
 msgid ""
-"You still have a call to this capability running there, so this one was "
-"not run; send it again when that one ends."
+"A call to this capability is still running there, so this one was not "
+"run; send it again when that one ends."
 msgstr ""
-"You still have a call to this capability running there, so this one was "
-"not run; send it again when that one ends."
+"A call to this capability is still running there, so this one was not "
+"run; send it again when that one ends."
 
 #: ../../reference/_generated/reason-codes.inc:48
-msgid "你在对方那里还有一个同一能力的调用没结束，这次没有执行；请等它结束后再发。"
-msgstr "你在对方那里还有一个同一能力的调用没结束，这次没有执行；请等它结束后再发。"
+msgid "对方那里仍有一个对同一能力的调用未结束，这次没有执行；请待其结束后再发。"
+msgstr "对方那里仍有一个对同一能力的调用未结束，这次没有执行；请待其结束后再发。"
 
 #: ../../reference/_generated/reason-codes.inc:50
 msgid "``quota_caller_per_min``"
@@ -896,16 +896,16 @@ msgstr "``quota_caller_per_min``"
 #: ../../reference/_generated/reason-codes.inc:52
 #, python-brace-format
 msgid ""
-"You have used up this minute's calls to this capability, so it was not "
-"run; send it again in {retry}."
+"This minute's calls to this capability are used up, so it was not run;"
+" send it again in {retry}."
 msgstr ""
-"You have used up this minute's calls to this capability, so it was not "
-"run; send it again in {retry}."
+"This minute's calls to this capability are used up, so it was not run;"
+" send it again in {retry}."
 
 #: ../../reference/_generated/reason-codes.inc:53
 #, python-brace-format
-msgid "你这一分钟对这项能力的调用次数已用完，没有执行；请在 {retry} 后再发。"
-msgstr "你这一分钟对这项能力的调用次数已用完，没有执行；请在 {retry} 后再发。"
+msgid "本分钟内对这项能力的调用次数已用完，没有执行；请在 {retry} 后再发。"
+msgstr "本分钟内对这项能力的调用次数已用完，没有执行；请在 {retry} 后再发。"
 
 #: ../../reference/_generated/reason-codes.inc:55
 msgid "``quota_caller_per_day``"
@@ -914,16 +914,16 @@ msgstr "``quota_caller_per_day``"
 #: ../../reference/_generated/reason-codes.inc:57
 #, python-brace-format
 msgid ""
-"You have used up today's (UTC) calls to this capability, so it was not "
-"run; send it again in {retry}."
+"Today's (UTC) calls to this capability are used up, so it was not run;"
+" send it again in {retry}."
 msgstr ""
-"You have used up today's (UTC) calls to this capability, so it was not "
-"run; send it again in {retry}."
+"Today's (UTC) calls to this capability are used up, so it was not run;"
+" send it again in {retry}."
 
 #: ../../reference/_generated/reason-codes.inc:58
 #, python-brace-format
-msgid "你今天（UTC）对这项能力的调用次数已用完，没有执行；请在 {retry} 后再发。"
-msgstr "你今天（UTC）对这项能力的调用次数已用完，没有执行；请在 {retry} 后再发。"
+msgid "今天（UTC）对这项能力的调用次数已用完，没有执行；请在 {retry} 后再发。"
+msgstr "今天（UTC）对这项能力的调用次数已用完，没有执行；请在 {retry} 后再发。"
 
 #: ../../reference/_generated/reason-codes.inc:60
 msgid "``args_too_large``"
@@ -1846,14 +1846,14 @@ msgstr "``rate_limited``"
 #: ../../reference/_generated/reason-codes.inc:311
 #: ../../reference/_generated/reason-codes.inc:316
 msgid ""
-"You are sending too fast and the hub asked you to wait; ``anet`` retries "
-"on its own."
-msgstr "你发得太快，hub 要求稍等；\\ ``anet`` 会自动重试。"
+"Sending is too fast and the hub asked for a wait; ``anet`` retries on "
+"its own."
+msgstr "发送过快，hub 要求稍等；\\ ``anet`` 会自动重试。"
 
 #: ../../reference/_generated/reason-codes.inc:312
 #: ../../reference/_generated/reason-codes.inc:317
-msgid "你发得太快，hub 要求稍等；\\ ``anet`` 会自动重试。"
-msgstr "你发得太快，hub 要求稍等；\\ ``anet`` 会自动重试。"
+msgid "发送过快，hub 要求稍等；\\ ``anet`` 会自动重试。"
+msgstr "发送过快，hub 要求稍等；\\ ``anet`` 会自动重试。"
 
 #: ../../reference/_generated/reason-codes.inc:313
 #: ../../reference/_generated/reason-codes.inc:318
@@ -1934,8 +1934,8 @@ msgstr ""
 "queued; run ``anet status`` to see your hub's state."
 
 #: ../../reference/_generated/reason-codes.inc:337
-msgid "你的 hub 暂时不接受你的首次联系，信在排队；请运行 ``anet status`` 查看 hub 状态。"
-msgstr "你的 hub 暂时不接受你的首次联系，信在排队；请运行 ``anet status`` 查看 hub 状态。"
+msgid "本节点的 hub 暂时不接受首次联系，信在排队；请运行 ``anet status`` 查看 hub 状态。"
+msgstr "本节点的 hub 暂时不接受首次联系，信在排队；请运行 ``anet status`` 查看 hub 状态。"
 
 #: ../../reference/_generated/reason-codes.inc:339
 msgid "``credential_refused``"
@@ -1961,17 +1961,17 @@ msgstr "``notice_stale.wait``"
 
 #: ../../reference/_generated/reason-codes.inc:346
 msgid ""
-"Your hub has not confirmed your current key yet, so this is queued; it "
-"goes out on its own once it does (see the identity line of ``anet "
-"status``)."
+"This node's hub has not confirmed the current key yet, so this is "
+"queued; it goes out on its own once it does (see the identity line of "
+"``anet status``)."
 msgstr ""
-"Your hub has not confirmed your current key yet, so this is queued; it "
-"goes out on its own once it does (see the identity line of ``anet "
-"status``)."
+"This node's hub has not confirmed the current key yet, so this is "
+"queued; it goes out on its own once it does (see the identity line of "
+"``anet status``)."
 
 #: ../../reference/_generated/reason-codes.inc:347
-msgid "你的 hub 还没确认你的最新密钥，信在排队；确认后会自动发出，详见 ``anet status`` 的身份行。"
-msgstr "你的 hub 还没确认你的最新密钥，信在排队；确认后会自动发出，详见 ``anet status`` 的身份行。"
+msgid "本节点的 hub 还没确认最新密钥，信在排队；确认后会自动发出，详见 ``anet status`` 的身份行。"
+msgstr "本节点的 hub 还没确认最新密钥，信在排队；确认后会自动发出，详见 ``anet status`` 的身份行。"
 
 #: ../../reference/_generated/reason-codes.inc:349
 msgid "``rotation_pending.wait``"
@@ -2137,18 +2137,18 @@ msgstr "I ok"
 #: ../../reference/_generated/reason-codes.inc:381
 #, python-brace-format
 msgid ""
-"A task you send fails if its delivery is not confirmed within {limit}, or"
-" if it is confirmed but the other side does not answer within {limit} "
-"after that; a later answer is still recorded."
+"A task this node sends fails if its delivery is not confirmed within "
+"{limit}, or if it is confirmed but the other side does not answer "
+"within {limit} after that; a later answer is still recorded."
 msgstr ""
-"A task you send fails if its delivery is not confirmed within {limit}, or"
-" if it is confirmed but the other side does not answer within {limit} "
-"after that; a later answer is still recorded."
+"A task this node sends fails if its delivery is not confirmed within "
+"{limit}, or if it is confirmed but the other side does not answer "
+"within {limit} after that; a later answer is still recorded."
 
 #: ../../reference/_generated/reason-codes.inc:382
 #, python-brace-format
-msgid "你发出的任务 {limit} 内没有确认送达即算失败；确认送达后 {limit} 内对方没有任何回应也算失败，之后到达的答复仍会记下。"
-msgstr "你发出的任务 {limit} 内没有确认送达即算失败；确认送达后 {limit} 内对方没有任何回应也算失败，之后到达的答复仍会记下。"
+msgid "本节点发出的任务 {limit} 内没有确认送达即算失败；确认送达后 {limit} 内对方没有任何回应也算失败，之后到达的答复仍会记下。"
+msgstr "本节点发出的任务 {limit} 内没有确认送达即算失败；确认送达后 {limit} 内对方没有任何回应也算失败，之后到达的答复仍会记下。"
 
 #: ../../reference/_generated/reason-codes.inc:384
 msgid "``no_response_after.off``"
@@ -3174,17 +3174,17 @@ msgstr "``key_compromise``"
 
 #: ../../reference/_generated/reason-codes.inc:655
 msgid ""
-"You rotated your keys in an emergency, so all tasks in progress were "
-"ended to stop the leaked keys from being used; start them again if you "
-"still need them."
+"An emergency key rotation was made, so all tasks in progress were "
+"ended to stop the leaked keys from being used; start them again if "
+"still needed."
 msgstr ""
-"You rotated your keys in an emergency, so all tasks in progress were "
-"ended to stop the leaked keys from being used; start them again if you "
-"still need them."
+"An emergency key rotation was made, so all tasks in progress were "
+"ended to stop the leaked keys from being used; start them again if "
+"still needed."
 
 #: ../../reference/_generated/reason-codes.inc:656
-msgid "你做了紧急密钥轮换，为防泄露的密钥继续被使用，在途任务已全部结束；需要的话请重新发起。"
-msgstr "你做了紧急密钥轮换，为防泄露的密钥继续被使用，在途任务已全部结束；需要的话请重新发起。"
+msgid "已做紧急密钥轮换，为防泄露的密钥继续被使用，在途任务已全部结束；需要的话请重新发起。"
+msgstr "已做紧急密钥轮换，为防泄露的密钥继续被使用，在途任务已全部结束；需要的话请重新发起。"
 
 #: ../../reference/_generated/reason-codes.inc:658
 msgid "``key_compromise.peer``"
@@ -3398,21 +3398,21 @@ msgstr "``witness_unreachable``"
 #: ../../reference/_generated/reason-codes.inc:710
 #, python-brace-format
 msgid ""
-"Your witness hub {hub} cannot be reached, and a scheduled rotation needs "
-"it online; try again later, or if a key has leaked use ``anet identity`` "
-"rotate ``--emergency``."
+"The witness hub {hub} cannot be reached, and a scheduled rotation "
+"needs it online; try again later, or if a key has leaked use ``anet "
+"identity`` rotate ``--emergency``."
 msgstr ""
-"Your witness hub {hub} cannot be reached, and a scheduled rotation needs "
-"it online; try again later, or if a key has leaked use ``anet identity`` "
-"rotate ``--emergency``."
+"The witness hub {hub} cannot be reached, and a scheduled rotation "
+"needs it online; try again later, or if a key has leaked use ``anet "
+"identity`` rotate ``--emergency``."
 
 #: ../../reference/_generated/reason-codes.inc:711
 #, python-brace-format
 msgid ""
-"连不上你的见证 hub {hub}，计划内轮换需要它在线；请稍后重试，确有泄露请用 ``anet identity`` rotate "
+"连不上本节点的见证 hub {hub}，计划内轮换需要它在线；请稍后重试，确有泄露请用 ``anet identity`` rotate "
 "``--emergency``\\ 。"
 msgstr ""
-"连不上你的见证 hub {hub}，计划内轮换需要它在线；请稍后重试，确有泄露请用 ``anet identity`` rotate "
+"连不上本节点的见证 hub {hub}，计划内轮换需要它在线；请稍后重试，确有泄露请用 ``anet identity`` rotate "
 "``--emergency``\\ 。"
 
 #: ../../reference/_generated/reason-codes.inc:713
@@ -3710,16 +3710,16 @@ msgstr "``identity.confirm_aging``"
 #: ../../reference/_generated/reason-codes.inc:780
 #, python-brace-format
 msgid ""
-"Your hub has not confirmed your key for {dur}; check your connection to "
-"it."
+"This node's hub has not confirmed its key for {dur}; check the "
+"connection to the hub."
 msgstr ""
-"Your hub has not confirmed your key for {dur}; check your connection to "
-"it."
+"This node's hub has not confirmed its key for {dur}; check the "
+"connection to the hub."
 
 #: ../../reference/_generated/reason-codes.inc:781
 #, python-brace-format
-msgid "你的 hub 已 {dur} 没有确认你的密钥；请检查与 hub 的连接。"
-msgstr "你的 hub 已 {dur} 没有确认你的密钥；请检查与 hub 的连接。"
+msgid "本节点的 hub 已 {dur} 没有确认密钥；请检查与 hub 的连接。"
+msgstr "本节点的 hub 已 {dur} 没有确认密钥；请检查与 hub 的连接。"
 
 #: ../../reference/_generated/reason-codes.inc:783
 msgid "``notice_stale``"
@@ -3763,16 +3763,18 @@ msgstr "S fail"
 #: ../../reference/_generated/reason-codes.inc:785
 #, python-brace-format
 msgid ""
-"Your hub has not confirmed your key for {dur}, so outgoing messages are "
-"queued; check your connection to it, and switch hubs if it stays down."
+"This node's hub has not confirmed its key for {dur}, so outgoing "
+"messages are queued; check the connection to the hub, and switch hubs "
+"if it stays down."
 msgstr ""
-"Your hub has not confirmed your key for {dur}, so outgoing messages are "
-"queued; check your connection to it, and switch hubs if it stays down."
+"This node's hub has not confirmed its key for {dur}, so outgoing "
+"messages are queued; check the connection to the hub, and switch hubs "
+"if it stays down."
 
 #: ../../reference/_generated/reason-codes.inc:786
 #, python-brace-format
-msgid "你的 hub 已 {dur} 没有确认你的密钥，发出的消息在排队；请检查与 hub 的连接，hub 长期不可用时请换 hub。"
-msgstr "你的 hub 已 {dur} 没有确认你的密钥，发出的消息在排队；请检查与 hub 的连接，hub 长期不可用时请换 hub。"
+msgid "本节点的 hub 已 {dur} 没有确认密钥，发出的消息在排队；请检查与 hub 的连接，hub 长期不可用时请换 hub。"
+msgstr "本节点的 hub 已 {dur} 没有确认密钥，发出的消息在排队；请检查与 hub 的连接，hub 长期不可用时请换 hub。"
 
 #: ../../reference/_generated/reason-codes.inc:788
 msgid "``old_hub_unacked``"
@@ -3796,15 +3798,15 @@ msgstr "``identity.quarantine``"
 
 #: ../../reference/_generated/reason-codes.inc:795
 msgid ""
-"Your hub was just restored from a backup and is checking identity "
-"records; nothing to do, it takes at most 30 minutes."
+"This node's hub was just restored from a backup and is checking "
+"identity records; nothing to do, it takes at most 30 minutes."
 msgstr ""
-"Your hub was just restored from a backup and is checking identity "
-"records; nothing to do, it takes at most 30 minutes."
+"This node's hub was just restored from a backup and is checking "
+"identity records; nothing to do, it takes at most 30 minutes."
 
 #: ../../reference/_generated/reason-codes.inc:796
-msgid "你的 hub 刚从备份恢复，正在核对身份记录；不需要操作，最多 30 分钟。"
-msgstr "你的 hub 刚从备份恢复，正在核对身份记录；不需要操作，最多 30 分钟。"
+msgid "本节点的 hub 刚从备份恢复，正在核对身份记录；不需要操作，最多 30 分钟。"
+msgstr "本节点的 hub 刚从备份恢复，正在核对身份记录；不需要操作，最多 30 分钟。"
 
 #: ../../reference/_generated/reason-codes.inc:798
 msgid "``identity.hub_record_invalid``"
@@ -3813,18 +3815,18 @@ msgstr "``identity.hub_record_invalid``"
 #: ../../reference/_generated/reason-codes.inc:800
 #, python-brace-format
 msgid ""
-"Your witness hub {hub} returned an identity record that does not verify; "
-"this node's identity is not affected. Send this message to the hub's "
-"operator, and switch hubs if it keeps happening."
+"The witness hub {hub} returned an identity record that does not "
+"verify; this node's identity is not affected. Send this message to the"
+" hub's operator, and switch hubs if it keeps happening."
 msgstr ""
-"Your witness hub {hub} returned an identity record that does not verify; "
-"this node's identity is not affected. Send this message to the hub's "
-"operator, and switch hubs if it keeps happening."
+"The witness hub {hub} returned an identity record that does not "
+"verify; this node's identity is not affected. Send this message to the"
+" hub's operator, and switch hubs if it keeps happening."
 
 #: ../../reference/_generated/reason-codes.inc:801
 #, python-brace-format
-msgid "你的见证 hub {hub} 给出的身份记录验证不过，本机身份不受影响；请把这条信息发给 hub 运营者，持续出现时请换 hub。"
-msgstr "你的见证 hub {hub} 给出的身份记录验证不过，本机身份不受影响；请把这条信息发给 hub 运营者，持续出现时请换 hub。"
+msgid "本节点的见证 hub {hub} 给出的身份记录验证不过，本机身份不受影响；请把这条信息发给 hub 运营者，持续出现时请换 hub。"
+msgstr "本节点的见证 hub {hub} 给出的身份记录验证不过，本机身份不受影响；请把这条信息发给 hub 运营者，持续出现时请换 hub。"
 
 #: ../../reference/_generated/reason-codes.inc:803
 msgid "``identity.hub_kel_fork``"
@@ -3851,16 +3853,20 @@ msgstr "``identity.hub_unauthorized``"
 #: ../../reference/_generated/reason-codes.inc:810
 #, python-brace-format
 msgid ""
-"Your hub refused this node's signed requests {n} times recently; check it"
-" with ``anet status``, and switch hubs if this goes on."
+"This node's hub refused its signed requests {n} times recently; check "
+"it with ``anet status``, and switch hubs if this goes on."
 msgstr ""
-"Your hub refused this node's signed requests {n} times recently; check it"
-" with ``anet status``, and switch hubs if this goes on."
+"This node's hub refused its signed requests {n} times recently; check "
+"it with ``anet status``, and switch hubs if this goes on."
 
 #: ../../reference/_generated/reason-codes.inc:811
 #, python-brace-format
-msgid "你的 hub 最近 {n} 次拒绝了本节点的签名请求；请运行 ``anet status`` 查看 hub 状态，持续出现时请换 hub。"
-msgstr "你的 hub 最近 {n} 次拒绝了本节点的签名请求；请运行 ``anet status`` 查看 hub 状态，持续出现时请换 hub。"
+msgid ""
+"本节点的 hub 最近 {n} 次拒绝了本节点的签名请求；请运行 ``anet status`` 查看 hub 状态，持续出现时请换 "
+"hub。"
+msgstr ""
+"本节点的 hub 最近 {n} 次拒绝了本节点的签名请求；请运行 ``anet status`` 查看 hub 状态，持续出现时请换 "
+"hub。"
 
 #: ../../reference/_generated/reason-codes.inc:813
 msgid "``identity.unprotected``"
@@ -6726,8 +6732,8 @@ msgstr ""
 "in an emergency)"
 
 #: ../../reference/_generated/reason-codes.inc:1720
-msgid "· 结束所有进行中的任务（对方会看到你做了紧急密钥轮换）"
-msgstr "· 结束所有进行中的任务（对方会看到你做了紧急密钥轮换）"
+msgid "· 结束所有进行中的任务（对方会看到已做紧急密钥轮换）"
+msgstr "· 结束所有进行中的任务（对方会看到已做紧急密钥轮换）"
 
 #: ../../reference/_generated/reason-codes.inc:1722
 msgid "``identity.rotate.emergency_summary.5``"
@@ -6779,11 +6785,11 @@ msgstr ""
 #: ../../reference/_generated/reason-codes.inc:1735
 #, python-brace-format
 msgid ""
-"你的见证 hub {hub} 现在连不上：紧急轮换会先停用本机的旧密钥，等它恢复后自动发布，期间暂停收发。若它已永久关闭，请按 Ctrl-C "
-"取消，先换 hub（\\ ``anet hub-register`` <新 hub>）再做紧急轮换。"
+"本节点的见证 hub {hub} 现在连不上：紧急轮换会先停用本机的旧密钥，等它恢复后自动发布，期间暂停收发。若它已永久关闭，请按 "
+"Ctrl-C 取消，先换 hub（\\ ``anet hub-register`` <新 hub>）再做紧急轮换。"
 msgstr ""
-"你的见证 hub {hub} 现在连不上：紧急轮换会先停用本机的旧密钥，等它恢复后自动发布，期间暂停收发。若它已永久关闭，请按 Ctrl-C "
-"取消，先换 hub（\\ ``anet hub-register`` <新 hub>）再做紧急轮换。"
+"本节点的见证 hub {hub} 现在连不上：紧急轮换会先停用本机的旧密钥，等它恢复后自动发布，期间暂停收发。若它已永久关闭，请按 "
+"Ctrl-C 取消，先换 hub（\\ ``anet hub-register`` <新 hub>）再做紧急轮换。"
 
 #: ../../reference/_generated/reason-codes.inc:1737
 msgid "``identity.rotate.emergency_done_seq``"
@@ -6995,13 +7001,13 @@ msgstr "``identity.rm.dip_unacked``"
 
 #: ../../reference/_generated/reason-codes.inc:1804
 msgid ""
-"Your witness hub has not confirmed the deactivation yet; after removal "
+"The witness hub has not confirmed the deactivation yet; after removal "
 "``anet`` stops retrying, and others may keep sending to this identity."
-msgstr "你的见证 hub 还没确认这次注销；现在删除后 ``anet`` 不会再重试，别人可能继续给这个身份发信。"
+msgstr "本节点的见证 hub 还没确认这次注销；现在删除后 ``anet`` 不会再重试，别人可能继续给这个身份发信。"
 
 #: ../../reference/_generated/reason-codes.inc:1805
-msgid "你的见证 hub 还没确认这次注销；现在删除后 ``anet`` 不会再重试，别人可能继续给这个身份发信。"
-msgstr "你的见证 hub 还没确认这次注销；现在删除后 ``anet`` 不会再重试，别人可能继续给这个身份发信。"
+msgid "本节点的见证 hub 还没确认这次注销；现在删除后 ``anet`` 不会再重试，别人可能继续给这个身份发信。"
+msgstr "本节点的见证 hub 还没确认这次注销；现在删除后 ``anet`` 不会再重试，别人可能继续给这个身份发信。"
 
 #: ../../reference/_generated/reason-codes.inc:1807
 msgid "``autoreply.updated``"
@@ -7383,16 +7389,16 @@ msgstr "``audit.proofs_ok``"
 #: ../../reference/_generated/reason-codes.inc:1939
 #, python-brace-format
 msgid ""
-"Your balance proofs: {n} periods checked, latest {time} balance {amount} "
+"Balance proofs: {n} periods checked, latest {time} balance {amount} "
 "credits."
 msgstr ""
-"Your balance proofs: {n} periods checked, latest {time} balance {amount} "
+"Balance proofs: {n} periods checked, latest {time} balance {amount} "
 "credits."
 
 #: ../../reference/_generated/reason-codes.inc:1940
 #, python-brace-format
-msgid "你的余额证明：{n} 个纪元核对通过，最新 {time} 余额 {amount} credits。"
-msgstr "你的余额证明：{n} 个纪元核对通过，最新 {time} 余额 {amount} credits。"
+msgid "余额证明：{n} 个纪元核对通过，最新 {time} 余额 {amount} credits。"
+msgstr "余额证明：{n} 个纪元核对通过，最新 {time} 余额 {amount} credits。"
 
 #: ../../reference/_generated/reason-codes.inc:1942
 msgid "``audit.none``"
@@ -7789,16 +7795,16 @@ msgstr "``sender_privacy.grants_summary``"
 #: ../../reference/_generated/reason-codes.inc:2093
 #, python-brace-format
 msgid ""
-"You hold {n} delivery credentials from others (your messages to them "
-"carry no sender identity); you have issued {m}."
+"This node holds {n} delivery credentials from others (its messages to "
+"them carry no sender identity); it has issued {m}."
 msgstr ""
-"You hold {n} delivery credentials from others (your messages to them "
-"carry no sender identity); you have issued {m}."
+"This node holds {n} delivery credentials from others (its messages to "
+"them carry no sender identity); it has issued {m}."
 
 #: ../../reference/_generated/reason-codes.inc:2094
 #, python-brace-format
-msgid "你持有 {n} 个对方给的投递凭据（给他们发信时信里不带你的身份）；你给出了 {m} 个。"
-msgstr "你持有 {n} 个对方给的投递凭据（给他们发信时信里不带你的身份）；你给出了 {m} 个。"
+msgid "本节点持有 {n} 个对方给的投递凭据（向对方发信时信里不带本节点的身份）；已给出 {m} 个。"
+msgstr "本节点持有 {n} 个对方给的投递凭据（向对方发信时信里不带本节点的身份）；已给出 {m} 个。"
 
 #: ../../reference/_generated/reason-codes.inc:2096
 msgid "``sender_privacy.withdrawals_pending``"
