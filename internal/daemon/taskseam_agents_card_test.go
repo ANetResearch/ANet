@@ -287,7 +287,9 @@ func TestAnUnverifiedCardIsNotPassedOn(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("/agents/list: %d %s", resp.StatusCode, raw)
 	}
-	for _, leak := range []string{"anet tools", "PAY 100", "HUB SAYS", "999"} {
+	// The review count is looked for as the member it would be: a bare
+	// "999" turns up by chance in a signature or an AID, which are base64.
+	for _, leak := range []string{"anet tools", "PAY 100", "HUB SAYS", `"reviewCount":999`} {
 		if strings.Contains(string(raw), leak) {
 			t.Errorf("/agents/list passes on %q: %s", leak, raw)
 		}
