@@ -24,6 +24,7 @@ import (
 	"github.com/ANetResearch/ANetCore/identity"
 	"github.com/ANetResearch/ANetCore/relayauth"
 	"github.com/ANetResearch/ANetCore/seal"
+	"github.com/ANetResearch/ANetCore/tsir"
 
 	"github.com/ANetResearch/ANet/internal/hubapi"
 )
@@ -94,8 +95,9 @@ func newFakeHub(t *testing.T) *fakeHub {
 			http.NotFound(w, r)
 			return
 		}
-		_ = json.NewEncoder(w).Encode(map[string]string{"aid": r.PathValue("aid"),
-			"key_state_notice": hubapi.B64(suiteNotice(t, kel))})
+		// The shape of the real route: the agent under "agent", the reviews beside it.
+		_ = json.NewEncoder(w).Encode(map[string]any{"agent": map[string]string{"aid": r.PathValue("aid"),
+			"key_state_notice": hubapi.B64(suiteNotice(t, kel))}, "reviews": []any{}})
 	})
 	mux.HandleFunc("POST /relay/poll", func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
@@ -500,5 +502,61 @@ func TestRelaySendDeliversTheSameBytesOnBothPaths(t *testing.T) {
 	defer hub.mu.Unlock()
 	if len(hub.sends) != 1 || !bytes.Equal(hub.sends[0].env, env) || hub.sends[0].from != c.AID() {
 		t.Fatalf("hub got %d sends (refusals %v)", len(hub.sends), hub.errs)
+	}
+}
+
+// A first contact goes under a session; an envelope sent under a delivery credential carries none, and a hub
+// refuses a send that has both.
+func TestOnlyAFirstContactGoesUnderASession(t *testing.T) {
+	if !sendsUnderSession(&seal.Access{Kind: seal.AccessKindSession}) || !sendsUnderSession(nil) {
+		t.Fatal("a first contact must open a session")
+	}
+	if sendsUnderSession(&seal.Access{Kind: seal.AccessKindCap}) {
+		t.Fatal("a send under a delivery credential must carry no session")
+	}
+}
+
+// The task binding the fixture puts into a delegation reads back as a binding for the requester it names:
+// a delegation without one is refused by the receiver as a bad request.
+func TestTheDelegationsBindingReadsBack(t *testing.T) {
+	ctxs, err := taskBindingContexts("bafyreitest")
+	if err != nil {
+		t.Fatal(err)
+	}
+	td := &tsir.TaskDoc{Version: tsir.VersionPair{Major: 1},
+		Tasks: []tsir.Task{{Intent: tsir.Intent{Summary: "g", Body: "g"}, Contexts: ctxs}}}
+	b, err := delegation.ReadTaskBinding(td)
+	if err != nil {
+		t.Fatalf("the binding does not read back: %v", err)
+	}
+	if b.Nonce == "" || len(b.ReviewKey) == 0 || len(b.RequesterCommit) == 0 {
+		t.Fatalf("binding %+v is incomplete", b)
+	}
+	again, _ := taskBindingContexts("bafyreitest")
+	if b2, _ := delegation.ReadTaskBinding(&tsir.TaskDoc{Tasks: []tsir.Task{{Contexts: again}}}); b2 == nil || b2.Nonce == b.Nonce {
+		t.Fatal("two bindings share a nonce")
+	}
+}
+
+// A first contact to an agent of another hub carries the hint of that hub (X-ANet-Home), and the session MAC
+// covers it: the fake hub verifies the MAC over the header it received.
+func TestRelaySendCarriesTheRecipientsHomeHint(t *testing.T) {
+	hub := newFakeHub(t)
+	_, prov := withIdentity(t)
+	dir, c := withIdentity(t)
+	hub.register(t, prov)
+	hub.register(t, c)
+	envB64 := capture(t, func() error {
+		return cmdSeal([]string{"--home", dir, "--hub", hub.URL, "--to", prov.AID(), "--type", "message", "--ix", "ix_1", "--text", "hi"})
+	})
+	out := capture(t, func() error {
+		return cmdRelaySend([]string{"--home", dir, "--hub", hub.URL, "--recipient-home", "bafyreihomehub",
+			"--to", prov.AID(), "--envelope", envB64})
+	})
+	var res struct {
+		Hub *hubOutcome `json:"hub"`
+	}
+	if err := json.Unmarshal([]byte(out), &res); err != nil || res.Hub == nil || res.Hub.Code != 200 {
+		t.Fatalf("output %q (hub refusals %v)", out, hub.errs)
 	}
 }

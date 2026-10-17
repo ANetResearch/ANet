@@ -17,7 +17,9 @@
 //	anetfixture org-credential --home DIR --genesis B64 --subject AID [--role member]
 //	anetfixture x402-authorize --home DIR --pay-to AID --amount N --network hub:AID [--interaction ID]
 //	anetfixture relay-sign    --home DIR --hub URL --action poll --method POST --path /relay/poll --body-file F
-//	anetfixture seal          --home DIR --hub URL --to AID [--as AID --kel self|claimed] …   (attack.go)
+//	anetfixture seal          --home DIR --hub URL [--recipient-hub URL] --to AID [--as AID --kel self|claimed] …   (attack.go)
+//	anetfixture card-verify   --card FILE --kel FILE   (the card as GET /a2a/v1/agents/AID/card served it, the key
+//	                          history as GET /agents/AID/kel served it; prints the AID and the skill ids)
 //	anetfixture relay-send    --to AID --envelope B64|@FILE [--home DIR --hub URL] [--p2p ADDR] (attack.go)
 //
 // The first four print one base64 line, ready for `anet delegate … --args`.
@@ -36,6 +38,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ANetResearch/ANetCore/a2acard"
 	"github.com/ANetResearch/ANetCore/identity"
 	"github.com/ANetResearch/ANetCore/payment"
 
@@ -67,6 +70,8 @@ func main() {
 		err = cmdRelaySend(os.Args[2:])
 	case "org-id":
 		err = cmdOrgID(os.Args[2:])
+	case "card-verify":
+		err = cmdCardVerify(os.Args[2:])
 	default:
 		usage()
 	}
@@ -78,7 +83,7 @@ func main() {
 
 func usage() {
 	fmt.Fprintln(os.Stderr,
-		"usage: anetfixture cogunit|org-genesis|org-credential|aid|x402-authorize|relay-sign|seal|relay-send|org-id --home DIR [...]")
+		"usage: anetfixture cogunit|org-genesis|org-credential|aid|x402-authorize|relay-sign|seal|relay-send|org-id|card-verify --home DIR [...]")
 	os.Exit(2)
 }
 
@@ -400,4 +405,48 @@ func parseGenesisArg(b64 string) (*org.Genesis, error) {
 		return nil, fmt.Errorf("--genesis malformed: %w", err)
 	}
 	return g, nil
+}
+
+// cmdCardVerify checks an A2A card the way a stranger does: against the key history the hub published, with
+// nothing of the hub's own to trust. It prints "<aid> <skill id>..." on success and exits 1 otherwise.
+func cmdCardVerify(args []string) error {
+	fs := flag.NewFlagSet("card-verify", flag.ExitOnError)
+	cardPath := fs.String("card", "", "file with the card as the hub served it")
+	kelPath := fs.String("kel", "", "file with the hub's answer to GET /agents/AID/kel")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	card, err := os.ReadFile(*cardPath)
+	if err != nil {
+		return err
+	}
+	view, err := os.ReadFile(*kelPath)
+	if err != nil {
+		return err
+	}
+	var kv struct {
+		KEL string `json:"kel"`
+	}
+	if err := json.Unmarshal(view, &kv); err != nil || kv.KEL == "" {
+		return fmt.Errorf("the key history answer has no kel member")
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(strings.TrimRight(kv.KEL, "="))
+	if err != nil {
+		return fmt.Errorf("kel is not base64url: %w", err)
+	}
+	kel, err := identity.UnmarshalKEL(raw)
+	if err != nil {
+		return err
+	}
+	v, err := a2acard.Verify(card, func(string) ([]identity.SignedEvent, error) { return kel, nil },
+		uint64(time.Now().UnixMilli()))
+	if err != nil {
+		return err
+	}
+	out := []string{v.AID}
+	for _, sk := range v.Skills {
+		out = append(out, sk.ID)
+	}
+	fmt.Println(strings.Join(out, " "))
+	return nil
 }

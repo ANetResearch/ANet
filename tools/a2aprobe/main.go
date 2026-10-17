@@ -23,7 +23,7 @@
 // option the quote did not offer, a payload of the client's own. It writes
 // the client's configuration (the address and the token, as Hermes keeps
 // them), the ids of the tasks it made, and the raw JSON-RPC responses of its
-// blocking sends for the Hermes contract (internal/a2ashape
+// blocking sends for the Hermes contract (internal/a2ashape/stored
 // TestHermesReadsJointRecord).
 //
 // again runs after the requester daemon restarted: the configuration run

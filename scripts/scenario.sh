@@ -27,10 +27,9 @@
 # which lives outside every repository and is never committed.
 #
 # Section 8 is A2A-DESIGN §17's two-hub run: encrypted delegation to an agent
-# the other hub keeps to itself, a reply after the key cache time, a paid call
-# across hubs with its negative cases, the three cancel orders, and the C32
-# mutation. It waits out the daemon's key cache time (10 minutes) once, so the
-# whole script takes about a quarter of an hour; SCENARIO_XHUB=0 leaves it out.
+# the other hub keeps to itself, a reply after a restart, a paid call across
+# hubs with its negative cases, and the three cancel orders. The whole script
+# takes a few minutes; SCENARIO_XHUB=0 leaves it out.
 #
 # Environment:
 #   SCENARIO_ROOT       work directory (default /tmp/anet-scenario); this user's and
@@ -61,8 +60,8 @@
 #                       addresses of their hosts, e.g. 192.0.2.89 and 192.0.2.90)
 #   XHUB_ROOT2          the second side's work directory (default $SCENARIO_ROOT/side2, or
 #                       /tmp/anet-scenario-side2 on XHUB_HOST2); same ownership rule
-#   XHUB_CACHE_WAIT     seconds the key-cache cases wait (default 630: the daemon's
-#                       10-minute revalidation interval, and a margin)
+#   XHUB_CACHE_WAIT     seconds 8.5 waits for after 8.2 (default 0; the ten-minute key cache time
+#                       of earlier versions no longer exists)
 #
 # Test hosts (an internal note, scripts/testnet/README.md): this script stops only what it
 # started, by path; its daemons get a private XDG_RUNTIME_DIR; nothing binds 0.0.0.0.
@@ -107,6 +106,14 @@ info(){ printf '  %s\n' "$*"; }
 # Each daemon is a separate HOME, which is how one machine hosts several
 # identities: one runtime, one agent, one AID.
 home_of(){ echo "$ROOT/$1"; }
+# join_cli <home> <hub> <name> <caps,comma-separated>: `anet hub-register` as an agent runs it, without a
+# terminal and from the home of the node. Since 0.3 the join carries the digest of the next key (the
+# command line makes it) and a hub admits by AID, so the control API is not a way in for a script.
+join_cli(){
+  local out
+  out=$(env HOME="$1" XDG_RUNTIME_DIR="$ROOT/xdg" setsid -w "$BIN/anet" hub-register "$2" --name "$3" ${4:+--caps "$4"} </dev/null 2>&1) \
+    || { printf '  hub-register %s: %s\n' "$3" "$(printf '%s' "$out" | tail -2 | tr '\n' ' ')" >&2; return 1; }
+}
 # The control token goes to curl through a file descriptor, never on its command line: the test hosts
 # have other users, and a process's arguments are theirs to read (an internal note §4).
 ctl(){ # ctl <node> <path> <json>
@@ -232,8 +239,7 @@ for node in A B C; do
   pin_a2a "$h/.anet" $((port + 50))
   cat > "$h/.anet/config.json" <<CFG
 {
- "control_addr": "127.0.0.1:$port",
- "hub_url": "$HUB"
+ "control_addr": "127.0.0.1:$port"
 }
 CFG
   port=$((port+1))
@@ -326,9 +332,9 @@ done
 [ "$up" = 3 ] && ok "三个 daemon 各自起来了(三个身份,三个 HOME)" || no "只有 $up/3 起来"
 
 # The documented join: `anet hub-register <hub> --name … --caps …`.
-ctl A /hub-register "{\"hub\":\"$HUB\",\"name\":\"NodeA\",\"caps\":[\"digest\",\"text.digest.paid\"]}" >/dev/null
-ctl B /hub-register "{\"hub\":\"$HUB\",\"name\":\"NodeB\",\"caps\":[\"chat\"]}" >/dev/null
-ctl C /hub-register "{\"hub\":\"$HUB\",\"name\":\"NodeC\",\"caps\":[]}" >/dev/null
+join_cli "$(home_of A)" "$HUB" NodeA digest,text.digest.paid
+join_cli "$(home_of B)" "$HUB" NodeB chat
+join_cli "$(home_of C)" "$HUB" NodeC
 sleep 2
 A=$(aid_of A); B=$(aid_of B); C=$(aid_of C)
 # A new account holds no credit during its probation; the paid scenarios start from a grant.
@@ -387,18 +393,16 @@ import sys,json;print(len(json.load(sys.stdin).get('agents') or []))")
 # Third-party verifiability, from the hub alone.
 kel=$(curl -s -m 10 "$HUB/agents/$A/kel" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("kel",""))')
 [ -n "$kel" ] && ok "hub 公布了 A 的密钥历史,陌生人可以自行验签" || no "hub 不发布密钥历史"
-# The directory entry must be the agent's own words, not the hub's.
-card=$(curl -s -m 10 "$HUB/agents/$A/card")
-echo "$card" | python3 -c "
-import sys,json
-c=json.load(sys.stdin)
-assert c['subject_did']=='$A', 'subject mismatch'
-assert 'text.digest.paid' in c['capabilities'], c['capabilities']
+# The directory entry must be the agent's own words, not the hub's: the card is checked here against the
+# key history the hub published, as a stranger would (anetfixture card-verify = ANetCore a2acard.Verify).
+curl -s -m 10 "$HUB/a2a/v1/agents/$A/card" >"$ROOT/A.card.json"
+curl -s -m 10 "$HUB/agents/$A/kel" >"$ROOT/A.kel.json"
+cv=$("$BIN/anetfixture" card-verify --card "$ROOT/A.card.json" --kel "$ROOT/A.kel.json" 2>&1)
 # Q14: the private text.digest and the declared-only digest are not published.
-assert 'text.digest' not in c['capabilities'] and 'digest' not in c['capabilities'], c['capabilities']
-assert c['envelope']['signer_aid']=='$A'
-" 2>/dev/null && ok "目录里 A 的条目是 A 自己签的(公开能力在签名内,hub 改不动;私有能力不在其中)" \
-  || no "A 没有已签名的卡片: $(echo "$card" | head -c 160)"
+case " $cv " in
+  " $A text.digest.paid ") ok "目录里 A 的条目是 A 自己签的(验过密钥历史;公开能力在签名内,hub 改不动;私有能力不在其中)" ;;
+  *) no "A 没有已签名的卡片: $cv" ;;
+esac
 
 # ── 3. every pair can actually reach the others ─────────────────
 hd "3  三者两两连通"
@@ -495,7 +499,7 @@ PY
     ctl A /shutdown '{}' >/dev/null 2>&1; sleep 2
     setsid env HOME="$(home_of A)" "$BIN/anet" daemon >"$ROOT/A.log" 2>&1 </dev/null &
     sleep 4
-    ctl A /hub-register "{\"hub\":\"$HUB\",\"name\":\"NodeA\",\"caps\":[\"digest\",\"image.caption\"]}" >/dev/null
+    join_cli "$(home_of A)" "$HUB" NodeA digest,image.caption
     ok "A 挂上了本地 caption 模型(容器内,不出网)"
   else
     no "caption 服务没在 $CAPTION_URL —— 跳过 A 的本地模型"
@@ -641,7 +645,7 @@ present(){ # present <pay-to> <amount> <tag> → the hub's errorReason, or "sett
   pp=$("$BIN/anetfixture" x402-authorize --home "$(home_of C)/.anet" \
         --pay-to "$1" --amount "$2" --network "hub:$HUBAID" --interaction "scenario-neg-$3-$(date +%s)" 2>/dev/null)
   [ -n "$pp" ] || { echo "no-fixture"; return; }
-  python3 - "$pp" "$OPT" <<'PY' | curl -s -m 20 -H 'Content-Type: application/json' -d @- "$HUB/x402/settle" \
+  python3 - "$pp" "$OPT" <<'PY' | curl -s -m 20 -H 'X-ANet-Wire: 3' -H 'Content-Type: application/json' -d @- "$HUB/x402/settle" \
     | python3 -c 'import sys,json;d=json.load(sys.stdin);print("settled" if d.get("success") else d.get("errorReason",""))'
 import base64, json, sys
 pp = json.loads(base64.b64decode(sys.argv[1]))
@@ -719,15 +723,19 @@ greason=$(python3 -c 'import sys,json;print(json.load(open(sys.argv[1])).get("re
   || no "网关地址回 $gw / '$greason',期望 410 gateway_removed"
 
 hd "6.7  兑付:credit 也能出去,且 hub 的负债可被数出来"
-sup(){ curl -s -m 10 "$HUB/x402/supply" | python3 -c "import sys,json;print(json.load(sys.stdin)['supply']['$1'])"; }
-out1=$(sup outstanding); bal1=$(sup balances)
+# Since 0.3.0 the public supply record is one closed period at a time, and names no account; the
+# running total is the operator's (`anet-hub supply`, read from the database beside the hub). The
+# balances are the three accounts' own, which are all the accounts this hub has.
+sup(){ "$BIN/anet-hub" supply --data "$ROOT/hub" 2>/dev/null | awk -F'\t' -v k="$1" '$1==k{print $2}'; }
+sup_bal(){ echo $(( $(balance_of A) + $(balance_of B) + $(balance_of C) )); }
+out1=$(sup outstanding); bal1=$(sup_bal)
 [ "$out1" = "$bal1" ] && ok "账是平的:未清偿 $out1 == 各账户合计 $bal1" || no "账不平:$out1 vs $bal1"
 # 兑付要带运营者确认过的收款方(hub 的 AID;`anet redeem` 在终端上给人看的就是它),daemon 只签给它。
 HAID=$(ctl A /payments/status '{"hub":true}' | python3 -c 'import sys,json;print(json.load(sys.stdin).get("hub_aid",""))' 2>/dev/null)
 rd=$(ctl A /redeem "{\"amount\":10,\"reference\":\"scenario-inv-1\",\"pay_to\":\"$HAID\"}")
 rv=$(echo "$rd" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("verified",""))' 2>/dev/null)
 [ "$rv" = "True" ] && ok "兑付成功,且 hub 为取走的额度签了字(节点已验签)" || no "兑付没有可验证的收据:$rd"
-out2=$(sup outstanding); bal2=$(sup balances)
+out2=$(sup outstanding); bal2=$(sup_bal)
 [ "$((out1 - out2))" = "10" ] && ok "hub 的未清偿负债确实降了 10 —— credit 真的出去了" \
   || no "兑付后负债 $out1 → $out2"
 [ "$out2" = "$bal2" ] && ok "兑付之后账仍然是平的" || no "兑付把账做歪了:$out2 vs $bal2"
@@ -738,6 +746,7 @@ HUB2_PORT=$((HUB_PORT+1))
 HUB2=http://127.0.0.1:$HUB2_PORT
 rm -rf "$ROOT/hub2"; mkdir -p "$ROOT/hub2"
 
+# Hub 2 is as closed as hub 1 was: its sign-up window (below, once it is up) takes NodeD.
 # Hub 1's identity, so hub 2 can name it as a peer.
 H1=$(curl -s -m 10 "$HUB/hub/identity" | python3 -c 'import sys,json;print(json.load(sys.stdin)["aid"])')
 setsid "$BIN/anet-hub" --addr "127.0.0.1:$HUB2_PORT" --data "$ROOT/hub2" >"$ROOT/hub2.log" 2>&1 </dev/null &
@@ -767,14 +776,14 @@ grep -q "discovery=" "$ROOT/hub.log" && ok "两个 hub 互为 peer,discovery 已
 mkdir -p "$ROOT/D/.anet"
 pin_a2a "$ROOT/D/.anet" $((PORT_BASE + 63))
 cat > "$ROOT/D/.anet/config.json" <<CFG
-{"control_addr":"127.0.0.1:$((PORT_BASE+13))","hub_url":"$HUB2","name":"NodeD","caps":["remote.digest"],
+{"control_addr":"127.0.0.1:$((PORT_BASE+13))","name":"NodeD","caps":["remote.digest"],
  "modules":{"service":{"allow_tcp":true,"capabilities":[
    {"id":"remote.digest","url":"http://127.0.0.1:$SVC_PORT","description":"sha256, on the other hub"}]}},
  "inbound":{"policy":"closed","public_capabilities":[{"id":"remote.digest"}]}}
 CFG
 setsid env HOME="$ROOT/D" "$BIN/anet" daemon >"$ROOT/D.log" 2>&1 </dev/null &
 sleep 4
-ctl D /hub-register "{\"hub\":\"$HUB2\",\"name\":\"NodeD\",\"caps\":[\"remote.digest\"]}" >/dev/null
+join_cli "$ROOT/D" "$HUB2" NodeD remote.digest
 D=$(aid_of D)
 # D accepts the cross-hub caller C by name.
 printf '%s\n' "$C" > "$ROOT/D/.anet/peers.allow"
@@ -822,10 +831,35 @@ import sys,json
 for x in json.load(sys.stdin).get('results') or []:
     if x.get('provider')=='$D': print(x['interaction_id']); break")
   if [ -n "$cix" ]; then
-    ctl C /review "{\"interaction_id\":\"$cix\",\"rating\":5,\"comment\":\"cross-hub\"}" >/dev/null 2>&1
-    sleep 2
-    lr=$(curl -s -m 10 "$HUB/agents/$D/reputation" | python3 -c "
-import sys,json;print((json.load(sys.stdin).get('reputation') or {}).get('local',{}).get('reviews',0))")
+    # Since 0.3.0 a review is signed at once and uploaded at a random time within six hours, so that its
+    # timing cannot be matched to an interaction. The answer says so, and nothing reaches the hub yet.
+    rvw=$(ctl C /review "{\"interaction_id\":\"$cix\",\"rating\":5,\"comment\":\"cross-hub\"}")
+    rvdue=$(echo "$rvw" | python3 -c "
+import sys,json,time
+d=json.load(sys.stdin)
+ms=d.get('due_at',0)-int(time.time()*1000)
+print('queued' if d.get('status')=='queued' and 0 <= ms <= 6*3600*1000+60000 else 'no:'+json.dumps(d))" 2>/dev/null)
+    [ "$rvdue" = queued ] && ok "评价当场签好,上传时刻随机落在六小时之内(due_at 在窗口里)" || no "评价没有按延迟上传排队:$rvdue"
+    lr0=$(curl -s -m 10 "$HUB/agents/$D/reputation" | python3 -c "
+import sys,json;print(json.load(sys.stdin).get('local',{}).get('reviews',0))")
+    [ "${lr0:-0}" = 0 ] && ok "排队期间 hub 上没有这条评价(时刻不泄露交互)" || no "评价在排队期间就到了 hub(${lr0})"
+    # The upload itself is the part that crosses hubs. Its wait is a privacy property of the node, so the run
+    # does not shorten it in the node: it moves the due time of this one queued row to now, in the node's own
+    # store, which is what six hours going by would do. The outbox is looked at every minute.
+    python3 - "$(home_of C)/.anet/interactions/interactions.db" "$cix" <<'PY'
+import sqlite3, sys
+db = sqlite3.connect(sys.argv[1], timeout=30)
+n = db.execute("UPDATE review_outbox SET due_at=1 WHERE ix=?", (sys.argv[2],)).rowcount
+db.commit()
+sys.exit(0 if n == 1 else 1)
+PY
+    [ $? = 0 ] || no "排队的评价不在节点的发件箱里"
+    for _ in $(seq 1 40); do
+      lr=$(curl -s -m 10 "$HUB/agents/$D/reputation" | python3 -c "
+import sys,json;print(json.load(sys.stdin).get('local',{}).get('reviews',0))")
+      [ "${lr:-0}" -ge 1 ] && break
+      sleep 3
+    done
     [ "${lr:-0}" -ge 1 ] && ok "跨 hub 的活可以被评价了(评价方的 hub 收下了它自己用户的评分)" \
       || no "跨 hub 交互仍然无法评价(hub1 本地评价数 ${lr:-0})"
     # hub2 拉过去,并且落在 peer 那一列而不是本地列。同步节奏空转后放宽到 2 分钟一轮(ANetHub
@@ -833,7 +867,7 @@ import sys,json;print((json.load(sys.stdin).get('reputation') or {}).get('local'
     for _ in $(seq 1 50); do
       pr=$(curl -s -m 10 "$HUB2/agents/$D/reputation" | python3 -c "
 import sys,json
-r=json.load(sys.stdin).get('reputation') or {}
+r=json.load(sys.stdin)
 print(len(r.get('peers') or []))" 2>/dev/null)
       [ "${pr:-0}" -ge 1 ] && break
       sleep 3
@@ -842,7 +876,7 @@ print(len(r.get('peers') or []))" 2>/dev/null)
       || no "评分没有跨过去(hub2 的 peers 列为空)"
     lc=$(curl -s -m 10 "$HUB2/agents/$D/reputation" | python3 -c "
 import sys,json
-r=json.load(sys.stdin).get('reputation') or {}
+r=json.load(sys.stdin)
 print(r.get('local',{}).get('reviews',0))" 2>/dev/null)
     [ "${lc:-0}" = "0" ] && ok "它没有被并进 hub2 的本地计数(来源分得清)" \
       || no "peer 的评分混进了本地列(${lc})"
@@ -857,19 +891,25 @@ fi
 rep=$(curl -s -m 10 "$HUB/agents/$D/reputation")
 haspeers=$(echo "$rep" | python3 -c '
 import sys,json
-r=json.load(sys.stdin).get("reputation") or {}
+r=json.load(sys.stdin)
 print("yes" if "peers" in r and "combined" in r and "concentration" in r else "no")' 2>/dev/null)
 [ "$haspeers" = "yes" ] && ok "信誉按来源分开发布(local / peers / combined + 集中度)" \
   || no "信誉端点没有按来源拆分:$rep"
-note=$(echo "$rep" | python3 -c 'import sys,json;print(len(json.load(sys.stdin).get("note","")))' 2>/dev/null)
-[ "${note:-0}" -gt 40 ] && ok "合并值旁边写明了它不能证明什么(peer 可自建账号刷评价)" \
-  || no "合并评分没有附带告诫"
+# 0.3.0 counts the distinct reviewers behind a rating, per source (a tag per reviewer, not a name): the
+# number next to the average is what shows one source deciding a rating, together with the concentration.
+dr=$(echo "$rep" | python3 -c '
+import sys,json
+r=json.load(sys.stdin)
+ok=isinstance(r.get("local",{}).get("reviewers"),int) and isinstance(r.get("concentration"),(int,float))
+print("yes" if ok else "no")' 2>/dev/null)
+[ "$dr" = yes ] && ok "每个来源给出不同评价人数,另有集中度:一个来源左右评分时看得出来" \
+  || no "信誉端点没有给出不同评价人数与集中度:$rep"
 # The anonymous /fed/v1/reviews stream is gone (sealed-sender 7.4): the stream is peer-signed at /fed/v3/reviews,
 # so an unsigned GET must not return it.
 strm=$(curl -s -o /dev/null -w '%{http_code}' -m 10 "$HUB2/fed/v3/reviews?cursor=0")
 case "$strm" in 200) no "信誉同步流对匿名请求开放(/fed/v3/reviews 答 200)" ;; *) ok "信誉同步流只对签名的对端开放(匿名 GET 答 $strm)" ;; esac
 
-# ── 8. two hubs: the other hub's agent, the key cache, money, cancels ──
+# ── 8. two hubs: the other hub's agent, money, cancels ──
 # A2A-DESIGN §17:联调行 scenario.sh 与补充用例 C2、C25、C32、C34;支付负面用例对应 SI-9 / §8.4 / §8.5。
 #
 # 两边(side),各有一个 hub,两个 hub 互为联邦对端(投递与目录都开):
@@ -882,11 +922,10 @@ case "$strm" in 200) no "信誉同步流对匿名请求开放(/fed/v3/reviews �
 #   side 2 默认也在本机(另一端口段,另一目录);给了 XHUB_HOST2 就经 ssh 在那台主机上起。那边的控制面只绑
 #   那台主机的回环,本脚本经 ssh 在那边调用(x2),令牌不出那台主机、不上命令行。两种布局走同一套 x2 代码。
 #
-# 8.1 hub-local provider:hub1 的目录里没有 P,却能经 /fed/v2/keys 取到它的密钥;名单外的 R2 被拒(之后
+# 8.1 hub-local provider:hub1 的目录里没有 P,也不替 X2 给 P 的密钥(密钥只由自己的 hub 给);名单外的 R2 被拒(之后
 #     才上名单);R 的委派加密送达 P,P 的回复加密回到 R;任务还在 X2 信箱里时(P 离线)与送达之后,两个 hub
 #     的数据目录与日志里都搜不到任务文字。
-# 8.2 开三个要跨过缓存时限的任务(R4→P、R2→P、R→Q 待批),重启 P 与 Q,开始计时。R4、R2 此后什么也不做,
-#     P 对它们密钥的记录因此真的与等待一样旧(R 在 8.3/8.4 付款,P 发给它的每条状态都可能先行复核)。
+# 8.2 开三个要跨过重启的任务(R4→P、R2→P、R→Q 待批),重启 P 与 Q。
 # 8.3 跨 hub 付费,同一 ix:入口 hub(X2)与账本 hub(hub1)各拒少付与错收款方;P 的商户核对拒少付与
 #     错收款方(付款消息由 R 自己的密钥签、经 anetfixture 发出 —— R 的 daemon 不会签这种条款);然后
 #     正确付款结算一次、活只干一次;重放同一授权、同一绑定另签一张、重发付款消息,都不再多出 credit。
@@ -894,9 +933,7 @@ case "$strm" in 200) no "信誉同步流对匿名请求开放(/fed/v3/reviews �
 #     付款方证据链上都有这一笔结算,且各只一笔。第一种顺序同时是 C25 的"结算未知":入口 hub 答
 #     settlement_pending,provider 用同一授权重试到账本 hub 回来,恰好扣一次、干一次;其间 R 不签第二张授权
 #     (8.3 里账本 hub 也拒同一任务的第二张授权:duplicate_binding)。
-# 8.5 超过缓存时限之后:P(重启过)回复 R4 送达;这次回复触发的密钥复核经 /fed/v2/keys 成功(P 库里
-#     peer_identity.keys_checked_at 回复前超过 10 分钟、回复后前进);Q 批准待批项并回复,送达跨 hub 的
-#     纯请求方 R(C2)。
+# 8.5 P(重启过)回复 R4 送达,用的是已存的密钥;Q 批准待批项并回复,送达跨 hub 的纯请求方 R(C2)。
 # 8.6 C32 mutation:两个 hub 以 -test-no-fed-key-lookup 重启。首次联系 hub-local provider 失败
 #     (R3→P 封不了信封,hub1 答 404);超时限回复所需的密钥复核失败(P 的日志,keys_checked_at 不前进),
 #     回复仍以已存密钥送达 —— §3.5 [C2]
@@ -904,8 +941,8 @@ case "$strm" in 200) no "信誉同步流对匿名请求开放(/fed/v3/reviews �
 #     设计 §17 C32 行写"两例均失败";第二例若真要失败,daemon 就得在 hub 404 时丢掉仍然有效的已存密钥,与
 #     §3.5 [C2] 相反。这里按 §3.5 与实现断言(失败的是复核,不是投递),设计行留待 B6-02 追认。
 #
-# "缓存时限"是 daemon 对已存对端密钥的复核间隔(internal/daemon/seal_send.go keysRevalidateMS,10 分钟,
-# A2A-DESIGN §3.5 第 1 步)。它是常量,所以本节真等 XHUB_CACHE_WAIT 秒;8.3、8.4 在等待期间做完。
+# 0.3.0 没有 10 分钟的密钥缓存时限了:已存的对端密钥对活跃联系人每天复核一次(SSR-D18),试运行等不到。
+# 8.2 与 8.5 因此只验证重启之后任务与待批项照常送达(XHUB_CACHE_WAIT 默认 0 秒;给了就在 8.5 前多等)。
 if [ "${SCENARIO_XHUB:-1}" != 1 ]; then
   hd "8  两个 hub 之间(SCENARIO_XHUB=${SCENARIO_XHUB},跳过)"
 else
@@ -916,7 +953,7 @@ XB2=${XHUB_PORT_BASE2:-$((PORT_BASE+50))}      # side 2: hub +0, P +1, Q +2, ser
 X2_SSH=${XHUB_HOST2:-}
 ADDR1=${XHUB_ADDR1:-127.0.0.1}
 ADDR2=${XHUB_ADDR2:-127.0.0.1}
-CACHE_WAIT=${XHUB_CACHE_WAIT:-630}
+CACHE_WAIT=${XHUB_CACHE_WAIT:-0}
 PRICE=20
 XR=$ROOT/xhub
 if [ -n "$X2_SSH" ]; then S2=${XHUB_ROOT2:-/tmp/anet-scenario-side2}; else S2=${XHUB_ROOT2:-$ROOT/side2}; fi
@@ -980,6 +1017,9 @@ s2_stop_daemon(){ # s2_stop_daemon <node>: shutdown through the control API, the
   s2_wait_gone "$p" 20 && return 0
   kill -TERM "$p" 2>/dev/null; s2_wait_gone "$p" 5 || kill -KILL "$p" 2>/dev/null; return 0
 }
+s2_join(){ # s2_join <node> <hub> <name> [caps]: anet hub-register from that node's home, without a terminal
+  ( cd "$S2" && HOME="$S2/$1" XDG_RUNTIME_DIR="$S2/xdg" setsid -w "$S2/bin/anet" hub-register "$2" --name "$3" ${4:+--caps "$4"} ) </dev/null >>"$S2/$1.log" 2>&1
+}
 s2_start_hub(){ # s2_start_hub <port> [flag…]
   local port=$1; shift
   ( cd "$S2" && exec setsid "$S2/bin/anet-hub" --addr "$BIND2:$port" --data "$S2/hub" "$@" ) >>"$S2/hub.log" 2>&1 </dev/null &
@@ -991,7 +1031,7 @@ s2_stop_hub(){
   [ -n "$p" ] || return 0
   kill -TERM "$p" 2>/dev/null; s2_wait_gone "$p" 15 || kill -KILL "$p" 2>/dev/null; return 0
 }
-S2_LIB="_own_path own_dir pids_under stop_under ports_free pin_a2a s2_ctl s2_up s2_pid s2_wait_gone s2_start_daemon s2_stop_daemon s2_start_hub s2_stop_hub"
+S2_LIB="_own_path own_dir pids_under stop_under ports_free pin_a2a s2_ctl s2_up s2_pid s2_wait_gone s2_start_daemon s2_stop_daemon s2_join s2_start_hub s2_stop_hub"
 # x2 SNIPPET — run a bash snippet on side 2 (here, or on XHUB_HOST2 over ssh), after the library.
 x2(){
   local script
@@ -1171,7 +1211,7 @@ authorize(){ "$FIX" x402-authorize --home "$XR/R/.anet" --pay-to "$2" --amount "
                --interaction "$3" 2>/dev/null | python3 -c 'import sys,base64,json;print(json.dumps(json.loads(base64.b64decode(sys.stdin.read()))))'; }
 # settle_at <hub-url> <payload-json> <requirements-json> — POST /x402/settle; prints "success errorReason".
 settle_at(){ python3 -c 'import json,sys;print(json.dumps({"x402Version":2,"paymentPayload":json.loads(sys.argv[1]),"paymentRequirements":json.loads(sys.argv[2])}))' "$2" "$3" \
-  | curl -s -m 60 --noproxy '*' -H 'Content-Type: application/json' --data-binary @- "$1/x402/settle" \
+  | curl -s -m 60 --noproxy '*' -H 'X-ANet-Wire: 3' -H 'Content-Type: application/json' --data-binary @- "$1/x402/settle" \
   | python3 -c 'import sys,json
 try:
     d = json.load(sys.stdin)
@@ -1183,8 +1223,9 @@ print("%s %s" % (str(d.get("success")).lower(), d.get("errorReason") or "-"))'; 
 pay_as_r(){
   local meta env
   meta=$(python3 -c 'import json,sys;print(json.dumps({"x402.payment.status":"payment-submitted","x402.payment.payload":json.loads(sys.argv[1])}))' "$2")
-  env=$("$FIX" seal --home "$XR/R/.anet" --hub "$HUB1" --to "$P" --type message --ix "$1" --metadata "$meta" 2>>"$XR/fixture.log") || { echo 0; return; }
-  "$FIX" relay-send --home "$XR/R/.anet" --hub "$HUB1" --to "$P" --envelope "$env" 2>>"$XR/fixture.log" | head -1 | jget hub code
+  env=$("$FIX" seal --home "$XR/R/.anet" --hub "$HUB1" --recipient-hub "$HUB2X" --to "$P" --type message --ix "$1" --metadata "$meta" 2>>"$XR/fixture.log") || { echo 0; return; }
+  # P lives at the other hub: the send names it (X-ANet-Home) the way a daemon's first contact to a stranger of another hub does.
+  "$FIX" relay-send --home "$XR/R/.anet" --hub "$HUB1" --recipient-home "$H2X" --to "$P" --envelope "$env" 2>>"$XR/fixture.log" | head -1 | jget hub code
 }
 # listed_at <list-url> <aid> — how many entries of a hub's agent list (/agents, /a2a/v1/agents) name aid;
 # "?" when the list cannot be read (an unreadable list names nobody, and that must not pass for "not listed").
@@ -1217,7 +1258,6 @@ xhub_setup(){
   case "$S2" in /*) ;; *) no "XHUB_ROOT2=$S2 不是绝对路径"; return 1 ;; esac
   case "$XB2" in ''|*[!0-9]*) no "XHUB_PORT_BASE2=$XB2 不是端口号"; return 1 ;; esac
   case "$CACHE_WAIT" in ''|*[!0-9]*) no "XHUB_CACHE_WAIT=$CACHE_WAIT 不是秒数"; return 1 ;; esac
-  [ "$CACHE_WAIT" -ge 610 ] || info "XHUB_CACHE_WAIT=$CACHE_WAIT 短于 daemon 的 10 分钟复核间隔:8.5、8.6 的超时限前提会判红"
   if [ -z "$X2_SSH" ]; then
     local p2
     for p2 in "$XB2" $((XB2+1)) $((XB2+2)) $((XB2+3)) $((XB2+4)) $((XB2+5)); do
@@ -1303,6 +1343,8 @@ SNIP
   [ -n "$H1" ] || H1=$(curl -s -m 10 --noproxy '*' "$HUB1/hub/identity" | jget aid)
   [ -n "$H1" ] || { no "hub1 没在跑(前面几节失败了?),第 8 节无从做起"; return 1; }
   x2 "s2_start_hub $XB2" || { no "side 2 的 hub 起不来: $(x2 'tail -2 "$S2/hub.log"')"; return 1; }
+  # Like hub 1, a new hub admits nobody: its sign-up window takes the two providers (and stays across the restart).
+  x2 "\"\$S2/bin/anet-hub\" admit --data \"\$S2/hub\" --window 24h --max 100 >/dev/null 2>&1" || true
   H2X=$(curl -s -m 10 --noproxy '*' "$HUB2X/hub/identity" | jget aid)
   [ -n "$H2X" ] || { no "从本机连不上 side 2 的 hub $HUB2X"; return 1; }
   printf '{"delivery":"allowlist","discovery":"allowlist","home":"%s",\n "peers":[{"aid":"%s","endpoint":"%s"}]}\n' \
@@ -1319,7 +1361,7 @@ SNIP
   # Side 2's providers.
   local pcfg qcfg
   pcfg=$(cat <<CFG
-{"control_addr":"127.0.0.1:$((XB2+1))","hub_url":"$HUB2X","name":"NodeP",
+{"control_addr":"127.0.0.1:$((XB2+1))","name":"NodeP",
  "caps":["xhub.digest.paid","xhub.slow.paid"],
  "modules":{"service":{"allow_tcp":true,"capabilities":[
    {"id":"xhub.digest.paid","url":"http://127.0.0.1:$((XB2+3))","price":$PRICE,"description":"sha256 of args.text, on the other hub"},
@@ -1328,15 +1370,17 @@ SNIP
 CFG
 )
   qcfg=$(cat <<CFG
-{"control_addr":"127.0.0.1:$((XB2+2))","hub_url":"$HUB2X","name":"NodeQ","caps":["xhub.review"],
+{"control_addr":"127.0.0.1:$((XB2+2))","name":"NodeQ","caps":["xhub.review"],
+ "modules":{"service":{"allow_tcp":true,"capabilities":[
+   {"id":"xhub.review","url":"http://127.0.0.1:$((XB2+3))","description":"a capability a card can list"}]}},
  "inbound":{"policy":"approve","public_capabilities":[{"id":"xhub.review"}]}}
 CFG
 )
   x2 "umask 077; printf '%s\n' $(q "$pcfg") >\"\$S2/P/.anet/config.json\"; printf '%s\n' $(q "$qcfg") >\"\$S2/Q/.anet/config.json\"
       pin_a2a \"\$S2/P/.anet\" $((XB2+4)); pin_a2a \"\$S2/Q/.anet\" $((XB2+5))
       s2_start_daemon P && s2_start_daemon Q" || { no "side 2 的 provider 起不来: $(x2 'tail -3 "$S2/P.log" "$S2/Q.log"')"; return 1; }
-  ctl2 P /hub-register "{\"hub\":\"$HUB2X\",\"name\":\"NodeP\",\"caps\":[\"xhub.digest.paid\",\"xhub.slow.paid\"]}" >/dev/null
-  ctl2 Q /hub-register "{\"hub\":\"$HUB2X\",\"name\":\"NodeQ\",\"caps\":[\"xhub.review\"]}" >/dev/null
+  x2 "s2_join P $(q "$HUB2X") NodeP xhub.digest.paid,xhub.slow.paid" || { no "P 没有加入 X2: $(x2 'tail -3 "$S2/P.log"')"; return 1; }
+  x2 "s2_join Q $(q "$HUB2X") NodeQ xhub.review" || { no "Q 没有加入 X2: $(x2 'tail -3 "$S2/Q.log"')"; return 1; }
   ctl2 Q /visibility '{"visibility":"federated"}' >/dev/null
   P=$(aid_of_x P); Q=$(aid_of_x Q)
 
@@ -1346,22 +1390,27 @@ CFG
   for n in R R2 R3 R4; do
     mkdir -p "$XR/$n/.anet"
     cat >"$XR/$n/.anet/config.json" <<CFG
-{"control_addr":"127.0.0.1:${XPORT[$n]}","hub_url":"$HUB1","name":"Node$n",
+{"control_addr":"127.0.0.1:${XPORT[$n]}","name":"Node$n",
  "payments":{"auto_max":0,"agent_max":50,"agent_daily_max":500,"explicit_max":50,"daily_max":500}}
 CFG
     pin_a2a "$XR/$n/.anet" $((${XPORT[$n]} + 24))
     x1_start "$n" || { no "$n 起不来: $(tail -3 "$XR/$n/.anet/daemon.log" 2>/dev/null)"; return 1; }
-    xctl "$n" /hub-register "{\"hub\":\"$HUB1\",\"name\":\"Node$n\",\"caps\":[]}" >/dev/null
+    join_cli "$XR/$n" "$HUB1" "Node$n" || { no "$n 没有加入 hub1"; return 1; }
   done
   R=$(aid_of_x R); R2=$(aid_of_x R2); R3=$(aid_of_x R3); R4=$(aid_of_x R4)
   [ -n "$P" ] && [ -n "$Q" ] && [ -n "$R" ] && [ -n "$R2" ] && [ -n "$R3" ] && [ -n "$R4" ] \
     || { no "有节点没有 AID(P=$P Q=$Q R=$R R2=$R2 R3=$R3 R4=$R4)"; return 1; }
+  local x
+  # The requesters get the credit the paid cases spend, and the providers leave their probation: the operators
+  # admit the registered AIDs, each at its own hub.
+  for x in "$R" "$R2" "$R3" "$R4"; do "$BIN/anet-hub" admit --data "$ROOT/hub" "$x" --grant 100 >/dev/null 2>&1; done
+  for x in "$P" "$Q"; do x2 "\"\$S2/bin/anet-hub\" admit --data \"\$S2/hub\" $(q "$x") >/dev/null 2>&1"; done
   # P takes delegations only from the requesters it names (written directly: the CLI asks on a TTY; the
   # daemon reads the file on every decision). R2 goes on the list in 8.1, after it has been refused as a
   # stranger. R may pay P and nobody else.
   x2 "umask 077; printf '%s\n' $(q "$R") $(q "$R3") $(q "$R4") >\"\$S2/P/.anet/peers.allow\""
   _peer_add "$XR/R/.anet/payees.allow" "$P"
-  local reg=0 x
+  local reg=0
   for x in "$R" "$R2" "$R3" "$R4"; do curl -sf -m 10 --noproxy '*' "$HUB1/agents/$x/kel" >/dev/null && reg=$((reg+1)); done
   for x in "$P" "$Q"; do curl -sf -m 10 --noproxy '*' "$HUB2X/agents/$x/kel" >/dev/null && reg=$((reg+1)); done
   [ "$reg" = 6 ] && ok "六个节点各自注册在自己的 hub 上(R、R2、R3、R4 在 hub1;P、Q 在 X2)" \
@@ -1381,9 +1430,13 @@ xhub_local_provider(){
   listed=$(listed_at "$HUB1/agents" "$P")
   [ "$listed" = 0 ] && ok "hub1 的目录里没有 P(hub-local;8.5 目录同步之后以 Q 作对照再查)" \
     || no "hub1 的目录里 P 出现 $listed 次(? = 读不了列表)"
-  keys=$(curl -s -m 20 --noproxy '*' "$HUB1/agents/$P/keys" | jget aid)
-  [ "$keys" = "$P" ] && ok "hub1 却能给出 P 的加密密钥(来自向 X2 的目录桶查询 /fed/v3/directory:bucket)" \
-    || no "hub1 给不出 P 的密钥"
+  # A hub serves the key sets of its own agents only (sealed sender): P's come from X2, and hub1 refuses to
+  # be asked for them. The sender finds P through the directory bucket hub1 asks of X2 (the delegations below).
+  keys=$(curl -s -m 20 --noproxy '*' "$HUB1/agents/$P/keys" | jget reason)
+  [ "$keys" = unknown_aid ] && ok "hub1 不替 X2 的 agent 给密钥(unknown_aid):密钥只由 P 自己的 hub 给出" \
+    || no "hub1 对 P 的密钥答 '${keys:-?}'"
+  keys=$(curl -s -m 20 --noproxy '*' "$HUB2X/agents/$P/keys" | jget aid)
+  [ "$keys" = "$P" ] && ok "P 自己的 hub X2 给出它的加密密钥" || no "X2 给不出 P 的密钥"
 
   # Only named peers: R2 is not on P's list yet. It can reach P (the keys come the same way) and is
   # refused, then named. Without this, P taking R's task would look the same under an open policy.
@@ -1425,10 +1478,8 @@ xhub_local_provider(){
 
 # ── 8.2 ─────────────────────────────────────────────────────────
 xhub_ttl_open(){
-  hd "8.2  开三个要跨过缓存时限的任务,然后重启 provider"
-  # R4 and R2 do nothing else until their task is answered: P then has sent them nothing since it first
-  # recorded their keys, so its record really is as old as the wait. (R pays in 8.3/8.4, and every status
-  # P sends R there can re-check R's keys once ten minutes have passed — R's reply would prove nothing.)
+  hd "8.2  开三个要跨过重启的任务,然后重启 provider"
+  # R4 and R2 do nothing else until their task is answered, and R only pays in 8.3/8.4.
   TTL_R4_TEXT="xttl-$(canary)"; TTL_R2_TEXT="xttl2-$(canary)"; C2_TEXT="xc2-$(canary)"
   TTL_R4=$(delegate_goal R4 "$P" "$TTL_R4_TEXT" | jget interaction_id)
   TTL_R2=$(delegate_goal R2 "$P" "$TTL_R2_TEXT" | jget interaction_id)
@@ -1450,7 +1501,7 @@ xhub_ttl_open(){
     && ok "P 与 Q 重启了(进程内缓存全没了)" || no "P/Q 重启失败"
   waitfor 20 is_held Q "$C2_IX" && ok "重启后待批项还在" || no "重启后待批项没了"
   T0=$(date +%s)
-  info "缓存时限计时开始;$CACHE_WAIT 秒后答这三个任务,其间做 8.3、8.4"
+  info "重启之后再答这三个任务;其间做 8.3、8.4${CACHE_WAIT:+(至少再等 $CACHE_WAIT 秒)}"
 }
 
 # ── 8.3 ─────────────────────────────────────────────────────────
@@ -1489,8 +1540,18 @@ for o in pr.get("accepts") or []:
   under=$(authorize $((PRICE - 15)) "$P" "$bind")
   wrongpayee=$(authorize "$PRICE" "$Q" "$bind")
   [ -n "$under" ] && [ -n "$wrongpayee" ] || { no "anetfixture x402-authorize 签不出授权"; return; }
-  r=$(settle_at "$HUB1" "$under" "$req");       [ "$r" = "false invalid_amount" ] && ok "账本 hub hub1 拒了少付(invalid_amount)" || no "hub1 对少付答 $r"
-  r=$(settle_at "$HUB1" "$wrongpayee" "$req");  [ "$r" = "false payee_mismatch" ] && ok "账本 hub hub1 拒了错收款方(payee_mismatch)" || no "hub1 对错收款方答 $r"
+  # The ledger hub hub1 settles only toward accounts it holds itself: a payment toward P (an account of the
+  # other hub) is not one a client can have it settle, and it says so before it looks at the amount. What it
+  # checks on a payment toward an account of its own is asked with R2 as the payee.
+  r=$(settle_at "$HUB1" "$under" "$req");       [ "$r" = "false payee_not_local" ] && ok "账本 hub hub1 不替别的 hub 的账户直接结算(payee_not_local)" || no "hub1 对异 hub 收款方答 $r"
+  local lreq lbind lunder lwrong
+  lreq=$(printf '%s' "$req" | python3 -c 'import sys,json;d=json.load(sys.stdin);d["payTo"]=sys.argv[1];print(json.dumps(d))' "$R2")
+  lbind=$(pay_bind "$ix-ledger" "$n")
+  lunder=$(authorize $((PRICE - 15)) "$R2" "$lbind")
+  lwrong=$(authorize "$PRICE" "$R3" "$lbind")
+  [ -n "$lunder" ] && [ -n "$lwrong" ] || { no "anetfixture x402-authorize 签不出授权"; return; }
+  r=$(settle_at "$HUB1" "$lunder" "$lreq");     [ "$r" = "false invalid_amount" ] && ok "账本 hub hub1 对本地账户拒了少付(invalid_amount)" || no "hub1 对少付答 $r"
+  r=$(settle_at "$HUB1" "$lwrong" "$lreq");     [ "$r" = "false payee_mismatch" ] && ok "账本 hub hub1 对本地账户拒了错收款方(payee_mismatch)" || no "hub1 对错收款方答 $r"
   hub1_stop
   if http_up "$HUB1/healthz"; then
     no "hub1 停不下来:入口 hub 自己的核对无从单独验证"
@@ -1530,9 +1591,11 @@ for o in pr.get("accepts") or []:
   [ "$rb" = "$rb0" ] && [ "$pb" = "$pb0" ] && [ "$(svc_calls "$text")" = 0 ] \
     && ok "七次被拒之后谁的余额都没动,活也没干" || no "被拒之后余额 R $rb0→$rb P $pb0→$pb,服务调用 $(svc_calls "$text") 次"
 
-  # Now the real payment, from R's daemon (task-agent tier), on the same task.
-  s=$(nctl R /tasks/pay "{\"task_id\":\"$ix\",\"decision\":\"submit\"}" | jget x402.payment.status)
-  [ "$s" = payment-submitted ] && ok "R 按 agent 档签了授权,同一任务上发出 payment-submitted" || no "R 付款答 $s"
+  # Now the real payment, from R's daemon, on the same task. P publishes no card (hub-local, nothing public), so
+  # there is no price signed by P for the agent tier to pay against; the manual tier is the one that pays
+  # (`anet pay` calls this after a confirmation on a terminal; a script holds the control token).
+  s=$(nctl R /tasks/pay-manual "{\"task_id\":\"$ix\",\"decision\":\"submit\"}" | jget x402.payment.status)
+  [ "$s" = payment-submitted ] && ok "R 按手动档签了授权,同一任务上发出 payment-submitted" || no "R 付款答 $s"
   waitfor 90 state_is R "$ix" completed && ok "结算后活干完了,结果回到 R(completed)" || no "R 的任务是 $(tstate R "$ix")"
   rb=$(bal R); pb=$(bal P)
   [ "$((rb0 - rb))" = "$PRICE" ] && ok "R 在 hub1 上扣了 $PRICE" || no "R $rb0 → $rb"
@@ -1580,10 +1643,10 @@ xhub_cancel_orders(){
   a=$(delegate_cap R "$P" xhub.digest.paid "{\"text\":\"$ta\"}")
   if [ -n "$a" ] && waitfor 40 quoted R "$a"; then
     x2 "s2_stop_daemon P"
-    s=$(nctl R /tasks/pay "{\"task_id\":\"$a\",\"decision\":\"submit\"}" | jget x402.payment.status)
+    s=$(nctl R /tasks/pay-manual "{\"task_id\":\"$a\",\"decision\":\"submit\"}" | jget x402.payment.status)
     # C25: one authorization in flight per task; the requester does not sign a second before the first has
     # a definite outcome.
-    e=$(nctl R /tasks/pay "{\"task_id\":\"$a\",\"decision\":\"submit\"}" | jget error)
+    e=$(nctl R /tasks/pay-manual "{\"task_id\":\"$a\",\"decision\":\"submit\"}" | jget error)
     case "$e" in *"no outcome yet"*) ok "(a) 付款未定时 R 拒绝再签一张授权(C25)" ;; *) no "(a) 第二次付款答:${e:-成功了}" ;; esac
     nctl R /tasks/cancel "{\"task_id\":\"$a\"}" >/dev/null
     [ "$s" = payment-submitted ] && [ "$(tmeta R "$a" anet.cancel_requested)" = true ] && state_is R "$a" working \
@@ -1618,7 +1681,7 @@ xhub_cancel_orders(){
   # (b) Cancel after the settlement, before the result: the capability takes 15 s after payment-verified.
   b=$(delegate_cap R "$P" xhub.slow.paid "{\"text\":\"c34b-$(canary)\",\"sleep\":15}")
   if [ -n "$b" ] && waitfor 40 quoted R "$b"; then
-    nctl R /tasks/pay "{\"task_id\":\"$b\",\"decision\":\"submit\"}" >/dev/null
+    nctl R /tasks/pay-manual "{\"task_id\":\"$b\",\"decision\":\"submit\"}" >/dev/null
     if waitfor 40 settled_verified R "$b"; then
       nctl R /tasks/cancel "{\"task_id\":\"$b\"}" >/dev/null
       [ "$(tmeta R "$b" anet.cancel_requested)" = true ] && state_is R "$b" working \
@@ -1641,7 +1704,7 @@ xhub_cancel_orders(){
   c=$(delegate_cap R "$P" xhub.digest.paid "{\"text\":\"$tc\"}")
   if [ -n "$c" ] && waitfor 40 quoted R "$c"; then
     x2 "s2_stop_daemon P"
-    nctl R /tasks/pay "{\"task_id\":\"$c\",\"decision\":\"submit\"}" >/dev/null
+    nctl R /tasks/pay-manual "{\"task_id\":\"$c\",\"decision\":\"submit\"}" >/dev/null
     x1_stop R
     python3 - "$XR/R/.anet/interactions/interactions.db" "$c" <<'PY'
 import sqlite3, sys, time, datetime
@@ -1674,43 +1737,47 @@ PY
 
 # ── 8.5 ─────────────────────────────────────────────────────────
 xhub_ttl_close(){
-  hd "8.5  超过缓存时限之后回复(provider 重启过)与待批项批准(C2)"
-  local left reply c2reply fedq mark
+  hd "8.5  回复(provider 重启过)与待批项批准(C2)"
+  local left reply c2reply fedq mark i
   left=$((T0 + CACHE_WAIT - $(date +%s)))
-  if [ "$left" -gt 0 ]; then info "等缓存时限:还有 $left 秒"; sleep "$left"; fi
-  # Visibility, now that the directories have long had time to sync: Q (federated) crossed, P did not.
-  fedq=$(curl -s -m 10 --noproxy '*' "$HUB1/agents" | python3 -c '
+  if [ "$left" -gt 0 ]; then info "再等 $left 秒"; sleep "$left"; fi
+  # Visibility, once the directories have had time to sync: Q (federated, with a service behind its public
+  # capability, which is what puts a card in the directory) crossed, P did not. The sync runs on
+  # the hubs' own schedule, so Q is waited for; P's absence is read at the same moment.
+  fedq=""
+  for ((i = 0; i < 50; i++)); do
+    fedq=$(for spec in "Q:$Q:xhub.review" "P:$P:xhub.digest.paid"; do
+      IFS=: read -r tag aid cap <<<"$spec"
+      curl -s -m 10 --noproxy '*' "$HUB1/agents?cap=$cap" | python3 -c '
 import sys, json
-ags = {a.get("aid") for a in json.load(sys.stdin).get("agents") or []}
-print(("Q" if sys.argv[1] in ags else "") + ("P" if sys.argv[2] in ags else ""))' "$Q" "$P")
+try:
+    ags = {a.get("aid") for a in json.load(sys.stdin).get("agents") or []}
+except Exception:
+    ags = set()
+print(sys.argv[1] if sys.argv[2] in ags else "", end="")' "$tag" "$aid"
+    done)
+    [ "$fedq" = Q ] && break
+    sleep 3
+  done
   [ "$fedq" = Q ] && ok "hub1 的目录里有 Q(federated),没有 P(hub-local)" || no "hub1 的目录:'$fedq'(期望只有 Q)"
-  # The reply after the cache time. That it arrives is the case; that it really came after the cache time,
-  # and that the re-check it set off went through /fed/v2/keys, are read from P's own record of R4's keys:
-  # older than ten minutes before, moved forward after. (A "no failure in the log" check passed just as
-  # well when no re-check happened at all.)
-  local kc age
-  kc=$(p_keys_checked "$R4"); kc=${kc%% *}
-  age=$(keys_stale "$R4") && ok "P 上次核实 R4 的密钥是 $age 秒前,超过 10 分钟的缓存时限(其间 P 重启过)" \
-    || no "P 对 R4 密钥的记录只有 ${age:-?} 秒(keys_checked_at=${kc:-无}):这次回复不在缓存时限之后"
+  # The reply of a provider that restarted since the task came in. (Before 0.3.0 a stored key set was checked
+  # again after ten minutes and the run waited that out; an active contact is now looked up again once a day,
+  # SSR-D18, which a run cannot wait for, so only the delivery is asserted here, and that the reply did not
+  # need the hub to answer for the keys again.)
   reply="xttl-reply-$(canary)"
   mark=$(p_log_mark)
   ctl2 P /tasks/reply "{\"task_id\":\"$TTL_R4\",\"text\":\"$reply\",\"state\":\"completed\"}" >/dev/null
-  waitfor 60 heard_it R4 "$TTL_R4" "$reply" && ok "P 重启后、超过缓存时限才回复,仍送到了跨 hub 的纯请求方 R4" \
-    || no "R4 没收到超时限的回复"
-  if waitfor 30 keys_rechecked "$R4" "${kc:-0}"; then
-    ok "这次回复触发的密钥复核成功了:X2 经 /fed/v2/keys 向 hub1 取到 R4 的密钥(keys_checked_at 前进)"
-  else
-    no "P 没有重新核实 R4 的密钥(keys_checked_at 未前进)$(p_logged "$mark" "revalidating $R4's keys" && echo ',日志里复核失败')"
-  fi
-  [ "$(curl -s -m 20 --noproxy '*' "$HUB2X/agents/$R2/keys" | jget aid)" = "$R2" ] \
-    && ok "反方向也通:X2 给得出 hub1 上纯请求方 R2 的密钥" || no "X2 给不出 R2 的密钥"
+  waitfor 60 heard_it R4 "$TTL_R4" "$reply" && ok "P 重启后回复,仍送到了跨 hub 的纯请求方 R4" \
+    || no "R4 没收到重启后的回复"
+  p_logged "$mark" "revalidating $R4's keys" \
+    && no "回复时 P 又去向 hub 复核了 R4 的密钥(日志里有复核)" \
+    || ok "回复用的是 P 已存的 R4 密钥,没有再去问 hub"
+  [ "$(curl -s -m 20 --noproxy '*' "$HUB1/agents/$R2/keys" | jget aid)" = "$R2" ] \
+    && ok "纯请求方 R2 的密钥由它自己的 hub1 给出" || no "hub1 给不出 R2 的密钥"
 
   c2reply="xc2-reply-$(canary)"
-  # The held item came in before T0 (8.2), so it has waited at least this long.
-  [ $(( $(date +%s) - T0 )) -ge 600 ] && ok "待批项已挂了 $(( $(date +%s) - T0 )) 秒以上(超过缓存时限),其间 Q 重启过" \
-    || no "待批项只挂了 $(( $(date +%s) - T0 )) 秒:不在缓存时限之后"
   [ "$(ctl2 Q /inbound/approve "{\"interaction_id\":\"$C2_IX\"}" | jget status)" = approved ] \
-    && ok "Q 的运营者在缓存时限之后批准了待批项" || no "Q 批准失败"
+    && ok "Q 的运营者批准了挂了一阵、其间重启过的待批项" || no "Q 批准失败"
   ctl2 Q /tasks/reply "{\"task_id\":\"$C2_IX\",\"text\":\"$c2reply\",\"state\":\"completed\"}" >/dev/null
   waitfor 60 heard_it R "$C2_IX" "$c2reply" && ok "Q 的回复送到了跨 hub 的纯请求方 R(C2)" || no "R 没收到 Q 的回复"
   waitfor 20 state_is R "$C2_IX" completed && ok "R 那边这个任务 completed" || no "R 那边是 $(tstate R "$C2_IX")"

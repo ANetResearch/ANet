@@ -17,7 +17,7 @@
 # the cancel, what the backend ran, what the requester signed, what moved at the hub, and that the hub's
 # data holds none of the text. The requester is restarted and the probe's saved configuration (URL and
 # token, as Hermes keeps them) must still work. The raw JSON-RPC responses of the blocking sends are read
-# by the port of Hermes' A2A client (internal/a2ashape TestHermesReadsJointRecord). a2a-tck is run on
+# by the port of Hermes' A2A client (internal/a2ashape/stored TestHermesReadsJointRecord). a2a-tck is run on
 # request, as a record only.
 #
 # Self-contained, like joint.sh: its own binaries, hub, two daemons, backend and responder, on a loopback
@@ -211,7 +211,7 @@ else
   go build -C "$ROOT" -o "$BIN/a2aprobe" ./tools/a2aprobe       || die "build a2aprobe failed"
   go build -C "$HUB_SRC" -o "$BIN/anet-hub" ./cmd/anet-hub      || die "build anet-hub failed"
   # The Hermes contract, as a binary: it reads the record the probe writes (section 5).
-  go test -C "$ROOT" -c -o "$BIN/a2ashape-hermes.test" ./internal/a2ashape || die "build the a2ashape test binary failed"
+  go test -C "$ROOT" -c -o "$BIN/a2ashape-hermes.test" ./internal/a2ashape/stored || die "build the a2ashape test binary failed"
 fi
 PROBE=$BIN/a2aprobe
 
@@ -469,7 +469,7 @@ else
         -test.v -test.count=1 ) >"$RUN/hermes.txt" 2>&1 9>&-
     hrc=$?
   elif command -v go >/dev/null && [ -d "$ROOT/internal/a2ashape" ]; then
-    ANET_HERMES_JOINT="$REC" go test -C "$ROOT" ./internal/a2ashape -run '^TestHermesReadsJointRecord$' -count=1 -v \
+    ANET_HERMES_JOINT="$REC" go test -C "$ROOT" ./internal/a2ashape/stored -run '^TestHermesReadsJointRecord$' -count=1 -v \
       >"$RUN/hermes.txt" 2>&1 9>&-
     hrc=$?
   fi

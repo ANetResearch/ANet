@@ -178,8 +178,14 @@ curl -sf -m 5 "http://$PC/ping" >/dev/null && ok "provider up"  || { no "provide
 # The module list goes to the daemon's own log file, not to stdout.
 grep -q 'modules compiled in.*shell' "$PROV/.anet/daemon.log" && ok "provider has the shell module linked in" \
   || no "the provider binary does not contain the shell module"
-rc /hub-register "{\"hub\":\"http://$HUB\",\"name\":\"Requester\"}" >/dev/null
-pc /hub-register "{\"hub\":\"http://$HUB\",\"name\":\"Board\"}"     >/dev/null
+# A new hub admits nobody until its operator says so; the sign-up window is the way a test hub takes
+# two strangers. The join runs through the command line, without a terminal, as an agent runs it.
+"$J/anet-hub" admit --data "$J/run/hub" --window 24h --max 10 >/dev/null 2>&1 \
+  || { echo "could not open the sign-up window"; exit 1; }
+for who in "$REQ:Requester" "$PROV:Board"; do
+  JOUT=$(env HOME="${who%%:*}" setsid -w "$J/anet" hub-register "http://$HUB" --name "${who##*:}" </dev/null 2>&1) \
+    || { echo "hub-register ${who##*:} failed: $JOUT"; exit 1; }
+done
 printf '  requester %s\n  provider  %s\n' "$REQ_AID" "$PROV_AID"
 
 # cap <capability> <args-json> — delegate and wait for the signed answer.

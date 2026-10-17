@@ -3,9 +3,9 @@ package main
 // attack.go is the sending side of the joint run's attack sections
 // (A2A-DESIGN SI-4, SI-10, §17):
 //
-//	anetfixture seal       --home DIR --hub URL --to AID [--type message|delegate] [--ix ID] [--text T]
+//	anetfixture seal       --home DIR --hub URL [--recipient-hub URL] --to AID [--type message|delegate] [--ix ID] [--text T]
 //	                       [--as AID] [--kel self|claimed] [--no-msg-id] [--metadata JSON]
-//	anetfixture relay-send --to AID --envelope B64|@FILE [--home DIR --hub URL] [--p2p ADDR]
+//	anetfixture relay-send --to AID --envelope B64|@FILE [--home DIR --hub URL [--recipient-home HUBAID]] [--p2p ADDR]
 //
 // seal builds a sealed envelope exactly as a daemon would (seal.Seal, the
 // recipient's key set from the hub, verified), except that it lets the
@@ -26,6 +26,7 @@ package main
 
 import (
 	"bytes"
+	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
@@ -45,6 +46,7 @@ import (
 
 	"github.com/ANetResearch/ANetCore/coredet"
 	"github.com/ANetResearch/ANetCore/delegation"
+	"github.com/ANetResearch/ANetCore/evidence"
 	"github.com/ANetResearch/ANetCore/identity"
 	"github.com/ANetResearch/ANetCore/relayauth"
 	"github.com/ANetResearch/ANetCore/seal"
@@ -131,14 +133,17 @@ func fetchPublished(hub, aid string, now uint64) (*published, error) {
 }
 
 // publishedNotice is the witness notice of aid's KEL tip as its hub
-// publishes it with the agent (GET /agents/{aid}, key_state_notice).
+// publishes it with the agent (GET /agents/{aid}: {"agent": {…, "key_state_notice"}, "reviews": […]}).
 func publishedNotice(hub, aid string) ([]byte, error) {
-	var v struct {
-		KeyStateNotice string `json:"key_state_notice"`
+	var w struct {
+		Agent struct {
+			KeyStateNotice string `json:"key_state_notice"`
+		} `json:"agent"`
 	}
-	if err := hubGetJSON(hub, "/agents/"+url.PathEscape(aid), &v); err != nil {
+	if err := hubGetJSON(hub, "/agents/"+url.PathEscape(aid), &w); err != nil {
 		return nil, fmt.Errorf("the witness notice of %s: %w", aid, err)
 	}
+	v := w.Agent
 	if v.KeyStateNotice == "" {
 		return nil, fmt.Errorf("the hub publishes no witness notice for %s: a receiver would refuse the envelope at step 6½", aid)
 	}
@@ -170,7 +175,8 @@ func randomID(prefix string) string {
 func cmdSeal(args []string) error {
 	fs := flag.NewFlagSet("seal", flag.ExitOnError)
 	home := fs.String("home", "", "daemon data dir of the signer")
-	hub := fs.String("hub", "", "hub URL the recipient's (and a claimed sender's) keys are read from")
+	hub := fs.String("hub", "", "hub URL the sender's (and a claimed sender's) keys are read from, and the recipient's unless --recipient-hub names another")
+	recipientHub := fs.String("recipient-hub", "", "hub URL of the recipient's own hub, when it is not --hub: a hub serves the key sets of its own agents only")
 	to := fs.String("to", "", "recipient AID")
 	typ := fs.String("type", "message", "message (anet.message/1, a ChatMsg) or delegate (anet.delegate/1, a goal)")
 	ix := fs.String("ix", "", "interaction id; required for a message, fresh for a delegate when empty")
@@ -231,8 +237,14 @@ func cmdSeal(args []string) error {
 		// Signed by the signer, whatever --as claims: nobody but the
 		// claimed sender can sign as the claimed sender, which is the
 		// point of the exercise.
+		// The task binding every delegation of this version carries (a nonce, the requester's commitment and
+		// the key its review will be signed with): a TaskDoc without one is refused as a bad request.
+		ctxs, err := taskBindingContexts(from)
+		if err != nil {
+			return err
+		}
 		td := &tsir.TaskDoc{Version: tsir.VersionPair{Major: 1},
-			Tasks: []tsir.Task{{Intent: tsir.Intent{Summary: goal, Body: goal}}}}
+			Tasks: []tsir.Task{{Intent: tsir.Intent{Summary: goal, Body: goal}, Contexts: ctxs}}}
 		if err := td.Sign(c); err != nil {
 			return err
 		}
@@ -247,7 +259,11 @@ func cmdSeal(args []string) error {
 		return fmt.Errorf("--type %q: want message or delegate", *typ)
 	}
 
-	recipient, err := fetchPublished(*hub, *to, now)
+	rhub := *hub
+	if *recipientHub != "" {
+		rhub = *recipientHub
+	}
+	recipient, err := fetchPublished(rhub, *to, now)
 	if err != nil {
 		return err
 	}
@@ -320,6 +336,29 @@ func cmdSeal(args []string) error {
 	fmt.Fprintf(os.Stderr, "ix: %s\nmid: %s\n", *ix, hex.EncodeToString(inner.MID))
 	fmt.Println(base64.StdEncoding.EncodeToString(env))
 	return nil
+}
+
+// taskBindingContexts is the binding a daemon puts into the TaskDoc of a new delegation (PAY-V6): a fresh nonce,
+// requester_commit over the requester's AID and a fresh salt, and the public key of a review key.
+func taskBindingContexts(requester string) ([]tsir.Context, error) {
+	var nb [16]byte
+	rsalt := make([]byte, evidence.RSaltSize)
+	if _, err := rand.Read(nb[:]); err != nil {
+		return nil, err
+	}
+	if _, err := rand.Read(rsalt); err != nil {
+		return nil, err
+	}
+	commit, err := evidence.RequesterCommit(requester, rsalt)
+	if err != nil {
+		return nil, err
+	}
+	pub, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		return nil, err
+	}
+	return (&delegation.TaskBinding{Nonce: base64.RawURLEncoding.EncodeToString(nb[:]),
+		RequesterCommit: commit, ReviewKey: pub}).Contexts()
 }
 
 // messageMetadata checks --metadata: empty, or one JSON object, returned
@@ -447,11 +486,17 @@ func openSession(c *identity.Controller, hub, hubAID string) (*fixtureSession, e
 	return &fixtureSession{sid: sid, key: k}, nil
 }
 
+// sendsUnderSession is whether a send with this access goes under a first-contact session: kind 0 (and an
+// envelope with no access, which a hub refuses anyway) does, kind 1 does not.
+func sendsUnderSession(a *seal.Access) bool {
+	return a == nil || a.Kind == seal.AccessKindSession
+}
+
 // postRelay sends env in one POST /relay/send as a first contact of c (the
 // envelope's access is kind 0, cmdSeal): a session opened for it, the
 // envelope as the body, its outer key 7 in X-ANet-Access and the session's
 // MAC over the request.
-func postRelay(c *identity.Controller, hub, hubAID, to string, env []byte) *hubOutcome {
+func postRelay(c *identity.Controller, hub, hubAID, to, recipientHome string, env []byte) *hubOutcome {
 	outer, err := seal.ParseOuter(env)
 	if err != nil {
 		return &hubOutcome{Error: "not an envelope: " + err.Error()}
@@ -463,24 +508,36 @@ func postRelay(c *identity.Controller, hub, hubAID, to string, env []byte) *hubO
 	if err != nil {
 		return &hubOutcome{Error: err.Error()}
 	}
-	sess, err := openSession(c, hub, hubAID)
-	if err != nil {
-		return &hubOutcome{Error: err.Error()}
+	// A first contact (access kind 0) goes under a session of its own; an envelope sent under a delivery
+	// credential (kind 1: what a node sends to a peer it has a conversation with, and what a captured
+	// envelope of one is) carries none: the hub refuses a session on it.
+	var sess *fixtureSession
+	if sendsUnderSession(outer.Access) {
+		if sess, err = openSession(c, hub, hubAID); err != nil {
+			return &hubOutcome{Error: err.Error()}
+		}
 	}
 	req, err := http.NewRequest(http.MethodPost, strings.TrimRight(hub, "/")+hubapi.RelaySendPath, bytes.NewReader(env))
 	if err != nil {
 		return &hubOutcome{Error: err.Error()}
 	}
-	ts := uint64(time.Now().UnixMilli())
-	mac, err := relayauth.SessionMAC(sess.key, sess.sid, ts, req.Method, req.URL.RequestURI(), "", env)
-	if err != nil {
-		return &hubOutcome{Error: err.Error()}
-	}
 	req.Header.Set("Content-Type", hubapi.EnvelopeContentType)
 	req.Header.Set(hubapi.HeaderAccess, hubapi.B64(access))
-	req.Header.Set(hubapi.HeaderSession, relayauth.EncodeSessionID(sess.sid))
-	req.Header.Set(hubapi.HeaderTS, strconv.FormatUint(ts, 10))
-	req.Header.Set(hubapi.HeaderMAC, relayauth.EncodeMAC(mac))
+	if recipientHome != "" {
+		// The hint of the recipient's home hub (a hub AID) a first contact to an agent of another hub carries;
+		// the session MAC covers it.
+		req.Header.Set(hubapi.HeaderHome, recipientHome)
+	}
+	if sess != nil {
+		ts := uint64(time.Now().UnixMilli())
+		mac, err := relayauth.SessionMAC(sess.key, sess.sid, ts, req.Method, req.URL.RequestURI(), recipientHome, env)
+		if err != nil {
+			return &hubOutcome{Error: err.Error()}
+		}
+		req.Header.Set(hubapi.HeaderSession, relayauth.EncodeSessionID(sess.sid))
+		req.Header.Set(hubapi.HeaderTS, strconv.FormatUint(ts, 10))
+		req.Header.Set(hubapi.HeaderMAC, relayauth.EncodeMAC(mac))
+	}
 	req.Header.Set(hubapi.WireVersionHeader, strconv.Itoa(hubapi.WireVersion))
 	resp, err := httpc.Do(req)
 	if err != nil {
@@ -581,6 +638,7 @@ func cmdRelaySend(args []string) error {
 	hub := fs.String("hub", "", "hub URL: POST /relay/send there")
 	p2p := fs.String("p2p", "", "anetpeer peer address (socket path or tcp://host:port): deliver there too")
 	to := fs.String("to", "", "recipient AID")
+	recipientHome := fs.String("recipient-home", "", "AID of the recipient's home hub when it is not --hub (X-ANet-Home)")
 	envArg := fs.String("envelope", "", "the envelope, standard base64, or @FILE holding it")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -617,7 +675,7 @@ func cmdRelaySend(args []string) error {
 		go func() {
 			defer wg.Done()
 			<-release
-			out.Hub = postRelay(c, *hub, hubAID, *to, env)
+			out.Hub = postRelay(c, *hub, hubAID, *to, *recipientHome, env)
 		}()
 	}
 	if *p2p != "" {

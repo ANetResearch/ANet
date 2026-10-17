@@ -54,6 +54,8 @@ type testHost struct {
 	ticks      []int64
 	// pinnedKEL, when set, is the hub history the node pinned before the hub rotated.
 	pinnedKEL []identity.SignedEvent
+	// peerHubs are the key histories of the other hubs of the federation the node holds, by hub AID.
+	peerHubs map[string][]identity.SignedEvent
 	// spendRefusal, when set, is what AdmitSpend answers; spends records
 	// the calls.
 	spendRefusal error
@@ -162,6 +164,12 @@ func (h *testHost) HubIdentity() (string, []identity.SignedEvent, bool) {
 		return h.hub.AID(), h.pinnedKEL, true
 	}
 	return h.hub.AID(), h.hub.KEL(), true
+}
+func (h *testHost) PeerHubKEL(aid string) ([]identity.SignedEvent, bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	kel, ok := h.peerHubs[aid]
+	return kel, ok
 }
 func (h *testHost) ReadEvidence(kind string, limit int) []map[string]any {
 	h.mu.Lock()

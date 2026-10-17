@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/ANetResearch/ANetCore/identity"
 	"github.com/ANetResearch/ANetCore/payment"
@@ -88,6 +89,25 @@ func (s paymentSeam) HubIdentity() (string, []identity.SignedEvent, bool) {
 		return "", nil, false
 	}
 	return aid, kel, true
+}
+
+// PeerHubKEL is the key history of another hub of the federation, as this
+// node pinned it (the hub KEL set, KEL D-24). A hub it holds none of is
+// asked for once through the on-demand refresh, which the daemon limits to
+// one read a minute; nothing is believed that was not pinned by the
+// extension rule.
+func (s paymentSeam) PeerHubKEL(aid string) ([]identity.SignedEvent, bool) {
+	d := s.d
+	if aid == "" {
+		return nil, false
+	}
+	if kel, ok := d.hubKELs(aid); ok {
+		return kel, true
+	}
+	ctx, cancel := context.WithTimeout(d.ctx, 10*time.Second)
+	defer cancel()
+	d.refreshHubKELs(ctx)
+	return d.hubKELs(aid)
 }
 
 func (s paymentSeam) ReadEvidence(eventType string, limit int) []map[string]any {
