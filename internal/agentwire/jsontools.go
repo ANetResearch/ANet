@@ -360,5 +360,5 @@ func (workbuddyTool) wireNotes(o *Options, st Status) []Msg {
 	if st != Written {
 		return nil
 	}
-	return []Msg{msg("wire.note.workbuddy_docs", "value", workbuddyDocs)}
+	return []Msg{msg("wire.note.workbuddy_docs", "url", workbuddyDocs)}
 }

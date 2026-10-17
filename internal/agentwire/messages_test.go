@@ -73,7 +73,7 @@ func TestRefusalsRenderInBothLanguages(t *testing.T) {
 		t.Fatalf("conflict: %+v", r.Err)
 	}
 	for lang, want := range map[a2ashape.Language]string{
-		a2ashape.English: "already defines an mcp_servers.anet that anet did not write",
+		a2ashape.English: "already defines an entry mcp_servers.anet that anet did not write",
 		a2ashape.Chinese: "已定义了一个不是 anet 写的 mcp_servers.anet",
 	} {
 		got := m.Text(lang)
