@@ -123,7 +123,19 @@ func (d *Daemon) hTasksEvents(w http.ResponseWriter, r *http.Request) {
 	if !emitTask(snap) || snap.IsTerminal() {
 		return
 	}
-	if f, ok := d.previews().Current(snap.ID); ok && !emit("preview", previewEventData(f)) {
+	// The stream is subscribed before the first task event is written, so a
+	// frame taken in between is both the current one here and an event on
+	// the bus: each frame is written once, by its sequence.
+	var lastPreview uint64
+	emitPreview := func() bool {
+		f, ok := d.previews().Current(snap.ID)
+		if !ok || f.Seq <= lastPreview {
+			return true
+		}
+		lastPreview = f.Seq
+		return emit("preview", previewEventData(f))
+	}
+	if !emitPreview() {
 		return
 	}
 	tick := time.NewTicker(eventsKeepAlive)
@@ -149,7 +161,7 @@ func (d *Daemon) hTasksEvents(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 			case ev.Kind == EventPreview:
-				if f, ok := d.previews().Current(snap.ID); ok && !emit("preview", previewEventData(f)) {
+				if !emitPreview() {
 					return
 				}
 				continue
