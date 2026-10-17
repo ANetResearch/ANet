@@ -662,8 +662,8 @@ func TestDaemonErrorsReachTheCaller(t *testing.T) {
 	res, err := sess.CallTool(context.Background(), &mcp.CallToolParams{
 		Name: "submit_payment", Arguments: map[string]any{"task_id": "ix-1"}})
 	msg, isErr := resultText(t, res, err)
-	if !isErr || msg != "anet: payment refused: over the agent limit" {
-		t.Errorf("the tool error is the daemon's error, word for word (UX-M4), got %q", msg)
+	if !isErr || msg != "anet: payment refused: over the agent limit [agent_max]" {
+		t.Errorf("the tool error is the daemon's error, word for word, then its reason code (UX-M4), got %q", msg)
 	}
 }
 
@@ -728,7 +728,7 @@ func TestASingleTaskToolResultStaysUnderTheClientLimit(t *testing.T) {
 
 // LEC MC-2, ux UX-M4: a refusal of the reason table — a send while this
 // node is not registered at its hub — reaches the model as the control
-// plane's sentence and nothing else.
+// plane's sentence and its code, and nothing else.
 func TestASendRefusalIsTheSentence(t *testing.T) {
 	sentence := a2ashape.Sentence("hub_pending_admission", a2ashape.Lang(),
 		a2ashape.Args{"hub": "https://hub.example", "aid": "bafyreiujzdegxdncf32epf3dhodzdocis2jhtlgmxgedn73u557hq2abcd"})
@@ -736,8 +736,8 @@ func TestASendRefusalIsTheSentence(t *testing.T) {
 	res, err := sess.CallTool(context.Background(), &mcp.CallToolParams{
 		Name: "send_message", Arguments: map[string]any{"to": "aid-1", "text": "hi"}})
 	msg, isErr := resultText(t, res, err)
-	if !isErr || msg != sentence {
-		t.Fatalf("tool error %q, want the sentence %q", msg, sentence)
+	if want := sentence + " [hub_pending_admission]"; !isErr || msg != want {
+		t.Fatalf("tool error %q, want the sentence and its code %q", msg, want)
 	}
 }
 

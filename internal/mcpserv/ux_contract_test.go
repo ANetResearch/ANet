@@ -70,19 +70,28 @@ func TestPaymentsStatusTakesOnlyAnEmptyObject(t *testing.T) {
 	}
 }
 
-// UX-M4: whatever the control plane's error says is what the tool says, with
-// or without a reason or a code on it.
+// UX-M4: whatever the control plane's error says is what the tool says, and
+// when the error has a reason, the reason code follows in brackets.
 func TestToolErrorIsTheControlError(t *testing.T) {
 	for _, e := range []*DaemonError{
 		{Status: 409, Message: "A sentence. Next step.", Reason: "hub_pending_admission"},
 		{Status: 404, Message: "No task t_1 here.", Code: "TaskNotFoundError", Reason: "no_local_task"},
-		{Status: 400, Message: "plain error", Code: "InvalidParamsError", Reason: "not_a_table_code"},
+		{Status: 400, Message: "plain error", Code: "InvalidParamsError"},
+		{Status: 502, Message: "The hub said no.", Reason: "hub_refused", HubCode: "quota_full"},
 	} {
+		want := e.Message
+		switch e.Reason {
+		case "":
+		case "hub_refused":
+			want += " [hub_refused:quota_full]"
+		default:
+			want += " [" + e.Reason + "]"
+		}
 		sess := connect(t, &fakeControl{err: e})
 		res, err := sess.CallTool(context.Background(), &mcp.CallToolParams{Name: "node_status"})
 		msg, isErr := resultText(t, res, err)
-		if !isErr || msg != e.Message {
-			t.Errorf("tool error %q, want %q", msg, e.Message)
+		if !isErr || msg != want {
+			t.Errorf("tool error %q, want %q", msg, want)
 		}
 	}
 }

@@ -84,14 +84,14 @@ func printAnswer(out []byte, code int, task bool) error {
 	return nil
 }
 
-// answerError prints a refusal (ux UX-C3): the error body's sentence and,
-// when it has one, its command on a "  → " line, on stderr, and returns
+// answerError prints a refusal (ux UX-C3): the error body's sentence with its
+// reason code in brackets and, when it has one, its command on a "  → " line, on stderr, and returns
 // errExit1. An answer that is not an error body (a route this daemon does
 // not have, a proxy in the way) is shown by its status and first line.
 func answerError(code int, out []byte) error {
 	var e a2ashape.ErrorBody
 	if json.Unmarshal(out, &e) == nil && strings.TrimSpace(e.Error) != "" {
-		say(errW(), oneLine(e.Error, maxLineRunes), oneLine(e.Next, maxLineRunes))
+		say(errW(), oneLine(e.Error, maxLineRunes)+a2ashape.CodeSuffix(e.Reason, e.HubCode), oneLine(e.Next, maxLineRunes))
 		return errExit1
 	}
 	first, _, _ := strings.Cut(strings.TrimSpace(string(out)), "\n")

@@ -197,6 +197,21 @@ func (r *Refusal) Body(lang Language) ErrorBody {
 	return b
 }
 
+// CodeSuffix is what a command line or a tool error shows after a sentence so
+// that a person can name the event and a script can match it: " [<reason>]",
+// or " [hub_refused:<hub code>]" for a hub's refusal with a code of its own.
+// It is empty when reason is not in the form of a code, so a body from another
+// program shows its sentence alone. The JSON of a body is never changed.
+func CodeSuffix(reason, hubCode string) string {
+	if !codeRe.MatchString(reason) {
+		return ""
+	}
+	if reason == "hub_refused" && codeRe.MatchString(hubCode) {
+		return " [" + reason + ":" + hubCode + "]"
+	}
+	return " [" + reason + "]"
+}
+
 // defaultRetryAfter is the Retry-After of a passing state whose refusal did
 // not say when (seconds): the shorter of the two waits HPP §4.7 gives.
 const defaultRetryAfter = 15

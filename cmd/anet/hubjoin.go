@@ -45,6 +45,8 @@ type hubRegisterAnswer struct {
 	State    string `json:"state"`
 	Message  string `json:"message"`
 	Next     string `json:"next"`
+	Reason   string `json:"reason"`
+	HubCode  string `json:"hub_code"`
 	Recovery *struct {
 		State   string `json:"state"`
 		Message string `json:"message"`
@@ -109,7 +111,7 @@ func (h hubCLI) refusedBy(code int, body []byte) error {
 		fmt.Fprintf(h.stderr, "error: the daemon answered %d: %s\n", code, strings.TrimSpace(string(body)))
 		return errExit1
 	}
-	say(h.stderr, e.Error, e.Next)
+	say(h.stderr, e.Error+a2ashape.CodeSuffix(e.Reason, e.HubCode), e.Next)
 	return errExit1
 }
 
@@ -191,10 +193,11 @@ func (h hubCLI) hubRegister(c *client, rest []string) error {
 	if r := out.Recovery; r != nil && r.Message != "" {
 		say(h.stdout, r.Message, r.Next)
 	}
-	say(h.stdout, out.Message, out.Next)
 	if out.State == daemon.JoinRefused {
+		say(h.stdout, out.Message+a2ashape.CodeSuffix(out.Reason, out.HubCode), out.Next)
 		return errExit1
 	}
+	say(h.stdout, out.Message, out.Next)
 	return nil
 }
 

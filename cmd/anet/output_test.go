@@ -83,7 +83,7 @@ func TestCLIJSONOnStdout(t *testing.T) {
 			"reason: You are not on their list.\n" + nextPrefix + "anet audit --interaction ix_r\n"},
 		{"a task sent", []string{"delegate", wholeAID, "translate", "this"}, 200, submitted, 0, true, ""},
 		{"a refusal", []string{"delegate", wholeAID, "translate", "this"}, 503, string(refusal), 1, false,
-			ref.Error + "\n" + nextPrefix + ref.Next + "\n"},
+			ref.Error + " [hub_pending_admission]\n" + nextPrefix + ref.Next + "\n"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			h := newCLIHome(t, "C")
@@ -202,7 +202,7 @@ func TestCLISaysTheControlPlanesSentence(t *testing.T) {
 			var err error
 			stdout, stderr := captureCLI(t, func() { err = c.doTask("/tasks/send", map[string]any{}) })
 			srv.Close()
-			want := body.Error + "\n"
+			want := body.Error + a2ashape.CodeSuffix(body.Reason, body.HubCode) + "\n"
 			if body.Next != "" {
 				want += nextPrefix + body.Next + "\n"
 			}
@@ -231,6 +231,25 @@ func TestElsewhereCommandNamesOneIdentity(t *testing.T) {
 	} {
 		if got := elsewhereCommand("coder", tc.typed); got != tc.want {
 			t.Errorf("%q: %q, want %q", tc.typed, got, tc.want)
+		}
+	}
+}
+
+// A refusal is the sentence, then its reason code in brackets on the same
+// line, then the command. hub_refused shows the hub's own code after a colon.
+// JSON is not changed: only the human line carries the suffix.
+func TestAnswerErrorShowsTheReasonCode(t *testing.T) {
+	for _, tc := range []struct{ body, want string }{
+		{`{"error":"The other side is too busy right now and did not run it; send it again in 2 minutes.","reason":"busy","next":"anet task get ix_1"}`,
+			"The other side is too busy right now and did not run it; send it again in 2 minutes. [busy]\n" + nextPrefix + "anet task get ix_1\n"},
+		{`{"error":"The hub refused it.","reason":"hub_refused","hub_code":"quota_full"}`,
+			"The hub refused it. [hub_refused:quota_full]\n"},
+		{`{"error":"A sentence without a reason."}`, "A sentence without a reason.\n"},
+	} {
+		var err error
+		stdout, stderr := captureCLI(t, func() { err = answerError(409, []byte(tc.body)) })
+		if err != errExit1 || stdout != "" || stderr != tc.want {
+			t.Errorf("%s: exit %v, stdout %q, stderr %q, want %q", tc.body, err, stdout, stderr, tc.want)
 		}
 	}
 }

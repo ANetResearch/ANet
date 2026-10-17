@@ -145,9 +145,10 @@ func (cc *controlClient) Call(ctx context.Context, path string, body, out any) e
 		// it is written for a human and reads correctly to a model too, and
 		// a tool can tell "no such task" from a daemon that is down.
 		var e struct {
-			Error  string `json:"error"`
-			Code   string `json:"code"`
-			Reason string `json:"reason"`
+			Error   string `json:"error"`
+			Code    string `json:"code"`
+			Reason  string `json:"reason"`
+			HubCode string `json:"hub_code"`
 		}
 		if json.Unmarshal(raw, &e) != nil {
 			// Not the daemon's JSON: a route this daemon does not have
@@ -158,7 +159,7 @@ func (cc *controlClient) Call(ctx context.Context, path string, body, out any) e
 				e.Error = strings.ToValidUTF8(e.Error[:200], "")
 			}
 		}
-		return &mcpserv.DaemonError{Status: code, Message: e.Error, Code: e.Code, Reason: e.Reason}
+		return &mcpserv.DaemonError{Status: code, Message: e.Error, Code: e.Code, Reason: e.Reason, HubCode: e.HubCode}
 	}
 	if out == nil {
 		return nil

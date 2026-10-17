@@ -162,7 +162,7 @@ func TestHubRegisterUnreachable(t *testing.T) {
 	if err := h.hubRegister(c, []string{testHub}); err != errExit1 {
 		t.Fatalf("exit: %v", err)
 	}
-	if want := ref.Error + "\n  → " + ref.Next + "\n"; errb.String() != want || out.Len() != 0 {
+	if want := ref.Error + " [hub_unreachable]\n  → " + ref.Next + "\n"; errb.String() != want || out.Len() != 0 {
 		t.Fatalf("stderr %q, want %q; stdout %q", errb, want, out)
 	}
 	if asked || len(hc.requests()) != 1 {
@@ -269,7 +269,7 @@ func TestHubLeaveRefusal(t *testing.T) {
 	w.Close()
 	os.Stderr = prevErr
 	_, _ = io.Copy(&errb, r)
-	if err != errExit1 || errb.String() != ref.Error+"\n  → "+ref.Next+"\n" {
+	if err != errExit1 || errb.String() != ref.Error+" [witness_hub_leave]\n  → "+ref.Next+"\n" {
 		t.Fatalf("%v %q", err, errb.String())
 	}
 }

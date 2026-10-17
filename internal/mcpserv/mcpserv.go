@@ -36,6 +36,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/ANetResearch/ANet/internal/a2ashape"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -58,19 +59,21 @@ type DaemonError struct {
 	// Code is the A2A error name (TaskNotFoundError, ...) the task routes
 	// answer with.
 	Code string
-	// Reason is the machine-readable reason of a refused payment.
+	// Reason is the machine-readable reason code of the refusal.
 	Reason string
+	// HubCode is the hub's own code behind hub_refused.
+	HubCode string
 }
 
-// Error is the control plane's `error`, word for word (ux UX-M4): the
-// sentence is written for a human and reads correctly to a model, so the
-// tool adds nothing to it. Status, Code and Reason stay on the value for a
-// program to act on.
+// Error is the control plane's `error`, word for word (ux UX-M4), followed by
+// the reason code in brackets when the refusal has one: the sentence is
+// written for a human and reads correctly to a model, and the code names the
+// event. Status, Code and Reason stay on the value for a program to act on.
 func (e *DaemonError) Error() string {
 	if e.Message == "" {
 		return fmt.Sprintf("daemon returned %d", e.Status)
 	}
-	return e.Message
+	return e.Message + a2ashape.CodeSuffix(e.Reason, e.HubCode)
 }
 
 // statusOf is the HTTP status of a daemon refusal, 0 for any other error.
