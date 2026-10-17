@@ -104,6 +104,12 @@ func TestEmergencyRotationReplacesEverySecret(t *testing.T) {
 	}
 	oldToken := mustRead(t, req.layout.ControlTokenPath())
 
+	// The gate opens at E5 and the outbox is kicked at once: left running,
+	// its loop sends the cancel notice, and a message to a peer carries a
+	// fresh capability issued under the new key. That is right, and it
+	// races the check below that both tables are empty after E1. The
+	// notice is sent by retryNow, where this test says so.
+	req.setOutboxHold(true)
 	code, out := controlCall(t, req.hIdentityRotate, "/identity/rotate", rotateBody(rotateEmergency, 2, 3, ""))
 	if code != http.StatusOK {
 		t.Fatalf("emergency rotation: %d %v", code, out)
