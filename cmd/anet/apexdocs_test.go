@@ -548,8 +548,12 @@ func TestPublishWritesSiteJSON(t *testing.T) {
 		root := t.TempDir()
 		apexWriteFile(t, filepath.Join(root, "dl", "VERSION"), "1.0.0\n")
 		dist := apexFakeDist(t, "9.9.9")
-		if out, err := apexRunPublish(t, "--dist", dist, "--web", apexDir, "--root", root); err != nil {
-			t.Fatalf("publish.sh --dist --web: %v\n%s", err, out)
+		zcode := t.TempDir()
+		if out, err := exec.Command("python3", filepath.Join("..", "..", "deploy", "zcode", "build.py"), "--out", zcode).CombinedOutput(); err != nil {
+			t.Fatalf("deploy/zcode/build.py: %v\n%s", err, out)
+		}
+		if out, err := apexRunPublish(t, "--dist", dist, "--web", apexDir, "--zcode", zcode, "--root", root); err != nil {
+			t.Fatalf("publish.sh --dist --web --zcode: %v\n%s", err, out)
 		}
 		b, err := os.ReadFile(filepath.Join(root, "site.json"))
 		if err != nil {
