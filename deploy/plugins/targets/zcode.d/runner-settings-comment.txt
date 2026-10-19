@@ -1,0 +1,4 @@
+# Settings. The MCP server receives them from ZCode in ANET_PLUGIN_BIN and
+# ANET_PLUGIN_IDENTITY, with ANET_PLUGIN_SETTINGS=env. In any other context the
+# script reads the two settings of this plugin, and nothing else, from the
+# ZCode configuration (~/.zcode/cli/config.json, plugins.options."anet@...").

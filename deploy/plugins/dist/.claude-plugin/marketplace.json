@@ -1,0 +1,33 @@
+{
+  "name": "agentnetwork",
+  "owner": {
+    "name": "Agent Network Research",
+    "url": "https://agentnetwork.org.cn"
+  },
+  "metadata": {
+    "description": "The AgentNetwork (anet) plugin for Claude Code."
+  },
+  "plugins": [
+    {
+      "name": "anet",
+      "source": "./claude-code",
+      "description": "Delegate tasks to other AI agents over A2A through a local AgentNetwork (anet) node: find agents, send and track end-to-end encrypted tasks, settle priced skills within operator limits, and answer tasks sent to this node.",
+      "author": {
+        "name": "Agent Network Research",
+        "url": "https://agentnetwork.org.cn"
+      },
+      "homepage": "https://docs.agentnetwork.org.cn/docs/en/latest/",
+      "license": "Apache-2.0",
+      "keywords": [
+        "anet",
+        "agentnetwork",
+        "a2a",
+        "agent-to-agent",
+        "mcp",
+        "x402",
+        "multi-agent"
+      ],
+      "category": "developer-tools"
+    }
+  ]
+}

@@ -16,8 +16,10 @@ agentnetwork.org.cn 上有几条路径的内容来自本仓库,而不是官网�
 | `/SKILL.md`、`/llms-full.txt` | `SKILL.md` | 本目录(`--web`) | `no-cache`(`expires epoch`) / 缺省 |
 | `/llms.txt` | `llms.txt` | 本目录(`--web`) | 缺省 |
 | `/site.json` | `site.json` | 本目录的 `site.json`,`publish.sh` 加上 `version`(`--web`) | `no-cache`(`expires epoch`) |
-| `/zcode/marketplace.json` | `zcode/marketplace.json` | `deploy/zcode/build.py` 的输出(`--zcode`) | `no-cache`(`expires epoch`) |
+| `/zcode/marketplace.json` | `zcode/marketplace.json` | `deploy/zcode/build.py`(`deploy/plugins` 的 zcode 目标)的输出(`--zcode`) | `no-cache`(`expires epoch`) |
 | `/zcode/plugins/`、`/zcode/assets/` | `zcode/plugins/<名称>/<版本>/plugin.zip`、`zcode/assets/` | 同上;已发布的版本不替换,旧版本保留 | 缺省 |
+| `/plugins/<目标>/*.json`、`/plugins/<目标>/SHA256SUMS` 及其列出的平台归档 | `plugins/<目标>/` | `deploy/plugins/build.py --site` 的输出(`--plugins`);指向当前版本,每次发布替换 | `no-cache`(`expires epoch`) |
+| `/plugins/<目标>/` 下其他文件(带版本号的归档) | `plugins/<目标>/` | 同上;已发布的版本不替换 | 缺省 |
 
 带 `add_header` 的 location 不再继承 server 块的安全头,所以这里的 location 都不用它:`/install.sh`、
 `/SKILL.md` 与 `/site.json` 用 `expires epoch` 得到 `Cache-Control: no-cache`,全部保留 server 块的安全头。
@@ -67,11 +69,18 @@ deploy/release/apex/publish.sh --web deploy/release/apex
 deploy/release/apex/publish.sh --dist dist/ --allowed-signers internal/release/allowed_signers --root <hub 站点的公开目录>
 ```
 
-发布 ZCode 插件市场(插件源码在 `deploy/zcode/anet`,版本号写在其 `.zcode-plugin/plugin.json`):
+发布 ZCode 插件市场(插件由 `deploy/plugins` 生成,源码在 `deploy/plugins/common` 与 `deploy/plugins/targets/zcode.py`,版本号写在 `deploy/plugins/common/meta.json`;生成物提交在 `deploy/plugins/dist/zcode`):
 
 ```sh
 python3 deploy/zcode/build.py --out /tmp/anet-zcode
 deploy/release/apex/publish.sh --zcode /tmp/anet-zcode
+```
+
+发布其他工具的插件目录(Claude Code、CodeBuddy、Gemini CLI、Trae 等;DSH 的 `index.json` 需要设置 `ANET_PLUGIN_COMMIT` 与 `SOURCE_DATE_EPOCH`)。所有归档先按目录与 `SHA256SUMS` 中的 SHA-256 校验,任何一项不通过则不写入;目录文件最后写入:
+
+```sh
+python3 deploy/plugins/build.py --site /tmp/anet-plugins-site
+deploy/release/apex/publish.sh --plugins /tmp/anet-plugins-site
 ```
 
 全部检查(文件齐全、签名、`site.json` 能加版本、`.gz` 与 `checksums.txt` 相符)在改动任何已提供的文件之前完成;

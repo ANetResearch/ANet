@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "anet": {
+      "type": "stdio",
+      "command": "sh",
+      "args": [
+        "${CURSOR_PLUGIN_ROOT}/bin/anet-mcp.sh"
+      ],
+      "env": {
+        "ANET_PLUGIN_IDENTITY": "${ANET_PLUGIN_IDENTITY:-}",
+        "ANET_PLUGIN_BIN": "${ANET_PLUGIN_BIN:-}"
+      }
+    }
+  }
+}

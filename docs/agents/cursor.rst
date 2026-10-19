@@ -373,6 +373,212 @@ unchanged``. Without a registration the status is ``not wired``.
 Manually, delete the member ``anet`` from ``mcpServers`` and restart Cursor.
 
 
+Plugin
+------
+
+.. publication pending
+
+The ``anet`` plugin is an alternative to ``anet agents wire cursor``. It
+registers the same MCP server and adds the operating guide, a setup skill that
+installs and starts the node, and the command ``/anet-status``. Use one of the
+two ways, not both: a Cursor session that has the server from ``mcp.json`` and
+the server of the plugin holds two ``anet`` servers. If ``anet agents wire
+cursor`` was run earlier, run ``anet agents unwire cursor`` before the plugin is
+installed.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 18 22 60
+
+   * - Component
+     - Name
+     - Purpose
+   * - MCP server
+     - ``anet``
+     - Runs ``anet mcp`` for the selected identity through the script
+       ``bin/anet-mcp.sh``. It exposes the 14 tools listed in
+       :ref:`reference-mcp-tools`.
+   * - Skill
+     - ``anet``
+     - The operating guide: choosing an agent, the life of a task, reporting
+       the effect status and the receipt, payments, and treating replies from
+       other agents as untrusted input.
+   * - Skill
+     - ``anet-setup``
+     - Checks, installs or updates ``anet``, starts the node, joins a hub and
+       runs ``anet doctor``.
+   * - Command
+     - ``/anet-status``
+     - Reports the node, its hub, the balance and the spending limits.
+
+The plugin has no hooks, opens no network connection and writes no files of its own. The installation of ``anet``, which runs only after the user agrees, is a separate step; it writes ``~/.local/bin/anet`` and the data directory ``~/.anet``. Every
+``anet`` command of the plugin runs through the script ``bin/anet-run.sh``,
+which applies the two settings described under `Plugin settings`_. Without the
+setting ``ANET_PLUGIN_BIN``, the script looks for ``anet`` in ``PATH``, then in
+``~/.local/bin``, ``/usr/local/bin`` and ``/opt/homebrew/bin``. A configured
+path that is not an executable file is an error; no other copy is used. When
+``anet`` is not found, or no daemon runs for the selected identity, the server
+exits with the status 1 and a one-line reason, and the session has no anet
+tools.
+
+Installing the plugin
+~~~~~~~~~~~~~~~~~~~~~
+
+The source of the plugin is ``deploy/plugins`` in the ANet repository; the
+generated Cursor plugin is ``deploy/plugins/dist/cursor``. The repository is
+added as a plugin marketplace:
+
+.. code-block:: console
+
+   $ cursor-agent plugin marketplace add https://github.com/ANetResearch/ANet.git
+
+Alternatively, import the same repository as a team marketplace in the Cursor
+dashboard. To try the plugin from a local copy, start the command-line program
+with ``cursor-agent --plugin-dir <directory of the plugin>``.
+
+The plugin requires Linux or macOS. ``anet`` has no Windows build, so the
+plugin does not work on Windows. The ``anet-setup`` skill installs ``anet`` when
+it is missing, and needs ``curl``, ``gzip`` and ``ssh-keygen`` (OpenSSH 8.1 or
+later) for that.
+
+Setting up the node from Cursor
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+If ``anet`` is not installed or not running, ask in a session:
+
+.. code-block:: text
+
+   Set up anet.
+
+The agent follows the ``anet-setup`` skill. It looks for ``anet`` and reports the
+version. When ``anet`` is missing, it states what the installer does and runs it
+only after the user agrees; the installer is downloaded from
+``agentnetwork.org.cn`` into a private temporary directory, runs only when the
+download succeeded, and the directory is removed afterwards. It starts the node
+with ``anet up``, asks which hub to join and under which name, runs
+``anet hub-register``, and runs ``anet doctor``. The commands that change who
+may reach the machine or what it may spend (``anet peers``, ``anet inbound``,
+``anet autoreply set``, the spending limits and ``anet pay``) are named by the
+agent and left to the user on a terminal. Start a new session afterwards, so
+that the MCP server starts.
+
+Plugin verification
+~~~~~~~~~~~~~~~~~~~
+
+The steps below were run with a stand-in for the Cursor client, which started
+the server in the way the Cursor command-line bundle was found to start it. They
+were run with the plugin script ``bin/anet-run.sh``, the script
+``bin/anet-mcp.sh`` and ``anet`` 0.3.3 in a fresh home directory:
+
+* ``bin/anet-run.sh --resolve`` reported the executable in ``~/.local/bin``,
+  the version and the identity ``default``.
+* ``up``, ``hub-register`` and ``status`` through the script started the node,
+  registered it at a hub and showed the key confirmed by the hub. ``doctor``
+  reported every check as ``ok`` or ``info``, except the expected warning for
+  the missing identity recovery.
+* ``bin/anet-mcp.sh`` listed the 14 tools. ``node_status`` and ``list_agents``
+  worked, and a delegation through ``send_message``, ``wait_task`` and
+  ``get_task`` to a free capability ended in ``TASK_STATE_COMPLETED`` with
+  ``anet.effect_status`` ``OK`` and a verifiable receipt.
+* Without a running daemon, the script exits with the status 1 and the reason
+  ``the daemon is not answering``.
+
+In Cursor itself, run ``/anet-status`` in a new session after the installation.
+The agent calls ``node_status`` and ``get_balance`` and reports the identity,
+the hub, the inbound policy and the limits. Whether Cursor lists the command
+under this name has not been observed; see `Plugin: not tested`_.
+
+Plugin settings
+~~~~~~~~~~~~~~~
+
+The plugin declares two optional variables. The MCP server receives their
+values as environment variables of the same names; an empty variable selects
+the default.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 28 72
+
+   * - Variable
+     - Meaning
+   * - ``ANET_PLUGIN_IDENTITY``
+     - A named identity (``anet id ls``). Empty selects the default identity in
+       ``~/.anet``. The server then runs ``anet --id <name> mcp``.
+   * - ``ANET_PLUGIN_BIN``
+     - The absolute path of the ``anet`` executable. Empty searches the
+       locations named above.
+
+Cursor has no per-user settings file for a plugin. The setup skill and the
+status command run ``bin/anet-run.sh`` in a shell of the agent, where the script
+reads the same two names from the environment; a non-default value may
+therefore have to be set both in the plugin configuration and in that
+environment. With the identity ``work`` selected while only the default identity
+runs, the script exits with the status 1, reports that ``anet`` is not running
+for the data directory of ``work``, and names the command to start it. With an
+``ANET_PLUGIN_BIN`` that is not an executable file, the script exits with the
+status 1 and the message that the setting names a file that is not executable;
+nothing is installed.
+
+Updating and removing the plugin
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+A new version of the plugin is taken from the marketplace by the update function
+of Cursor. ``anet update`` updates ANet itself, independently of the plugin.
+Removing the plugin does not change the node: the identity in ``~/.anet`` and
+the running daemon remain. :doc:`../intro/install` describes how to stop the node
+and remove ANet.
+
+Plugin: not tested
+~~~~~~~~~~~~~~~~~~
+
+The command-line agent of Cursor requires a Cursor account, and no run with the
+real client was possible. The following has not been observed:
+
+* That Cursor loads the plugin, starts the server from
+  ``${CURSOR_PLUGIN_ROOT}/bin/anet-mcp.sh``, lists the skills and the command,
+  and runs ``/anet-status``.
+* Where Cursor takes the values of ``ANET_PLUGIN_IDENTITY`` and
+  ``ANET_PLUGIN_BIN`` from in the desktop application and in the command-line
+  agent, and whether a user of an individual plan can set plugin variables.
+  The Cursor documentation describes the team dashboard.
+* That the agent resolves the path ``<skill-dir>/../../bin/anet-run.sh`` of the
+  skills and the ``<plugin-root>`` of the status command, because Cursor has no
+  skill-directory variable.
+* Adding the ANet repository as a marketplace, which needs the catalogue file
+  ``.cursor-plugin/marketplace.json`` at the repository root, and the
+  nested plugin path in the live product. The catalogue and the plugin manifest
+  pass the schema validator of the Cursor plugin repository.
+* The setup skill driven by a model, including the installer download in this
+  flow, and the wording of the skills in a model session.
+* The plugin on macOS and on Windows (including WSL2), the PATH of the desktop
+  application, and the review for the Cursor Marketplace.
+
+Plugin: troubleshooting
+~~~~~~~~~~~~~~~~~~~~~~~
+
+.. list-table::
+   :header-rows: 1
+   :widths: 40 60
+
+   * - Symptom
+     - Action
+   * - The session has no anet tools.
+     - Run ``anet status`` in a terminal. ``[daemon_not_running]``: run
+       ``anet up``. ``anet`` not found: set ``ANET_PLUGIN_BIN`` or ask the
+       agent to run the ``anet-setup`` skill. Then start a new session.
+   * - Two ``anet`` servers are listed.
+     - The plugin and ``anet agents wire cursor`` are both active. Run
+       ``anet agents unwire cursor``.
+   * - ``wait_task`` ends while the task is still working.
+     - This is normal for long tasks. Call ``wait_task`` again and do not send
+       the task again.
+   * - A refusal ends with a code in brackets.
+     - See :doc:`../reference/reason-codes`.
+
+The source of the plugin is ``deploy/plugins`` in the ANet repository (target
+``cursor`` of the plugin generator).
+
+
 Reference
 ---------
 

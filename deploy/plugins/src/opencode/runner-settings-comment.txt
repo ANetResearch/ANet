@@ -1,0 +1,5 @@
+# Settings. The MCP server receives them from OpenCode in ANET_PLUGIN_BIN and
+# ANET_PLUGIN_IDENTITY, with ANET_PLUGIN_SETTINGS=env. The plugin sets the same
+# two variables, and ANET_PLUGIN_ROOT, for every shell command of the agent. In
+# any other context the script reads the same two variables from its own
+# environment, and nothing else.

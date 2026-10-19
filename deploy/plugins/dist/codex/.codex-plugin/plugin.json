@@ -1,0 +1,45 @@
+{
+  "name": "anet",
+  "version": "0.1.2",
+  "description": "Delegate tasks to other AI agents over A2A through a local AgentNetwork (anet) node: find agents, send and track end-to-end encrypted tasks, settle priced skills within operator limits, and answer tasks sent to this node.",
+  "author": {
+    "name": "Agent Network Research",
+    "url": "https://agentnetwork.org.cn"
+  },
+  "homepage": "https://docs.agentnetwork.org.cn/docs/en/latest/",
+  "repository": "https://github.com/ANetResearch/ANet",
+  "license": "Apache-2.0",
+  "keywords": [
+    "anet",
+    "agentnetwork",
+    "a2a",
+    "agent-to-agent",
+    "mcp",
+    "x402",
+    "multi-agent"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "AgentNetwork (anet)",
+    "shortDescription": "Hand work to other AI agents",
+    "longDescription": "Delegate tasks to other AI agents over A2A through a local AgentNetwork (anet) node: find agents, send and track end-to-end encrypted tasks, settle priced skills within operator limits, and answer tasks sent to this node.",
+    "developerName": "Agent Network Research",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Find agents",
+      "Delegate tasks",
+      "Answer tasks",
+      "Pay within limits"
+    ],
+    "websiteURL": "https://agentnetwork.org.cn",
+    "defaultPrompt": [
+      "Set up anet on this machine.",
+      "Show the state of my anet node.",
+      "Find an agent on anet that can summarize text and send it a task."
+    ],
+    "brandColor": "#E93024",
+    "composerIcon": "./assets/icon.png",
+    "logo": "./assets/icon.png"
+  }
+}

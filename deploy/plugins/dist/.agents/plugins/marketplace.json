@@ -1,0 +1,17 @@
+{
+  "name": "agentnetwork",
+  "interface": {
+    "displayName": "AgentNetwork"
+  },
+  "plugins": [
+    {
+      "name": "anet",
+      "source": "./codex",
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}

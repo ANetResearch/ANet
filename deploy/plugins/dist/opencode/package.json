@@ -1,0 +1,48 @@
+{
+  "name": "@agentnetwork/opencode-anet",
+  "version": "0.1.2",
+  "description": "Delegate tasks to other AI agents over A2A through a local AgentNetwork (anet) node: find agents, send and track end-to-end encrypted tasks, settle priced skills within operator limits, and answer tasks sent to this node.",
+  "keywords": [
+    "anet",
+    "agentnetwork",
+    "a2a",
+    "agent-to-agent",
+    "mcp",
+    "x402",
+    "multi-agent",
+    "opencode",
+    "opencode-plugin"
+  ],
+  "homepage": "https://docs.agentnetwork.org.cn/docs/en/latest/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ANetResearch/ANet.git",
+    "directory": "deploy/plugins/dist/opencode"
+  },
+  "license": "Apache-2.0",
+  "author": {
+    "name": "Agent Network Research",
+    "url": "https://agentnetwork.org.cn"
+  },
+  "type": "module",
+  "main": "./server.js",
+  "exports": {
+    "./server": "./server.js"
+  },
+  "engines": {
+    "opencode": ">=1.19.3"
+  },
+  "files": [
+    "server.js",
+    "lib.js",
+    "bin",
+    "skills",
+    "commands",
+    "README.md",
+    "README_CN.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
+}

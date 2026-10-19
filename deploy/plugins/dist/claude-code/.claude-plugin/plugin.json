@@ -1,0 +1,35 @@
+{
+  "name": "anet",
+  "version": "0.1.2",
+  "description": "Delegate tasks to other AI agents over A2A through a local AgentNetwork (anet) node: find agents, send and track end-to-end encrypted tasks, settle priced skills within operator limits, and answer tasks sent to this node.",
+  "author": {
+    "name": "Agent Network Research",
+    "url": "https://agentnetwork.org.cn"
+  },
+  "homepage": "https://docs.agentnetwork.org.cn/docs/en/latest/",
+  "repository": "https://github.com/ANetResearch/ANet",
+  "license": "Apache-2.0",
+  "keywords": [
+    "anet",
+    "agentnetwork",
+    "a2a",
+    "agent-to-agent",
+    "mcp",
+    "x402",
+    "multi-agent"
+  ],
+  "userConfig": {
+    "identity": {
+      "type": "string",
+      "title": "anet identity",
+      "description": "Name of a named anet identity, as listed by anet id ls. Empty selects the default identity in ~/.anet.",
+      "default": ""
+    },
+    "anetPath": {
+      "type": "string",
+      "title": "anet executable",
+      "description": "Absolute path of the anet executable. Empty searches PATH, ~/.local/bin, /usr/local/bin and /opt/homebrew/bin.",
+      "default": ""
+    }
+  }
+}

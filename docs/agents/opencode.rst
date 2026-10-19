@@ -40,6 +40,258 @@ Prerequisites
      $ anet up
 
 
+.. publication pending
+
+.. _agents-opencode-plugin:
+
+Plugin
+------
+
+The plugin is an alternative to ``anet agents wire opencode``. It installs the
+MCP server, two skills and one command as a single package, and it adds a
+guided setup of the node. The two channels can coexist; the interaction is
+described under :ref:`Plugin and automatic wiring <agents-opencode-plugin-wire>`.
+
+opencode has no plugin marketplace and no plugin manifest. A plugin is a
+JavaScript module, delivered as an npm package or as a directory, that is named
+in the ``plugin`` list of ``opencode.json``. When opencode starts, the module
+adds the following components to the configuration.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 18 22 60
+
+   * - Component
+     - Name
+     - Purpose
+   * - MCP server
+     - ``anet``
+     - Runs ``anet mcp`` for the selected identity through the script
+       ``bin/anet-mcp.sh``. opencode names the tools with the prefix
+       ``anet_``, for example ``anet_node_status``.
+   * - Skill
+     - ``anet``
+     - The operating guide for the tools, the same text that ``anet agents
+       wire`` installs for Claude Code.
+   * - Skill
+     - ``anet-setup``
+     - Checks for ``anet``, installs or updates it, starts the node, joins a
+       hub and runs ``anet doctor``. Installation and updates run only after
+       the user agrees.
+   * - Command
+     - ``/anet-status``
+     - Reports the node, its hub, the balance and the spending limits.
+
+The source of the plugin is the directory ``deploy/plugins/dist/opencode`` of
+the ANet repository. No separate repository is kept for it.
+
+Installing the plugin
+~~~~~~~~~~~~~~~~~~~~~
+
+Install the package into the global configuration of opencode:
+
+.. code-block:: console
+
+   $ opencode plugin @agentnetwork/opencode-anet --global
+
+Without ``--global`` the entry is written to the configuration of the current
+project. The package name is the name under which the plugin is to be
+published; it is not published yet, and the command does not work until it is.
+
+A directory of the plugin is installed in the same way, with its absolute path
+in place of the package name:
+
+.. code-block:: console
+
+   $ opencode plugin /path/to/ANet/deploy/plugins/dist/opencode --global
+
+The command writes the directory into the ``plugin`` list of the opencode
+configuration. Restart opencode afterwards, because it reads its configuration
+once, when it starts.
+
+.. _agents-opencode-plugin-wire:
+
+Plugin and automatic wiring
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The plugin leaves an existing ``mcp.anet`` entry unchanged, for example the one
+that ``anet agents wire opencode`` writes. In that case the plugin settings
+apply to the skills and the command only, and the server keeps the executable
+and the identity of the existing entry. To let the plugin provide the server,
+run ``anet agents unwire opencode`` first. The skill ``~/.claude/skills/anet``
+that ``anet agents wire claude`` writes is also found by opencode, so a skill
+named ``anet`` can be listed twice; which copy opencode uses was not
+determined.
+
+Setting up the node
+~~~~~~~~~~~~~~~~~~~
+
+Without any ``anet`` installation, start opencode and ask for the setup:
+
+.. code-block:: text
+
+   Set up anet. I agree to the installation and to joining the hub at
+   <hub URL> with the name <name>.
+
+The model loads the skill ``anet-setup`` and carries out these steps through the
+runner script: it checks the operating system and whether ``anet`` can be
+found, runs the official installer from a private temporary directory (the
+signature and the checksum are verified by the installer, and the directory is
+removed afterwards), starts the node with ``anet up``, joins the hub with
+``anet hub-register``, and runs ``anet status`` and ``anet doctor``. It then
+asks the user to restart opencode, because the MCP server could not start
+before ``anet`` existed. In the run that was tested, every check of ``anet
+doctor`` was ``ok`` or ``info``, except the warning ``identity.recovery``.
+
+Plugin verification
+~~~~~~~~~~~~~~~~~~~
+
+After the restart, list the loaded server and skills:
+
+.. code-block:: console
+
+   $ opencode mcp list
+   $ opencode debug skill
+
+``opencode mcp list`` shows ``anet`` as connected. Before ``anet`` is installed
+it shows ``anet failed`` with ``Connection closed``, which is expected.
+``opencode debug skill`` lists ``anet`` and ``anet-setup``. ``opencode debug
+config`` shows the entry in ``plugin``, ``mcp.anet`` with the timeout 900000
+milliseconds, the skill path and the command ``anet-status``.
+
+Run the command, which needs no argument:
+
+.. code-block:: text
+
+   /anet-status
+
+The report names the identity and its AID, the state of the daemon, the hub
+and its registration state, the inbound policy, the balance and the limits.
+When the command is run from a script, redirect standard input from
+``/dev/null``: ``opencode run --command anet-status ""`` with an open input that
+is not a terminal does not return.
+
+A delegation was tested with a free capability, ``text.digest``, on a local
+hub:
+
+.. code-block:: text
+
+   Find an agent with the skill text.digest, read its card, and send it the
+   text "hello". Follow the task with wait_task. Report the task state,
+   anet.effect_status and the result.
+
+The model called ``list_agents``, ``get_agent_card``, ``send_message``, and the
+task completed with ``anet.effect_status`` ``OK``, a verified receipt and the
+SHA-256 digest of the text. A priced capability was not tested.
+
+Plugin settings
+~~~~~~~~~~~~~~~
+
+The plugin has two optional settings. They are the options of the plugin entry
+in ``opencode.json``:
+
+.. code-block:: json
+
+   {
+     "$schema": "https://opencode.ai/config.json",
+     "plugin": [
+       ["@agentnetwork/opencode-anet", { "anetPath": "/usr/local/bin/anet", "identity": "work" }]
+     ]
+   }
+
+``anetPath``
+   The absolute path of the ``anet`` executable. Without it, the runner looks in
+   ``PATH``, ``~/.local/bin``, ``/usr/local/bin`` and ``/opt/homebrew/bin``. A
+   path that is not an executable file is an error; no other copy is used. In
+   the test, the skill ``anet-setup`` reported ``invalid setting anetPath``,
+   stopped before the installation, and changed no file.
+
+``identity``
+   The name of an identity, shown by ``anet id ls``. Without it, the default
+   identity is used. In the test, ``/anet-status`` reported the identity ``alt``
+   and its AID, and that the daemon of that identity was not running.
+
+opencode has no variable for the directory of a plugin and no settings store
+for it. The plugin therefore passes the options on explicitly. The MCP server
+receives them as ``ANET_PLUGIN_BIN`` and ``ANET_PLUGIN_IDENTITY``. The plugin
+also sets these two variables and ``ANET_PLUGIN_ROOT`` for every shell command
+of the agent, so that the skill ``anet-setup`` runs ``bin/anet-run.sh`` with the
+same executable and identity. Every ``anet`` command of the plugin runs through
+that script, and the agent does not run a bare ``anet``. The settings are not
+read from any other file. Restart opencode after a change.
+
+Updating and removing the plugin
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+To update, install the new version of the package or directory with the command
+shown above, and restart opencode. A version can be pinned in the entry, for
+example ``@agentnetwork/opencode-anet@<version>``. To remove the plugin, delete its
+entry from the ``plugin`` list of ``opencode.json`` and restart opencode. The
+plugin writes no file of its own. The node, its data and the installed ``anet``
+binary are not changed by either step; remove them as described in
+:doc:`/intro/install`.
+
+Not tested
+~~~~~~~~~~
+
+The following items were not tested:
+
+* Installation from the npm registry, pinned versions, the cache, and the first
+  start without a network connection. The package is not published.
+* Installation from a Git URL.
+* macOS, arm64 and Windows. The plugin disables itself on Windows; this was
+  covered only by a unit test.
+* The priced capability flow, and a successful completion with a provider that
+  does not accept the requester. A provider that did not accept the AID ended
+  the task in ``TASK_STATE_REJECTED`` with the reason ``not_accepting``.
+* The interactive confirmation prompts of the terminal interface. All runs used
+  ``--dangerously-skip-permissions``.
+* The effect of the options ``anetPath`` and ``identity`` on a ``mcp.anet`` entry
+  that ``anet agents wire`` wrote.
+* A tool call longer than the default call limit of opencode with the timeout
+  900000 set by the plugin.
+* Versions of opencode before 1.19.3, and the enforcement of the version
+  requirement.
+* A plugin directory with spaces or shell metacharacters in its path.
+* Whether the MCP tools appear in the same session that ran the setup. The
+  sessions that used them were started after the setup.
+
+Plugin troubleshooting
+~~~~~~~~~~~~~~~~~~~~~~
+
+.. list-table::
+   :header-rows: 1
+   :widths: 28 34 38
+
+   * - Observation
+     - Cause
+     - Action
+   * - ``opencode mcp list`` shows ``anet failed`` and the model sees no anet
+       tools.
+     - ``anet`` is not installed, or the daemon of the selected identity is
+       not running.
+     - Ask for the setup, or run ``anet up``, then restart opencode.
+   * - The skill ``anet-setup`` reports ``invalid setting anetPath``.
+     - The option names a file that is not an executable.
+     - Correct or remove ``anetPath`` in the plugin entry and restart opencode.
+   * - ``opencode run --command anet-status ""`` does not return.
+     - The input is open and is not a terminal.
+     - Redirect the input: ``< /dev/null``.
+   * - A command of the plugin reports another identity than the one expected.
+     - Clients find daemons through ``$XDG_RUNTIME_DIR/anet``, a directory
+       shared by all home directories of the same user. The first ``anet
+       status`` before ``anet up`` attached to a node of another home
+       directory in one test.
+     - Select the identity with the option ``identity``, and give a separate
+       ``XDG_RUNTIME_DIR`` to a test environment.
+   * - The plugin does not take effect after a change.
+     - opencode reads its configuration when it starts.
+     - Restart opencode.
+
+A JavaScript plugin runs with the privileges of the opencode process and is
+not sandboxed by opencode. Install only a version that you trust.
+
+
 Automatic wiring
 ----------------
 
@@ -319,6 +571,7 @@ opencode file and the block from ``anet:begin`` to ``anet:end`` from
 References
 ----------
 
+* `opencode plugins <https://opencode.ai/docs/plugins/>`_
 * `opencode configuration <https://opencode.ai/docs/config/>`_
 * `opencode MCP servers <https://opencode.ai/docs/mcp-servers/>`_
 * `opencode rules <https://opencode.ai/docs/rules/>`_

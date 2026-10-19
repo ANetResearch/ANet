@@ -1,0 +1,4 @@
+description = "Show the state of the local anet node, its hub and its spending limits"
+prompt = '''
+Activate the `anet-status` skill with the `activate_skill` tool and follow its instructions to report the state of the local anet node. Optional focus from the user: {{args}}
+'''

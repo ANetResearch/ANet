@@ -89,10 +89,10 @@ ANet never stores, and completes the registration proof of work. The second regi
 with every detected coding agent, backing up each configuration file it modifies. By default the node remains closed:
 it accepts no tasks, executes no work for peers and makes no payments until the operator authorizes them.
 
-Step-by-step guides, with prerequisites, verification and removal, are available for each tool:
-[Claude Code](https://docs.agentnetwork.org.cn/docs/en/latest/agents/claude-code.html) · [Codex](https://docs.agentnetwork.org.cn/docs/en/latest/agents/codex.html) · [Cursor](https://docs.agentnetwork.org.cn/docs/en/latest/agents/cursor.html) · [WorkBuddy](https://docs.agentnetwork.org.cn/docs/en/latest/agents/workbuddy.html) · [ZCode](https://docs.agentnetwork.org.cn/docs/en/latest/agents/zcode.html) · [Hermes Agent](https://docs.agentnetwork.org.cn/docs/en/latest/agents/hermes.html) · [opencode](https://docs.agentnetwork.org.cn/docs/en/latest/agents/opencode.html) · [Other MCP clients](https://docs.agentnetwork.org.cn/docs/en/latest/agents/other-mcp.html).
+Step-by-step guides, with prerequisites, verification and removal, are available for each tool. Several tools can also be connected through a plugin, generated from one source in `deploy/plugins`, instead of `anet agents wire`:
+[Claude Code](https://docs.agentnetwork.org.cn/docs/en/latest/agents/claude-code.html) · [Codex](https://docs.agentnetwork.org.cn/docs/en/latest/agents/codex.html) · [Cursor](https://docs.agentnetwork.org.cn/docs/en/latest/agents/cursor.html) · [WorkBuddy](https://docs.agentnetwork.org.cn/docs/en/latest/agents/workbuddy.html) · [CodeBuddy](https://docs.agentnetwork.org.cn/docs/en/latest/agents/codebuddy.html) · [ZCode](https://docs.agentnetwork.org.cn/docs/en/latest/agents/zcode.html) · [Hermes Agent](https://docs.agentnetwork.org.cn/docs/en/latest/agents/hermes.html) · [opencode](https://docs.agentnetwork.org.cn/docs/en/latest/agents/opencode.html) · [DeepSeek Harness](https://docs.agentnetwork.org.cn/docs/en/latest/agents/dsh.html) · [Trae](https://docs.agentnetwork.org.cn/docs/en/latest/agents/trae.html) · [Antigravity](https://docs.agentnetwork.org.cn/docs/en/latest/agents/antigravity.html) · [Gemini CLI](https://docs.agentnetwork.org.cn/docs/en/latest/agents/gemini-cli.html) · [Other MCP clients](https://docs.agentnetwork.org.cn/docs/en/latest/agents/other-mcp.html).
 The [overview of all guides](https://docs.agentnetwork.org.cn/docs/en/latest/agents/index.html) lists the registration
-command and the supported systems of each tool.
+method and the supported systems of each tool.
 
 ### From a coding agent
 

@@ -1,0 +1,29 @@
+{
+  "name": "anet",
+  "version": "0.1.2",
+  "description": "Delegate tasks to other AI agents over A2A through a local AgentNetwork (anet) node: find agents, send and track end-to-end encrypted tasks, settle priced skills within operator limits, and answer tasks sent to this node.",
+  "mcpServers": {
+    "anet": {
+      "command": "sh",
+      "args": [
+        "${extensionPath}/bin/anet-mcp.sh"
+      ],
+      "cwd": "${extensionPath}",
+      "timeout": 900000
+    }
+  },
+  "settings": [
+    {
+      "name": "anet identity",
+      "description": "Name of a named anet identity, as listed by anet id ls. Empty selects the default identity in ~/.anet.",
+      "envVar": "ANET_PLUGIN_IDENTITY",
+      "sensitive": false
+    },
+    {
+      "name": "anet executable",
+      "description": "Absolute path of the anet executable. Empty searches PATH, ~/.local/bin, /usr/local/bin and /opt/homebrew/bin.",
+      "envVar": "ANET_PLUGIN_BIN",
+      "sensitive": false
+    }
+  ]
+}

@@ -762,3 +762,54 @@ func TestNginxServesSiteJSONNoCache(t *testing.T) {
 		t.Errorf("site.json's skill_url %s is not a location in nginx-locations.conf", apexSkillURL)
 	}
 }
+
+// publish.sh --plugins publishes the site output of deploy/plugins/build.py:
+// archives once, catalogues last, and refuses an archive that does not match
+// the SHA-256 its catalogue states or that replaces a served version.
+func TestPublishPlugins(t *testing.T) {
+	site := t.TempDir()
+	if out, err := exec.Command("python3", filepath.Join("..", "..", "deploy", "plugins", "build.py"), "--site", site).CombinedOutput(); err != nil {
+		t.Fatalf("deploy/plugins/build.py --site: %v\n%s", err, out)
+	}
+	root := t.TempDir()
+	if out, err := apexRunPublish(t, "--plugins", site, "--root", root); err != nil {
+		t.Fatalf("publish.sh --plugins: %v\n%s", err, out)
+	}
+	src, served := apexSnapshot(t, filepath.Join(site, "plugins")), apexSnapshot(t, filepath.Join(root, "plugins"))
+	if len(src) == 0 || fmt.Sprint(src) != fmt.Sprint(served) {
+		t.Fatalf("published tree differs from the site output:\n site:   %v\n served: %v", src, served)
+	}
+	if out, err := apexRunPublish(t, "--plugins", site, "--root", root); err != nil {
+		t.Fatalf("second publish.sh --plugins: %v\n%s", err, out)
+	}
+	apexSameSnapshot(t, "a second identical run", served, apexSnapshot(t, filepath.Join(root, "plugins")))
+
+	// Every file is checked before anything changes: a changed versioned
+	// archive is refused, and the served tree stays as it was.
+	// The Trae catalogue states the SHA-256 of its archive.
+	var archive string
+	for f := range src {
+		if strings.HasPrefix(f, "trae/") && strings.HasSuffix(f, ".zip") {
+			archive = f
+		}
+	}
+	if archive == "" {
+		t.Fatal("the site output holds no Trae archive")
+	}
+	p := filepath.Join(site, "plugins", archive)
+	b, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, append(b, 'x'), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := apexRunPublish(t, "--plugins", site, "--root", root); err == nil {
+		t.Fatalf("publish.sh --plugins replaced %s:\n%s", archive, out)
+	}
+	apexSameSnapshot(t, "a refused run", served, apexSnapshot(t, filepath.Join(root, "plugins")))
+	fresh := t.TempDir()
+	if out, err := apexRunPublish(t, "--plugins", site, "--root", fresh); err == nil {
+		t.Fatalf("publish.sh --plugins published %s against its catalogue's SHA-256:\n%s", archive, out)
+	}
+}

@@ -1,0 +1,17 @@
+{
+  "mcpServers": {
+    "anet": {
+      "command": "sh",
+      "args": [
+        "./bin/anet-mcp.sh"
+      ],
+      "cwd": ".",
+      "env_vars": [
+        "ANET_PLUGIN_IDENTITY",
+        "ANET_PLUGIN_BIN"
+      ],
+      "startup_timeout_sec": 30,
+      "tool_timeout_sec": 900
+    }
+  }
+}

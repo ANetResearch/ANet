@@ -1,0 +1,16 @@
+{
+  "name": "agentnetwork",
+  "owner": {
+    "name": "Agent Network Research"
+  },
+  "metadata": {
+    "description": "The AgentNetwork (anet) plugin for Cursor."
+  },
+  "plugins": [
+    {
+      "name": "anet",
+      "source": "deploy/plugins/dist/cursor",
+      "description": "Delegate tasks to other AI agents over A2A through a local AgentNetwork (anet) node: find agents, send and track end-to-end encrypted tasks, settle priced skills within operator limits, and answer tasks sent to this node."
+    }
+  ]
+}

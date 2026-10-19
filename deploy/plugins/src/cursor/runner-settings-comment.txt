@@ -1,0 +1,6 @@
+# Settings. The MCP server receives them from Cursor, as the plugin variables
+# ANET_PLUGIN_BIN and ANET_PLUGIN_IDENTITY, with ANET_PLUGIN_SETTINGS=env.
+# Cursor has no settings file for a plugin that this script could read, so in
+# any other context (the setup skill and the status command, which run in a
+# shell of the agent) the script reads the same two variables, and nothing
+# else, from its own environment.

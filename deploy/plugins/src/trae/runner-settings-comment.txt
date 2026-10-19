@@ -1,0 +1,6 @@
+# Settings. The MCP server receives them from Trae, as the environment
+# variables ANET_PLUGIN_BIN and ANET_PLUGIN_IDENTITY (the "env" of its entry
+# in mcp.json), with ANET_PLUGIN_SETTINGS=env. In any other context (the setup
+# skill and the status command, which run in a shell of the agent) the script
+# reads the two settings, and nothing else, from the file "settings" of this
+# plugin, which install.sh writes. It never reads the configuration of Trae.

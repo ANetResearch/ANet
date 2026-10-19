@@ -18,6 +18,16 @@
 #       R/zcode/plugins/. An archive is never replaced: a version that is
 #       already served with other bytes stops the run, and archives of
 #       earlier versions stay. marketplace.json goes in last.
+#   publish.sh --plugins DIR [--root R]
+#       the plugin catalogues and archives that `deploy/plugins/build.py
+#       --site DIR` wrote under DIR/plugins/<target>/, to R/plugins/. Every
+#       archive that a catalogue (*.json) or a SHA256SUMS names must be in DIR
+#       or already served, with that SHA-256. A versioned archive is never
+#       replaced: one already served with other bytes stops the run. The
+#       catalogues (marketplace.json, trae.json, index.json), SHA256SUMS and
+#       the per-platform archives that SHA256SUMS lists name the current
+#       version and are replaced; they go in after the versioned archives,
+#       catalogues last. DIR/zcode/ is not published by this option (--zcode).
 #
 # R defaults to /var/www/anet-release. The agentnetwork nginx site serves
 # /install.sh, /install.sh.sig, /dl/, /SKILL.md, /llms.txt, /llms-full.txt
@@ -40,6 +50,7 @@ ROOT=/var/www/anet-release
 DIST=""
 WEB=""
 ZCODE=""
+PLUGINS=""
 SIGNERS=""
 NS=anet-release@agentnetwork.org.cn
 
@@ -50,13 +61,14 @@ while [ $# -gt 0 ]; do
     --dist) [ $# -ge 2 ] || die "--dist needs a directory"; DIST="$2"; shift ;;
     --web) [ $# -ge 2 ] || die "--web needs a directory"; WEB="$2"; shift ;;
     --zcode) [ $# -ge 2 ] || die "--zcode needs a directory"; ZCODE="$2"; shift ;;
+    --plugins) [ $# -ge 2 ] || die "--plugins needs a directory"; PLUGINS="$2"; shift ;;
     --allowed-signers) [ $# -ge 2 ] || die "--allowed-signers needs a file"; SIGNERS="$2"; shift ;;
     -h|--help) awk 'NR == 1 { next } /^#/ { sub(/^# ?/, ""); print; next } { exit }' "$0"; exit 0 ;;
     *) die "unknown argument: $1" ;;
   esac
   shift
 done
-[ -n "$DIST$WEB$ZCODE" ] || die "nothing to publish: pass --dist DIR, --web DIR and/or --zcode DIR"
+[ -n "$DIST$WEB$ZCODE$PLUGINS" ] || die "nothing to publish: pass --dist DIR, --web DIR, --zcode DIR and/or --plugins DIR"
 [ -d "$ROOT" ] || die "$ROOT does not exist (create it: install -d -m 0755 $ROOT)"
 
 # put SRC NAME: replace ROOT/NAME with SRC by a rename in the same directory.
@@ -143,6 +155,112 @@ PY
   ) || die "the ZCode marketplace in $ZCODE does not pass the checks above"
 fi
 
+if [ -n "$PLUGINS" ]; then
+  [ -d "$PLUGINS/plugins" ] || die "$PLUGINS/plugins is missing: run deploy/plugins/build.py --site $PLUGINS"
+  command -v python3 >/dev/null 2>&1 || die "python3 is needed to check $PLUGINS/plugins"
+  # One line per file to publish, in publication order: "A" versioned archive
+  # (immutable), "P" pointer (SHA256SUMS and the archives it lists), "C"
+  # catalogue.
+  PFILES=$(python3 - "$PLUGINS" "$ROOT" <<'PY'
+import hashlib, json, os, re, sys
+src, root = sys.argv[1], sys.argv[2]
+BASE = "https://agentnetwork.org.cn/plugins/"
+CATALOGUES = {"marketplace.json", "trae.json", "index.json"}
+NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]*$")
+
+def fail(msg):
+    sys.exit(msg)
+
+def sha(path):
+    return hashlib.sha256(open(path, "rb").read()).hexdigest()
+
+files = []
+for d, dirs, names in os.walk(os.path.join(src, "plugins")):
+    dirs.sort()
+    for n in sorted(names):
+        full = os.path.join(d, n)
+        rel = os.path.relpath(full, src).replace(os.sep, "/")
+        parts = rel.split("/")
+        if len(parts) < 3 or not all(NAME.match(x) for x in parts):
+            fail("%s: not a plugins/<target>/<file> path of plain names" % rel)
+        if os.path.islink(full) or not os.path.isfile(full):
+            fail("%s: not a regular file" % rel)
+        files.append(rel)
+if not files:
+    fail("%s/plugins holds no files" % src)
+have = set(files)
+
+def located(rel):
+    for base in (src, root):
+        f = os.path.join(base, rel)
+        if os.path.isfile(f):
+            return f
+    return None
+
+def check_ref(rel_from, url, digest):
+    if not url.startswith(BASE):
+        return
+    rel = "plugins/" + url[len(BASE):]
+    if ".." in rel.split("/"):
+        fail("%s: %s leaves /plugins/" % (rel_from, url))
+    f = located(rel)
+    if f is None:
+        fail("%s names %s, which is neither in %s nor served" % (rel_from, url, src))
+    if sha(f) != digest:
+        fail("%s: %s does not match the SHA-256 it states" % (rel_from, rel))
+
+pointers = set()
+for rel in files:
+    n = rel.rsplit("/", 1)[1]
+    if n in CATALOGUES or n.endswith(".json"):
+        def walk(o):
+            if isinstance(o, dict):
+                if isinstance(o.get("url"), str) and isinstance(o.get("sha256"), str):
+                    check_ref(rel, o["url"], o["sha256"])
+                for v in o.values():
+                    walk(v)
+            elif isinstance(o, list):
+                for v in o:
+                    walk(v)
+        try:
+            walk(json.load(open(os.path.join(src, rel), encoding="utf-8")))
+        except ValueError as e:
+            fail("%s: not JSON (%s)" % (rel, e))
+    if n == "SHA256SUMS":
+        pointers.add(rel)
+        d = rel.rsplit("/", 1)[0]
+        for line in open(os.path.join(src, rel), encoding="utf-8"):
+            if not line.strip():
+                continue
+            m = re.match(r"^([0-9a-f]{64})  ([A-Za-z0-9][A-Za-z0-9._+-]*)$", line.rstrip("\n"))
+            if not m:
+                fail("%s: malformed line %r" % (rel, line))
+            target = d + "/" + m.group(2)
+            if target not in have:
+                fail("%s lists %s, which is not in %s" % (rel, m.group(2), src))
+            if sha(os.path.join(src, target)) != m.group(1):
+                fail("%s: %s does not match" % (rel, target))
+            pointers.add(target)
+
+order = []
+for rel in files:
+    n = rel.rsplit("/", 1)[1]
+    if n in CATALOGUES:
+        continue
+    if rel in pointers:
+        continue
+    old = os.path.join(root, rel)
+    if os.path.exists(old) and sha(old) != sha(os.path.join(src, rel)):
+        fail("%s is already served with other bytes; publish a new version" % rel)
+    order.append("A " + rel)
+order += ["P " + r for r in files if r in pointers and r.rsplit("/", 1)[1] != "SHA256SUMS"]
+order += ["P " + r for r in files if r.rsplit("/", 1)[1] == "SHA256SUMS"]
+order += ["C " + r for r in files if r.rsplit("/", 1)[1] in CATALOGUES]
+print("\n".join(order))
+PY
+  ) || die "the plugin site in $PLUGINS does not pass the checks above"
+fi
+
 # --- publish ----------------------------------------------------------------
 
 if [ -n "$DIST" ]; then
@@ -194,4 +312,19 @@ if [ -n "$ZCODE" ]; then
   install -m 0644 "$ZCODE/marketplace.json" "$ROOT/zcode/.marketplace.json.new.$$"
   mv -f "$ROOT/zcode/.marketplace.json.new.$$" "$ROOT/zcode/marketplace.json"
   echo "  $ROOT/zcode/marketplace.json"
+fi
+
+if [ -n "$PLUGINS" ]; then
+  printf '%s\n' "$PFILES" | while read -r kind rel; do
+    [ -n "$rel" ] || continue
+    install -d -m 0755 "$ROOT/$(dirname "$rel")"
+    if [ "$kind" = A ] && [ -e "$ROOT/$rel" ]; then
+      echo "  $ROOT/$rel (unchanged)"
+      continue
+    fi
+    tmp="$ROOT/$(dirname "$rel")/.$(basename "$rel").new.$$"
+    install -m 0644 "$PLUGINS/$rel" "$tmp"
+    mv -f "$tmp" "$ROOT/$rel"
+    echo "  $ROOT/$rel"
+  done
 fi

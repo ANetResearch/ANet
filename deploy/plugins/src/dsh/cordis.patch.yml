@@ -1,0 +1,24 @@
+# Layer of the anet plugin: the plugin module (settings), the skills and the MCP
+# server `anet mcp`. The settings are the two values of the first row; restate
+# the row with the same id in the profile patch to change them.
+- insert:
+    - id: anet-plugin
+      name: dsh-anet
+      config:
+        anetPath: ''
+        identity: ''
+    - id: anet-skills
+      name: ./skills.js
+    - id: anet-mcp
+      name: '@deepseek-ai/dsh-mcp-client'
+      inject: [anetPlugin]
+      config:
+        serverName: __SERVER_NAME__
+        transport: stdio
+        command: sh
+        args:
+          - !!js "ctx.anetPlugin.root + '/bin/anet-mcp.sh'"
+        env:
+          ANET_PLUGIN_BIN: !!js "ctx.anetPlugin.settings.anetPath"
+          ANET_PLUGIN_IDENTITY: !!js "ctx.anetPlugin.settings.identity"
+        toolCallTimeoutMs: __TIMEOUT_MS__

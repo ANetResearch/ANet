@@ -1,0 +1,5 @@
+# Settings. The MCP server receives them from Gemini CLI in ANET_PLUGIN_BIN and
+# ANET_PLUGIN_IDENTITY, with ANET_PLUGIN_SETTINGS=env. In any other context the
+# script reads the same two variables from its own environment and, when they
+# are not set there, from the .env file of this extension (the settings that
+# `gemini extensions config` writes), and nothing else.

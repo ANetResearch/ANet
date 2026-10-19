@@ -3,12 +3,11 @@
 # This file is distributed under the same license as the ANet project.
 # FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
 #
-#, fuzzy
 msgid ""
 msgstr ""
 "Project-Id-Version: ANet 0.3\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-10-19 15:36+0000\n"
+"POT-Creation-Date: 2026-10-19 20:04+0000\n"
 "PO-Revision-Date: 2026-10-17 10:06+0000\n"
 "Last-Translator: Agent Network <hi@anet0.com>\n"
 "Language: zh_CN\n"
@@ -57,8 +56,8 @@ msgid "Tool"
 msgstr "工具"
 
 #: ../../agents/index.rst:27
-msgid "Registration command"
-msgstr "接入命令"
+msgid "Registration"
+msgstr "注册方式"
 
 #: ../../agents/index.rst:28
 msgid "Method"
@@ -77,19 +76,29 @@ msgid "Claude Code"
 msgstr "Claude Code"
 
 #: ../../agents/index.rst:32
-msgid "``anet agents wire claude``"
-msgstr "``anet agents wire claude``"
+msgid "``anet agents wire claude``, or the plugin ``anet``"
+msgstr "``anet agents wire claude``，或插件 ``anet``"
 
-#: ../../agents/index.rst:33 ../../agents/index.rst:38
-#: ../../agents/index.rst:43 ../../agents/index.rst:48
-#: ../../agents/index.rst:63 ../../agents/index.rst:68
-msgid "MCP"
-msgstr "MCP"
+#: ../../agents/index.rst:33
+#: ../../agents/index.rst:38
+#: ../../agents/index.rst:43
+#: ../../agents/index.rst:68
+msgid "Plugin, MCP"
+msgstr "插件、MCP"
 
-#: ../../agents/index.rst:34 ../../agents/index.rst:39
-#: ../../agents/index.rst:44 ../../agents/index.rst:49
-#: ../../agents/index.rst:54 ../../agents/index.rst:59
-#: ../../agents/index.rst:64 ../../agents/index.rst:69
+#: ../../agents/index.rst:34
+#: ../../agents/index.rst:39
+#: ../../agents/index.rst:44
+#: ../../agents/index.rst:49
+#: ../../agents/index.rst:54
+#: ../../agents/index.rst:59
+#: ../../agents/index.rst:64
+#: ../../agents/index.rst:69
+#: ../../agents/index.rst:74
+#: ../../agents/index.rst:79
+#: ../../agents/index.rst:84
+#: ../../agents/index.rst:89
+#: ../../agents/index.rst:94
 msgid "Linux, macOS"
 msgstr "Linux、macOS"
 
@@ -102,8 +111,8 @@ msgid "OpenAI Codex"
 msgstr "OpenAI Codex"
 
 #: ../../agents/index.rst:37
-msgid "``anet agents wire codex``"
-msgstr "``anet agents wire codex``"
+msgid "``anet agents wire codex``, or the plugin ``anet``"
+msgstr "``anet agents wire codex``，或插件 ``anet``"
 
 #: ../../agents/index.rst:40
 msgid ":doc:`codex`"
@@ -114,8 +123,8 @@ msgid "Cursor"
 msgstr "Cursor"
 
 #: ../../agents/index.rst:42
-msgid "``anet agents wire cursor``"
-msgstr "``anet agents wire cursor``"
+msgid "``anet agents wire cursor``, or the plugin ``anet``"
+msgstr "``anet agents wire cursor``，或插件 ``anet``"
 
 #: ../../agents/index.rst:45
 msgid ":doc:`cursor`"
@@ -129,82 +138,170 @@ msgstr "腾讯 WorkBuddy"
 msgid "``anet agents wire workbuddy``"
 msgstr "``anet agents wire workbuddy``"
 
+#: ../../agents/index.rst:48
+#: ../../agents/index.rst:93
+msgid "MCP"
+msgstr "MCP"
+
 #: ../../agents/index.rst:50
 msgid ":doc:`workbuddy`"
 msgstr ":doc:`workbuddy`"
 
 #: ../../agents/index.rst:51
+msgid "Tencent CodeBuddy Code"
+msgstr "腾讯 CodeBuddy Code"
+
+#: ../../agents/index.rst:52
+#: ../../agents/index.rst:82
+msgid "Plugin ``anet``"
+msgstr "插件 ``anet``"
+
+#: ../../agents/index.rst:53
+#: ../../agents/index.rst:58
+#: ../../agents/index.rst:73
+#: ../../agents/index.rst:83
+#: ../../agents/index.rst:88
+msgid "Plugin"
+msgstr "插件"
+
+#: ../../agents/index.rst:55
+msgid ":doc:`codebuddy`"
+msgstr ":doc:`codebuddy`"
+
+#: ../../agents/index.rst:56
 msgid "ZCode"
 msgstr "ZCode"
 
-#: ../../agents/index.rst:52
+#: ../../agents/index.rst:57
 msgid "Plugin ``anet`` from the ANet marketplace"
 msgstr "ANet 插件市场中的插件 ``anet``"
 
-#: ../../agents/index.rst:53
-msgid "MCP, skills"
-msgstr "MCP、技能"
-
-#: ../../agents/index.rst:55
+#: ../../agents/index.rst:60
 msgid ":doc:`zcode`"
 msgstr ":doc:`zcode`"
 
-#: ../../agents/index.rst:56
+#: ../../agents/index.rst:61
 msgid "Hermes Agent"
 msgstr "Hermes Agent"
 
-#: ../../agents/index.rst:57
+#: ../../agents/index.rst:62
 msgid "``anet agents wire hermes``"
 msgstr "``anet agents wire hermes``"
 
-#: ../../agents/index.rst:58
+#: ../../agents/index.rst:63
 msgid "MCP, optional A2A"
 msgstr "MCP，可选 A2A"
 
-#: ../../agents/index.rst:60
+#: ../../agents/index.rst:65
 msgid ":doc:`hermes`"
 msgstr ":doc:`hermes`"
 
-#: ../../agents/index.rst:61
+#: ../../agents/index.rst:66
 msgid "opencode"
 msgstr "opencode"
 
-#: ../../agents/index.rst:62
-msgid "``anet agents wire opencode``"
-msgstr "``anet agents wire opencode``"
+#: ../../agents/index.rst:67
+msgid "``anet agents wire opencode``, or the opencode plugin"
+msgstr "``anet agents wire opencode``，或 opencode 插件"
 
-#: ../../agents/index.rst:65
+#: ../../agents/index.rst:70
 msgid ":doc:`opencode`"
 msgstr ":doc:`opencode`"
 
-#: ../../agents/index.rst:66
+#: ../../agents/index.rst:71
+msgid "DeepSeek Harness (DSH)"
+msgstr "DeepSeek Harness（DSH）"
+
+#: ../../agents/index.rst:72
+msgid "Bundle ``dsh-anet``"
+msgstr "安装包 ``dsh-anet``"
+
+#: ../../agents/index.rst:75
+msgid ":doc:`dsh`"
+msgstr ":doc:`dsh`"
+
+#: ../../agents/index.rst:76
+msgid "Trae and Trae CN"
+msgstr "Trae 与 Trae CN"
+
+#: ../../agents/index.rst:77
+msgid "Bundle with the script ``install.sh``"
+msgstr "带脚本 ``install.sh`` 的安装包"
+
+#: ../../agents/index.rst:78
+msgid "Plugin bundle"
+msgstr "插件安装包"
+
+#: ../../agents/index.rst:80
+msgid ":doc:`trae`"
+msgstr ":doc:`trae`"
+
+#: ../../agents/index.rst:81
+msgid "Google Antigravity"
+msgstr "Google Antigravity"
+
+#: ../../agents/index.rst:85
+msgid ":doc:`antigravity`"
+msgstr ":doc:`antigravity`"
+
+#: ../../agents/index.rst:86
+msgid "Gemini CLI"
+msgstr "Gemini CLI"
+
+#: ../../agents/index.rst:87
+msgid "Extension ``anet``"
+msgstr "扩展 ``anet``"
+
+#: ../../agents/index.rst:90
+msgid ":doc:`gemini-cli`"
+msgstr ":doc:`gemini-cli`"
+
+#: ../../agents/index.rst:91
 msgid "Other MCP clients"
 msgstr "其他 MCP 客户端"
 
-#: ../../agents/index.rst:67
+#: ../../agents/index.rst:92
 msgid "Manual registration of ``anet mcp``"
 msgstr "手动登记 ``anet mcp``"
 
-#: ../../agents/index.rst:70
+#: ../../agents/index.rst:95
 msgid ":doc:`other-mcp`"
 msgstr ":doc:`other-mcp`"
 
-#: ../../agents/index.rst:72
+#: ../../agents/index.rst:97
 msgid ""
-"ANet does not support Windows. The steps of every page were verified on "
-"Linux; each page lists what was not tested on macOS and in the graphical "
-"clients. The command ``anet agents wire --all`` registers every tool of "
-"the table that it detects and leaves the others unchanged. ZCode is "
-"connected through its plugin system instead (:doc:`zcode`); ``wire`` does"
-" not change ZCode."
+"ANet does not support Windows. How far the steps of a page were verified "
+"differs by tool: each page states what was run in the tool itself, what "
+"was run only with a stand-in for the tool or against the generated files,"
+" and what was not tested, including macOS and the graphical clients. The "
+"command ``anet agents wire --all`` registers every tool of the table that"
+" it supports and detects, and leaves the others unchanged. It changes "
+"only the tools for which a registration command is listed."
 msgstr ""
-"ANet 不支持 Windows。各页的步骤均在 Linux 上验证；各页列出了在 macOS 和图形客户端上未经测试的内容。命令 ``anet "
-"agents wire --all`` 登记表中所有检测到的工具，其余工具保持不变。ZCode 改为通过其插件系统接入（\\ "
-":doc:`zcode`\\ ）；\\ ``wire`` 不会更改 ZCode。"
+"ANet 不支持 "
+"Windows。各页步骤的验证程度因工具而异：每页都说明哪些内容在该工具本身中运行过，哪些内容只借助该工具的替身或针对生成的文件运行过，以及哪些内容未经测试（包括"
+" macOS 和图形客户端）。命令 ``anet agents wire --all`` "
+"会登记表中它所支持且检测到的全部工具，其余保持不变；它只改动列有登记命令的工具。"
 
-#: ../../agents/index.rst:79
+#: ../../agents/index.rst:104
+msgid ""
+"A plugin is an alternative to ``anet agents wire``, not an addition to "
+"it. A plugin registers the MCP server and installs the operating guide, a"
+" setup procedure and a status check through the mechanism of the tool "
+"itself, and it can install ``anet`` after the user agrees. Use one of the"
+" two routes for a tool, because both register a server with the name "
+"``anet``; each page says how to remove the other registration, and, for "
+"opencode, how the two coexist. The plugins are generated from one source "
+"(``deploy/plugins`` in the ANet repository), so they share the runner "
+"script that selects the executable and the identity."
+msgstr ""
+"插件是 ``anet agents wire`` 的替代方式，而非补充。插件通过工具自身的机制登记 MCP "
+"服务器，并安装操作指南、配置流程和状态检查，还可在用户同意后安装 ``anet``。同一工具请只选用其中一种方式，因为两者都会登记名为 "
+"``anet`` 的服务器；各页说明了如何移除另一种登记，opencode 一页还说明两者如何共存。各插件由同一份源码生成（ANet 仓库中的 "
+"``deploy/plugins``），因此共用选择可执行文件与身份的运行脚本。"
+
+#: ../../agents/index.rst:113
 msgid ""
 "The reference for the command, the files and the rules that apply to "
 "every change is :doc:`../howto/coding-agents`."
 msgstr "该命令、被修改的文件以及适用于每次修改的规则，参见 :doc:`../howto/coding-agents`。"
-

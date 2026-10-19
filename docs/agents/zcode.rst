@@ -63,7 +63,7 @@ The plugin
      - ``/anet-status``
      - Reports the node, its hub, the balance and the spending limits.
 
-The plugin has no hooks, opens no network connection and writes no files.
+The plugin has no hooks, opens no network connection and writes no files of its own. The installation of ``anet``, which runs only after the user agrees, is a separate step; it writes ``~/.local/bin/anet`` and the data directory ``~/.anet``.
 The node connects to the hub it has joined; the installer, when the user
 agrees to run it, is downloaded from ``agentnetwork.org.cn`` into a private
 temporary directory, runs only when the download succeeded, and the directory
@@ -107,7 +107,7 @@ With the command-line program:
    $ zcode plugins marketplace add https://agentnetwork.org.cn/zcode/marketplace.json
    Added marketplace agentnetwork (1 plugins)
    $ zcode plugins install anet@agentnetwork
-   Installed plugin anet@agentnetwork (0.1.1) [enabled]
+   Installed plugin anet@agentnetwork (<version>) [enabled]
 
 ``zcode plugins list --json`` then shows the plugin with
 ``"mcpServerNames": ["plugin:anet:anet"]``, two skills and no diagnostics.
@@ -258,4 +258,6 @@ References
 * ZCode: https://zcode.z.ai
 * ZCode plugin development guide, with the plugin and marketplace format:
   https://github.com/zai-org/zcode-plugins/blob/main/docs/PLUGIN_DEVELOPMENT.md
-* Source of the plugin: ``deploy/zcode`` in the ANet repository.
+* Source of the plugin: ``deploy/plugins`` in the ANet repository (target
+  ``zcode`` of the plugin generator; the generated plugin is
+  ``deploy/plugins/dist/zcode``).

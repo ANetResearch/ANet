@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "anet": {
+      "command": "sh",
+      "args": [
+        "-c",
+        "for dir in \"${ANTIGRAVITY_PLUGIN_ROOT:-}\" ${HOME:+\"$HOME/.gemini/config/plugins/anet\"} ${HOME:+\"$HOME/.gemini/antigravity-cli/plugins/anet\"}; do\n  if [ -n \"$dir\" ] && [ -f \"$dir/bin/anet-mcp.sh\" ]; then\n    exec sh \"$dir/bin/anet-mcp.sh\"\n  fi\ndone\necho \"The anet plugin directory was not found. Install it with: agy plugin install <directory of the plugin>\" >&2\nexit 1\n",
+        "anet-mcp"
+      ]
+    }
+  }
+}

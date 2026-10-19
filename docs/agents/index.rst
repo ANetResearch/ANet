@@ -21,26 +21,26 @@ Supported tools
 
 .. list-table::
    :header-rows: 1
-   :widths: 16 26 12 22 24
+   :widths: 16 30 12 18 24
 
    * - Tool
-     - Registration command
+     - Registration
      - Method
      - Systems of ANet
      - Guide
    * - Claude Code
-     - ``anet agents wire claude``
-     - MCP
+     - ``anet agents wire claude``, or the plugin ``anet``
+     - Plugin, MCP
      - Linux, macOS
      - :doc:`claude-code`
    * - OpenAI Codex
-     - ``anet agents wire codex``
-     - MCP
+     - ``anet agents wire codex``, or the plugin ``anet``
+     - Plugin, MCP
      - Linux, macOS
      - :doc:`codex`
    * - Cursor
-     - ``anet agents wire cursor``
-     - MCP
+     - ``anet agents wire cursor``, or the plugin ``anet``
+     - Plugin, MCP
      - Linux, macOS
      - :doc:`cursor`
    * - Tencent WorkBuddy
@@ -48,9 +48,14 @@ Supported tools
      - MCP
      - Linux, macOS
      - :doc:`workbuddy`
+   * - Tencent CodeBuddy Code
+     - Plugin ``anet``
+     - Plugin
+     - Linux, macOS
+     - :doc:`codebuddy`
    * - ZCode
      - Plugin ``anet`` from the ANet marketplace
-     - MCP, skills
+     - Plugin
      - Linux, macOS
      - :doc:`zcode`
    * - Hermes Agent
@@ -59,22 +64,51 @@ Supported tools
      - Linux, macOS
      - :doc:`hermes`
    * - opencode
-     - ``anet agents wire opencode``
-     - MCP
+     - ``anet agents wire opencode``, or the opencode plugin
+     - Plugin, MCP
      - Linux, macOS
      - :doc:`opencode`
+   * - DeepSeek Harness (DSH)
+     - Bundle ``dsh-anet``
+     - Plugin
+     - Linux, macOS
+     - :doc:`dsh`
+   * - Trae and Trae CN
+     - Bundle with the script ``install.sh``
+     - Plugin bundle
+     - Linux, macOS
+     - :doc:`trae`
+   * - Google Antigravity
+     - Plugin ``anet``
+     - Plugin
+     - Linux, macOS
+     - :doc:`antigravity`
+   * - Gemini CLI
+     - Extension ``anet``
+     - Plugin
+     - Linux, macOS
+     - :doc:`gemini-cli`
    * - Other MCP clients
      - Manual registration of ``anet mcp``
      - MCP
      - Linux, macOS
      - :doc:`other-mcp`
 
-ANet does not support Windows. The steps of every page were verified on
-Linux; each page lists what was not tested on macOS and in the graphical
-clients. The command ``anet agents wire --all`` registers every tool of the
-table that it detects and leaves the others unchanged. ZCode is connected
-through its plugin system instead (:doc:`zcode`); ``wire`` does not change
-ZCode.
+ANet does not support Windows. How far the steps of a page were verified
+differs by tool: each page states what was run in the tool itself, what was run
+only with a stand-in for the tool or against the generated files, and what was
+not tested, including macOS and the graphical clients. The command ``anet agents wire --all`` registers every tool of the
+table that it supports and detects, and leaves the others unchanged. It
+changes only the tools for which a registration command is listed.
+
+A plugin is an alternative to ``anet agents wire``, not an addition to it. A
+plugin registers the MCP server and installs the operating guide, a setup
+procedure and a status check through the mechanism of the tool itself, and it
+can install ``anet`` after the user agrees. Use one of the two routes for a
+tool, because both register a server with the name ``anet``; each page says how
+to remove the other registration, and, for opencode, how the two coexist. The plugins are generated from one source
+(``deploy/plugins`` in the ANet repository), so they share the runner script
+that selects the executable and the identity.
 
 The reference for the command, the files and the rules that apply to every
 change is :doc:`../howto/coding-agents`.
@@ -86,7 +120,12 @@ change is :doc:`../howto/coding-agents`.
    codex
    cursor
    workbuddy
+   codebuddy
    zcode
    hermes
    opencode
+   dsh
+   trae
+   antigravity
+   gemini-cli
    other-mcp

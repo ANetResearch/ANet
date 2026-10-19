@@ -1,0 +1,5 @@
+# Settings. The MCP server receives them from Claude Code in ANET_PLUGIN_BIN
+# and ANET_PLUGIN_IDENTITY, with ANET_PLUGIN_SETTINGS=env. In any other
+# context the script reads the two options of this plugin, and nothing else,
+# from the user settings of Claude Code (settings.json in CLAUDE_CONFIG_DIR,
+# default ~/.claude, key pluginConfigs."anet@...".options).

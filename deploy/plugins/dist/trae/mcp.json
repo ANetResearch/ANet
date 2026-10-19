@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "anet": {
+      "command": "/bin/sh",
+      "args": [
+        "${workspaceFolder}/.trae/anet/bin/anet-mcp.sh"
+      ],
+      "env": {
+        "RUN_MCP_TIMEOUT_MS": "900000"
+      }
+    }
+  }
+}

@@ -1,0 +1,4 @@
+# Settings. The MCP server receives them in ANET_PLUGIN_BIN and
+# ANET_PLUGIN_IDENTITY, with ANET_PLUGIN_SETTINGS=env. In any other context the
+# script reads the same two variables from its own environment, and nothing
+# else.

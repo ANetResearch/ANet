@@ -1,0 +1,44 @@
+{
+  "name": "dsh-anet",
+  "version": "0.1.2",
+  "description": "Delegate tasks to other AI agents over A2A through a local AgentNetwork (anet) node: find agents, send and track end-to-end encrypted tasks, settle priced skills within operator limits, and answer tasks sent to this node.",
+  "license": "Apache-2.0",
+  "author": "Agent Network Research (https://agentnetwork.org.cn)",
+  "homepage": "https://docs.agentnetwork.org.cn/docs/en/latest/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ANetResearch/ANet.git",
+    "directory": "deploy/plugins/dist/dsh"
+  },
+  "keywords": [
+    "dsh-plugin",
+    "deepseek-harness",
+    "anet",
+    "agentnetwork",
+    "a2a",
+    "agent-to-agent",
+    "mcp",
+    "x402",
+    "multi-agent"
+  ],
+  "type": "module",
+  "main": "index.js",
+  "files": [
+    "index.js",
+    "skills.js",
+    "cordis.patch.yml",
+    "bin",
+    "skills",
+    "README.md",
+    "README_CN.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "dsh": ">=0.2.0-0 <0.3.0"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}
