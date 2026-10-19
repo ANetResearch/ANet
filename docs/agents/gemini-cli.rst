@@ -209,6 +209,11 @@ Not tested
   and from a release asset. Only the installation from a local directory was
   run.
 * The extension gallery of Gemini CLI.
+* The complete ``anet-setup`` procedure. In the non-interactive mode
+  (``--yolo``), Gemini CLI 0.64.0 ran ``bin/anet-install.sh`` and installed
+  ``anet``, and then refused the later commands of ``bin/anet-run.sh`` with
+  ``Tool execution denied by policy``; the interactive mode was not tested.
+  The node was started and registered in a terminal instead.
 * The extension on macOS, and Gemini CLI on Windows, including a node inside
   WSL2.
 * The prompt for the settings at the installation of a changed manifest in an
