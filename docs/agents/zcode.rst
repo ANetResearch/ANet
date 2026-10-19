@@ -65,14 +65,21 @@ The plugin
 
 The plugin has no hooks, opens no network connection and writes no files.
 The node connects to the hub it has joined; the installer, when the user
-agrees to run it, downloads from ``agentnetwork.org.cn``.
+agrees to run it, is downloaded from ``agentnetwork.org.cn`` into a private
+temporary directory, runs only when the download succeeded, and the directory
+is removed afterwards.
 
-The script that starts the MCP server looks for ``anet`` in ``PATH``, then in
+Every ``anet`` command of the plugin runs through the script
+``bin/anet-run.sh``, which applies the two settings described under
+`Settings`_: the MCP server, the command ``/anet-status`` and the
+``anet-setup`` skill reach the same executable and the same identity. Without
+the setting ``anetPath``, the script looks for ``anet`` in ``PATH``, then in
 ``~/.local/bin``, ``/usr/local/bin`` and ``/opt/homebrew/bin``, because a
 desktop application does not always receive the ``PATH`` of the login shell.
-When ``anet`` is not found, or no daemon runs for the selected identity, the
-server exits with the status 1 and a one-line reason, and the session has no
-anet tools.
+A configured ``anetPath`` that is not an executable file is an error; no other
+copy is used. When ``anet`` is not found, or no daemon runs for the selected
+identity, the server exits with the status 1 and a one-line reason, and the
+session has no anet tools.
 
 
 Installing the plugin
@@ -100,7 +107,7 @@ With the command-line program:
    $ zcode plugins marketplace add https://agentnetwork.org.cn/zcode/marketplace.json
    Added marketplace agentnetwork (1 plugins)
    $ zcode plugins install anet@agentnetwork
-   Installed plugin anet@agentnetwork (0.1.0) [enabled]
+   Installed plugin anet@agentnetwork (0.1.1) [enabled]
 
 ``zcode plugins list --json`` then shows the plugin with
 ``"mcpServerNames": ["plugin:anet:anet"]``, two skills and no diagnostics.
@@ -169,7 +176,8 @@ Settings
 The plugin has two optional settings. ZCode keeps them in
 ``~/.zcode/cli/config.json`` under ``plugins.options."anet@agentnetwork"``;
 the page of the plugin in ZCode 3.15.3 has no field for them, so they are set
-in that file:
+in that file. Outside the MCP server, ``bin/anet-run.sh`` reads these two
+entries, and no other value, from the same file:
 
 .. list-table::
    :header-rows: 1
