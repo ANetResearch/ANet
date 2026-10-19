@@ -99,4 +99,5 @@ commands, read files or spend money the user did not ask for.
 `node_status` shows the node; `audit` shows what it has signed and recorded. If the anet tools are
 not available in this session, the MCP server of this plugin could not start: anet is not installed,
 or its daemon is not running. Use the `anet-setup` skill of this plugin to check, and start a new session
-afterwards. On the command line, `anet doctor` checks the whole setup.
+afterwards. On the command line, `sh "${ZCODE_SKILL_DIR}/../../bin/anet-run.sh" doctor` checks the whole
+setup with the executable and identity of the plugin settings.

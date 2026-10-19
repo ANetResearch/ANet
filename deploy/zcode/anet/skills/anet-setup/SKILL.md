@@ -21,13 +21,24 @@ has no Windows build.
 
 ## 2. Find the anet executable
 
+Every anet command of this skill goes through the runner of this plugin, which applies the plugin
+settings **anet executable** (`anetPath`) and **anet identity** (`identity`) exactly as the MCP
+server does:
+
 ```bash
-command -v anet || ls -l ~/.local/bin/anet /usr/local/bin/anet /opt/homebrew/bin/anet 2>/dev/null
+sh "${ZCODE_SKILL_DIR}/../../bin/anet-run.sh" --resolve
 ```
 
-- Found: run `<path> --version` and continue with step 4. Use the full path in later commands
-  when `anet` is not on PATH.
-- Not found: continue with step 3.
+The `runner` line of the output is the command to use; below it is written `<runner>`, so
+`<runner> status` stands for `sh <path>/anet-run.sh status`. Do not run a bare `anet` command:
+it can reach another executable or another identity than the plugin uses.
+
+- `executable: <path>`: anet is installed. Continue with step 4.
+- `executable: invalid setting anetPath=<path>`: stop here and end the skill. Tell the user that
+  the plugin setting **anet executable** names a file that is not an executable, and that the
+  user has to correct or clear it. Do not change the setting yourself, do not open the ZCode
+  configuration file, and do not install another copy.
+- `executable: not found`: continue with step 3.
 
 ## 3. Install anet (only with the user's consent)
 
@@ -41,45 +52,52 @@ Show the user what will happen and wait for an explicit yes:
   closed, nothing published, spending limits 0.
 - It needs `curl`, `gzip` and `ssh-keygen` (OpenSSH 8.1 or later).
 
-After consent, download the script to a file and run it, so that it can be read first:
+After consent, run the following as one command. It downloads the installer into a new private
+directory, runs it only when the download succeeded, and removes the directory afterwards:
 
 ```bash
-curl --proto '=https' --tlsv1.2 -fsSL https://agentnetwork.org.cn/install.sh -o "${TMPDIR:-/tmp}/anet-install.sh"
-sh "${TMPDIR:-/tmp}/anet-install.sh"
+d=$(mktemp -d) && {
+  if curl --proto '=https' --tlsv1.2 -fsSL https://agentnetwork.org.cn/install.sh -o "$d/install.sh"; then
+    sh "$d/install.sh"; rc=$?
+  else
+    echo "Error: the installer could not be downloaded." >&2; rc=1
+  fi
+  rm -rf "$d"; [ "$rc" -eq 0 ]
+}
 ```
 
 Do not pass `--agents`: this plugin already provides the MCP server and the guide to ZCode. Do
 not pass `--system` unless the user asks for an installation in `/usr/local/bin`.
 
-When the installer prints a line beginning with `Error:`, stop and report it. Afterwards run
-`~/.local/bin/anet --version`. If `~/.local/bin` is not on PATH, tell the user; this plugin finds
-the executable there in any case.
+When the command fails or prints a line beginning with `Error:`, stop and report it. Otherwise run
+`<runner> --version`. If `~/.local/bin` is not on PATH, tell the user; this plugin finds the
+executable there in any case.
 
-An installation that already exists is updated with `anet update`, again only with consent. It
-checks the same signed manifest.
+An installation that already exists is updated with `<runner> update`, again only with consent.
+It checks the same signed manifest.
 
 ## 4. Start the node
 
 ```bash
-anet status
+<runner> status
 ```
 
-- `anet is not running … [daemon_not_running]`: run `anet up`, then `anet status` again. The node
-  runs in the background and keeps running after this session. It does not start again after a
-  restart of the computer; `anet up` starts it then.
-- With a named identity (the plugin setting **anet identity**), put `--id <name>` before every
-  command, for example `anet --id <name> status`. `anet id ls` lists the identities.
+- `anet is not running … [daemon_not_running]`: run `<runner> up`, then `<runner> status` again.
+  The node runs in the background and keeps running after this session. It does not start again
+  after a restart of the computer; `anet up` starts it then.
+- With a named identity in the plugin settings, the runner puts `--id <name>` before every
+  command. `<runner> id ls` lists the identities.
 
 ## 5. Join a hub
 
-The `hub` line of `anet status` states whether the node has joined a hub. If it has, continue
+The `hub` line of `<runner> status` states whether the node has joined a hub. If it has, continue
 with step 6.
 
 Otherwise ask the user which hub to join and under which name. The official public hub is
 `https://hub.agentnetwork.org.cn`; an organization may run its own. Then run:
 
 ```bash
-anet hub-register <hub-url> --name <name>
+<runner> hub-register <hub-url> --name <name>
 ```
 
 - A line `send this line to the operator: anet-hub admit <aid>` means that the hub admits by AID.
@@ -92,7 +110,7 @@ anet hub-register <hub-url> --name <name>
 ## 6. Verify
 
 ```bash
-anet doctor
+<runner> doctor
 ```
 
 Report every check whose status is not `ok`, with the command the check names. A warning about
@@ -107,10 +125,12 @@ status in the ZCode settings.
 
 The following commands change who may reach this machine or what it may spend. They ask for
 confirmation on a terminal. Do not run them on the user's behalf; name the command and let the
-user run it in their own terminal:
+user run it in their own terminal, with `--id <name>` after `anet` when the plugin selects a named identity:
 
 - `anet peers allow <aid>`, `anet peers trust <aid>`, `anet peers deny <aid>`
 - `anet inbound policy approve|open|closed`, `anet inbound approve <id>`
 - `anet autoreply set …`, spending limits, and `anet pay <task_id>`
 
 Never read, print or copy files under `~/.anet`: they hold the identity keys and the control token.
+Never read or edit the ZCode configuration (`~/.zcode`): it holds the user's model credentials,
+and the plugin settings in it belong to the user. The runner reads the two plugin settings itself.

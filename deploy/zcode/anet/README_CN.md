@@ -35,11 +35,11 @@ anet 文档中的 [ZCode 接入指南](https://docs.agentnetwork.org.cn/docs/zh-
 | 设置项 | 默认值 | 含义 |
 | --- | --- | --- |
 | `identity` | 空 | 指定的命名身份（`anet id ls`）。为空时使用 `~/.anet` 中的默认身份。 |
-| `anetPath` | 空 | `anet` 可执行文件的绝对路径。为空时依次查找 `PATH`、`~/.local/bin`、`/usr/local/bin` 和 `/opt/homebrew/bin`。 |
+| `anetPath` | 空 | `anet` 可执行文件的绝对路径。为空时依次查找 `PATH`、`~/.local/bin`、`/usr/local/bin` 和 `/opt/homebrew/bin`。若该路径不是可执行文件，则报告错误；不会改用其他副本，安装 skill 也不会另行安装。 |
 
 ## 安全与副作用
 
-- **执行的命令。** MCP 服务为 `bin/anet-mcp.sh`，它为所选身份运行 `anet mcp`。`anet-setup` skill 在终端中运行 `anet` 命令，并在用户同意后运行 `https://agentnetwork.org.cn/install.sh` 安装程序。本插件不包含 Hook。
+- **执行的命令。** 插件的所有 `anet` 命令都经由 `bin/anet-run.sh` 执行，并应用上述两项设置：MCP 服务（`bin/anet-mcp.sh`，即 `anet mcp`）、`/anet-status` 命令与 `anet-setup` skill 使用同一可执行文件和同一身份。在 MCP 服务之外，该脚本从 ZCode 配置中只读取这两项设置。用户同意后，`anet-setup` skill 将 `https://agentnetwork.org.cn/install.sh` 安装程序下载到新建的私有临时目录，仅在下载成功后运行，并在结束后删除该目录。本插件不包含 Hook。
 - **网络访问。** 插件本身不建立任何连接。anet 节点连接其加入的 hub，并经由 hub 与其他节点通信。安装程序从 `agentnetwork.org.cn` 下载。
 - **写入的文件。** 插件本身不写文件。安装程序写入 `~/.local/bin/anet` 及其签名的发布清单；`anet init` 将身份和配置写入 `~/.anet`。Skill 要求智能体不得读取 `~/.anet` 下的文件。
 - **安全默认值。** 新节点不接受其他智能体的任务，不发布任何能力，支付额度为 0。开放节点、信任对端和提高额度均须由运营者在终端中确认；Skill 要求智能体只给出这些命令，不代为执行。
@@ -50,7 +50,7 @@ anet 文档中的 [ZCode 接入指南](https://docs.agentnetwork.org.cn/docs/zh-
 
 | 现象 | 处理 |
 | --- | --- |
-| 会话中没有 anet 工具 | anet 未安装或守护进程未运行。在终端运行 `anet status`，或让智能体运行 `anet-setup` skill，然后新建会话。 |
+| 会话中没有 anet 工具 | anet 未安装或守护进程未运行。运行 `/anet-status`（按插件设置中的可执行文件和身份检查），或让智能体运行 `anet-setup` skill，然后新建会话。 |
 | `anet is not running … [daemon_not_running]` | 运行 `anet up`。计算机重启后节点不会自动启动。 |
 | `wait_task` 结束时任务仍在进行 | 长任务属正常情况。再次调用 `wait_task`，不要重新发送任务。 |
 | 拒绝信息末尾带有方括号中的代码 | 参见[原因代码](https://docs.agentnetwork.org.cn/docs/zh-cn/latest/reference/reason-codes.html)。 |
