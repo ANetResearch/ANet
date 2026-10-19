@@ -12,6 +12,12 @@
 #       repository). The served site.json gets "version" here: the release
 #       R/dl/ serves, or the one --dist publishes in the same run, so the
 #       website never names a release that cannot be downloaded.
+#   publish.sh --zcode DIR [--root R]
+#       the ZCode marketplace that deploy/zcode/build.py wrote to DIR:
+#       R/zcode/marketplace.json, R/zcode/assets/ and every plugin.zip under
+#       R/zcode/plugins/. An archive is never replaced: a version that is
+#       already served with other bytes stops the run, and archives of
+#       earlier versions stay. marketplace.json goes in last.
 #
 # R defaults to /var/www/anet-release. The agentnetwork nginx site serves
 # /install.sh, /install.sh.sig, /dl/, /SKILL.md, /llms.txt, /llms-full.txt
@@ -33,6 +39,7 @@ umask 022
 ROOT=/var/www/anet-release
 DIST=""
 WEB=""
+ZCODE=""
 SIGNERS=""
 NS=anet-release@agentnetwork.org.cn
 
@@ -42,13 +49,14 @@ while [ $# -gt 0 ]; do
     --root) [ $# -ge 2 ] || die "--root needs a directory"; ROOT="$2"; shift ;;
     --dist) [ $# -ge 2 ] || die "--dist needs a directory"; DIST="$2"; shift ;;
     --web) [ $# -ge 2 ] || die "--web needs a directory"; WEB="$2"; shift ;;
+    --zcode) [ $# -ge 2 ] || die "--zcode needs a directory"; ZCODE="$2"; shift ;;
     --allowed-signers) [ $# -ge 2 ] || die "--allowed-signers needs a file"; SIGNERS="$2"; shift ;;
     -h|--help) awk 'NR == 1 { next } /^#/ { sub(/^# ?/, ""); print; next } { exit }' "$0"; exit 0 ;;
     *) die "unknown argument: $1" ;;
   esac
   shift
 done
-[ -n "$DIST$WEB" ] || die "nothing to publish: pass --dist DIR and/or --web DIR"
+[ -n "$DIST$WEB$ZCODE" ] || die "nothing to publish: pass --dist DIR, --web DIR and/or --zcode DIR"
 [ -d "$ROOT" ] || die "$ROOT does not exist (create it: install -d -m 0755 $ROOT)"
 
 # put SRC NAME: replace ROOT/NAME with SRC by a rename in the same directory.
@@ -108,6 +116,33 @@ if [ -n "$WEB" ]; then
     die "cannot write the site.json to publish ($GEN): check the space in ${TMPDIR:-/tmp}"
 fi
 
+if [ -n "$ZCODE" ]; then
+  [ -f "$ZCODE/marketplace.json" ] || die "$ZCODE/marketplace.json is missing: run deploy/zcode/build.py --out $ZCODE"
+  command -v python3 >/dev/null 2>&1 || die "python3 is needed to check $ZCODE/marketplace.json"
+  # Every archive the marketplace names is in DIR with the SHA-256 it states,
+  # and none replaces an archive already served with other bytes.
+  ZFILES=$(python3 - "$ZCODE" "$ROOT/zcode" <<'PY'
+import hashlib, json, os, sys
+src, served = sys.argv[1], sys.argv[2]
+m = json.load(open(os.path.join(src, "marketplace.json"), encoding="utf-8"))
+for p in m["plugins"]:
+    s = p["source"]
+    if s.get("source") != "url" or s.get("type") != "zip" or not s["url"].startswith("https://") or "/zcode/" not in s["url"]:
+        sys.exit("plugin %s: source must be an https:// zip under /zcode/" % p["name"])
+    rel = s["url"].split("/zcode/", 1)[1]
+    if rel.startswith("/") or ".." in rel.split("/"):
+        sys.exit("plugin %s: archive path %s leaves /zcode/" % (p["name"], rel))
+    data = open(os.path.join(src, rel), "rb").read()
+    if hashlib.sha256(data).hexdigest() != s["sha256"]:
+        sys.exit("plugin %s: %s does not match the SHA-256 in marketplace.json" % (p["name"], rel))
+    old = os.path.join(served, rel)
+    if os.path.exists(old) and open(old, "rb").read() != data:
+        sys.exit("plugin %s: %s is already served with other bytes; publish a new version" % (p["name"], rel))
+    print(rel)
+PY
+  ) || die "the ZCode marketplace in $ZCODE does not pass the checks above"
+fi
+
 # --- publish ----------------------------------------------------------------
 
 if [ -n "$DIST" ]; then
@@ -137,4 +172,26 @@ if [ -n "$WEB" ]; then
   put "$WEB/llms.txt" llms.txt
   put "$GEN" site.json
   echo "  (site.json: version $VER)"
+fi
+
+if [ -n "$ZCODE" ]; then
+  install -d -m 0755 "$ROOT/zcode"
+  for rel in $ZFILES; do
+    install -d -m 0755 "$ROOT/zcode/$(dirname "$rel")"
+    if [ ! -e "$ROOT/zcode/$rel" ]; then
+      install -m 0644 "$ZCODE/$rel" "$ROOT/zcode/$rel.new.$$"
+      mv -f "$ROOT/zcode/$rel.new.$$" "$ROOT/zcode/$rel"
+    fi
+    echo "  $ROOT/zcode/$rel"
+  done
+  for icon in "$ZCODE"/assets/*/icon.png; do
+    [ -f "$icon" ] || continue
+    name=$(basename "$(dirname "$icon")")
+    install -d -m 0755 "$ROOT/zcode/assets/$name"
+    install -m 0644 "$icon" "$ROOT/zcode/assets/$name/.icon.png.new.$$"
+    mv -f "$ROOT/zcode/assets/$name/.icon.png.new.$$" "$ROOT/zcode/assets/$name/icon.png"
+  done
+  install -m 0644 "$ZCODE/marketplace.json" "$ROOT/zcode/.marketplace.json.new.$$"
+  mv -f "$ROOT/zcode/.marketplace.json.new.$$" "$ROOT/zcode/marketplace.json"
+  echo "  $ROOT/zcode/marketplace.json"
 fi

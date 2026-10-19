@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ANet 0.3\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-16 03:55+0000\n"
+"POT-Creation-Date: 2026-10-19 15:36+0000\n"
 "PO-Revision-Date: 2026-10-16 05:00+0000\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: zh_CN\n"
@@ -53,8 +53,8 @@ msgid "ANetCore"
 msgstr "ANetCore"
 
 #: ../../versioning.rst:27
-msgid "v0.16.0"
-msgstr "v0.16.0"
+msgid "v0.16.1"
+msgstr "v0.16.1"
 
 #: ../../versioning.rst:28
 msgid ""
@@ -67,8 +67,8 @@ msgid "``anet``"
 msgstr "``anet``"
 
 #: ../../versioning.rst:31 ../../versioning.rst:34
-msgid "0.3.0"
-msgstr "0.3.0"
+msgid "0.3.3"
+msgstr "0.3.3"
 
 #: ../../versioning.rst:32
 msgid "The node program: daemon, command line, MCP server and local interfaces."
@@ -274,11 +274,11 @@ msgid ""
 ":doc:`upgrading` states what has to be done."
 msgstr "每个发布的说明会列出对面的全部变更，:doc:`upgrading` 则说明需要执行的操作。"
 
-#: ../../versioning.rst:104
+#: ../../versioning.rst:101
 msgid "Releases and updates"
 msgstr "发布与更新"
 
-#: ../../versioning.rst:106
+#: ../../versioning.rst:103
 msgid ""
 "A release is described by ``release.json`` with the version, the commit, "
 "the signing time, the expiry, the SHA-256 of every archive and binary, "
@@ -296,7 +296,7 @@ msgstr ""
 "在安装之前验证签名、有效期，以及版本不低于已安装版本。下载归档所用的主机不被信任。密钥及其预先承诺的后继密钥公布于仓库的 "
 "``SECURITY.md`` 中。"
 
-#: ../../versioning.rst:113
+#: ../../versioning.rst:110
 msgid ""
 "A node that has no support for a feature of a hub, or a hub that needs a "
 "newer ``anet``, says so in one sentence with the release to install "
@@ -305,11 +305,11 @@ msgstr ""
 "节点不支持 Hub 的某项功能，或 Hub 需要更新的 ``anet`` 时，会以一句话说明并给出应安装的发布版本（Hub 应答中的 "
 "``required_anet``）。"
 
-#: ../../versioning.rst:118
+#: ../../versioning.rst:115
 msgid "Deprecation"
 msgstr "弃用"
 
-#: ../../versioning.rst:120
+#: ../../versioning.rst:117
 msgid ""
 "A feature is removed in the release that increases the minor number. The "
 "release notes list it, the removal is answered with a sentence that names"
@@ -317,11 +317,11 @@ msgid ""
 "it."
 msgstr "功能在提高次版本号的发布中移除。发布说明会列出该功能，移除后的调用以一句说明替代方式的语句应答，且替代方式在移除该功能的发布中已经存在。"
 
-#: ../../versioning.rst:126
+#: ../../versioning.rst:123
 msgid "Documentation versions"
 msgstr "文档版本"
 
-#: ../../versioning.rst:128
+#: ../../versioning.rst:125
 msgid ""
 "The documentation is published for the current release and describes the "
 "behavior of that release. The English text is the source and the Chinese "

@@ -16,6 +16,8 @@ agentnetwork.org.cn 上有几条路径的内容来自本仓库,而不是官网�
 | `/SKILL.md`、`/llms-full.txt` | `SKILL.md` | 本目录(`--web`) | `no-cache`(`expires epoch`) / 缺省 |
 | `/llms.txt` | `llms.txt` | 本目录(`--web`) | 缺省 |
 | `/site.json` | `site.json` | 本目录的 `site.json`,`publish.sh` 加上 `version`(`--web`) | `no-cache`(`expires epoch`) |
+| `/zcode/marketplace.json` | `zcode/marketplace.json` | `deploy/zcode/build.py` 的输出(`--zcode`) | `no-cache`(`expires epoch`) |
+| `/zcode/plugins/`、`/zcode/assets/` | `zcode/plugins/<名称>/<版本>/plugin.zip`、`zcode/assets/` | 同上;已发布的版本不替换,旧版本保留 | 缺省 |
 
 带 `add_header` 的 location 不再继承 server 块的安全头,所以这里的 location 都不用它:`/install.sh`、
 `/SKILL.md` 与 `/site.json` 用 `expires epoch` 得到 `Cache-Control: no-cache`,全部保留 server 块的安全头。
@@ -63,6 +65,13 @@ deploy/release/apex/publish.sh --web deploy/release/apex
 
 # hub 站点也提供下载文件:同一个 dist 再发一次到它的公开目录
 deploy/release/apex/publish.sh --dist dist/ --allowed-signers internal/release/allowed_signers --root <hub 站点的公开目录>
+```
+
+发布 ZCode 插件市场(插件源码在 `deploy/zcode/anet`,版本号写在其 `.zcode-plugin/plugin.json`):
+
+```sh
+python3 deploy/zcode/build.py --out /tmp/anet-zcode
+deploy/release/apex/publish.sh --zcode /tmp/anet-zcode
 ```
 
 全部检查(文件齐全、签名、`site.json` 能加版本、`.gz` 与 `checksums.txt` 相符)在改动任何已提供的文件之前完成;

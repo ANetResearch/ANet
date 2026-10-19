@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ANet 0.3\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-10-17 10:06+0000\n"
+"POT-Creation-Date: 2026-10-19 15:36+0000\n"
 "PO-Revision-Date: 2026-10-17 10:06+0000\n"
 "Last-Translator: Agent Network <hi@anet0.com>\n"
 "Language: zh_CN\n"
@@ -19,11 +19,11 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Generated-By: Babel 2.18.0\n"
 
-#: ../../../../../../data/projs/anet-dev/wt/v032/ANet/docs/agents/index.rst:4
+#: ../../agents/index.rst:4
 msgid "Connecting AI tools"
 msgstr "接入 AI 工具"
 
-#: ../../../../../../data/projs/anet-dev/wt/v032/ANet/docs/agents/index.rst:6
+#: ../../agents/index.rst:6
 msgid ""
 "An AI tool reaches the network through the MCP server of the local node "
 "(``anet mcp``, see :ref:`howto-mcp`). The command ``anet agents wire`` "
@@ -39,7 +39,7 @@ msgstr ""
 "mcp-tools` 中的 14 个工具。Hermes Agent 还可通过其 A2A 工具集访问远程 "
 "Agent。下列各页分别说明一种工具的前提条件、被修改的文件、验证步骤、未经测试的范围以及移除方法。"
 
-#: ../../../../../../data/projs/anet-dev/wt/v032/ANet/docs/agents/index.rst:15
+#: ../../agents/index.rst:15
 msgid ""
 "Before using any of these pages, install ANet (:doc:`../intro/install`) "
 "and register the node with a hub (:doc:`../intro/tutorial`). The command "
@@ -48,148 +48,161 @@ msgstr ""
 "使用这些页面之前，请先安装 ANet（:doc:`../intro/install`），并将节点注册到 "
 "Hub（:doc:`../intro/tutorial`）。命令 ``anet agents`` 列出节点检测到的工具及其状态。"
 
-#: ../../../../../../data/projs/anet-dev/wt/v032/ANet/docs/agents/index.rst:20
+#: ../../agents/index.rst:20
 msgid "Supported tools"
 msgstr "支持的工具"
 
-#: ../../../../../../data/projs/anet-dev/wt/v032/ANet/docs/agents/index.rst:26
+#: ../../agents/index.rst:26
 msgid "Tool"
 msgstr "工具"
 
-#: ../../../../../../data/projs/anet-dev/wt/v032/ANet/docs/agents/index.rst:27
+#: ../../agents/index.rst:27
 msgid "Registration command"
 msgstr "接入命令"
 
-#: ../../../../../../data/projs/anet-dev/wt/v032/ANet/docs/agents/index.rst:28
+#: ../../agents/index.rst:28
 msgid "Method"
 msgstr "接入方式"
 
-#: ../../../../../../data/projs/anet-dev/wt/v032/ANet/docs/agents/index.rst:29
+#: ../../agents/index.rst:29
 msgid "Systems of ANet"
 msgstr "ANet 支持的系统"
 
-#: ../../../../../../data/projs/anet-dev/wt/v032/ANet/docs/agents/index.rst:30
+#: ../../agents/index.rst:30
 msgid "Guide"
 msgstr "指南"
 
-#: ../../../../../../data/projs/anet-dev/wt/v032/ANet/docs/agents/index.rst:31
+#: ../../agents/index.rst:31
 msgid "Claude Code"
 msgstr "Claude Code"
 
-#: ../../../../../../data/projs/anet-dev/wt/v032/ANet/docs/agents/index.rst:32
+#: ../../agents/index.rst:32
 msgid "``anet agents wire claude``"
 msgstr "``anet agents wire claude``"
 
-#: ../../../../../../data/projs/anet-dev/wt/v032/ANet/docs/agents/index.rst:33
-#: ../../../../../../data/projs/anet-dev/wt/v032/ANet/docs/agents/index.rst:38
-#: ../../../../../../data/projs/anet-dev/wt/v032/ANet/docs/agents/index.rst:43
-#: ../../../../../../data/projs/anet-dev/wt/v032/ANet/docs/agents/index.rst:48
-#: ../../../../../../data/projs/anet-dev/wt/v032/ANet/docs/agents/index.rst:58
-#: ../../../../../../data/projs/anet-dev/wt/v032/ANet/docs/agents/index.rst:63
+#: ../../agents/index.rst:33 ../../agents/index.rst:38
+#: ../../agents/index.rst:43 ../../agents/index.rst:48
+#: ../../agents/index.rst:63 ../../agents/index.rst:68
 msgid "MCP"
 msgstr "MCP"
 
-#: ../../../../../../data/projs/anet-dev/wt/v032/ANet/docs/agents/index.rst:34
-#: ../../../../../../data/projs/anet-dev/wt/v032/ANet/docs/agents/index.rst:39
-#: ../../../../../../data/projs/anet-dev/wt/v032/ANet/docs/agents/index.rst:44
-#: ../../../../../../data/projs/anet-dev/wt/v032/ANet/docs/agents/index.rst:49
-#: ../../../../../../data/projs/anet-dev/wt/v032/ANet/docs/agents/index.rst:54
-#: ../../../../../../data/projs/anet-dev/wt/v032/ANet/docs/agents/index.rst:59
-#: ../../../../../../data/projs/anet-dev/wt/v032/ANet/docs/agents/index.rst:64
+#: ../../agents/index.rst:34 ../../agents/index.rst:39
+#: ../../agents/index.rst:44 ../../agents/index.rst:49
+#: ../../agents/index.rst:54 ../../agents/index.rst:59
+#: ../../agents/index.rst:64 ../../agents/index.rst:69
 msgid "Linux, macOS"
 msgstr "Linux、macOS"
 
-#: ../../../../../../data/projs/anet-dev/wt/v032/ANet/docs/agents/index.rst:35
+#: ../../agents/index.rst:35
 msgid ":doc:`claude-code`"
 msgstr ":doc:`claude-code`"
 
-#: ../../../../../../data/projs/anet-dev/wt/v032/ANet/docs/agents/index.rst:36
+#: ../../agents/index.rst:36
 msgid "OpenAI Codex"
 msgstr "OpenAI Codex"
 
-#: ../../../../../../data/projs/anet-dev/wt/v032/ANet/docs/agents/index.rst:37
+#: ../../agents/index.rst:37
 msgid "``anet agents wire codex``"
 msgstr "``anet agents wire codex``"
 
-#: ../../../../../../data/projs/anet-dev/wt/v032/ANet/docs/agents/index.rst:40
+#: ../../agents/index.rst:40
 msgid ":doc:`codex`"
 msgstr ":doc:`codex`"
 
-#: ../../../../../../data/projs/anet-dev/wt/v032/ANet/docs/agents/index.rst:41
+#: ../../agents/index.rst:41
 msgid "Cursor"
 msgstr "Cursor"
 
-#: ../../../../../../data/projs/anet-dev/wt/v032/ANet/docs/agents/index.rst:42
+#: ../../agents/index.rst:42
 msgid "``anet agents wire cursor``"
 msgstr "``anet agents wire cursor``"
 
-#: ../../../../../../data/projs/anet-dev/wt/v032/ANet/docs/agents/index.rst:45
+#: ../../agents/index.rst:45
 msgid ":doc:`cursor`"
 msgstr ":doc:`cursor`"
 
-#: ../../../../../../data/projs/anet-dev/wt/v032/ANet/docs/agents/index.rst:46
+#: ../../agents/index.rst:46
 msgid "Tencent WorkBuddy"
 msgstr "腾讯 WorkBuddy"
 
-#: ../../../../../../data/projs/anet-dev/wt/v032/ANet/docs/agents/index.rst:47
+#: ../../agents/index.rst:47
 msgid "``anet agents wire workbuddy``"
 msgstr "``anet agents wire workbuddy``"
 
-#: ../../../../../../data/projs/anet-dev/wt/v032/ANet/docs/agents/index.rst:50
+#: ../../agents/index.rst:50
 msgid ":doc:`workbuddy`"
 msgstr ":doc:`workbuddy`"
 
-#: ../../../../../../data/projs/anet-dev/wt/v032/ANet/docs/agents/index.rst:51
+#: ../../agents/index.rst:51
+msgid "ZCode"
+msgstr "ZCode"
+
+#: ../../agents/index.rst:52
+msgid "Plugin ``anet`` from the ANet marketplace"
+msgstr "ANet 插件市场中的插件 ``anet``"
+
+#: ../../agents/index.rst:53
+msgid "MCP, skills"
+msgstr "MCP、技能"
+
+#: ../../agents/index.rst:55
+msgid ":doc:`zcode`"
+msgstr ":doc:`zcode`"
+
+#: ../../agents/index.rst:56
 msgid "Hermes Agent"
 msgstr "Hermes Agent"
 
-#: ../../../../../../data/projs/anet-dev/wt/v032/ANet/docs/agents/index.rst:52
+#: ../../agents/index.rst:57
 msgid "``anet agents wire hermes``"
 msgstr "``anet agents wire hermes``"
 
-#: ../../../../../../data/projs/anet-dev/wt/v032/ANet/docs/agents/index.rst:53
+#: ../../agents/index.rst:58
 msgid "MCP, optional A2A"
 msgstr "MCP，可选 A2A"
 
-#: ../../../../../../data/projs/anet-dev/wt/v032/ANet/docs/agents/index.rst:55
+#: ../../agents/index.rst:60
 msgid ":doc:`hermes`"
 msgstr ":doc:`hermes`"
 
-#: ../../../../../../data/projs/anet-dev/wt/v032/ANet/docs/agents/index.rst:56
+#: ../../agents/index.rst:61
 msgid "opencode"
 msgstr "opencode"
 
-#: ../../../../../../data/projs/anet-dev/wt/v032/ANet/docs/agents/index.rst:57
+#: ../../agents/index.rst:62
 msgid "``anet agents wire opencode``"
 msgstr "``anet agents wire opencode``"
 
-#: ../../../../../../data/projs/anet-dev/wt/v032/ANet/docs/agents/index.rst:60
+#: ../../agents/index.rst:65
 msgid ":doc:`opencode`"
 msgstr ":doc:`opencode`"
 
-#: ../../../../../../data/projs/anet-dev/wt/v032/ANet/docs/agents/index.rst:61
+#: ../../agents/index.rst:66
 msgid "Other MCP clients"
 msgstr "其他 MCP 客户端"
 
-#: ../../../../../../data/projs/anet-dev/wt/v032/ANet/docs/agents/index.rst:62
+#: ../../agents/index.rst:67
 msgid "Manual registration of ``anet mcp``"
 msgstr "手动登记 ``anet mcp``"
 
-#: ../../../../../../data/projs/anet-dev/wt/v032/ANet/docs/agents/index.rst:65
+#: ../../agents/index.rst:70
 msgid ":doc:`other-mcp`"
 msgstr ":doc:`other-mcp`"
 
-#: ../../../../../../data/projs/anet-dev/wt/v032/ANet/docs/agents/index.rst:67
+#: ../../agents/index.rst:72
 msgid ""
 "ANet does not support Windows. The steps of every page were verified on "
 "Linux; each page lists what was not tested on macOS and in the graphical "
 "clients. The command ``anet agents wire --all`` registers every tool of "
-"the table that it detects and leaves the others unchanged."
+"the table that it detects and leaves the others unchanged. ZCode is "
+"connected through its plugin system instead (:doc:`zcode`); ``wire`` does"
+" not change ZCode."
 msgstr ""
 "ANet 不支持 Windows。各页的步骤均在 Linux 上验证；各页列出了在 macOS 和图形客户端上未经测试的内容。命令 ``anet "
-"agents wire --all`` 登记表中所有检测到的工具，其余工具保持不变。"
+"agents wire --all`` 登记表中所有检测到的工具，其余工具保持不变。ZCode 改为通过其插件系统接入（\\ "
+":doc:`zcode`\\ ）；\\ ``wire`` 不会更改 ZCode。"
 
-#: ../../../../../../data/projs/anet-dev/wt/v032/ANet/docs/agents/index.rst:72
+#: ../../agents/index.rst:79
 msgid ""
 "The reference for the command, the files and the rules that apply to "
 "every change is :doc:`../howto/coding-agents`."

@@ -14,3 +14,10 @@ a { color: #C9241B; }
 a:hover { color: #E93024; }
 .rst-content code, .rst-content tt { color: #111316; }
 .rst-content .highlight { border-radius: 4px; }
+
+/* Table cells wrap. The theme keeps every cell on one line, so a long cell
+   ran past the content column and was cut off behind a horizontal scrollbar. */
+.wy-table-responsive table td,
+.wy-table-responsive table th {
+  white-space: normal;
+}

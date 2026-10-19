@@ -48,6 +48,11 @@ Supported tools
      - MCP
      - Linux, macOS
      - :doc:`workbuddy`
+   * - ZCode
+     - Plugin ``anet`` from the ANet marketplace
+     - MCP, skills
+     - Linux, macOS
+     - :doc:`zcode`
    * - Hermes Agent
      - ``anet agents wire hermes``
      - MCP, optional A2A
@@ -67,7 +72,9 @@ Supported tools
 ANet does not support Windows. The steps of every page were verified on
 Linux; each page lists what was not tested on macOS and in the graphical
 clients. The command ``anet agents wire --all`` registers every tool of the
-table that it detects and leaves the others unchanged.
+table that it detects and leaves the others unchanged. ZCode is connected
+through its plugin system instead (:doc:`zcode`); ``wire`` does not change
+ZCode.
 
 The reference for the command, the files and the rules that apply to every
 change is :doc:`../howto/coding-agents`.
@@ -79,6 +86,7 @@ change is :doc:`../howto/coding-agents`.
    codex
    cursor
    workbuddy
+   zcode
    hermes
    opencode
    other-mcp
