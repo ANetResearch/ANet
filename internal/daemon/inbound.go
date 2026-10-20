@@ -1114,6 +1114,22 @@ func (d *Daemon) editPeerFile(list, aid string, add bool) (changed bool, err err
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return false, err
 	}
+	out, changed := editPeerLines(raw, aid, add)
+	if !changed {
+		return false, nil
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return false, err
+	}
+	if err := writeFileAtomic(path, []byte(out), 0o600); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// editPeerLines is a peer list file's content raw with aid added (on a line of its own, at the end) or
+// removed (every line that names it), comments and other lines kept, and whether that changed anything.
+func editPeerLines(raw []byte, aid string, add bool) (out string, changed bool) {
 	var lines []string
 	present := false
 	for _, line := range strings.Split(string(raw), "\n") {
@@ -1133,22 +1149,16 @@ func (d *Daemon) editPeerFile(list, aid string, add bool) (changed bool, err err
 		lines = lines[:len(lines)-1]
 	}
 	if add == present {
-		return false, nil
+		return "", false
 	}
 	if add {
 		lines = append(lines, aid)
 	}
-	out := strings.Join(lines, "\n")
+	out = strings.Join(lines, "\n")
 	if out != "" {
 		out += "\n"
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return false, err
-	}
-	if err := writeFileAtomic(path, []byte(out), 0o600); err != nil {
-		return false, err
-	}
-	return true, nil
+	return out, true
 }
 
 // validAIDSyntax is a shape check for an AID given on the command line: one

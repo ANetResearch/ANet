@@ -696,6 +696,7 @@ func TestKernelReadsOnlyAllowedModuleBlocks(t *testing.T) {
 		"p2p_addr.go":        "checkP2PConfig, before the module starts",
 		"setup.go":           "SI5, which reports modules.p2p.lan (UX-D5); the P2P module work item moves it",
 		"init_without.go":    "init --without, which writes the without list and keeps the module blocks as they are",
+		"init_shell.go":      "init --shell-controller, which writes modules.shell for the controller grant (D9) and no other block",
 	}
 	files, err := os.ReadDir(".")
 	if err != nil {
