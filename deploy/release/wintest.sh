@@ -12,12 +12,18 @@
 #   pathsafe.test.exe    ./internal/pathsafe
 #   anethome.test.exe    ./internal/anethome
 #   loopguard.test.exe   ./internal/loopguard
+#   localpeer.test.exe   ./internal/localpeer
+#   agentwire.test.exe   ./internal/agentwire
+#   backendconn.test.exe ./internal/backendconn
 #   daemon.test.exe      ./internal/daemon
 #   autoreply.test.exe   ./module/autoreply
+#   p2p.test.exe         ./module/p2p
+#   service.test.exe     ./module/service
 #   shell.test.exe       ./module/shell           (-tags shell)
 #   release.test.exe     ./internal/release
 #   anet.test.exe        ./cmd/anet
 #   anet-shell.test.exe  ./cmd/anet               (-tags shell)
+#   official.test.exe    ./cmd/anet-official
 #
 # and writes <outdir>/run-tests.ps1, which runs each of them as
 # `<binary> -test.run Windows -test.v -test.count 1` in a fresh directory
@@ -47,12 +53,18 @@ procgroup||./internal/procgroup
 pathsafe||./internal/pathsafe
 anethome||./internal/anethome
 loopguard||./internal/loopguard
+localpeer||./internal/localpeer
+agentwire||./internal/agentwire
+backendconn||./internal/backendconn
 daemon||./internal/daemon
 autoreply||./module/autoreply
+p2p||./module/p2p
+service||./module/service
 shell|shell|./module/shell
 release||./internal/release
 anet||./cmd/anet
-anet-shell|shell|./cmd/anet"
+anet-shell|shell|./cmd/anet
+official||./cmd/anet-official"
 
 NAMES=""
 while IFS='|' read -r name tags pkg; do
@@ -165,4 +177,4 @@ EOF
 if LC_ALL=C grep -q '[^ -~]' "$OUT/run-tests.ps1"; then
   die "run-tests.ps1 is not ASCII"
 fi
-printf 'wrote %s (11 test binaries and run-tests.ps1)\n' "$OUT"
+printf 'wrote %s (%d test binaries and run-tests.ps1)\n' "$OUT" "$(printf '%s\n' "$TESTS" | wc -l)"

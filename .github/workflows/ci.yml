@@ -312,8 +312,10 @@ jobs:
   # Native Windows, on a real Windows runner: vet, the TestWindows... tests
   # of the packages the port changes (private files and their access control
   # lists, process trees in a job object, names, the loopback guard, the
-  # daemon, auto-reply, the shell module, the replacement of a running
-  # anet.exe and the CLI), and the installer: install.ps1 must parse in
+  # listener challenge, the agent configurations, the backend refusals, the
+  # daemon, auto-reply, p2p, the service and anet-official token files, the
+  # shell module, the replacement of a running anet.exe and the CLI), and the
+  # installer: install.ps1 must parse in
   # Windows PowerShell 5.1 and in PowerShell 7, and test-install.ps1 checks its
   # functions in both. The Go steps run in bash so that the first failing
   # command fails the step.
@@ -335,7 +337,8 @@ jobs:
         shell: bash
         run: |
           go test -count=1 -run Windows ./internal/fsperm ./internal/procgroup ./internal/pathsafe ./internal/anethome \
-            ./internal/loopguard ./internal/daemon ./module/autoreply ./internal/release ./cmd/anet
+            ./internal/loopguard ./internal/localpeer ./internal/agentwire ./internal/backendconn ./internal/daemon \
+            ./module/autoreply ./module/p2p ./module/service ./internal/release ./cmd/anet ./cmd/anet-official
           go test -count=1 -tags shell -run Windows ./module/shell ./cmd/anet
       - name: install.ps1 in Windows PowerShell 5.1
         shell: powershell
