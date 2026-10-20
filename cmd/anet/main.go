@@ -468,7 +468,8 @@ func runDaemonDetached(layout daemon.Layout) error {
 	c.Stdout = logf
 	c.Stderr = logf
 	c.SysProcAttr = detachSysProcAttr() // new session so it outlives the launching shell (see spawn_*.go)
-	if err := c.Start(); err != nil {
+	c, err = startDetached(c)
+	if err != nil {
 		return fmt.Errorf("start daemon: %w", err)
 	}
 	// Keep the handle and reap in the background instead of releasing it.
@@ -586,6 +587,8 @@ func stopHint(name string) string {
 // runUp starts a node detached: `anet up [name] [--all]`. With --all it brings up every known identity;
 // with a positional name it targets that identity; otherwise it uses the resolved selection.
 func runUp(idFlag string, rest []string) error {
+	// Started at logon by the Run value, `anet up` has a console window of its own: hide it (Windows only).
+	hideOwnConsoleIfAlone()
 	// ANET_INVITE is ignored, said once (LEC AV-5).
 	defaultHubCLI().warnInviteEnv()
 	pos, flags := splitFlags(rest)
