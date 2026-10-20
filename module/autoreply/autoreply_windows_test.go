@@ -371,29 +371,36 @@ func readPID(t *testing.T, path string) int {
 	return 0
 }
 
-// A run that times out is killed with everything it started: a grandchild that PowerShell started with
-// Start-Process is gone too (procgroup's Job object), and runCmd returns within the timeout and the
-// wait delay.
+// A run that times out is killed with everything it started: a grandchild that PowerShell started is
+// gone too (procgroup's Job object), and runCmd returns within the timeout and the wait delay. The
+// script uses .NET calls only: with the base environment of an agent (no LOCALAPPDATA), the first
+// cmdlet that PowerShell loads on demand rebuilds its module analysis cache, which can take longer
+// than the timeout on a fresh machine.
 func TestWindowsRunCmdTimeoutKillsAGrandchild(t *testing.T) {
 	dir := t.TempDir()
 	pidFile := filepath.Join(dir, "grandchild.pid")
 	ping := systemTool(t, `System32\PING.EXE`)
-	script := "$p = Start-Process -FilePath " + psQuote(ping) + " -ArgumentList '-n','120','127.0.0.1' -WindowStyle Hidden -PassThru\n" +
+	started := filepath.Join(dir, "started")
+	script := "[System.IO.File]::WriteAllText(" + psQuote(started) + ", 'started')\n" +
+		"$si = [System.Diagnostics.ProcessStartInfo]::new(" + psQuote(ping) + ", '-n 120 127.0.0.1')\n" +
+		"$si.UseShellExecute = $false; $si.CreateNoWindow = $true\n" +
+		"$p = [System.Diagnostics.Process]::Start($si)\n" +
 		"[System.IO.File]::WriteAllText(" + psQuote(pidFile) + ", [string]$p.Id)\n" +
-		"Start-Sleep -Seconds 120\n"
+		"[System.Threading.Thread]::Sleep(120000)\n"
 	ps := systemTool(t, `System32\WindowsPowerShell\v1.0\powershell.exe`)
 	o := execInvokeOpts{WorkDir: dir, Env: execEnvFrom(os.Environ(), AutoReplyConfig{}, nil, "")}
-	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	start := time.Now()
 	stdout, stderr, err := runCmd(ctx, o, nil, ps, "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
 		"-EncodedCommand", encodedPS(script))
 	elapsed := time.Since(start)
-	t.Logf("stdout %q, stderr %q", stdout, stderr)
+	_, startErr := os.Stat(started)
+	t.Logf("stdout %q, stderr %q, script started: %v", stdout, stderr, startErr == nil)
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("runCmd: %v, want the deadline", err)
 	}
-	if elapsed > 20*time.Second {
+	if elapsed > 27*time.Second {
 		t.Fatalf("runCmd returned after %s", elapsed)
 	}
 	pid := readPID(t, pidFile)
