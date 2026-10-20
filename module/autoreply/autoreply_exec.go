@@ -35,12 +35,12 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
-	"syscall"
 	"time"
 	"unicode/utf8"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
 	"github.com/ANetResearch/ANet/internal/execwork"
+	"github.com/ANetResearch/ANet/internal/fsperm"
 	"github.com/ANetResearch/ANet/internal/pathsafe"
 	"github.com/ANetResearch/ANetCore/anetcid"
 	"github.com/ANetResearch/ANetCore/delegation"
@@ -313,7 +313,7 @@ func (r *execReplier) baseOpts(rc replyContext) (execInvokeOpts, error) {
 func (r *execReplier) buildPrompt(dir string, turns []chatTurn) (prompt, inputDir string, cleanup func(), err error) {
 	cleanup = func() {}
 	var b strings.Builder
-	tmpDir, err := os.MkdirTemp(dir, ".anet-in-")
+	tmpDir, err := mkdirTempPrivate(dir, ".anet-in-")
 	if err != nil {
 		return "", "", cleanup, err
 	}
@@ -432,7 +432,7 @@ func execSandboxInteractionDir(dataDir, aid, ix string) (string, error) {
 
 func interactionDirUnder(root, dataDir, aid, ix string) (string, error) {
 	if root == "" {
-		return "", errors.New("exec work dir: the user cache directory is unknown (set XDG_CACHE_HOME or HOME)")
+		return "", errors.New(errWorkRootUnknown)
 	}
 	if aid == "" {
 		aid = "unknown"
@@ -441,10 +441,7 @@ func interactionDirUnder(root, dataDir, aid, ix string) (string, error) {
 	if err := checkOutsideDataDir(dir, dataDir); err != nil {
 		return "", fmt.Errorf("exec work dir: %w", err)
 	}
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return "", err
-	}
-	if err := os.Chmod(dir, 0o700); err != nil {
+	if err := mkdirPrivate(dir); err != nil {
 		return "", err
 	}
 	return dir, nil
@@ -525,7 +522,7 @@ func (m *autoReplyModule) newExecOutbox(interactionID string, sandboxed bool) (s
 	if err != nil {
 		return "", func() {}, err
 	}
-	ob, err := os.MkdirTemp(dir, ".anet-outbox-")
+	ob, err := mkdirTempPrivate(dir, ".anet-outbox-")
 	if err != nil {
 		return "", func() {}, err
 	}
@@ -534,30 +531,9 @@ func (m *autoReplyModule) newExecOutbox(interactionID string, sandboxed bool) (s
 
 // --- environment ---
 
-// execEnvBase are the variables an unsandboxed agent inherits from the daemon, when set: the search
-// path, locale, terminal and time zone, proxies and CA bundles. LC_* is matched as a prefix.
-var execEnvBase = []string{
-	"PATH", "LANG", "LANGUAGE", "TERM", "TZ", "NO_COLOR",
-	"HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "ALL_PROXY",
-	"http_proxy", "https_proxy", "no_proxy", "all_proxy",
-	"SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS", "REQUESTS_CA_BUNDLE",
-}
-
-// execEnvTrusted are the additional variables an unsandboxed (trusted-peer) agent inherits: the user's
-// identity, home and XDG directories, the SSH agent and session bus, which an agent working in the
-// operator's environment may need.
-var execEnvTrusted = []string{
-	"HOME", "USER", "LOGNAME", "SHELL",
-	"XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME", "XDG_RUNTIME_DIR",
-	"DBUS_SESSION_BUS_ADDRESS", "SSH_AUTH_SOCK",
-}
-
-// execEnvTrustedPrefixes admits the configuration and credential variables of the supported agent CLIs
-// and their model providers to an unsandboxed agent.
-var execEnvTrustedPrefixes = []string{
-	"LC_", "ANTHROPIC_", "CLAUDE_", "OPENAI_", "CODEX_", "CURSOR_", "OPENCODE_", "OPENCLAW_", "HERMES_",
-	"OPENROUTER_", "GEMINI_", "GOOGLE_API_KEY", "AZURE_OPENAI_", "DEEPSEEK_", "DASHSCOPE_", "MOONSHOT_",
-}
+// The allowlists of an unsandboxed agent's environment, execEnvBase, execEnvTrusted and
+// execEnvTrustedPrefixes, are per platform (env_unix.go, env_windows.go), and so is envKeyEqual, which
+// compares variable names: exactly on unix, without regard to case on Windows.
 
 // sandboxEnvKeep are the only variables a sandboxed agent takes from the daemon (LEC SB-4), when set;
 // LC_* is matched as a prefix. PATH is kept to directories that exist (sandbox_linux.go narrows it
@@ -578,26 +554,13 @@ func execEnvFrom(environ []string, cfg AutoReplyConfig, sandbox *sandboxPlan, ou
 	if sandbox != nil {
 		return sandboxExecEnv(environ, sandbox.Egress, outbox)
 	}
-	exact := map[string]bool{}
-	for _, k := range execEnvBase {
-		exact[k] = true
-	}
-	for _, k := range execEnvTrusted {
-		exact[k] = true
-	}
 	var out []string
 	for _, kv := range environ {
 		k, _, ok := strings.Cut(kv, "=")
 		if !ok || k == "" {
 			continue
 		}
-		allowed := exact[k]
-		for _, p := range execEnvTrustedPrefixes {
-			if !allowed && strings.HasPrefix(k, p) {
-				allowed = true
-			}
-		}
-		if allowed {
+		if execEnvAllowed(k) {
 			out = append(out, kv)
 		}
 	}
@@ -606,6 +569,33 @@ func execEnvFrom(environ []string, cfg AutoReplyConfig, sandbox *sandboxPlan, ou
 		out = append(out, "ANET_OUTBOX="+outbox)
 	}
 	return out
+}
+
+// execEnvAllowed reports whether an unsandboxed agent inherits the variable k: k is on execEnvBase or
+// execEnvTrusted, or begins with one of execEnvTrustedPrefixes, compared with envKeyEqual. No ANET_*
+// variable is ever admitted (on Windows, whatever the case of its name).
+func execEnvAllowed(k string) bool {
+	if envKeyHasPrefix(k, "ANET_") {
+		return false
+	}
+	for _, list := range [][]string{execEnvBase, execEnvTrusted} {
+		for _, e := range list {
+			if envKeyEqual(k, e) {
+				return true
+			}
+		}
+	}
+	for _, p := range execEnvTrustedPrefixes {
+		if envKeyHasPrefix(k, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// envKeyHasPrefix reports whether the variable name k begins with p, compared with envKeyEqual.
+func envKeyHasPrefix(k, p string) bool {
+	return len(k) >= len(p) && envKeyEqual(k[:len(p)], p)
 }
 
 // sandboxExecEnv is a sandboxed agent's environment, built from nothing (LEC SB-4): PATH (directories
@@ -686,16 +676,24 @@ func collectOutbox(dir string) ([]delegation.Attachment, error) {
 	}
 	defer parent.Close()
 	base := filepath.Base(dir)
-	if fi, err := parent.Lstat(base); err != nil {
+	// The type must be exactly a directory: on Windows a junction or another reparse point is reported
+	// as a directory with ModeIrregular or ModeSymlink set as well (on unix the test is !IsDir()).
+	dfi, err := parent.Lstat(base)
+	if err != nil {
 		return nil, err
-	} else if !fi.IsDir() {
-		return nil, fmt.Errorf("the outbox is not a directory (mode %s)", fi.Mode().Type())
+	} else if dfi.Mode().Type() != fs.ModeDir {
+		return nil, fmt.Errorf("the outbox is not a directory (mode %s)", dfi.Mode().Type())
 	}
 	ob, err := parent.OpenRoot(base)
 	if err != nil {
 		return nil, err
 	}
 	defer ob.Close()
+	if st, err := ob.Stat("."); err != nil {
+		return nil, err
+	} else if !os.SameFile(dfi, st) {
+		return nil, fmt.Errorf("the outbox changed while it was opened")
+	}
 	ents, err := fs.ReadDir(ob.FS(), ".")
 	if err != nil {
 		return nil, err
@@ -721,9 +719,18 @@ func collectOutbox(dir string) ([]delegation.Attachment, error) {
 		if !fi.Mode().IsRegular() {
 			return nil, fmt.Errorf("outbox entry %q is not a regular file (mode %s)", name, fi.Mode().Type())
 		}
-		f, err := ob.OpenFile(name, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
+		f, err := ob.OpenFile(name, os.O_RDONLY|fsperm.NoFollow, 0)
 		if err != nil {
 			return nil, err
+		}
+		// What was opened must be what Lstat saw: the agent can swap the entry in between, and on
+		// Windows fsperm.NoFollow is 0 (the Root itself never follows a reparse point out of it).
+		if st, serr := f.Stat(); serr != nil || !os.SameFile(fi, st) {
+			_ = f.Close()
+			if serr != nil {
+				return nil, serr
+			}
+			return nil, fmt.Errorf("outbox entry %q changed while it was opened", name)
 		}
 		data, rerr := readRegular(f, pathsafe.MaxAttachmentBytes)
 		_ = f.Close()
@@ -765,11 +772,17 @@ func readWorkFile(dir, name string, limit int64) ([]byte, error) {
 	if !fi.Mode().IsRegular() {
 		return nil, fmt.Errorf("%s is not a regular file (mode %s)", name, fi.Mode().Type())
 	}
-	f, err := r.OpenFile(name, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
+	f, err := r.OpenFile(name, os.O_RDONLY|fsperm.NoFollow, 0)
 	if err != nil {
 		return nil, err
 	}
 	defer f.Close()
+	// What was opened must be what Lstat saw (see collectOutbox).
+	if st, err := f.Stat(); err != nil {
+		return nil, err
+	} else if !os.SameFile(fi, st) {
+		return nil, fmt.Errorf("%s changed while it was opened", name)
+	}
 	return readRegular(f, limit)
 }
 
@@ -907,14 +920,6 @@ func dirsSize(dirs []string, limit int64) int64 {
 // an earlier process of this identity left behind: run directories and socket directories (LEC SB-9).
 func (m *autoReplyModule) sweepSandboxLeftovers() {
 	m.swept.Do(func() { removeSandboxLeftovers(m.env.AID) })
-}
-
-// allocatedBytes is the space the file system gave fi.
-func allocatedBytes(fi fs.FileInfo) int64 {
-	if st, ok := fi.Sys().(*syscall.Stat_t); ok {
-		return int64(st.Blocks) * 512
-	}
-	return 0
 }
 
 // sandboxRunnerForTest, when set, replaces the start of the agent inside bubblewrap in runSandboxed

@@ -11,12 +11,12 @@ import (
 	"os/exec"
 	"sort"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/ANetResearch/ANetCore/effect"
 	"github.com/ANetResearch/ANetCore/tsir"
 
+	"github.com/ANetResearch/ANet/internal/procgroup"
 	"github.com/ANetResearch/ANet/provider"
 )
 
@@ -190,7 +190,11 @@ func (p *shellProvider) named(ctx context.Context, call provider.Call, cmdName s
 	}
 	line := c.Run
 	if c.Args {
-		extra, err := quoteArgv(call.Args["argv"])
+		ip, err := p.m.interpreter()
+		if err != nil {
+			return effect.Effect{}, err
+		}
+		extra, err := ip.quote(call.Args["argv"])
 		if err != nil {
 			return effect.Effect{}, fmt.Errorf("shell: %s: %w", cmdName, err)
 		}
@@ -232,12 +236,24 @@ func (p *shellProvider) arbitrary(ctx context.Context, call provider.Call) (effe
 func (p *shellProvider) run(ctx context.Context, call provider.Call,
 	line, dir string, timeout time.Duration, named string) (effect.Effect, error) {
 
+	ip, err := p.m.interpreter()
+	if err != nil {
+		return effect.Effect{}, err
+	}
+	if dir, err = commandDir(dir); err != nil {
+		return effect.Effect{}, err
+	}
+
 	rctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(rctx, p.m.shell(), "-c", line)
+	cmd, err := ip.command(rctx, line)
+	if err != nil {
+		return effect.Effect{}, err
+	}
 	cmd.Dir = dir
-	// Its own process group, and the whole group is killed on timeout.
+	// Its own process group, and the whole group is killed on timeout
+	// (procgroup: a process group on unix, a Job object on Windows).
 	//
 	// Killing only the shell leaves whatever it started still running — a
 	// build, a flash, a loop — with nothing holding a handle to it. On a
@@ -248,14 +264,8 @@ func (p *shellProvider) run(ctx context.Context, call provider.Call,
 	// kills the shell alone, and two killers racing for the same Wait
 	// means the group sometimes outlives the timeout depending on which
 	// got there first. Replacing the watchdog is the only way to be sure
-	// which kill happens.
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Cancel = func() error {
-		if cmd.Process == nil {
-			return nil
-		}
-		return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) // negative: the group
-	}
+	// which kill happens. procgroup.Start installs that cmd.Cancel.
+	//
 	// Bounds the wait for output pipes held open by anything that escaped
 	// the group (a child of its own session). Without it a single
 	// setsid-ing command hangs this call forever.
@@ -266,13 +276,14 @@ func (p *shellProvider) run(ctx context.Context, call provider.Call,
 	cmd.Stdout, cmd.Stderr = lim, lim
 
 	started := time.Now()
-	if err := cmd.Start(); err != nil {
+	g, err := procgroup.Start(cmd)
+	if err != nil {
 		// Distinct from a command that ran and failed: nothing executed,
 		// so there is no exit status to report and FAILED would claim
 		// more than this node knows.
 		return effect.Effect{}, fmt.Errorf("shell: start: %w", err)
 	}
-	waitErr := cmd.Wait()
+	waitErr := g.Wait()
 	elapsed := time.Since(started)
 	killed := rctx.Err() != nil
 

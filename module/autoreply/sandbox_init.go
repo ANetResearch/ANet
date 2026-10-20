@@ -44,8 +44,6 @@ const (
 	sandboxInitPath = "/run/anet/init"
 	// sandboxEgressPath is where the run's egress socket is bound inside a Linux sandbox.
 	sandboxEgressPath = "/run/anet/egress.sock"
-	// sandboxBridgeListen is the sandbox-side address of the egress endpoint (LEC §2.6.1).
-	sandboxBridgeListen = "127.0.0.1:3128"
 	// sandboxSpecFd is the descriptor the spec arrives on; sandboxStdinFd carries the conversation;
 	// sandboxSeccompFd is the filter bwrap reads (--seccomp 5).
 	sandboxSpecFd    = 3
@@ -110,20 +108,6 @@ func newSandboxInitSpec(argv, env []string, cwd string, stdinFd4 bool, bridgeUDS
 	}
 	return s
 }
-
-// sandboxProbeError is a sandbox that cannot be used here, with the local reason code (UX §1.4 H:
-// no_bwrap, userns_blocked, userns_unavailable, netns_failed, seccomp_failed) and a detail for the
-// operator. errors.Is reports it as errSandboxUnavailable, so every caller fails the turn closed.
-type sandboxProbeError struct {
-	Code   string
-	Detail string
-}
-
-func (e *sandboxProbeError) Error() string {
-	return fmt.Sprintf("%v: %s: %s", errSandboxUnavailable, e.Code, e.Detail)
-}
-
-func (e *sandboxProbeError) Unwrap() error { return errSandboxUnavailable }
 
 // errBadSandboxSpec is every reason a spec is refused. Its text never quotes the spec.
 var errBadSandboxSpec = errors.New("the sandbox spec is not usable")
