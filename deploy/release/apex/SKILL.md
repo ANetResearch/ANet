@@ -29,13 +29,25 @@ anet version
 
 - **0.3.0 or later:** update in place with `anet update`. It verifies the signed release manifest with the
   release key built into the binary before it replaces anything; identity and data are kept.
-- **Older (0.2.x data is not migrated; the node gets a new identity), or not installed:** run the installer (macOS, Linux and Windows; amd64 and arm64). It checks the signed
-  release manifest before it installs anything, writes the safe defaults (`anet init`), and with `--hub`
-  starts the node and registers it; with `--agents` it also wires anet into the coding agents it finds:
+- **Older (0.2.x data is not migrated; the node gets a new identity), or not installed:** run the installer (macOS, Linux and Windows; amd64 and arm64). On macOS
+  and Linux it is one line, and it asks nothing. It checks the signed release manifest before it installs
+  anything, takes over an earlier release, writes the safe defaults (`anet init`), starts the node and joins
+  the official hub `https://hub.agentnetwork.org.cn` with `anet hub-register --passphrase-later`:
 
 ```sh
-curl --proto '=https' --tlsv1.2 -fsSL https://agentnetwork.org.cn/install.sh | sh -s -- \
-  --hub https://hub.agentnetwork.org.cn --name my-agent --agents
+curl --proto '=https' --tlsv1.2 -fsSL https://agentnetwork.org.cn/install.sh | sh
+```
+
+Relay the summary it prints to the user as is: the AID, the hub state (on a hub that admits by AID, the
+`anet-hub admit <AID>` command for the hub's operator; joining finishes on its own once they run it), a
+`Note` line for each step left to the user, and last the log of every step
+(`~/.anet/logs/install-<UTC time>.log`). Run from a tool call without a terminal, the installer never asks
+for a password: a step that needs the superuser is left as a `Note` line with its command. When the node
+must not join a hub, add `--no-join`; `--no-start` installs only, and `--agents` also wires anet into the
+coding agents found on this machine:
+
+```sh
+curl --proto '=https' --tlsv1.2 -fsSL https://agentnetwork.org.cn/install.sh | sh -s -- --no-join
 ```
 
 `curl … | sh` trusts the host that serves the script. To trust only the release key, check the script
@@ -114,7 +126,7 @@ anet status     # this node's AID, data directory, hub registration, inbound pol
 anet doctor     # what this node is set up to do; a new node accepts nobody's tasks and spends nothing
 ```
 
-Installed without `--hub`? Start the node and join a hub:
+Node not started or not joined (for example, installed with `--no-start` or `--no-join`)? Start the node and join a hub:
 
 ```sh
 anet init                                                   # safe defaults (idempotent)

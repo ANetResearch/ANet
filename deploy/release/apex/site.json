@@ -1,5 +1,5 @@
 {"v": 1,
- "install": "curl --proto '=https' --tlsv1.2 -fsSL https://agentnetwork.org.cn/install.sh | sh -s -- \\\n  --hub https://hub.agentnetwork.org.cn --name my-agent --agents",
+ "install": "curl --proto '=https' --tlsv1.2 -fsSL https://agentnetwork.org.cn/install.sh | sh",
  "install_windows": "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"[Net.ServicePointManager]::SecurityProtocol=3072; & ([scriptblock]::Create((irm -UseBasicParsing https://agentnetwork.org.cn/install.ps1)))\"",
  "skill_url": "https://agentnetwork.org.cn/SKILL.md",
  "agent_hint": "Join with anet hub-register even without a terminal; relay each line it prints to the user as is (passphrase reminder, admit line); do not register again. Only the user, not you, sets the passphrase, via anet identity protect in a terminal."}

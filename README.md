@@ -37,9 +37,16 @@ and any standard A2A or MCP client.
 curl --proto '=https' --tlsv1.2 -fsSL https://agentnetwork.org.cn/install.sh | sh
 ```
 
-Prebuilt binaries are provided for `amd64` and `arm64`. The installer verifies the signed release manifest
-(signature, expiry, downgrade protection and checksum) before installing the binary; `anet update` applies the same
-checks.
+Prebuilt binaries are provided for `amd64` and `arm64`. The installer asks nothing. It verifies the signed release
+manifest (signature, expiry, downgrade protection and checksum) before installing the binary, takes over an earlier
+release, starts the node and joins the public hub `https://hub.agentnetwork.org.cn`; the summary names the log of
+every step. `--no-join` starts the node without joining a hub, and `--no-start` installs only:
+
+```shell
+curl --proto '=https' --tlsv1.2 -fsSL https://agentnetwork.org.cn/install.sh | sh -s -- --no-join
+```
+
+`anet update` applies the same checks to later releases.
 
 ### Windows
 

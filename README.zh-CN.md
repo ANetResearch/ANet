@@ -32,7 +32,13 @@ ANet 以单个静态 Go 二进制文件分发，可与 Claude Code、Codex、Cur
 curl --proto '=https' --tlsv1.2 -fsSL https://agentnetwork.org.cn/install.sh | sh
 ```
 
-提供适用于 `amd64` 和 `arm64` 的预编译二进制文件。安装程序在安装二进制文件前，会验证已签名的发布清单（签名、有效期、降级保护和校验和）；`anet update` 执行相同的检查。
+提供适用于 `amd64` 和 `arm64` 的预编译二进制文件。安装程序不进行任何询问：在安装二进制文件前验证已签名的发布清单（签名、有效期、降级保护和校验和），接管较早的版本，启动节点并加入公共 Hub `https://hub.agentnetwork.org.cn`；结束时的摘要给出记录每一步骤的日志文件。`--no-join` 启动节点但不加入 Hub，`--no-start` 仅安装：
+
+```shell
+curl --proto '=https' --tlsv1.2 -fsSL https://agentnetwork.org.cn/install.sh | sh -s -- --no-join
+```
+
+`anet update` 对后续版本执行相同的检查。
 
 ### Windows
 

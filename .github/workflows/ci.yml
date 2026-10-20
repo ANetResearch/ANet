@@ -525,11 +525,42 @@ jobs:
           perl -e 'alarm 30; exec @ARGV' anet status || true
           ls -la ~/.anet
           echo "LEGACY_NPM_PREFIX=$(npm prefix -g)" >> "$GITHUB_ENV"
+      # The published release, from the sources install.sh picks (npmmirror,
+      # GitHub, ...). --no-join: CI never registers a node on the public hub.
       - name: install.sh of this commit, piped to sh
         run: |
           set -eu
-          cat deploy/release/install.sh | sh 2>&1 | tee /tmp/install.out
-          grep -q 'Upgraded from anet' /tmp/install.out
+          cat deploy/release/install.sh | sh -s -- --no-join > /tmp/install.out 2> /tmp/install.err
+          cat /tmp/install.out /tmp/install.err
+          # The concise output (spec C/E): a few lines, the summary block,
+          # the takeover line, and the log named last.
+          test "$(wc -l < /tmp/install.out | tr -d ' ')" -le 12
+          grep -Eq '^Downloaded anet [0-9.]+ for [a-z0-9-]+ from (npmmirror|GitHub|npmjs|jsDelivr|agentnetwork\.org\.cn|hub\.agentnetwork\.org\.cn) \(' /tmp/install.out
+          grep -q '^Replacing AgentNetwork 1\.1\.15$' /tmp/install.out
+          grep -Eq '^anet [0-9.]+ is installed and running\.$' /tmp/install.out
+          grep -Eq '^  AID   [a-z0-9]{40,}$' /tmp/install.out
+          grep -q '^  Hub   not joined (--no-join)$' /tmp/install.out
+          grep -q '^Replaced AgentNetwork 1\.1\.15; its data is kept in ~/\.anet-legacy-1\.1\.15-' /tmp/install.out
+          tail -n 1 /tmp/install.out | grep -Eq "Details: ~/\.anet/logs/install-[0-9]{8}T[0-9]{6}Z\.log$"
+          if grep -Eq 'Next:|doctor|Upgraded from|Daemons already running' /tmp/install.out; then
+            echo "details in the summary"; exit 1
+          fi
+          test ! -s /tmp/install.err
+      - name: the log holds the details, privately
+        run: |
+          set -eu
+          log="$(ls ~/.anet/logs/install-*.log)"
+          test "$(echo "$log" | wc -l | tr -d ' ')" = 1
+          case "$(uname -s)" in Darwin) mode() { stat -f '%Lp' "$1"; } ;; *) mode() { stat -c '%a' "$1"; } ;; esac
+          test "$(mode ~/.anet/logs)" = 700
+          test "$(mode "$log")" = 600
+          grep -q 'signature ok' "$log"
+          grep -q 'sha256 ok (.gz and binary)' "$log"
+          grep -q 'stopping the daemon of AgentNetwork 1.1.15' "$log"
+          grep -q 'anet init' "$log"
+          grep -q 'Upgraded from anet 1.1.15' "$log"
+          grep -Eq '^using (npmmirror|GitHub|npmjs|jsDelivr|agentnetwork\.org\.cn|hub\.agentnetwork\.org\.cn): anet ' "$log"
+          ~/.local/bin/anet status
       - name: what was taken over
         run: |
           set -eu
@@ -553,9 +584,11 @@ jobs:
       - name: a second run changes nothing and reports no takeover
         run: |
           set -eu
-          cat deploy/release/install.sh | sh 2>&1 | tee /tmp/install2.out
-          if grep -q 'Upgraded from anet' /tmp/install2.out; then exit 1; fi
+          cat deploy/release/install.sh | sh -s -- --no-join 2>&1 | tee /tmp/install2.out
+          if grep -Eq '^Replac(ing|ed) ' /tmp/install2.out; then exit 1; fi
+          grep -Eq '^anet [0-9.]+ is installed and running\.$' /tmp/install2.out
           test "$(ls -d ~/.anet-legacy-* | wc -l | tr -d ' ')" = 1
+          ~/.local/bin/anet stop --all
 
   # The platforms the release builds for, and one it does not: peercred is
   # read on Linux, macOS and FreeBSD, and on OpenBSD everything builds and

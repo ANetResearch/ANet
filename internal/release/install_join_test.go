@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -17,6 +18,14 @@ import (
 func installFuncs(t *testing.T, names ...string) string {
 	t.Helper()
 	script := repoFile(t, "deploy/release/install.sh")
+	// The output helpers that say, warn and die call come with them.
+	if slices.Contains(names, "say") || slices.Contains(names, "die") {
+		for _, h := range []string{"show", "m", "tilde", "logto", "finish_log"} {
+			if !slices.Contains(names, h) {
+				names = append(names, h)
+			}
+		}
+	}
 	var funcs []string
 	for _, name := range names {
 		re := regexp.MustCompile(`(?ms)^` + name + `\(\)\s*\{(?:[^\n]*\}\n|[^\n]*\n.*?^\}\n)`)
@@ -46,7 +55,7 @@ func runInstallPart(t *testing.T, env []string, args, body, anetOut string, anet
 	if err := os.WriteFile(filepath.Join(prefix, "anet"), []byte(fake), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	script := "set -eu\n" + installFuncs(t, "say", "warn", "die", "usage", "removed_flag", "parse_args", "join_hub") +
+	script := "set -eu\n" + installFuncs(t, "say", "warn", "die", "usage", "removed_flag", "parse_args") +
 		"\nparse_args --prefix '" + prefix + "' " + args + "\n" + body + "\n"
 	cmd := exec.Command(sh, "-c", script)
 	cmd.Env = append([]string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir()}, env...)
@@ -77,7 +86,7 @@ func TestInstallShRefusesTheRemovedInviteFlags(t *testing.T) {
 			{"--hub https://h --token-file f", "--token-file"},
 			{"--token-file=f --hub https://h", "--token-file"},
 		} {
-			_, stderr, code, calls := runInstallPart(t, []string{lang.env}, c.args, "join_hub", "", 0)
+			_, stderr, code, calls := runInstallPart(t, []string{lang.env}, c.args, "true", "", 0)
 			want := a2ashape.Sentence("cli_removed", lang.lang, a2ashape.Args{"what": "install.sh " + c.flag, "instead": "hub_register_token"}) + "\n"
 			if code != 2 || stderr != want || calls != "" {
 				t.Errorf("%s %s: exit %d, stderr %q, calls %q; want 2 and %q", lang.env, c.args, code, stderr, calls, want)
@@ -92,31 +101,32 @@ func TestInstallShRefusesTheRemovedInviteFlags(t *testing.T) {
 	}
 }
 
-// LEC §4.10: with --hub, install.sh runs hub-register last and prints its
-// lines as they are — the admit line last when the hub has to admit the
-// AID — adding none of its own after them, and exits with its status.
-func TestInstallShPassesHubRegisterThrough(t *testing.T) {
-	const aid = "bafyreiujzdegxdncf32epf3dhodzdocis2jhtlgmxgedn73u557hq2abcd"
-	lines := a2ashape.Sentence("identity.unprotected", a2ashape.English, nil) + "\n  → anet identity protect\n" +
-		a2ashape.Sentence("hub_pending_admission", a2ashape.English, a2ashape.Args{"hub": "https://h", "aid": aid}) +
-		"\n  → anet-hub admit " + aid + "\n"
-	for _, exit := range []int{0, 1} {
-		stdout, _, code, calls := runInstallPart(t, []string{"ANET_LANG=en", "ANET_INVITE=anetinv_SECRET"}, "--hub https://h --name n", "join_hub", lines, exit)
-		if code != exit {
-			t.Errorf("exit %d, want hub-register's %d", code, exit)
-		}
-		if !strings.HasSuffix(stdout, lines) {
-			t.Errorf("stdout does not end with hub-register's lines:\n%s", stdout)
-		}
-		if !strings.Contains(calls, "ARGV hub-register https://h --name n") || strings.Contains(calls, "SECRET") {
-			t.Errorf("calls %q", calls)
+// Spec B: by default the node is started and joins
+// https://hub.agentnetwork.org.cn; --hub names another hub, --no-join keeps
+// the start and skips the join, --no-start skips both. The join passes
+// --passphrase-later and never a terminal (start_node), and the summary is
+// the last step of main.
+func TestInstallShJoinsByDefault(t *testing.T) {
+	for _, c := range []struct{ args, want string }{
+		{"", "https://hub.agentnetwork.org.cn 1 1 0"},
+		{"--hub https://h.example", "https://h.example 1 1 1"},
+		{"--hub=https://h.example --no-join", "https://h.example 1 0 1"},
+		{"--no-start", "https://hub.agentnetwork.org.cn 0 0 0"},
+		{"--no-join --no-start", "https://hub.agentnetwork.org.cn 0 0 0"},
+	} {
+		stdout, stderr, code, _ := runInstallPart(t, []string{"ANET_LANG=en"}, c.args, `echo "$HUB $START $JOIN $HUB_EXPLICIT"`, "", 0)
+		if code != 0 || strings.TrimSpace(stdout) != c.want {
+			t.Errorf("%q: exit %d, %q (stderr %q), want %q", c.args, code, stdout, stderr, c.want)
 		}
 	}
-	// The order of main: join_hub is the last step.
 	script := repoFile(t, "deploy/release/install.sh")
+	start := regexp.MustCompile(`(?ms)^start_node\(\)\s*\{.*?^\}\n`).FindString(script)
+	if !strings.Contains(start, `hub-register "$HUB" --name "$NODE_NAME" --passphrase-later </dev/null`) {
+		t.Errorf("start_node does not run hub-register with --passphrase-later and no input:\n%s", start)
+	}
 	main := regexp.MustCompile(`(?ms)^main\(\)\s*\{.*?^\}\n`).FindString(script)
 	steps := regexp.MustCompile(`(?m)^\s+([a-z_]+)$`).FindAllStringSubmatch(main, -1)
-	if len(steps) == 0 || steps[len(steps)-1][1] != "join_hub" {
-		t.Errorf("join_hub is not install.sh's last step: %v", steps)
+	if len(steps) < 2 || steps[len(steps)-1][1] != "summary" || steps[len(steps)-2][1] != "start_node" {
+		t.Errorf("install.sh does not end with start_node and summary: %v", steps)
 	}
 }

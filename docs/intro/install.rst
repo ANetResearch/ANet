@@ -27,33 +27,60 @@ Supported platforms
    WSL2 is not required.
 
 Tools used by the installer
-   On Linux and macOS: ``curl``, ``gzip`` (``gunzip``), ``sha256sum`` or
-   ``shasum``, and ``ssh-keygen`` from OpenSSH 8.1 or later. The signature
-   check uses ``ssh-keygen``. If it is missing, the installer stops and names
-   the package to install; no option skips the signature check. On Windows:
-   Windows PowerShell 5.1, which Windows includes, and no tool to install.
+   On Linux and macOS: ``curl``, ``gzip`` (``gunzip``), ``tar``,
+   ``sha256sum`` or ``shasum``, and ``ssh-keygen`` from OpenSSH 8.1 or later.
+   The signature check uses ``ssh-keygen``. If it is missing, the installer
+   stops and names the package to install; no option skips the signature
+   check. ``tar`` reads the npm packages of :ref:`intro-install-hosts`; without
+   it, those sources are passed over. On Windows: Windows PowerShell 5.1,
+   which Windows includes, and no tool to install.
 
 Network
-   Outbound HTTPS to the download host. A node needs no inbound connection
-   and no public address.
+   Outbound HTTPS to the download sources (see :ref:`intro-install-hosts`)
+   and, unless the node is not to join a hub, to the hub. A node needs no
+   inbound connection and no public address.
 
 .. _intro-install-script:
 
 Installing with the script
 ==========================
 
-Run the installer for the current user:
+On Linux and macOS, the installation is one command:
 
 .. code-block:: console
 
    $ curl --proto '=https' --tlsv1.2 -fsSL https://agentnetwork.org.cn/install.sh | sh
 
-The binary is written to ``~/.local/bin/anet``. When that directory is not
-on the search path, or another ``anet`` comes before it, the installer adds a
-marked block to the shell profiles that places the directory first (see
-:ref:`intro-install-path`). An earlier release of ``anet`` on the machine is
-replaced in the same run (see :ref:`intro-install-earlier`). The installer
-never waits for input.
+Without options, the installer carries out these steps:
+
+#. It selects a download source, downloads the release manifest, its
+   signature and the archive of the build, and verifies them (see below).
+#. It takes over an earlier release of AgentNetwork or ``anet`` on the
+   machine (see :ref:`intro-install-earlier`).
+#. It installs the binary as ``~/.local/bin/anet`` and makes the command
+   available (see :ref:`intro-install-path`).
+#. It runs ``anet init``, which writes the safe default configuration (see
+   :ref:`intro-install-init`).
+#. It starts the node with ``anet up`` and waits at most 30 seconds until the
+   node answers. A node that was already running is restarted with the new
+   binary.
+#. It joins the public hub ``https://hub.agentnetwork.org.cn`` with
+   ``anet hub-register <hub> --name <host name> --passphrase-later``. The
+   command asks nothing; the recovery passphrase is set afterwards with
+   ``anet identity protect`` (see :ref:`topics-identity-protect`). A node
+   that has already joined a hub keeps that hub unless ``--hub`` names
+   another one.
+
+The installer never reads its input, so it runs unchanged in a terminal, in
+the tool call of a coding agent and in a CI job. The only prompt it can cause
+is the single password prompt of ``sudo`` described in
+:ref:`intro-install-sudo`, and only in a terminal. The options
+``--no-join`` and ``--no-start`` leave out the last steps (see
+:ref:`intro-install-options`):
+
+.. code-block:: console
+
+   $ curl --proto '=https' --tlsv1.2 -fsSL https://agentnetwork.org.cn/install.sh | sh -s -- --no-join
 
 Before anything is written outside a temporary directory, the installer
 performs these checks. A failure of any check ends the installation and
@@ -72,9 +99,103 @@ leaves the installed version unchanged.
 The manifest and its signature are stored next to the binary, so that
 ``anet doctor`` can repeat the check later.
 
-When the script finishes it runs ``anet init``, which writes the safe
-default configuration (see :ref:`intro-install-init`), and prints the
-result of ``anet doctor``.
+.. _intro-install-output:
+
+Output and log
+--------------
+
+The installer prints one short line for each phase: the download, the
+takeover of an earlier release and the start of the node. A fresh
+installation prints:
+
+.. code-block:: text
+
+   Downloaded anet 0.3.6 for darwin-arm64 from npmmirror (8.6 MB in 2 s)
+   Starting the node and joining https://hub.agentnetwork.org.cn
+
+   anet 0.3.6 is installed and running.
+     AID   bafyrei...
+     Hub   https://hub.agentnetwork.org.cn (joined)
+   Run 'anet' to get started.  Details: ~/.anet/logs/install-20261020T151644Z.log
+
+When standard error is a terminal, the first line reads ``Downloading anet
+0.3.6 for darwin-arm64 from npmmirror`` and is followed by a progress line
+with a bar, the megabytes received and expected, the speed and the remaining
+time. The progress line is redrawn about five times a second and keeps its
+last state, the total size, the average speed and the time taken, when the
+download is complete. The bar is red; the variable ``NO_COLOR`` removes the
+colour, and outside a UTF-8 locale the bar is drawn with ASCII characters.
+Without a terminal, the single ``Downloaded ...`` line takes the place of
+both.
+
+The takeover of an earlier release adds a phase line and a line in the
+summary:
+
+.. code-block:: text
+
+   Downloaded anet 0.3.6 for darwin-arm64 from GitHub (8.6 MB in 3 s)
+   Replacing AgentNetwork 1.1.5
+   Starting the node and joining https://hub.agentnetwork.org.cn
+
+   anet 0.3.6 is installed and running.
+     AID   bafyrei...
+     Hub   https://hub.agentnetwork.org.cn (joined)
+   Replaced AgentNetwork 1.1.5; its data is kept in ~/.anet-legacy-1.1.5-20261020T151644Z
+   Note: /usr/local/bin/anet (AgentNetwork 1.1.5, owned by root) is no longer used; remove it with: sudo rm /usr/local/bin/anet
+   Run 'anet' in a new terminal, or in this one after: export PATH="$HOME/.local/bin:$PATH"  Details: ~/.anet/logs/install-20261020T151644Z.log
+
+The summary takes these other forms:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 40 60
+
+   * - Line
+     - Meaning
+   * - ``Hub   not joined (--no-join)``
+     - The node runs and has not joined a hub.
+   * - ``Hub   <hub> (awaiting admission; its operator runs: anet-hub admit <AID>)``
+     - The hub admits nodes by AID. Send the ``anet-hub admit`` command to
+       the operator of the hub; the node completes the join by itself once
+       the operator has run it.
+   * - ``Hub   <hub>``
+     - The node had joined this hub before and keeps it.
+   * - ``Hub   <hub> (not joined)``
+     - The join did not complete; a ``Note`` line names the command to repeat
+       it.
+   * - ``anet 0.3.6 is installed.`` and ``Run 'anet up' to get started.``
+     - The node was not started (``--no-start``).
+   * - ``Note: <text>``
+     - A step that is left to the user, with the exact command, for example
+       an earlier binary that only the superuser can remove.
+
+``anet`` without arguments prints a short overview: the version, the main
+commands, the identity, the hub state with the next command, four common
+commands, and ``anet help --all`` for the complete list.
+
+Everything else is written to the log ``<data directory>/logs/install-<UTC
+time>.log``: the download sources tried and how fast they answered, each
+check, each step of a takeover with the section ``Upgraded from anet
+<version>``, the shell profiles that were changed, and the output of
+``anet init`` and of ``anet hub-register``. The data directory is
+``ANET_DATA_DIR``, else ``ANET_HOME``, else ``~/.anet``. The directory
+``logs`` has mode ``0700`` and the log mode ``0600``. The last line of the
+output names the log.
+
+When ``ANET_LANG`` begins with ``zh``, the lines are printed in Chinese.
+
+A failure prints the reason and what to do, then whether anything was
+changed, then the log:
+
+.. code-block:: text
+
+   Error: <reason and what to do>
+   Nothing was installed or changed.
+   Details: ~/.anet/logs/install-20261020T151644Z.log
+
+When the failure occurs after an earlier release has been taken over, the
+second line is ``The new binary was not installed. Already done:``, followed
+by the steps that were carried out.
 
 .. _intro-install-options:
 
@@ -93,16 +214,16 @@ Options follow ``sh -s --`` when the script is read from a pipe.
      - Install to ``~/.local/bin``. This is the default.
    * - ``--system``
      - Install to ``/usr/local/bin``. ``sudo -n`` is used when required; the
-       installer never asks for a password. When ``sudo`` needs one, the
-       installer stops and says so; run ``sudo -v`` in the same terminal and
-       repeat the command.
+       installer never asks for a password for this option. When ``sudo``
+       needs one, the installer stops and says so; run ``sudo -v`` in the same
+       terminal and repeat the command.
    * - ``--prefix DIR``
      - Install to ``DIR``. Overrides ``--user`` and ``--system``.
    * - ``--base URL``
-     - Download from ``URL`` instead of the default hosts (see
+     - Download from ``URL/dl/`` and from no other source (see
        :ref:`intro-install-hosts`). Only ``https://`` is accepted. The
-       environment variable ``ANET_INSTALL_BASE`` names a host that is tried
-       before the default hosts. Every host is checked in the same way.
+       environment variable ``ANET_INSTALL_BASE`` has the same effect.
+       The checks are the same for every source.
    * - ``--shell``
      - Install the variant that can run operator-approved commands. This is
        a different binary, not a setting; see :ref:`intro-install-modules`.
@@ -111,61 +232,101 @@ Options follow ``sh -s --`` when the script is read from a pipe.
        found on the machine, or only for the comma-separated ``LIST``
        (``claude``, ``codex``, ``cursor``, ``opencode``, ``hermes``, ``workbuddy``).
    * - ``--hub URL``
-     - Start the node and register it with the hub at ``URL`` as the last
-       step.
+     - Join the hub at ``URL`` instead of ``https://hub.agentnetwork.org.cn``.
+       A node that has joined another hub before joins this one.
    * - ``--name NAME``
-     - The name to register under. The default is the host name.
+     - The name to join under. The default is the host name.
+   * - ``--no-join``
+     - Start the node, but do not join a hub.
+   * - ``--no-start``
+     - Neither start the node nor join a hub.
    * - ``--without MODULES``
      - Switch off the listed modules in the configuration. See
        :ref:`intro-install-modules`.
    * - ``--no-modify-path``
-     - Do not change the shell profiles. The installer prints the line to add
-       instead (see :ref:`intro-install-path`).
+     - Do not change the shell profiles and do not create the command link.
+       The installer names the line to add instead (see
+       :ref:`intro-install-path`).
    * - ``--help``
      - Print the option summary.
 
-The options ``--hub`` and ``--name`` may be combined with ``--agents`` to
-install, register and connect the local coding agents in one command:
+The options may be combined, for example to join another hub under a chosen
+name and to connect the local coding agents in one command:
 
 .. code-block:: console
 
    $ curl --proto '=https' --tlsv1.2 -fsSL https://agentnetwork.org.cn/install.sh | sh -s -- \
        --hub https://hub.example.com --name build-host --agents
 
-The registration output is printed as the last lines. On a hub that admits
-by AID, the last line is the ``anet-hub admit`` command that the hub
-operator runs; registration then completes without further input. See
-:doc:`tutorial` for the full sequence.
+On a hub that admits by AID, the summary names the ``anet-hub admit``
+command that the hub operator runs; the join then completes without further
+input. See :doc:`tutorial` for the full sequence.
 
 Hubs no longer use invitation codes. The installer rejects the former
 options ``--token`` and ``--token-file`` and says so.
 
 .. _intro-install-hosts:
 
-Download hosts
---------------
+Download sources
+----------------
 
-Without ``--base``, the installer tries these hosts in order and uses the
-first one that serves a release manifest and its signature:
+The installer asks two sources at the same time, each with a limit of three
+seconds, and tries those that answer, the fastest first. A source that does
+not answer within the limit is not used. Then it tries the remaining sources
+in order:
 
-#. ``https://agentnetwork.org.cn``
-#. ``https://hub.agentnetwork.org.cn``
-#. The npm package of the build, ``@agentnetwork/anet-<os>-<cpu>``
-   (``@agentnetwork/anet-shell-<os>-<cpu>`` with ``--shell``), through the
-   content delivery networks npmmirror
-   (``https://registry.npmmirror.com/<package>/latest/files``), jsDelivr
-   (``https://cdn.jsdelivr.net/npm/<package>@latest``) and unpkg
-   (``https://unpkg.com/<package>@latest``). ``<cpu>`` is ``x64`` or
-   ``arm64``.
+.. list-table::
+   :header-rows: 1
+   :widths: 22 78
 
-The directory ``dl/`` of each npm package holds ``release.json``, its
-signature and the archive of the build exactly as the project hosts serve
-them under ``/dl/``. Which host answers does not change what is accepted: the
-checks above apply to every host, and a manifest that a host serves and that
-fails a check ends the installation instead of moving on to the next host. A
-content delivery network can serve an older release for a while after a new
-one is published; the installer then installs that release, or refuses it when
-a newer ``anet`` is already installed.
+   * - Source
+     - Location
+   * - ``npmmirror``
+     - ``https://registry.npmmirror.com``: the npm package of the build,
+       downloaded as the tarball of the registry. Asked first, together with
+       GitHub.
+   * - ``GitHub``
+     - ``https://github.com/ANetResearch/ANet/releases/latest/download/<file>``.
+       Asked first, together with npmmirror.
+   * - ``npmjs``
+     - ``https://registry.npmjs.org``: the same tarball.
+   * - ``jsDelivr``
+     - ``https://cdn.jsdelivr.net/npm/<package>@latest/dl/<file>``.
+   * - ``agentnetwork.org.cn``, ``hub.agentnetwork.org.cn``
+     - The project hosts: ``https://agentnetwork.org.cn/dl/<file>`` and
+       ``https://hub.agentnetwork.org.cn/dl/<file>``.
+
+The npm package of the build is ``@agentnetwork/anet-<os>-<cpu>``
+(``@agentnetwork/anet-shell-<os>-<cpu>`` with ``--shell``), where ``<os>`` is
+``linux`` or ``darwin`` and ``<cpu>`` is ``x64`` or ``arm64``. Its directory
+``package/dl/`` holds ``release.json``, ``release.json.sig`` and the archive of
+the build, exactly as the project hosts serve them under ``/dl/``. The
+installer reads the version from ``<registry>/<package>/latest``, builds the
+address of the tarball from it, and extracts only these three files, each of
+which must be a regular file of bounded size.
+
+The source decides how fast and whether the files arrive, not what is
+accepted:
+
+* The signed manifest and the SHA-256 digests decide, by the checks of
+  :ref:`intro-install-script`, for every source alike.
+* A source that does not serve a release is passed over: an HTTP error, a
+  time-out, an HTML page where a manifest is expected, a missing file, a
+  redirect to a host that the source does not use, or a malformed tarball.
+* A source that serves a release that fails a check ends the installation.
+  The installer does not move on to another source.
+* A source whose release is older than the installer itself, or than the
+  ``anet`` already installed, is a mirror that lags behind. It is passed over
+  while another source serves the current release.
+
+The installer follows redirects itself, at most five, over ``https://`` only,
+and only to the hosts of that source: ``registry.npmmirror.com`` and
+``cdn.npmmirror.com`` for npmmirror, ``github.com`` and
+``*.githubusercontent.com`` for GitHub, and the host of the source for the
+others. ``--base URL`` and ``ANET_INSTALL_BASE`` replace every source; the
+files are then read from ``URL/dl/``, and redirects may lead to any
+``https://`` host. ``anet update`` uses the same sources in the same order
+(see :ref:`intro-install-update`).
 
 .. _intro-install-earlier:
 
@@ -196,11 +357,11 @@ directory of npm, and ``/usr/local/bin/anet``, ``/opt/homebrew/bin/anet`` and
        configurations that name the old path run the new release. In a
        directory that only the superuser can write, the binary is removed.
    * - ``anet`` 0.3 or later, and the npm launcher of 0.3 or later
-     - Left in place and named in the report. The installation directory is
+     - Left in place and named in the log. The installation directory is
        placed before it on the search path. An npm launcher whose command is
        the installation target itself is removed with npm.
    * - A file named ``anet`` that is not a program of AgentNetwork
-     - Not run, not changed, and named in the report. At the installation
+     - Not run, not changed, and named in the log. At the installation
        target itself (``~/.local/bin/anet`` by default), such a file is
        refused before anything is changed; a link to a file that no longer
        exists is replaced.
@@ -209,6 +370,16 @@ An earlier release is recognized by the Go module path in its binary, or by
 the ``repository`` field of its npm package. Its version is read with
 ``anet version`` in an empty home directory and with a time limit. Apart from
 that, only its ``stop`` command is run.
+
+On Linux, a systemd unit named ``anet-daemon`` whose ``ExecStart`` runs a
+binary of AgentNetwork 1.x is disabled and stopped before the daemon, since
+the unit restarts the daemon (``Restart=always``). This is the unit that
+AgentNetwork 1.x prints for its users to install; the npm packages of 1.x
+register no service and no launchd agent themselves. A user unit is disabled
+with ``systemctl --user disable --now anet-daemon``, a system unit with
+``sudo -n systemctl disable --now anet-daemon`` (see
+:ref:`intro-install-sudo`). The unit files are not deleted. When a system unit
+cannot be disabled, a ``Note`` line gives the command.
 
 The data directory of an earlier release is renamed and never deleted. The
 directory concerned is the one that the new release uses: ``ANET_DATA_DIR``,
@@ -227,17 +398,30 @@ else ``ANET_HOME``, else ``~/.anet``.
 * A directory of 0.3, or of a newer release, is not changed.
 
 The daemon applies the same rule. It does not start in a data directory of an
-earlier release and reports ``identity_v02``. The directory is not moved while
-a daemon of the earlier release may still use it, that is, while the process
-named in its ``daemon.pid`` runs or while its control address answers. The
-report then gives the command to run after that daemon has stopped, and
-``anet init`` is skipped.
+earlier release and reports ``identity_v02``.
 
-``sudo`` is used only as ``sudo -n``, which fails instead of asking for a
-password. A step that needs a password is not carried out; the report gives
-the exact command. At the end of the output, the section
-``Upgraded from anet <version>`` lists what was stopped, removed, replaced and
-moved, and the commands that remain:
+A daemon of AgentNetwork 1.x can still hold the data directory after the
+``stop`` commands above, for example when its binary was deleted by hand or
+when an MCP client started it. The installer then stops it itself:
+
+#. through the shutdown interface of 1.x on ``127.0.0.1:3998``, with the API
+   token from the data directory. The token is passed to ``curl`` in a
+   private configuration file, never on a command line;
+#. if the daemon still runs, with ``SIGTERM`` to the process named in
+   ``daemon.pid``, and only after the executable of that process has been
+   identified as AgentNetwork 1.x.
+
+Each step is followed by a wait of at most 10 seconds. A daemon of this
+release that runs on the identity of 0.3 in the same directory is never taken
+for an earlier release and never signalled. Only when a daemon of 1.x cannot
+be stopped, or a daemon of anet 0.2 still answers on its control address, does
+the directory stay in place; ``anet init`` and the start of the node are then
+skipped, and a ``Note`` line says what to stop before the installer is run
+again.
+
+The output names the takeover in the phase line ``Replacing <release>`` and in
+the summary line ``Replaced <release>; its data is kept in <directory>``. The
+log lists every step in the section ``Upgraded from anet <version>``:
 
 .. code-block:: text
 
@@ -256,16 +440,68 @@ The renamed directory keeps the identity and the API tokens of the earlier
 release. Release 0.3 does not read them. See :doc:`/upgrading` for the steps
 after the installation.
 
+.. _intro-install-sudo:
+
+Administrator rights
+--------------------
+
+A per-user installation needs administrator rights only in these cases:
+
+* an earlier release sits where only the superuser can remove it, for example
+  ``/usr/local/bin/anet`` owned by ``root``, or a 1.x npm package under a
+  prefix owned by ``root``;
+* a system unit of AgentNetwork 1.x is to be disabled;
+* the command link of :ref:`intro-install-path` is to be created in a
+  directory owned by ``root``.
+
+In these cases, and only when a terminal is available, the installer prints
+one line with the reason, for example:
+
+.. code-block:: text
+
+   Removing AgentNetwork 1.1.5 from /usr/local/bin requires administrator rights; macOS will ask for your password once.
+
+It then runs ``sudo -v`` once. ``sudo`` reads the password from the terminal,
+never from the input of the script. The steps that need the superuser then run
+with ``sudo -n`` within that session. When ``sudo`` is declined or fails, the
+installation continues, and the summary has one ``Note`` line with the command
+for each step that was not carried out. When ``sudo -n`` already succeeds, no
+password is asked.
+
+Without a terminal, as in the tool call of a coding agent or a CI job,
+nothing is asked: ``sudo`` is used only as ``sudo -n``, and the ``Note`` lines
+remain. ``--system`` keeps its behaviour and uses ``sudo -n`` only.
+
 .. _intro-install-path:
 
 Search path
 -----------
 
-A new terminal runs the new ``anet`` without further steps. When the
-installation directory is not on the search path, when another ``anet`` comes
-before it, or when a new login shell does not find the new binary, the
-installer appends this block to the shell profiles, or replaces the block if
-it is already present:
+The binary stays in ``~/.local/bin``, where the user can replace it;
+``anet update`` therefore needs no administrator rights.
+
+When ``~/.local/bin`` is not on the search path of the shell that runs the
+installer, ``/usr/local/bin`` is on it, and a terminal is available, the
+installer creates the command link ``/usr/local/bin/anet`` pointing to
+``~/.local/bin/anet``, so that ``anet`` runs in that terminal at once. When
+``/usr/local/bin`` belongs to ``root``, the link is created with ``sudo``
+within the single session of :ref:`intro-install-sudo`. An earlier release at
+``/usr/local/bin/anet`` is replaced by the link; another file there is left
+unchanged, and no link is created. The last line of the output then reads
+``Run 'anet' to get started.``. When ``~/.local/bin`` is already on the search
+path, no link is created and nothing is asked.
+
+Without a terminal, no link is created. The last line then says to run
+``anet`` in a new terminal, or in the current one after this command:
+
+.. code-block:: console
+
+   $ export PATH="$HOME/.local/bin:$PATH"
+
+For new terminals, when the installation directory is not on the search path,
+when another ``anet`` comes before it, or when a new login shell does not find
+the new binary, the installer appends this block to the shell profiles, or
+replaces the block if it is already present:
 
 .. code-block:: sh
 
@@ -298,27 +534,25 @@ not exist. The profiles of other shells are changed only when they exist.
 Running the installer again adds no second block; a block that is no longer
 last in its file is moved to the end. A profile that is a symbolic link, for
 example into a repository of dotfiles, is written through the link. A file
-with a block whose end marker is missing is not changed and is named in the
-report.
+with a block whose end marker is missing is not changed, and a ``Note`` line
+names it. The log lists the profiles that were changed.
 
 The installer then starts a login, interactive shell of ``SHELL`` with an
 empty environment and input from ``/dev/null``, asks it for
-``command -v anet``, and reports the result on one line:
+``command -v anet``, and writes the result to the log:
 
 .. code-block:: text
 
    New terminals: `anet` is /Users/user/.local/bin/anet (zsh -lic 'command -v anet').
 
-The terminal in which the installer runs keeps its search path. The installer
-prints the command that updates it:
+When a new terminal would still run another ``anet``, a ``Note`` line of the
+summary says so.
 
-.. code-block:: console
-
-   $ export PATH="$HOME/.local/bin:$PATH"
-
-With ``--no-modify-path``, the profiles are not changed and the installer
-prints the line to add. When the installer runs as the superuser, it does not
-change profiles. To undo the change, delete the lines between the two markers.
+With ``--no-modify-path``, neither the profiles nor the command link are
+changed, and the last line of the output names the directory to put on the
+search path. When the installer runs as the superuser, it does not change
+profiles. To undo the change, delete the lines between the two markers, and
+remove the link ``/usr/local/bin/anet`` if it was created.
 
 .. _intro-install-verify:
 
@@ -907,6 +1141,11 @@ Starting the node
    $ anet status
    $ anet doctor
 
+On Linux and macOS, the installer has already started the node and joined the
+public hub, unless ``--no-start`` or ``--no-join`` was given (see
+:ref:`intro-install-script`). The commands above start and inspect a node by
+hand.
+
 ``anet up`` starts the daemon in the background. It continues to run after
 the terminal closes. ``anet status`` prints the AID, the data directory,
 the address of the local console and the hub state. Until the node is
@@ -1108,10 +1347,29 @@ that is already running keeps the old binary until it is restarted:
 On Windows, the running ``anet.exe`` is renamed aside instead of replaced; see
 :ref:`intro-install-windows`.
 
-``--base URL`` selects another download host, with the same checks. Releases
-after 0.3.3 also try the npm packages of :ref:`intro-install-hosts` after the
-project hosts. Re-running the installer is not required on a machine that
-already has ``anet``. An installation from npm is updated with npm (see
+``anet update`` downloads from the sources of :ref:`intro-install-hosts`, in
+the same order as ``install.sh``: npmmirror and GitHub are asked at the same
+time with a limit of three seconds and tried fastest first, followed by
+npmjs, jsDelivr and the project hosts. A source whose release is older than
+the running binary is passed over while another source serves a release at
+least as new. The output names the source that was used:
+
+.. code-block:: text
+
+   source    npmmirror (https://registry.npmmirror.com/@agentnetwork/anet-darwin-arm64)
+
+The tarball of an npm package is read before anything in it is verified, and
+is therefore read with bounds: its size, its unpacked size and the size of
+each file are limited, only regular files under ``package/dl/`` are used, an
+entry whose name is absolute or contains ``..`` ends the read, and the sha512
+``integrity`` of the package metadata is checked when it is present. A source
+that does not serve a release is passed over; a release that is served and
+fails a check ends the update.
+
+``--base URL``, or else the environment variable ``ANET_INSTALL_BASE``,
+replaces every source: the files are read from ``URL/dl/`` only, with the same
+checks. Re-running the installer is not required on a machine that already
+has ``anet``. An installation from npm is updated with npm (see
 :ref:`intro-install-npm`).
 
 .. _intro-install-remove:
@@ -1147,21 +1405,27 @@ is no longer needed:
 Installation problems
 =====================
 
-Every message of the installer ends with the statement ``Nothing was
-installed or changed.`` when the installation was not completed.
+When ``install.sh`` stops, it prints ``Error:`` with the reason, then
+``Nothing was installed or changed.``, or the steps of a takeover that were
+already carried out, and last the log (see :ref:`intro-install-output`).
+
+``no download source served a release``
+   None of the download sources answered with a release. Check the
+   connection of the machine, or name a source with ``--base URL``.
 
 ``ssh-keygen is required``
    Install the OpenSSH client tools: ``openssh-client`` on Debian and
    Ubuntu, ``openssh`` on Fedora and RHEL, ``openssh-keygen`` on Alpine.
 
 ``is not signed by the anet release key``
-   Either the download host serves a file that the release key did not
+   Either the download source serves a file that the release key did not
    sign, or the installed ``ssh-keygen`` is older than OpenSSH 8.1. Try
-   another host with ``--base URL``; every host is checked in the same way.
+   another source with ``--base URL``; every source is checked in the same
+   way.
 
 ``Refusing to downgrade``
    The manifest names a version older than the installed one, which
    usually indicates a stale mirror. Use ``--base URL`` to select another
-   host.
+   source.
 
 For failures after installation, see :doc:`/howto/troubleshooting`.

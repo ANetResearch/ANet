@@ -68,21 +68,36 @@ func runUpdate(rest []string) error {
 		return refuseUpdate("update_variant_unknown", a2ashape.Args{})
 	}
 
-	// The npm mirrors of this build come after the project's own hosts, in
-	// the same order as in install.sh.
-	bases := append(append([]string{}, release.DefaultBases...), release.MirrorBases(variant, runtime.GOOS, runtime.GOARCH)...)
-	if b := strings.TrimSpace(os.Getenv("ANET_INSTALL_BASE")); b != "" {
-		bases = append([]string{b}, bases...)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+
+	// --base, or else ANET_INSTALL_BASE, is the only source. Otherwise the
+	// sources are those of install.sh: the probed ones fastest first, then
+	// the rest in order. A source decides where the files come from, not
+	// whether they are accepted.
+	var sources []release.Source
+	base, haveBase := flags["base"]
+	if haveBase && (base == "" || base == "true") {
+		return errors.New("--base needs an https:// URL")
 	}
-	if b, ok := flags["base"]; ok {
-		if b == "" || b == "true" {
-			return errors.New("--base needs an https:// URL")
+	if !haveBase {
+		base = strings.TrimSpace(os.Getenv("ANET_INSTALL_BASE"))
+	}
+	if base != "" {
+		s, err := release.BaseSource(base)
+		if err != nil {
+			return err
 		}
-		bases = []string{b}
+		sources = []release.Source{s}
 	}
 
+	fmt.Printf("anet %s (%s variant, %s/%s) at %s\n", version.V, variant, runtime.GOOS, runtime.GOARCH, exe)
+	if sources == nil {
+		probed, rest := release.Sources(variant, runtime.GOOS, runtime.GOARCH)
+		sources = release.OrderSources(ctx, nil, probed, rest, 0)
+	}
 	u := &release.Updater{
-		Bases:   bases,
+		Sources: sources,
 		Trust:   release.DefaultTrust(),
 		Current: version.V,
 		Variant: variant,
@@ -90,10 +105,6 @@ func runUpdate(rest []string) error {
 		GOARCH:  runtime.GOARCH,
 		Exe:     exe,
 	}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
-	defer stop()
-
-	fmt.Printf("anet %s (%s variant, %s/%s) at %s\n", version.V, variant, runtime.GOOS, runtime.GOARCH, exe)
 	f, err := u.Check(ctx)
 	if errors.Is(err, release.ErrNoVariant) {
 		return refuseUpdate("update_variant_unknown.mismatch", mismatchArgs(variant, compiled))
@@ -113,7 +124,7 @@ func runUpdate(rest []string) error {
 		return refuseUpdate("update_variant_unknown.mismatch", mismatchArgs(variant, compiled))
 	}
 	m := f.Manifest
-	fmt.Printf("  manifest  %s%s/release.json\n", f.Base, release.DLPath)
+	fmt.Printf("  source    %s (%s)\n", f.Source.Name, f.Source.Location())
 	fmt.Printf("  signed by %s (release key, namespace %s)\n", f.Signer, release.Namespace)
 	fmt.Printf("  release   %s  commit %s  released %s  valid until %s\n",
 		m.Version, shortCommit(m.Commit), m.ReleasedAt, m.ExpiresAt)

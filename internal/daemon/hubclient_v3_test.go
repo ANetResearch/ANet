@@ -660,6 +660,7 @@ func TestDaemonDecodesHubBinaryAsBase64URL(t *testing.T) {
 		"module/autoreply/egress.go proxyAuthorized":             "a sandboxed agent's Proxy-Authorization (HTTP Basic is standard base64)",
 		"internal/release/sshsig.go ParseAuthorizedKey":          "a release signing key file",
 		"internal/release/sshsig.go dearmor":                     "a release signature file",
+		"internal/release/sources.go checkIntegrity":             "an npm registry's integrity value (Subresource Integrity is standard base64)",
 		"module/blackboard/module.go add":                        "a capability call's argument",
 		"module/cas/module.go put":                               "a capability call's argument",
 		"module/org/module.go Start":                             "the module's configuration",
