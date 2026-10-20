@@ -14,23 +14,25 @@ import (
 // (the seams of the Host), the kernel-neutral internal packages the seams are built from, and the
 // system call package. Anything else, above all internal/daemon, is a kernel dependency (MOD §7.1).
 var importAllowed = map[string]bool{
-	"github.com/ANetResearch/ANet/module":            true,
-	"github.com/ANetResearch/ANet/internal/a2ashape": true,
-	"github.com/ANetResearch/ANet/internal/evtypes":  true,
-	"github.com/ANetResearch/ANet/internal/localday": true,
-	"github.com/ANetResearch/ANet/internal/execwork": true,
-	"github.com/ANetResearch/ANet/internal/pathsafe": true,
-	"github.com/ANetResearch/ANet/internal/anethome": true,
-	"github.com/ANetResearch/ANetCore/anetcid":       true,
-	"github.com/ANetResearch/ANetCore/delegation":    true,
-	"golang.org/x/sys/unix":                          true,
+	"github.com/ANetResearch/ANet/module":             true,
+	"github.com/ANetResearch/ANet/internal/a2ashape":  true,
+	"github.com/ANetResearch/ANet/internal/evtypes":   true,
+	"github.com/ANetResearch/ANet/internal/localday":  true,
+	"github.com/ANetResearch/ANet/internal/execwork":  true,
+	"github.com/ANetResearch/ANet/internal/pathsafe":  true,
+	"github.com/ANetResearch/ANet/internal/anethome":  true,
+	"github.com/ANetResearch/ANet/internal/fsperm":    true,
+	"github.com/ANetResearch/ANet/internal/procgroup": true,
+	"github.com/ANetResearch/ANetCore/anetcid":        true,
+	"github.com/ANetResearch/ANetCore/delegation":     true,
+	"golang.org/x/sys/unix":                           true,
 }
 
 // TestAutoReplyModuleImportBoundary (MOD-3's closed assertion, renamed with the move): the module's files
-// import only the allowed packages, on Linux and on macOS, so it reaches the kernel only through the
+// import only the allowed packages, on Linux, on macOS and on Windows, so it reaches the kernel only through the
 // seams of module.Host and a build without the kernel's test helpers still compiles it.
 func TestAutoReplyModuleImportBoundary(t *testing.T) {
-	for _, goos := range []string{"linux", "darwin"} {
+	for _, goos := range []string{"linux", "darwin", "windows"} {
 		ctxt := build.Default
 		ctxt.GOOS = goos
 		ctxt.CgoEnabled = false

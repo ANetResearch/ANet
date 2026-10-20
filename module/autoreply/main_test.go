@@ -59,6 +59,11 @@ func TestMain(m *testing.M) {
 		_ = os.MkdirAll(filepath.Join(home, "Library", "Caches"), 0o700)
 		_ = os.Setenv("HOME", home)
 	}
+	if runtime.GOOS == "windows" {
+		// Windows's cache dir is %LocalAppData% whatever XDG_CACHE_HOME says: one of the run's own keeps
+		// the work dirs out of the user's profile.
+		_ = os.Setenv("LocalAppData", filepath.Join(cache, "localappdata"))
+	}
 	code := m.Run()
 	_ = os.RemoveAll(cache)
 	os.Exit(code)
