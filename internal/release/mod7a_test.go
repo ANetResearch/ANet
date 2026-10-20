@@ -160,6 +160,14 @@ func TestInstallShHeaderStatement(t *testing.T) {
 	if strings.Contains(script, "cannot execute anything on the machine") {
 		t.Error("install.sh still says the default binary cannot execute anything on the host")
 	}
+	// install.ps1 is ASCII, so it carries the English statement only.
+	ps1 := repoFile(t, "deploy/release/install.ps1")
+	if want := "#   " + a2ashape.InstallHeader(a2ashape.English, tagged) + "\n"; !strings.Contains(ps1, want) {
+		t.Errorf("install.ps1 lacks the English statement (autoreply tagged: %v):\n%s", tagged, want)
+	}
+	if strings.Contains(ps1, a2ashape.InstallHeader(a2ashape.English, !tagged)) {
+		t.Error("install.ps1 carries the statement of the other Tag value")
+	}
 	// Both forms say what the registered text says.
 	for _, tagged := range []bool{false, true} {
 		zh, en := a2ashape.InstallHeader(a2ashape.Chinese, tagged), a2ashape.InstallHeader(a2ashape.English, tagged)

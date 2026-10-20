@@ -2,14 +2,15 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"runtime"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
 	"github.com/ANetResearch/ANet/internal/release"
@@ -25,15 +26,23 @@ import (
 // It trusts nothing about where the files come from. That is the point of
 // having it: a first install over curl | sh trusts the host serving the
 // script, and every update after that trusts only the release key.
+//
+// `anet update --verify-dir DIR [--installed VERSION]` is the other mode:
+// see runVerifyDir.
 func runUpdate(rest []string) error {
 	pos, flags := splitFlags(rest)
 	if len(pos) > 0 {
 		return fmt.Errorf("anet update takes no arguments (got %q)", strings.Join(pos, " "))
 	}
+	_, verifyDir := flags["verify-dir"]
+	_, installed := flags["installed"]
+	if verifyDir || installed {
+		return runVerifyDir(flags)
+	}
 	_, checkOnly := flags["check"]
 
 	switch runtime.GOOS {
-	case "linux", "darwin":
+	case "linux", "darwin", "windows":
 	default:
 		return fmt.Errorf("anet update replaces the running binary in place, which %s does not allow; download the new release by hand", runtime.GOOS)
 	}
@@ -41,9 +50,13 @@ func runUpdate(rest []string) error {
 	if err != nil {
 		return fmt.Errorf("cannot find this binary: %w", err)
 	}
-	if exe, err = filepath.EvalSymlinks(exe); err != nil {
+	if exe, err = resolveExe(exe); err != nil {
 		return fmt.Errorf("cannot resolve this binary: %w", err)
 	}
+	// Binaries that an earlier update moved aside (Windows only; a no-op
+	// elsewhere). One still in use by a running daemon stays until the
+	// next run.
+	release.SweepAside(exe)
 
 	// The variant is the name build-release.sh stamped into this binary
 	// (version.Variant), and only the release of that name is looked at.
@@ -137,12 +150,77 @@ func runUpdate(rest []string) error {
 
 	fmt.Printf("  asset     %s.gz (%d bytes)\n", f.AssetName, f.Asset.GzSize)
 	if err := u.Apply(ctx, f); err != nil {
+		if errors.Is(err, release.ErrReplaceIncomplete) {
+			return err
+		}
 		return fmt.Errorf("%w (nothing was changed: %s is still %s)", err, exe, version.V)
 	}
 	fmt.Printf("✓ updated %s: %s → %s (sha256 of .gz and binary match the signed manifest)\n", exe, version.V, m.Version)
 	recordRelease(exe, f)
 	fmt.Println("  Daemons already running keep the old binary until restarted:")
-	fmt.Println("    anet stop --all && anet up --all")
+	printRestartHint(os.Stdout)
+	return nil
+}
+
+// verifyTrust is the trust --verify-dir checks a release with: the release
+// key compiled into this binary. A test replaces it with a test key.
+var verifyTrust = release.DefaultTrust
+
+// runVerifyDir is `anet update --verify-dir DIR [--installed VERSION]`.
+//
+// It fetches nothing and writes nothing. It verifies DIR/release.json and
+// its signature with the release key compiled into this binary, and then
+// that this binary is the release's build of its own variant for this
+// platform: its sha256 and size, its version and its module set (see
+// release.VerifyStaged). With --installed, a release older than VERSION is
+// refused. On success it prints one JSON line (release.Verified) and
+// returns nil; otherwise it prints the reason on stderr and ends with
+// status 1.
+//
+// install.ps1 runs it on the binary it has staged, after checking the
+// binary against the SHA-256 values pinned in the signed script: PowerShell
+// on the oldest supported Windows can verify neither Ed25519 nor an SSH
+// signature, and this binary's verifier is the one `anet update` uses.
+func runVerifyDir(flags map[string]string) error {
+	const usage = "anet update --verify-dir <dir> [--installed <version>]"
+	dir, ok := flags["verify-dir"]
+	if !ok || dir == "" || dir == "true" {
+		return usageError{usage}
+	}
+	installed, given := flags["installed"]
+	if given && (installed == "" || installed == "true") {
+		return usageError{usage}
+	}
+	for f := range flags {
+		if f != "verify-dir" && f != "installed" {
+			return usageError{usage}
+		}
+	}
+	fail := func(err error) error {
+		fmt.Fprintf(errW(), "anet update --verify-dir: %v\n", err)
+		return errExit1
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return fail(fmt.Errorf("cannot find this binary: %w", err))
+	}
+	self := release.Self{
+		Exe:     exe,
+		Version: version.V,
+		Variant: version.Variant,
+		GOOS:    runtime.GOOS,
+		GOARCH:  runtime.GOARCH,
+		Modules: module.Compiled(),
+	}
+	v, err := release.VerifyStaged(dir, verifyTrust(), time.Now(), self, installed)
+	if err != nil {
+		return fail(err)
+	}
+	b, err := json.Marshal(v)
+	if err != nil {
+		return fail(err)
+	}
+	fmt.Fprintf(outW(), "%s\n", b)
 	return nil
 }
 

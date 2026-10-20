@@ -40,6 +40,17 @@
 # anything that does not match it. install.sh is signed too (install.sh.sig)
 # so it can be checked before it is run; see SECURITY.md.
 #
+# WINDOWS. The Windows builds are PE files named like the others, without
+# .exe (anet-windows-amd64); they are installed as anet.exe. The Windows
+# installer cannot verify an SSH signature itself (Windows 10 1809 ships an
+# ssh-keygen without -Y, and .NET has no Ed25519), so install.ps1 is written
+# per release from the template deploy/release/install.ps1: ps1-pins.sh puts
+# the version and the SHA-256 and size of the four Windows .gz files, and of
+# the binaries inside them, into it, and it is signed like install.sh
+# (install.ps1.sig). The pinned binary then verifies release.json itself
+# (anet update --verify-dir) before anything is installed. install.ps1 is
+# written only when all four Windows builds are part of the run.
+#
 # THE OFFICIAL MANIFEST (A2A-DESIGN §15). Which agents the project runs is
 # not something a binary learns from a hub: it is internal/official/
 # manifest.json — the AID, name, hub and capabilities of each official
@@ -59,12 +70,15 @@
 #   release.json, release.json.sig   the signed manifest
 #   anet-<plat>.gz, anet-shell-<plat>.gz
 #   install.sh, install.sh.sig       the installer, signed
+#   install.ps1, install.ps1.sig     the Windows installer with the release
+#                                    pins, signed (only when the Windows
+#                                    platforms are built)
 #   checksums.txt                    sha256 of each .gz and raw binary — for
 #                                    people reading by eye; nothing trusts it
 #   VERSION                          the release version, likewise
 #
-# Publishing: install.sh and install.sh.sig at the root of the download
-# host, everything else under /dl/. On agentnetwork.org.cn that root is
+# Publishing: install.sh, install.ps1 and their signatures at the root of
+# the download host, everything else under /dl/. On agentnetwork.org.cn that root is
 # /var/www/anet-release, never the website's public/ (a website deploy
 # replaced install.sh there once): deploy/release/apex/publish.sh --dist dist/
 #
@@ -73,10 +87,16 @@
 #                                                every platform, both variants
 #   ANET_RELEASE_KEY=… ./deploy/release/build-release.sh linux-amd64
 #                                                only the listed platforms
+#                                                (darwin-arm64 darwin-amd64
+#                                                linux-amd64 linux-arm64
+#                                                windows-amd64 windows-arm64)
 #   ANET_RELEASE_KEY=… ./deploy/release/build-release.sh --resign
 #                                                re-date and re-sign the
 #                                                manifest already in dist/,
-#                                                without rebuilding
+#                                                without rebuilding;
+#                                                install.ps1 and its
+#                                                signature stay as they are
+#                                                (the pins do not change)
 #   ANET_RELEASE_KEY=… ./deploy/release/build-release.sh --official
 #                                                write and sign
 #                                                internal/official/manifest.json
@@ -400,7 +420,7 @@ GOVERSION="$(go env GOVERSION)"
 check_key
 check_official
 
-ALL="darwin-arm64 darwin-amd64 linux-amd64 linux-arm64"
+ALL="darwin-arm64 darwin-amd64 linux-amd64 linux-arm64 windows-amd64 windows-arm64"
 TARGETS="${*:-$ALL}"
 for plat in $TARGETS; do
   case " $ALL " in *" $plat "*) ;; *) die "unknown platform $plat (known: $ALL)" ;; esac
@@ -488,8 +508,9 @@ ok "shell:   $MODS_SHELL"
 # ── symbols, on every platform ───────────────────────────────────────────
 # The claim each variant's name makes, checked rather than asserted — on
 # every platform, not only the one this script runs on: `go tool nm` reads
-# ELF and Mach-O alike, and a check that skipped three of four targets left
-# three of four shipped defaults unexamined. Beyond shell/no-shell, every
+# ELF, Mach-O and PE alike (the Go linker keeps the COFF symbol table of a
+# Windows binary unless -s is given, and it is not), and a check that
+# skipped some targets left their shipped defaults unexamined. Beyond shell/no-shell, every
 # platform's set of linked module packages must equal that of the host build
 # whose `modules:` line went into the manifest above — not merely the first
 # target's, which need not be this machine's platform — so the module line
@@ -540,11 +561,30 @@ MF="$DIST/release.json"
   printf '  }\n'
   printf '}\n'
 } > "$MF"
-rm -f "$DIST/.assets"
 ok "release.json: $VERSION, valid until $EXPIRES"
+
+# ── install.ps1 ──────────────────────────────────────────────────────────
+# The Windows installer carries the pins of the four Windows builds, so it
+# exists only for a run that built them all.
+PS1_WRITTEN=0
+case " $TARGETS " in
+  *" windows-amd64 "*)
+    case " $TARGETS " in
+      *" windows-arm64 "*)
+        bash "$REL_DIR/ps1-pins.sh" "$DIST/.assets" "$VERSION" < "$REL_DIR/install.ps1" > "$DIST/install.ps1" \
+          || { rm -f "$DIST/install.ps1"; die "could not write the release pins into install.ps1"; }
+        PS1_WRITTEN=1
+        ok "install.ps1: pins of the four Windows builds of $VERSION"
+        ;;
+    esac
+    ;;
+esac
+[ "$PS1_WRITTEN" = 1 ] || printf '! install.ps1 not written: the Windows platforms were not built\n'
+rm -f "$DIST/.assets"
 
 sign "$MF"
 sign "$DIST/install.sh"
+if [ "$PS1_WRITTEN" = 1 ]; then sign "$DIST/install.ps1"; fi
 
 echo
 if [ "$MODE" = unsigned ]; then
@@ -556,5 +596,9 @@ echo "  platforms   $TARGETS"
 echo "  variants    default, shell"
 echo "  manifest    $MF (valid until $EXPIRES)"
 echo "  key         $KEY_FP   next: ${NEXT_FP:-none}"
-echo "  publish     install.sh + install.sh.sig at the host root; everything else under /dl/"
+if [ "$PS1_WRITTEN" = 1 ]; then
+  echo "  publish     install.sh, install.ps1 and their .sig at the host root; everything else under /dl/"
+else
+  echo "  publish     install.sh + install.sh.sig at the host root; everything else under /dl/"
+fi
 echo "              (agentnetwork.org.cn: deploy/release/apex/publish.sh --dist $DIST)"

@@ -12,7 +12,8 @@
 // signed release, or one whose validity has run out, is refused rather than
 // followed.
 //
-// This package depends on the standard library only. The trust root is the
+// This package depends on the standard library and internal/fsperm (a
+// rename that waits out a reader on Windows) only. The trust root is the
 // allowed_signers file compiled into the binary (keys.go).
 package release
 

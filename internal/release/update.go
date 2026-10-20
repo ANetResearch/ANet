@@ -29,6 +29,11 @@ var DefaultBases = []string{"https://agentnetwork.org.cn", "https://hub.agentnet
 // DLPath is where a base serves release.json, its signature and the assets.
 const DLPath = "/dl"
 
+// ErrReplaceIncomplete is a replacement that failed half way on Windows:
+// the binary was moved aside, the new one could not take its name, and the
+// old one could not be renamed back. The error names both files.
+var ErrReplaceIncomplete = errors.New("the binary was not replaced and is no longer in place")
+
 // Updater finds, verifies and installs a release over one binary.
 type Updater struct {
 	Bases   []string     // https only; see DefaultBases
@@ -128,7 +133,11 @@ func (u *Updater) verify(base string, raw, sig []byte) (*Found, error) {
 // The replacement is a rename of a fully written, fully checked file in
 // the same directory, so the old binary is either untouched or replaced
 // whole: every failure before the rename removes the temporary file and
-// leaves u.Exe as it was.
+// leaves u.Exe as it was. On Windows, where a running executable can be
+// renamed but not replaced, the rename is preceded by moving u.Exe aside
+// (replaceExe in replace_windows.go); a failure after that step puts it
+// back, and ErrReplaceIncomplete reports the one case in which that also
+// failed.
 func (u *Updater) Apply(ctx context.Context, f *Found) (err error) {
 	if f.Cmp < 0 {
 		return fmt.Errorf("%w: %s < %s", ErrDowngrade, f.Manifest.Version, u.Current)
@@ -148,7 +157,7 @@ func (u *Updater) Apply(ctx context.Context, f *Found) (err error) {
 	if st, err := os.Stat(u.Exe); err == nil {
 		mode = st.Mode().Perm() | 0o111
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(u.Exe), ".anet-update-*")
+	tmp, err := os.CreateTemp(filepath.Dir(u.Exe), updateTempPattern)
 	if err != nil {
 		return fmt.Errorf("cannot write next to %s (%w); run anet update as the user that can", u.Exe, err)
 	}
@@ -174,7 +183,7 @@ func (u *Updater) Apply(ctx context.Context, f *Found) (err error) {
 	if got := hex.EncodeToString(h.Sum(nil)); got != f.Asset.SHA256 {
 		return fmt.Errorf("%s: sha256 %s, the manifest says %s", f.AssetName, got, f.Asset.SHA256)
 	}
-	if err = tmp.Chmod(mode); err != nil {
+	if err = chmodTemp(tmp, mode); err != nil {
 		return err
 	}
 	if err = tmp.Sync(); err != nil {
@@ -202,16 +211,8 @@ func (u *Updater) Apply(ctx context.Context, f *Found) (err error) {
 		return fmt.Errorf("the downloaded binary reports modules %q, the manifest says %q for the %s variant",
 			strings.Join(mods, ","), strings.Join(f.Modules, ","), u.Variant)
 	}
-	if err = os.Rename(tmpName, u.Exe); err != nil {
+	if err = replaceExe(tmpName, u.Exe); err != nil {
 		return fmt.Errorf("replace %s: %w", u.Exe, err)
-	}
-	// The rename is durable once the directory entry is; without this a
-	// crash right after could come back with the old name pointing nowhere
-	// on some filesystems. Best effort: not every platform can fsync a
-	// directory, and the rename has already happened.
-	if d, derr := os.Open(filepath.Dir(u.Exe)); derr == nil {
-		_ = d.Sync()
-		d.Close()
 	}
 	return nil
 }

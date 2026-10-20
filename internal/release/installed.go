@@ -33,6 +33,8 @@ import (
 	"path/filepath"
 	"sort"
 	"time"
+
+	"github.com/ANetResearch/ANet/internal/fsperm"
 )
 
 // Installed-record file suffixes, appended to the binary's path.
@@ -117,7 +119,10 @@ func writeReplace(path string, body []byte) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	return os.Rename(name, path)
+	// A reader (`anet doctor`) may hold the old record open; on Windows
+	// that makes a rename over it fail for a moment, and ReplaceFile
+	// retries for a bounded time.
+	return fsperm.ReplaceFile(name, path)
 }
 
 // CheckInstalled checks the record beside exe against trust and against

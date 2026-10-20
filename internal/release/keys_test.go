@@ -30,7 +30,7 @@ func TestEmbeddedTrust(t *testing.T) {
 	}
 }
 
-// The key is published in four places and checked by three programs. They
+// The key is published in four places and checked by four programs. They
 // have to be the same key, or a user comparing the README against the
 // installer is comparing two different things — and a release signed with
 // the key one of them names fails in the others.
@@ -48,6 +48,16 @@ func TestTheReleaseKeyIsTheSameEverywhere(t *testing.T) {
 	}
 	if !strings.Contains(install, "echo '"+line+"' > allowed_signers") {
 		t.Errorf("install.sh's manual-verification comment does not use the release key")
+	}
+
+	// install.ps1 shows the key line in its header and compares the
+	// fingerprint the binary reports with the key's (install_ps1_test.go).
+	ps1 := repoFile(t, "deploy/release/install.ps1")
+	for _, want := range []string{"#   " + line + "\n", "$AnetReleaseKeyFingerprint = '" + shippedKeyFP + "'\n",
+		"ssh-keygen -Y verify -f allowed_signers -I " + Identity} {
+		if !strings.Contains(ps1, want) {
+			t.Errorf("install.ps1 does not contain %q", want)
+		}
 	}
 
 	for _, doc := range []string{"SECURITY.md", "README.md"} {

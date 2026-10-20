@@ -51,6 +51,19 @@ jobs:
         run: |
           bash scripts/tagcheck.sh deps
           bash scripts/tagcheck.sh deps no_a2a
+      # The Windows port: every package builds and vets for windows/amd64
+      # and windows/arm64, in the default build and with the shell module.
+      # The tests themselves run on Windows, in the `windows` job.
+      - name: build and vet for windows/amd64 and windows/arm64
+        shell: bash
+        run: |
+          for a in amd64 arm64; do
+            for t in "" shell; do
+              echo "== windows/$a ${t:-default}"
+              GOOS=windows GOARCH=$a go build -tags "$t" ./...
+              GOOS=windows GOARCH=$a go vet -tags "$t" ./...
+            done
+          done
 
   race:
     runs-on: ubuntu-latest
@@ -295,6 +308,57 @@ jobs:
         run: go test -count=1 -run 'SandboxInit|SandboxSpec|EgressKeyed|EgressUnkeyed|SandboxEgressEnv|Doctor' ./module/autoreply/ ./internal/daemon/ ./cmd/anet/
       - name: the agents' configurations and command lines on macOS
         run: go test -count=1 -run 'UpstreamCombinationsFailClosed|SystemPromptStartingWithADash|AgentSandbox|AgentCommandLines|EgressUpstream|UnsupportedAgentsFailClosed' ./module/autoreply/ ./internal/daemon/
+
+  # Native Windows, on a real Windows runner: vet, the TestWindows... tests
+  # of the packages the port changes (private files and their access control
+  # lists, process trees in a job object, names, the loopback guard, the
+  # daemon, auto-reply, the shell module, the replacement of a running
+  # anet.exe and the CLI), and the installer: install.ps1 must parse in
+  # Windows PowerShell 5.1 and in PowerShell 7, and test-install.ps1 checks its
+  # functions in both. The Go steps run in bash so that the first failing
+  # command fails the step.
+  windows:
+    runs-on: windows-latest
+    env:
+      CGO_ENABLED: "0"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: vet, default and shell
+        shell: bash
+        run: |
+          go vet ./...
+          go vet -tags shell ./...
+      - name: the Windows tests
+        shell: bash
+        run: |
+          go test -count=1 -run Windows ./internal/fsperm ./internal/procgroup ./internal/pathsafe ./internal/anethome \
+            ./internal/loopguard ./internal/daemon ./module/autoreply ./internal/release ./cmd/anet
+          go test -count=1 -tags shell -run Windows ./module/shell ./cmd/anet
+      - name: install.ps1 in Windows PowerShell 5.1
+        shell: powershell
+        run: |
+          $tokens = $null; $errors = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PWD 'deploy\release\install.ps1'), [ref]$tokens, [ref]$errors)
+          if (@($errors).Count -ne 0) {
+            $errors | ForEach-Object { Write-Output ('install.ps1:{0}: {1}' -f $_.Extent.StartLineNumber, $_.Message) }
+            exit 1
+          }
+          powershell -NoProfile -ExecutionPolicy Bypass -File deploy\release\test-install.ps1
+          exit $LASTEXITCODE
+      - name: install.ps1 in PowerShell 7
+        shell: pwsh
+        run: |
+          $tokens = $null; $errors = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PWD 'deploy\release\install.ps1'), [ref]$tokens, [ref]$errors)
+          if (@($errors).Count -ne 0) {
+            $errors | ForEach-Object { Write-Output ('install.ps1:{0}: {1}' -f $_.Extent.StartLineNumber, $_.Message) }
+            exit 1
+          }
+          pwsh -NoProfile -File deploy\release\test-install.ps1
+          exit $LASTEXITCODE
 
   # The platforms the release builds for, and one it does not: peercred is
   # read on Linux, macOS and FreeBSD, and on OpenBSD everything builds and
