@@ -245,7 +245,7 @@ try {
     Check 'a directory Users can read is not private' ($why -like '*S-1-5-32-545*') ([string]$why)
     Set-AnetPrivateAcl -Path $d
     $why = Get-AnetPrivacyProblem -Path $d
-    Check 'after icacls /inheritance:r /grant:r it is private' ($null -eq $why) ([string]$why)
+    Check 'after Set-AnetPrivateAcl a directory with an explicit rule for Users is private' ($null -eq $why) ([string]$why)
     $acl = Get-Acl -LiteralPath $d
     $sids = @($acl.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier]) | ForEach-Object { $_.IdentityReference.Value } | Sort-Object -Unique)
     Check 'the private directory names only the user, SYSTEM and Administrators' ((($sids | Sort-Object) -join ',') -eq ((@($user, 'S-1-5-18', 'S-1-5-32-544') | Sort-Object) -join ',')) ($sids -join ',')

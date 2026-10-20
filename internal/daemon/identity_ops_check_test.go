@@ -194,11 +194,25 @@ func TestAQuarantineAnswerPushesTheLongerKEL(t *testing.T) {
 		defer d.idOps.mu.Unlock()
 		return !d.idOps.checking
 	})
-	d.noteHubNotice("", noticeErrQuarantine)
+	// A check that starts between the wait above and the notice (a trigger the rotation left behind)
+	// drops the notice in the same way, so the notice is given again while no push has arrived, as
+	// the hub's next answer would give it.
+	var noted time.Time
 	waitUntil(t, "the longer KEL was pushed", func() bool {
 		fh.mu.Lock()
-		defer fh.mu.Unlock()
-		return fh.kelPushes[d.AID()] > 0
+		pushed := fh.kelPushes[d.AID()] > 0
+		fh.mu.Unlock()
+		if pushed {
+			return true
+		}
+		d.idOps.mu.Lock()
+		checking := d.idOps.checking
+		d.idOps.mu.Unlock()
+		if !checking && time.Since(noted) > 500*time.Millisecond {
+			noted = time.Now()
+			d.noteHubNotice("", noticeErrQuarantine)
+		}
+		return false
 	})
 	fh.mu.Lock()
 	held, _ := identity.UnmarshalKEL(fh.agents[d.AID()].kel)

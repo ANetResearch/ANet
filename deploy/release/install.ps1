@@ -545,15 +545,26 @@ function Get-AnetAncestorProblem {
 
 # Set-AnetPrivateAcl replaces the access control list of a directory this
 # script created: no inherited rules, full control for this user, SYSTEM and
-# Administrators, inherited by everything created inside.
+# Administrators, inherited by everything created inside. /inheritance:r
+# removes the inherited rules and /grant:r replaces the rules of the three
+# accounts that stay; every other account that has an explicit rule (allow
+# or deny) is named after /remove, so that no other rule remains. The three
+# accounts that stay are never named after /remove.
 function Set-AnetPrivateAcl {
   param([Parameter(Mandatory = $true)][string]$Path)
   $user = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+  $keep = @($user, 'S-1-5-18', 'S-1-5-32-544')
+  $others = @((Get-Acl -LiteralPath $Path).GetAccessRules($true, $false, [System.Security.Principal.SecurityIdentifier]) |
+    ForEach-Object { $_.IdentityReference.Value } | Where-Object { $keep -notcontains $_ } | Sort-Object -Unique)
+  $arguments = @($Path, '/inheritance:r')
+  if ($others.Count -gt 0) {
+    $arguments += '/remove'
+    $arguments += @($others | ForEach-Object { '*' + $_ })
+  }
+  $arguments += @('/grant:r', ('*{0}:(OI)(CI)F' -f $user), '*S-1-5-18:(OI)(CI)F', '*S-1-5-32-544:(OI)(CI)F')
   $icacls = Join-Path ([Environment]::SystemDirectory) 'icacls.exe'
   $r = @{}
-  Invoke-AnetNative -FilePath $icacls -Capture -Result $r -ArgumentList @(
-    $Path, '/inheritance:r', '/grant:r',
-    ('*{0}:(OI)(CI)F' -f $user), '*S-1-5-18:(OI)(CI)F', '*S-1-5-32-544:(OI)(CI)F')
+  Invoke-AnetNative -FilePath $icacls -Capture -Result $r -ArgumentList $arguments
   if ($r['Code'] -ne 0) {
     throw (New-AnetFailure ('icacls could not set the access control list of ' + $Path + ' (exit status ' + $r['Code'] + ')'))
   }
