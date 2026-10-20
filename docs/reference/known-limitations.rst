@@ -274,9 +274,13 @@ Processes left running by a shell command
    Linux and macOS, but ends when the daemon ends.
 
 Agent launchers ending in ``.cmd`` or ``.bat``
-   Such a launcher cannot receive arguments that Go cannot escape for
-   ``cmd.exe``. Configure the underlying ``.exe`` or the Node.js entry point
-   instead.
+   Auto-reply refuses an agent program that is a batch file, such as the
+   ``claude.cmd`` or ``codex.cmd`` launchers that npm installs, whether it is
+   found on ``PATH`` or configured in ``auto_reply.command``. Windows runs a
+   batch file through ``cmd.exe``, which ends the command line at the first
+   line break and interprets ``%``, ``&`` and ``|`` in the arguments, so the
+   instructions would not reach the agent intact. Install the native
+   executable of the agent, or set ``auto_reply.command`` to its ``.exe``.
 
 Plugin launchers
    The launchers of the plugins are POSIX shell scripts and do not run on

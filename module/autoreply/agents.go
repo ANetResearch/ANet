@@ -212,6 +212,10 @@ func lookAgentPath(name string) (string, error) {
 // sandboxed agent runs under bwrap --die-with-parent in its own PID namespace, so killing bwrap ends
 // every process inside.
 func runCmd(ctx context.Context, o execInvokeOpts, stdin []byte, bin string, args ...string) (stdout, stderr []byte, err error) {
+	// On Windows a batch file runs through cmd.exe, which does not receive the arguments intact.
+	if err := refuseBatchAgent(bin); err != nil {
+		return nil, nil, err
+	}
 	// Always set, even when empty: a nil Env would make the child inherit the daemon's whole
 	// environment.
 	env := append([]string{}, o.Env...)

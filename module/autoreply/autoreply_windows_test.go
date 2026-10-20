@@ -401,3 +401,36 @@ func TestWindowsRunCmdTimeoutKillsAGrandchild(t *testing.T) {
 		t.Fatalf("the grandchild %d survived the timeout", pid)
 	}
 }
+
+// An agent program that is a batch file is refused before it starts, whether it is configured by path or
+// found through PATH and PATHEXT (an npm launcher such as claude.cmd): cmd.exe would cut the instructions
+// at the first line break and interpret % & | in them. An .exe is not refused.
+func TestWindowsBatchAgentIsRefused(t *testing.T) {
+	dir := t.TempDir()
+	marker := filepath.Join(dir, "ran")
+	for _, name := range []string{"claude.cmd", "codex.BAT"} {
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, []byte("@echo ran>\""+marker+"\"\r\n"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", dir)
+	t.Setenv("PATHEXT", ".COM;.EXE;.BAT;.CMD")
+	o := execInvokeOpts{WorkDir: dir, Env: execEnvFrom(os.Environ(), AutoReplyConfig{}, nil, "")}
+	for _, bin := range []string{filepath.Join(dir, "claude.cmd"), filepath.Join(dir, "codex.BAT"), "claude", filepath.Join(dir, "claude")} {
+		_, _, err := runCmd(context.Background(), o, nil, bin, "-p", "line one\nline two")
+		if !errors.Is(err, errBatchAgent) {
+			t.Errorf("%s: %v", bin, err)
+		}
+	}
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatal("a batch agent ran")
+	}
+	whoami := systemTool(t, `System32\whoami.exe`)
+	if err := refuseBatchAgent(whoami); err != nil {
+		t.Fatalf("an .exe agent: %v", err)
+	}
+	if out, _, err := runCmd(context.Background(), o, nil, whoami); err != nil || len(out) == 0 {
+		t.Fatalf("an .exe agent did not run: %q, %v", out, err)
+	}
+}
