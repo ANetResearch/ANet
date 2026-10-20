@@ -111,13 +111,18 @@ func TestInstallPS1FileRules(t *testing.T) {
 	if !strings.Contains(script, "'Run this in a PowerShell window that is not elevated; the node and the commands it runs for the controller run as the user that installs it. To install for an administrator account anyway, add -Elevated.'") {
 		t.Error("install.ps1 lacks the refusal of an elevated window")
 	}
-	// The one line and the verify-first form are in the header.
+	// The one line and the verify-first form are in the header. The verify-first form writes
+	// allowed_signers without a byte order mark, checks in cmd.exe and stops on a failed check before
+	// the run, on the same line; the check alone is one line, the same in cmd.exe and a POSIX shell.
+	verify := "ssh-keygen -Y verify -f allowed_signers -I " + Identity + " -n " + Namespace + " -s install.ps1.sig < install.ps1"
 	for _, s := range []string{
 		"#   " + installPS1OneLine("-Controller '<controller AID>'"),
 		"#   Invoke-WebRequest -UseBasicParsing https://agentnetwork.org.cn/install.ps1 -OutFile install.ps1",
 		"#   Invoke-WebRequest -UseBasicParsing https://agentnetwork.org.cn/install.ps1.sig -OutFile install.ps1.sig",
-		"#   #   ssh-keygen -Y verify -f allowed_signers -I " + Identity + " -n " + Namespace + " -s install.ps1.sig < install.ps1",
-		"#   & ([scriptblock]::Create((Get-Content -Raw .\\install.ps1))) -Controller '<AID>'",
+		"#   [IO.File]::WriteAllText((Join-Path $PWD.ProviderPath 'allowed_signers'), '" + strings.TrimSpace(allowedSigners) + "')",
+		"#   cmd /c \"" + verify + "\"; if ($LASTEXITCODE -ne 0) { throw 'install.ps1 did not verify' }; " +
+			"& ([scriptblock]::Create((Get-Content -Raw .\\install.ps1))) -Controller '<controller AID>'",
+		"#   " + verify,
 	} {
 		if !strings.Contains(script, s+"\n") {
 			t.Errorf("install.ps1's header lacks %q", s)
