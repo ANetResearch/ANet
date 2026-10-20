@@ -285,7 +285,7 @@ func pullInto(real, interactionID string, atts []*interactions.Attachment) ([]Pu
 	}
 	used := map[string]bool{}
 	for _, a := range atts {
-		res, err := pullOne(dir, sub, pathsafe.SafeName(a.Name), a, used)
+		res, err := pullOne(dir, sub, pathsafe.ExplorerInertName(pathsafe.SafeName(a.Name)), a, used)
 		if err != nil {
 			return nil, err
 		}
@@ -428,8 +428,9 @@ func pullOne(dir *os.Root, subPath, name string, a *interactions.Attachment, use
 			continue
 		}
 		p := filepath.Join(subPath, cand)
-		f, err := dir.OpenFile(cand, os.O_CREATE|os.O_EXCL|os.O_WRONLY|fsperm.NoFollow, 0o600)
+		f, err := createPulled(dir, subPath, cand)
 		if err == nil {
+			markPulled(p) // before the data: a complete file never lacks the mark
 			_, werr := f.Write(a.Data)
 			cerr := f.Close()
 			if werr != nil {

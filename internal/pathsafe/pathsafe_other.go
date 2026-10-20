@@ -10,6 +10,9 @@ import (
 // osSafeName is SafeName's last, platform-specific step: nothing outside Windows.
 func osSafeName(name string) string { return name }
 
+// ExplorerInertName is name, unchanged outside Windows (see pathsafe_windows.go).
+func ExplorerInertName(name string) string { return name }
+
 func pathWithin(p, root string) bool {
 	rel, err := filepath.Rel(root, p)
 	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))

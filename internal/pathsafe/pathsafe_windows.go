@@ -35,6 +35,42 @@ func sanitizeWindows(name string) string {
 	return name
 }
 
+// explorerActiveExts are the extensions of files that Windows Explorer reads, and may act on, when it
+// lists or opens the folder that holds them, before the user opens the file: shortcuts and Internet
+// shortcuts (an icon location on another host makes Explorer connect to it), Explorer command files,
+// libraries, search connectors, application references, settings shortcuts and desktop themes.
+var explorerActiveExts = []string{
+	".lnk", ".url", ".website", ".scf", ".library-ms", ".searchconnector-ms", ".appref-ms",
+	".settingcontent-ms", ".theme", ".themepack", ".desktopthemepack",
+}
+
+// explorerInertSuffix is added to such a name: the file is then a text file to Explorer, and its
+// original name stays readable.
+const explorerInertSuffix = ".txt"
+
+// ExplorerInertName makes a name SafeName returned inert to Windows Explorer for a file written from
+// peer data: a name whose extension is one of explorerActiveExts, or the name desktop.ini, compared
+// without regard to case, gets the suffix ".txt". Other names are returned unchanged. Outside Windows
+// the name is always returned unchanged.
+func ExplorerInertName(name string) string {
+	lower := strings.ToLower(name)
+	active := lower == "desktop.ini"
+	for _, ext := range explorerActiveExts {
+		if strings.HasSuffix(lower, ext) {
+			active = true
+			break
+		}
+	}
+	if !active {
+		return name
+	}
+	keep := MaxSafeNameBytes - len(explorerInertSuffix)
+	if len(name) > keep {
+		name = TruncateUTF8(name, keep)
+	}
+	return name + explorerInertSuffix
+}
+
 // windowsDeviceName reports whether Windows would open name as a device: its part before the first
 // dot, without trailing spaces, is CON, PRN, AUX, NUL, COM0-9, LPT0-9 or COM/LPT with a superscript
 // digit, in any case.

@@ -337,6 +337,62 @@ func TestWindowsP2PConfigRefused(t *testing.T) {
 	}
 }
 
+// A pulled file carries the Zone.Identifier stream of a file downloaded from the Internet (ZoneId=3), so
+// that SmartScreen, Office and the shell treat it as coming from another host; a name that Explorer acts
+// on when it lists the folder gets the suffix .txt; and the file is private from its creation, also in a
+// pull subdirectory that already existed and that other accounts could read, which is made private.
+func TestWindowsPulledFilesAreMarkedAndInert(t *testing.T) {
+	atts := []*interactions.Attachment{
+		pullAtt("report.md", []byte("peer content")),
+		pullAtt("invoice.lnk", []byte("not a shortcut")),
+		pullAtt("Desktop.INI", []byte("[.ShellClassInfo]")),
+		pullAtt("x.searchConnector-ms", []byte("<x/>")),
+		pullAtt("y.URL", []byte("[InternetShortcut]")),
+	}
+	out := longTempDir(t)
+	sub := filepath.Join(out, "anet-ix_win_00000")
+	if err := os.Mkdir(sub, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	setDACL(t, sub, everyoneReadSDDL, true)
+	res, err := pullInto(out, "ix_win_000006", atts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"report.md", "invoice.lnk.txt", "Desktop.INI.txt", "x.searchConnector-ms.txt", "y.URL.txt"}
+	if len(res) != len(want) {
+		t.Fatalf("results %+v", res)
+	}
+	if err := fsperm.CheckPrivate(sub); err != nil {
+		t.Errorf("the existing pull subdirectory was not made private: %v", err)
+	}
+	for k, r := range res {
+		if r.Name != want[k] || filepath.Base(r.Path) != want[k] {
+			t.Errorf("attachment %d: name %q path %s, want %s", k, r.Name, r.Path, want[k])
+		}
+		if b, err := os.ReadFile(r.Path); err != nil || string(b) != string(atts[k].Data) {
+			t.Errorf("%s: read %q, %v", r.Path, b, err)
+		}
+		if err := fsperm.CheckPrivate(r.Path); err != nil {
+			t.Errorf("%s: %v", r.Path, err)
+		}
+		zone, err := os.ReadFile(r.Path + ":Zone.Identifier")
+		if err != nil || !strings.Contains(string(zone), "[ZoneTransfer]") || !strings.Contains(string(zone), "ZoneId=3") {
+			t.Errorf("%s: Zone.Identifier %q, %v", r.Path, zone, err)
+		}
+	}
+	// Pulled again: the same content is already there, under the same inert names.
+	again, err := pullInto(out, "ix_win_000006", atts)
+	if err != nil || len(again) != len(want) {
+		t.Fatalf("second pull: %+v, %v", again, err)
+	}
+	for k, r := range again {
+		if !r.AlreadyPresent || r.Name != want[k] {
+			t.Errorf("second pull, attachment %d: %+v", k, r)
+		}
+	}
+}
+
 // A secret written through a temporary file is private while its bytes are written, not only once it is
 // in place: the temporary file is created with the private descriptor in a directory whose inheritable
 // access control list would let Everyone read it.

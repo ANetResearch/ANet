@@ -7,6 +7,8 @@ import (
 	"io/fs"
 	"os"
 	"syscall"
+
+	"github.com/ANetResearch/ANet/internal/fsperm"
 )
 
 // pullSubdirTrouble says what disqualifies the opened pull subdirectory fi (at path) as a place to
@@ -19,6 +21,15 @@ func createPullSubdir(*os.Root, string, string) error { return nil }
 
 // protectPulled has nothing to do on unix: a pulled file is created with mode 0600.
 func protectPulled(string) error { return nil }
+
+// createPulled creates the pulled file name in the opened directory dir (at subPath): relative to dir,
+// never over an existing name and never through a symbolic link, mode 0600.
+func createPulled(dir *os.Root, _, name string) (*os.File, error) {
+	return dir.OpenFile(name, os.O_CREATE|os.O_EXCL|os.O_WRONLY|fsperm.NoFollow, 0o600)
+}
+
+// markPulled marks a pulled file as coming from another host. Nothing on unix.
+func markPulled(string) {}
 
 // pullDirTrouble says what disqualifies fi as the pull subdirectory, or "" when it qualifies: it must be
 // a directory, not a symbolic link, owned by uid, and not writable by group or others. Anything else

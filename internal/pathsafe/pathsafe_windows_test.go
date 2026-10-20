@@ -74,3 +74,36 @@ func TestWindowsPathWithin(t *testing.T) {
 		}
 	}
 }
+
+// Names that Windows Explorer acts on when it lists a folder get the suffix .txt, in any case; other
+// names, and names that only contain such an extension inside, are unchanged.
+func TestWindowsExplorerInertName(t *testing.T) {
+	for in, want := range map[string]string{
+		"invoice.lnk":                     "invoice.lnk.txt",
+		"Report.URL":                      "Report.URL.txt",
+		"a.website":                       "a.website.txt",
+		"x.scf":                           "x.scf.txt",
+		"docs.library-ms":                 "docs.library-ms.txt",
+		"q.searchConnector-ms":            "q.searchConnector-ms.txt",
+		"app.appref-ms":                   "app.appref-ms.txt",
+		"s.SettingContent-ms":             "s.SettingContent-ms.txt",
+		"t.theme":                         "t.theme.txt",
+		"t.themepack":                     "t.themepack.txt",
+		"t.desktopthemepack":              "t.desktopthemepack.txt",
+		"desktop.ini":                     "desktop.ini.txt",
+		"DESKTOP.INI":                     "DESKTOP.INI.txt",
+		"report.md":                       "report.md",
+		"setup.ini":                       "setup.ini",
+		"x.lnk.pdf":                       "x.lnk.pdf",
+		"lnk":                             "lnk",
+		strings.Repeat("a", 126) + ".lnk": strings.Repeat("a", 124) + ".txt",
+	} {
+		got := ExplorerInertName(in)
+		if got != want {
+			t.Errorf("ExplorerInertName(%q) = %q, want %q", in, got, want)
+		}
+		if len(got) > MaxSafeNameBytes {
+			t.Errorf("ExplorerInertName(%q) is %d bytes", in, len(got))
+		}
+	}
+}
