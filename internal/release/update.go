@@ -16,6 +16,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strings"
 	"time"
 )
@@ -96,10 +97,14 @@ func (u *Updater) Check(ctx context.Context) (*Found, error) {
 	if err != nil {
 		return nil, err
 	}
+	// A source at the installed version or below is set aside while another
+	// source may have a newer release (a mirror lags the release by minutes
+	// to hours); if none has, the ones at the installed version come first.
 	type lagged struct {
 		src   Source
 		meta  *npmMeta // an npm source not downloaded yet
 		found *Found   // a source whose release is verified
+		equal bool     // at the installed version, not below it
 	}
 	var tried []string
 	var lagging []lagged
@@ -115,9 +120,9 @@ func (u *Updater) Check(ctx context.Context) (*Found, error) {
 				tried = append(tried, s.Name+": "+err.Error())
 				continue
 			}
-			if c, err := CompareVersions(m.Version, u.Current); err == nil && c < 0 {
-				lagging = append(lagging, lagged{src: s, meta: m})
-				tried = append(tried, s.Name+": "+m.Version+" is older than "+u.Current)
+			if c, err := CompareVersions(m.Version, u.Current); err == nil && c <= 0 {
+				lagging = append(lagging, lagged{src: s, meta: m, equal: c == 0})
+				tried = append(tried, s.Name+": "+m.Version+" is not newer than "+u.Current)
 				continue
 			}
 			meta = m
@@ -129,13 +134,14 @@ func (u *Updater) Check(ctx context.Context) (*Found, error) {
 			continue
 		case err != nil:
 			return nil, err
-		case f.Cmp < 0:
-			lagging = append(lagging, lagged{src: s, found: f})
-			tried = append(tried, s.Name+": "+f.Manifest.Version+" is older than "+u.Current)
+		case f.Cmp <= 0:
+			lagging = append(lagging, lagged{src: s, found: f, equal: f.Cmp == 0})
+			tried = append(tried, s.Name+": "+f.Manifest.Version+" is not newer than "+u.Current)
 			continue
 		}
 		return f, nil
 	}
+	sort.SliceStable(lagging, func(i, j int) bool { return lagging[i].equal && !lagging[j].equal })
 	for _, l := range lagging {
 		if l.found != nil {
 			return l.found, nil

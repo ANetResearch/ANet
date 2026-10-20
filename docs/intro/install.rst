@@ -160,6 +160,10 @@ The summary takes these other forms:
        the operator has run it.
    * - ``Hub   <hub>``
      - The node had joined this hub before and keeps it.
+   * - ``Hub   <hub> (registering; it completes on its own)``
+     - The hub accepted the request but did not confirm it within the wait
+       of the installer. The node retries by itself; ``anet status`` shows
+       the result.
    * - ``Hub   <hub> (not joined)``
      - The join did not complete; a ``Note`` line names the command to repeat
        it.
@@ -168,6 +172,13 @@ The summary takes these other forms:
    * - ``Note: <text>``
      - A step that is left to the user, with the exact command, for example
        an earlier binary that only the superuser can remove.
+
+The exit status of the installer is 0 when the binary is installed and, unless
+``--no-start`` or ``--no-join`` leaves them out, the node runs and the join is
+complete, pending admission or still registering. It is 3 when the binary is
+installed but the node did not start or the join failed; the summary then
+names the command to repeat the step. Any other failure ends the installation
+with exit status 1 and leaves the installed version unchanged.
 
 ``anet`` without arguments prints a short overview: the version, the main
 commands, the identity, the hub state with the next command, four common
@@ -481,13 +492,15 @@ The binary stays in ``~/.local/bin``, where the user can replace it;
 ``anet update`` therefore needs no administrator rights.
 
 When ``~/.local/bin`` is not on the search path of the shell that runs the
-installer, ``/usr/local/bin`` is on it, and a terminal is available, the
-installer creates the command link ``/usr/local/bin/anet`` pointing to
-``~/.local/bin/anet``, so that ``anet`` runs in that terminal at once. When
-``/usr/local/bin`` belongs to ``root``, the link is created with ``sudo``
-within the single session of :ref:`intro-install-sudo`. An earlier release at
-``/usr/local/bin/anet`` is replaced by the link; another file there is left
-unchanged, and no link is created. The last line of the output then reads
+installer and a terminal is available, the installer creates a command link
+``anet`` pointing to ``~/.local/bin/anet``, so that ``anet`` runs in that
+terminal at once. The link goes into the first of ``~/bin``,
+``/opt/homebrew/bin`` and ``/usr/local/bin`` that is on the search path and
+writable by the user; no password is needed. When none of them is, and
+``/usr/local/bin`` is on the search path, the link ``/usr/local/bin/anet`` is
+created with ``sudo`` within the single session of :ref:`intro-install-sudo`.
+An earlier release at the place of the link is replaced by it; another file
+there is left unchanged, and no link is created. The last line of the output then reads
 ``Run 'anet' to get started.``. When ``~/.local/bin`` is already on the search
 path, no link is created and nothing is asked.
 
@@ -552,7 +565,7 @@ With ``--no-modify-path``, neither the profiles nor the command link are
 changed, and the last line of the output names the directory to put on the
 search path. When the installer runs as the superuser, it does not change
 profiles. To undo the change, delete the lines between the two markers, and
-remove the link ``/usr/local/bin/anet`` if it was created.
+remove the command link ``anet`` if it was created; the log names its place.
 
 .. _intro-install-verify:
 

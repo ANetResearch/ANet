@@ -353,6 +353,10 @@ jobs:
             exit 1
           }
           powershell -NoProfile -ExecutionPolicy Bypass -File deploy\release\test-install.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # The real download path: GitHub through its redirects, and the
+          # npm tarball on npmmirror (test-install.ps1 replaces it).
+          powershell -NoProfile -ExecutionPolicy Bypass -File deploy\release\test-install-http.ps1
           exit $LASTEXITCODE
       - name: install.ps1 in PowerShell 7
         shell: pwsh
@@ -364,6 +368,8 @@ jobs:
             exit 1
           }
           pwsh -NoProfile -File deploy\release\test-install.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pwsh -NoProfile -File deploy\release\test-install-http.ps1
           exit $LASTEXITCODE
 
   # A release of this commit for Windows, for the windows-install job. It is

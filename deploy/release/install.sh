@@ -287,7 +287,10 @@ fetch() {
       printf 'curl: (0) not fetched from %s: a host this source does not use\n' "$(url_host "$_feu")" >&2
       return 1
     fi
+    # A source that answers and then sends almost nothing is given up after
+    # 30 seconds below 1 KB/s, and a small file after FETCH_MAXTIME.
     _few=$(curl --proto '=https' --tlsv1.2 -sS --connect-timeout "${FETCH_CONNECT:-15}" \
+      --speed-limit 1024 --speed-time 30 \
       ${FETCH_MAXTIME:+--max-time "$FETCH_MAXTIME"} ${3:+--max-filesize "$3"} ${FETCH_HDR:+-D "$FETCH_HDR"} \
       -H 'Cache-Control: no-cache' -o "$2" -w '%{http_code} %{redirect_url}' "$_feu") || return 1
     _fec=${_few%% *}; _fer=${_few#* }
@@ -629,7 +632,7 @@ order_sources() {
 # the registry does not serve them, and 2 when its version is older than
 # MINVER (unless FORCE).
 npm_release() {
-  fetch "$2/$PKG/latest" "$1/meta.json" 1048576 2>>"$(logto)" || return 1
+  (FETCH_MAXTIME=60; fetch "$2/$PKG/latest" "$1/meta.json" 1048576) 2>>"$(logto)" || return 1
   _nv=$(tr ',{}' '\n\n\n' < "$1/meta.json" | sed -n 's/^[[:space:]]*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)"[[:space:]]*$/\1/p' | head -n 1)
   semver_ok "$_nv" || { say "  $3: no version in $2/$PKG/latest"; return 1; }
   if [ "$4" != 1 ] && [ "$(vercmp "$_nv" "$MINVER")" = -1 ]; then
@@ -675,8 +678,8 @@ try_source() {
     _src=0; npm_release "$_sd" "$4" "$3" "$6" || _src=$?
     [ "$_src" = 0 ] || return "$_src"
   else
-    if ! fetch "$4/release.json" "$_sd/release.json" 1048576 2>>"$(logto)" \
-       || ! fetch "$4/release.json.sig" "$_sd/release.json.sig" 16384 2>>"$(logto)"; then
+    if ! (FETCH_MAXTIME=60; fetch "$4/release.json" "$_sd/release.json" 1048576) 2>>"$(logto)" \
+       || ! (FETCH_MAXTIME=60; fetch "$4/release.json.sig" "$_sd/release.json.sig" 16384) 2>>"$(logto)"; then
       say "  $3: not served"
       return 1
     fi
@@ -1110,6 +1113,15 @@ want_link() {
   LINK_NEEDS_ROOT=0
   [ "$USER_MODE" = 1 ] && [ "$MODIFY_PATH" = 1 ] && [ "$(id -u)" != 0 ] || return 1
   case ":$PATH:" in *":$PREFIX:"*) return 1 ;; esac
+  # A directory of this user that is on PATH needs no password, and keeps the
+  # link out of root's search path: ~/bin, then Homebrew's bin on Apple
+  # silicon (owned by the user who installed Homebrew), then LINK_DIR
+  # (/usr/local/bin) when this user can write it. Otherwise LINK_DIR, with
+  # sudo.
+  for _ld in "$HOME/bin" /opt/homebrew/bin "$LINK_DIR"; do
+    case ":$PATH:" in *":$_ld:"*) ;; *) continue ;; esac
+    if [ -d "$_ld" ] && [ -w "$_ld" ] && [ ! -L "$_ld" ]; then LINK_DIR=$_ld; break; fi
+  done
   case ":$PATH:" in *":$LINK_DIR:"*) ;; *) return 1 ;; esac
   [ -d "$LINK_DIR" ] || return 1
   _lk="$LINK_DIR/anet"
@@ -1159,6 +1171,7 @@ root_session() {
     show "$(m "Disabling the service of AgentNetwork 1.x requires administrator rights; $_who" "停用 AgentNetwork 1.x 的服务需要管理员权限；$_who")"
   fi
   if sudo -v <"$TTY_DEV"; then
+    SUDO_OPENED=1
     say "sudo: session opened"
   else
     say "sudo: no session (declined or failed); the steps that need root are left as commands"
@@ -2055,9 +2068,16 @@ start_node() {
   run_timeout 120 "$DEST" hub-register "$HUB" --name "$NODE_NAME" --passphrase-later </dev/null >"$TMP/hub.out" 2>&1 || _hr=$?
   cat "$TMP/hub.out" >> "$(logto)"
   ADMIT=$(LC_ALL=C grep -o 'anet-hub admit [a-z0-9]*' "$TMP/hub.out" | head -n 1 || true)
-  if [ -n "$ADMIT" ]; then
+  # hub-register also ends with 0 while the join is being retried; the state
+  # the daemon recorded decides what the summary says.
+  _hs=""
+  if [ -f "$DATA_DIR/hub_join.json" ]; then _hs=$(json_field "$DATA_DIR/hub_join.json" state); fi
+  say "hub-register: exit $_hr, state ${_hs:-unknown}"
+  if [ -n "$ADMIT" ] || [ "$_hs" = pending_admission ]; then
     HUB_STATE=pending
-  elif [ "$_hr" = 0 ]; then
+  elif [ "$_hr" = 0 ] && [ "$_hs" = retrying ]; then
+    HUB_STATE=retrying
+  elif [ "$_hr" = 0 ] && { [ "$_hs" = registered ] || [ -z "$_hs" ]; }; then
     HUB_STATE=joined
   else
     HUB_STATE=failed
@@ -2081,6 +2101,7 @@ summary() {
     joined)  show "  Hub   $HUB_SHOWN $(m "(joined)" "（已加入）")" ;;
     kept)    show "  Hub   $HUB_SHOWN" ;;
     pending) show "  Hub   $HUB_SHOWN $(m "(awaiting admission; its operator runs: $ADMIT)" "（等待准入；由其运营者运行：${ADMIT}）")" ;;
+    retrying) show "  Hub   $HUB_SHOWN $(m "(registering; it completes on its own)" "（正在注册，将自动完成）")" ;;
     failed)  show "  Hub   $HUB_SHOWN $(m "(not joined)" "（未加入）")" ;;
     off)     show "  Hub   $(m "not joined (--no-join)" "未加入（--no-join）")" ;;
   esac
@@ -2123,6 +2144,8 @@ command_now() {
 # never renamed into place.
 cleanup() {
   if [ -n "${STAGED:-}" ]; then ${SUDO:-} rm -f "$STAGED" </dev/null 2>/dev/null || true; fi
+  # The sudo session this run opened ends with it.
+  if [ "${SUDO_OPENED:-0}" = 1 ]; then sudo -n -k </dev/null 2>/dev/null || true; fi
   rm -rf "$TMP"
 }
 
@@ -2158,6 +2181,8 @@ main() {
   wire_agents
   start_node
   summary
+  # Installed, but the last step did not complete (as install.ps1): 3.
+  case "$NODE:$HUB_STATE" in failed:*|*:failed) exit 3 ;; esac
 }
 
 main "$@"

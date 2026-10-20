@@ -268,6 +268,36 @@ func TestSourcesLaggingMirror(t *testing.T) {
 	}
 }
 
+// A source at the running version is passed over too while another source
+// serves a newer release (a mirror on release day), and wins over an older
+// one when none does.
+func TestSourcesSameVersionMirrorDoesNotHideANewerRelease(t *testing.T) {
+	f := newFixture(t)
+	f.version = "0.1.10"
+	f.build(nil)
+	sameFiles := maps.Clone(f.files)
+	f.version = "0.1.9"
+	f.build(nil)
+	oldFiles := maps.Clone(f.files)
+	f.version = "0.2.0"
+	f.build(nil)
+	sameSrv := serveFiles(t, sameFiles)
+	oldSrv := serveFiles(t, oldFiles)
+	newSrv := serveFiles(t, f.files)
+
+	u, _ := f.updater(newSrv, "0.1.10")
+	u.Sources = []Source{filesSource("same", sameSrv), filesSource("new", newSrv)}
+	found, err := u.Check(context.Background())
+	if err != nil || found.Source.Name != "new" || found.Cmp != 1 {
+		t.Fatalf("a mirror at the running version hid a newer release: %+v %v", found, err)
+	}
+	u.Sources = []Source{filesSource("old", oldSrv), filesSource("same", sameSrv)}
+	found, err = u.Check(context.Background())
+	if err != nil || found.Source.Name != "same" || found.Cmp != 0 {
+		t.Fatalf("none newer: the source at the running version should answer: %+v %v", found, err)
+	}
+}
+
 // Every way a package tarball can be malformed, or not be the file the
 // metadata names, is a source that serves nothing: Check moves on, and
 // nothing is written.
