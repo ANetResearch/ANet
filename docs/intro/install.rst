@@ -91,9 +91,10 @@ Options follow ``sh -s --`` when the script is read from a pipe.
    * - ``--prefix DIR``
      - Install to ``DIR``. Overrides ``--user`` and ``--system``.
    * - ``--base URL``
-     - Download from ``URL`` instead of the default hosts. Only ``https://``
-       is accepted. The environment variable ``ANET_INSTALL_BASE`` has the
-       same effect. Every host is checked in the same way.
+     - Download from ``URL`` instead of the default hosts (see
+       :ref:`intro-install-hosts`). Only ``https://`` is accepted. The
+       environment variable ``ANET_INSTALL_BASE`` names a host that is tried
+       before the default hosts. Every host is checked in the same way.
    * - ``--shell``
      - Install the variant that can run operator-approved commands. This is
        a different binary, not a setting; see :ref:`intro-install-modules`.
@@ -128,6 +129,33 @@ operator runs; registration then completes without further input. See
 Hubs no longer use invitation codes. The installer rejects the former
 options ``--token`` and ``--token-file`` and says so.
 
+.. _intro-install-hosts:
+
+Download hosts
+--------------
+
+Without ``--base``, the installer tries these hosts in order and uses the
+first one that serves a release manifest and its signature:
+
+#. ``https://agentnetwork.org.cn``
+#. ``https://hub.agentnetwork.org.cn``
+#. The npm package of the build, ``@agentnetwork/anet-<os>-<cpu>``
+   (``@agentnetwork/anet-shell-<os>-<cpu>`` with ``--shell``), through the
+   content delivery networks npmmirror
+   (``https://registry.npmmirror.com/<package>/latest/files``), jsDelivr
+   (``https://cdn.jsdelivr.net/npm/<package>@latest``) and unpkg
+   (``https://unpkg.com/<package>@latest``). ``<cpu>`` is ``x64`` or
+   ``arm64``.
+
+The directory ``dl/`` of each npm package holds ``release.json``, its
+signature and the archive of the build exactly as the project hosts serve
+them under ``/dl/``. Which host answers does not change what is accepted: the
+checks above apply to every host, and a manifest that a host serves and that
+fails a check ends the installation instead of moving on to the next host. A
+content delivery network can serve an older release for a while after a new
+one is published; the installer then installs that release, or refuses it when
+a newer ``anet`` is already installed.
+
 .. _intro-install-verify:
 
 Verifying the installer before running it
@@ -156,6 +184,43 @@ the values below, and use the repository copy if they differ.
 The key fingerprint is ``SHA256:/4FMm/jgZcBII3z3O3r81Y8SxFfugdLRu3zj2gnclD4``.
 A successful check prints ``Good "anet-release@agentnetwork.org.cn"
 signature`` followed by the fingerprint.
+
+.. _intro-install-npm:
+
+Installing with npm
+===================
+
+The npm package ``@agentnetwork/anet`` runs the same release binary. It needs
+Node.js 18 or later:
+
+.. code-block:: console
+
+   $ npm install --global @agentnetwork/anet
+   $ anet version
+
+The package contains a launcher and no binary. The build of the platform is
+in the optional dependency ``@agentnetwork/anet-<os>-<cpu>``, as the archive
+and the signed release manifest. Before the first run of a version, the
+launcher checks that ``release.json`` carries a valid signature by the ANet
+release key (the file ``allowed_signers`` of the package) and names the
+version of the package, and that the SHA-256 digests of the archive and of the
+binary equal the digests in the manifest. A failure of any check stops the
+launcher before anything is run. The checked binary is written, with the
+manifest and its signature, to ``~/.cache/anet/npm/<version>/``
+(``~/Library/Caches/anet/npm/<version>/`` on macOS, or below
+``XDG_CACHE_HOME`` when it is set) and is run from there.
+
+Update the package with ``npm update --global @agentnetwork/anet``. Do not run
+``anet update`` on an installation from npm: the launcher runs the version of
+the package and replaces a changed binary with that version on its next run.
+Installations with ``--omit=optional`` lack the build and are refused with a
+message. The variant with the ``shell`` module is not available through the
+launcher; install it with ``install.sh --shell``.
+
+The package also contains ``install.sh`` and ``install.sh.sig``, so that the
+installer can be obtained from npm when the project hosts cannot be reached,
+for example from ``https://cdn.jsdelivr.net/npm/@agentnetwork/anet@latest/install.sh``.
+Verify it as described in :ref:`intro-install-verify` before running it.
 
 .. _intro-install-check:
 
@@ -448,8 +513,11 @@ that is already running keeps the old binary until it is restarted:
 
    $ anet stop --all && anet up --all
 
-``--base URL`` selects another download host, with the same checks. Re-running
-the installer is not required on a machine that already has ``anet``.
+``--base URL`` selects another download host, with the same checks. Releases
+after 0.3.3 also try the npm packages of :ref:`intro-install-hosts` after the
+project hosts. Re-running the installer is not required on a machine that
+already has ``anet``. An installation from npm is updated with npm (see
+:ref:`intro-install-npm`).
 
 .. _intro-install-remove:
 

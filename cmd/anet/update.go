@@ -55,7 +55,9 @@ func runUpdate(rest []string) error {
 		return refuseUpdate("update_variant_unknown", a2ashape.Args{})
 	}
 
-	bases := release.DefaultBases
+	// The npm mirrors of this build come after the project's own hosts, in
+	// the same order as in install.sh.
+	bases := append(append([]string{}, release.DefaultBases...), release.MirrorBases(variant, runtime.GOOS, runtime.GOARCH)...)
 	if b := strings.TrimSpace(os.Getenv("ANET_INSTALL_BASE")); b != "" {
 		bases = append([]string{b}, bases...)
 	}

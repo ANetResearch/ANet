@@ -50,6 +50,9 @@
 #   --user          Install to $HOME/.local/bin (default).
 #   --prefix DIR    Install into DIR (overrides the above).
 #   --base URL      Download base, https only (or set ANET_INSTALL_BASE).
+#                   Without it, the project's hosts are tried first and then
+#                   the npm package of the build on npmmirror, jsDelivr and
+#                   unpkg (see mirror_bases); every host is checked the same way.
 #   --shell         Install the variant that can run operator-approved commands
 #                   on this machine. See "--shell" below before using it.
 #   --without LIST  Turn these modules off in config.json (a comma-separated
@@ -298,6 +301,21 @@ detect_platform() {
   esac
   PLAT="${OS_TAG}-${ARCH_TAG}"
   ASSET="${ASSET_PREFIX}-${PLAT}"
+  mirror_bases
+}
+
+# mirror_bases: after the project's own hosts, the npm package of this
+# build, @agentnetwork/<asset prefix>-<os>-<cpu>, whose directory dl/ holds
+# release.json, its signature and the .gz exactly as /dl/ does. Content
+# delivery networks for npm serve those files by path; npmmirror does so
+# only for packages admitted to its file access list and answers 403 until
+# then. The order is that of release.MirrorBases in `anet update`. An
+# explicit --base is used alone.
+mirror_bases() {
+  [ -z "$BASE_OVERRIDE" ] || return 0
+  case "$ARCH_TAG" in amd64) _cpu=x64 ;; *) _cpu="$ARCH_TAG" ;; esac
+  _pkg="@agentnetwork/${ASSET_PREFIX}-${OS_TAG}-${_cpu}"
+  BASES="$BASES https://registry.npmmirror.com/${_pkg}/latest/files https://cdn.jsdelivr.net/npm/${_pkg}@latest https://unpkg.com/${_pkg}@latest"
 }
 
 check_tools() {
