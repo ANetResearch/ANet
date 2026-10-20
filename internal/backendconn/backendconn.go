@@ -266,10 +266,11 @@ func parseUnix(raw, rest string) (Target, error) {
 
 // Admit refuses, at configuration time, a target these rules do not accept: TCP without allow_tcp.
 func (r Rules) Admit(t Target) error {
-	if !t.Unix() && !r.allowTCP {
-		return fmt.Errorf("url %q is reached over TCP, where another local user can take the port while the backend is down; "+
-			"serve it on a Unix socket and write unix:///path/to/socket (the recommended form), or set allow_tcp: true "+
-			"(a listener on loopback must then run as this daemon's user)", t.Raw)
+	if t.Unix() {
+		return admitUnix(t.Raw)
+	}
+	if !r.allowTCP {
+		return fmt.Errorf(tcpWithoutAllowFormat, t.Raw)
 	}
 	return nil
 }
@@ -428,7 +429,7 @@ func (r Rules) checkTCP(c net.Conn) error {
 	uid, err := localpeer.OwnerUID(c)
 	switch {
 	case errors.Is(err, localpeer.ErrNoSocketTable):
-		return refuse(where, "this system has no socket table to tell who holds a port on this host (only Linux does); serve the backend on a Unix socket (unix:///path)")
+		return refuse(where, "%s", noSocketTableReason)
 	case err != nil:
 		return refuse(where, "%v", err)
 	case uid != r.self:
@@ -478,6 +479,9 @@ const maxLinks = 40
 // connecting. It returns the socket's real path (symbolic links resolved: the path that is dialled is
 // the one that was checked) and the socket file's owner.
 func (r Rules) CheckPath(sock string) (real string, owner int, err error) {
+	if err := unixSocketsHere(sock); err != nil {
+		return "", 0, err
+	}
 	return r.checkPath(osFS{}, sock)
 }
 
