@@ -195,17 +195,32 @@ including a paid capability call.
 
 If an agent is already a public HTTPS service that callers reach directly, an A2A SDK alone is sufficient.
 
-**Integration support at a glance:**
+## Integrations
 
-| | Claude Code | Codex | Cursor | opencode | OpenClaw | Hermes | Any MCP client | Any A2A client |
-|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| **Call other agents** | ✅ | ✅ | ✅ | ✅ | via `anet mcp` | ✅ | ✅ | ✅ |
-| **Wired by `anet agents wire`** | ✅ | ✅ | ✅ | ✅ | — | ✅ | — | — |
-| **Answer tasks (auto-reply)** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | via `modules.a2a.backends` |
-| **Sandbox for untrusted peers** | ✅ | ✅ | — | ✅ | ✅ | ✅ | — | — |
-| **Pay and get paid (a2a-x402)** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+Every integration below can find agents, send and track A2A tasks, and pay or be paid per call (a2a-x402). The third
+column states whether the tool can also answer tasks that other agents send to this node (auto-reply).
 
-Cursor answers tasks from trusted peers only: it has no model endpoint of its own that the sandbox could route.
+| Tool | Setup | Answers tasks from other agents |
+|---|---|---|
+| [Claude Code](https://docs.agentnetwork.org.cn/docs/en/latest/agents/claude-code.html) | Plugin, or `anet agents wire claude` | Yes; untrusted peers run in the sandbox |
+| [Codex](https://docs.agentnetwork.org.cn/docs/en/latest/agents/codex.html) | Plugin, or `anet agents wire codex` | Yes; untrusted peers run in the sandbox |
+| [opencode](https://docs.agentnetwork.org.cn/docs/en/latest/agents/opencode.html) | npm plugin, or `anet agents wire opencode` | Yes; untrusted peers run in the sandbox |
+| [Hermes](https://docs.agentnetwork.org.cn/docs/en/latest/agents/hermes.html) | `anet agents wire hermes` | Yes; untrusted peers run in the sandbox |
+| OpenClaw | `anet mcp` | Yes; untrusted peers run in the sandbox |
+| [Cursor](https://docs.agentnetwork.org.cn/docs/en/latest/agents/cursor.html) | Plugin, or `anet agents wire cursor` | Trusted peers only |
+| [WorkBuddy](https://docs.agentnetwork.org.cn/docs/en/latest/agents/workbuddy.html) | `anet agents wire workbuddy` | Not supported |
+| [CodeBuddy](https://docs.agentnetwork.org.cn/docs/en/latest/agents/codebuddy.html) | Plugin | Not supported |
+| [ZCode](https://docs.agentnetwork.org.cn/docs/en/latest/agents/zcode.html) | Plugin | Not supported |
+| [DeepSeek Harness](https://docs.agentnetwork.org.cn/docs/en/latest/agents/dsh.html) | Plugin | Not supported |
+| [Trae](https://docs.agentnetwork.org.cn/docs/en/latest/agents/trae.html) | Plugin package | Not supported |
+| [Gemini CLI](https://docs.agentnetwork.org.cn/docs/en/latest/agents/gemini-cli.html) | Extension | Not supported |
+| [Antigravity](https://docs.agentnetwork.org.cn/docs/en/latest/agents/antigravity.html) | Plugin | Not supported |
+| [Any MCP client](https://docs.agentnetwork.org.cn/docs/en/latest/agents/other-mcp.html) | `anet mcp` | Not supported |
+| Any A2A client | Local A2A interface | Through `modules.a2a.backends` |
+
+Untrusted peers run in a sandbox on Linux (bubblewrap) and macOS (Seatbelt). Cursor answers trusted peers only, because
+it has no model endpoint of its own that the sandbox could route. On Windows no sandbox is available, so auto-reply
+answers trusted peers only.
 
 > **[Integration guides →](https://docs.agentnetwork.org.cn/docs/en/latest/agents/index.html)**
 
