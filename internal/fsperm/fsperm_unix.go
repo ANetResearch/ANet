@@ -34,13 +34,19 @@ func Inspect(path string) (Info, error) {
 
 // MkdirAllPrivate creates dir and missing parents.
 // unix: exactly os.MkdirAll(dir, 0o700) (no check; callers that check on unix keep their own code).
-// windows: missing parents with os.MkdirAll(parent, 0o700) (inherited ACL); the leaf, when missing, with
-// CreateDirectory and a SECURITY_ATTRIBUTES whose descriptor is
-// "O:<user>D:P(A;OICI;FA;;;<user>)(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)"; an existing leaf that is a Link or
-// not OwnedBySelf is an error (ErrNotPrivate); one that is OwnedBySelf but OthersRead is Protect-ed;
-// the result must pass CheckPrivate.
+// windows: every missing directory, the parents and the leaf, is created with CreateDirectory and a
+// SECURITY_ATTRIBUTES whose descriptor is "O:<user>D:P(A;OICI;FA;;;<user>)(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)";
+// an existing leaf that is a Link or not OwnedBySelf is an error (ErrNotPrivate); one that is OwnedBySelf
+// but OthersRead is Protect-ed; the result must pass CheckPrivate.
 func MkdirAllPrivate(dir string) error {
 	return os.MkdirAll(dir, 0o700)
+}
+
+// CreateTempPrivate is os.CreateTemp for a file that holds a secret.
+// unix: exactly os.CreateTemp(dir, pattern) (the file is created 0600).
+// windows: the file is created with the private descriptor (OpenNoFollow with O_CREATE|O_EXCL and 0o600).
+func CreateTempPrivate(dir, pattern string) (*os.File, error) {
+	return os.CreateTemp(dir, pattern)
 }
 
 // Protect makes path private. unix: os.Chmod(path, 0o700) for a directory, 0o600 otherwise.

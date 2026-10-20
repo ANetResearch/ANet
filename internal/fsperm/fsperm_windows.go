@@ -7,8 +7,11 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"math/rand/v2"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -243,11 +246,13 @@ func privateDescriptor(dir bool) (*windows.SECURITY_DESCRIPTOR, error) {
 
 // MkdirAllPrivate creates dir and missing parents.
 // unix: exactly os.MkdirAll(dir, 0o700) (no check; callers that check on unix keep their own code).
-// windows: missing parents with os.MkdirAll(parent, 0o700) (inherited ACL); the leaf, when missing, with
-// CreateDirectory and a SECURITY_ATTRIBUTES whose descriptor is
-// "O:<user>D:P(A;OICI;FA;;;<user>)(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)"; an existing leaf that is a Link or
-// not OwnedBySelf is an error (ErrNotPrivate); one that is OwnedBySelf but OthersRead is Protect-ed;
-// the result must pass CheckPrivate.
+// windows: every missing directory, the parents and the leaf, is created with CreateDirectory and a
+// SECURITY_ATTRIBUTES whose descriptor is "O:<user>D:P(A;OICI;FA;;;<user>)(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)",
+// so that a parent is private as os.MkdirAll(dir, 0o700) makes it on unix, and does not inherit the
+// access another account has to the directory above it; a parent that appears meanwhile as a Link is an
+// error (ErrNotPrivate), and one that appears as another directory is used as it is. An existing leaf
+// that is a Link or not OwnedBySelf is an error (ErrNotPrivate); one that is OwnedBySelf but OthersRead is
+// Protect-ed; the result must pass CheckPrivate. Existing parents are not changed.
 func MkdirAllPrivate(dir string) error {
 	if dir == "" {
 		return &os.PathError{Op: "mkdir", Path: dir, Err: windows.ERROR_PATH_NOT_FOUND}
@@ -260,25 +265,45 @@ func MkdirAllPrivate(dir string) error {
 	if !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
-	if parent := filepath.Dir(dir); parent != dir {
-		if err := os.MkdirAll(parent, 0o700); err != nil {
+	// The missing parents, nearest first, up to the first one that exists.
+	var missing []string
+	for p := dir; ; {
+		parent := filepath.Dir(p)
+		if parent == p {
+			break
+		}
+		if _, err := os.Lstat(parent); err == nil {
+			break
+		} else if !errors.Is(err, fs.ErrNotExist) {
 			return err
 		}
+		missing = append(missing, parent)
+		p = parent
 	}
-	sd, err := privateDescriptor(true)
-	if err != nil {
-		return &os.PathError{Op: "mkdir", Path: dir, Err: err}
-	}
-	p, err := windows.UTF16PtrFromString(dir)
-	if err != nil {
-		return &os.PathError{Op: "mkdir", Path: dir, Err: err}
-	}
-	sa := windows.SecurityAttributes{SecurityDescriptor: sd}
-	sa.Length = uint32(unsafe.Sizeof(sa))
-	if err := windows.CreateDirectory(p, &sa); err != nil {
-		if !errors.Is(err, windows.ERROR_ALREADY_EXISTS) {
-			return &os.PathError{Op: "mkdir", Path: dir, Err: err}
+	for k := len(missing) - 1; k >= 0; k-- {
+		created, err := createPrivateDir(missing[k])
+		if err != nil {
+			return err
 		}
+		if !created {
+			// Another creator made it first: use it unless it is a link, or not a directory.
+			i, err := Inspect(missing[k])
+			if err != nil {
+				return err
+			}
+			if i.Link {
+				return notPrivate(missing[k], whyLink)
+			}
+			if !i.dir {
+				return &os.PathError{Op: "mkdir", Path: missing[k], Err: syscall.ENOTDIR}
+			}
+		}
+	}
+	created, err := createPrivateDir(dir)
+	if err != nil {
+		return err
+	}
+	if !created {
 		// Another creator won the race: judge what is there now.
 		i, err := Inspect(dir)
 		if err != nil {
@@ -287,6 +312,57 @@ func MkdirAllPrivate(dir string) error {
 		return privateExistingDir(dir, i)
 	}
 	return CheckPrivate(dir)
+}
+
+// createPrivateDir creates the directory dir with the private descriptor. It reports false, and no
+// error, when something by that name exists already.
+func createPrivateDir(dir string) (bool, error) {
+	sd, err := privateDescriptor(true)
+	if err != nil {
+		return false, &os.PathError{Op: "mkdir", Path: dir, Err: err}
+	}
+	p, err := windows.UTF16PtrFromString(dir)
+	if err != nil {
+		return false, &os.PathError{Op: "mkdir", Path: dir, Err: err}
+	}
+	sa := windows.SecurityAttributes{SecurityDescriptor: sd}
+	sa.Length = uint32(unsafe.Sizeof(sa))
+	if err := windows.CreateDirectory(p, &sa); err != nil {
+		if errors.Is(err, windows.ERROR_ALREADY_EXISTS) {
+			return false, nil
+		}
+		return false, &os.PathError{Op: "mkdir", Path: dir, Err: err}
+	}
+	return true, nil
+}
+
+// CreateTempPrivate is os.CreateTemp for a file that holds a secret: a new file in dir (os.TempDir()
+// when empty) whose name is pattern with its last "*" replaced by a random string (appended when there
+// is none), opened for reading and writing.
+// unix: exactly os.CreateTemp(dir, pattern) (the file is created 0600).
+// windows: OpenNoFollow(name, O_RDWR|O_CREATE|O_EXCL, 0o600), so that the file has the private
+// descriptor from the moment it exists, rather than the access control list it would inherit from dir;
+// a name that exists is retried with another random string.
+func CreateTempPrivate(dir, pattern string) (*os.File, error) {
+	if dir == "" {
+		dir = os.TempDir()
+	}
+	if strings.ContainsAny(pattern, `/\`) {
+		return nil, &os.PathError{Op: "createtemp", Path: pattern, Err: errors.New("pattern contains path separator")}
+	}
+	prefix, suffix := pattern, ""
+	if k := strings.LastIndexByte(pattern, '*'); k >= 0 {
+		prefix, suffix = pattern[:k], pattern[k+1:]
+	}
+	for try := 0; try < 10000; try++ {
+		name := filepath.Join(dir, prefix+strconv.FormatUint(uint64(rand.Uint32()), 10)+suffix)
+		f, err := OpenNoFollow(name, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o600)
+		if errors.Is(err, fs.ErrExist) {
+			continue
+		}
+		return f, err
+	}
+	return nil, &os.PathError{Op: "createtemp", Path: filepath.Join(dir, prefix+"*"+suffix), Err: fs.ErrExist}
 }
 
 // privateExistingDir is MkdirAllPrivate for a leaf that already exists.

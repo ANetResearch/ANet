@@ -13,6 +13,8 @@ import (
 	"strings"
 	"time"
 	"unicode"
+
+	"github.com/ANetResearch/ANet/internal/fsperm"
 )
 
 // change is one planned edit. Planning reads, applying writes; the split
@@ -92,7 +94,15 @@ func (c change) apply(o *Options) (string, error) {
 	}
 	perm := c.mode
 	if fi, err := os.Stat(path); err == nil {
-		perm = fi.Mode().Perm()
+		// The access the file has now (os_unix.go, os_windows.go): on unix its mode bits; on Windows
+		// the mode its access control list amounts to, since the mode bits of a Windows file say only
+		// whether it is read-only, and a private file rewritten as 0666 would lose its private ACL.
+		if perm = fileMode(path); perm == 0 {
+			perm = fi.Mode().Perm() // gone since the Stat: the mode it had
+		}
+		if fi.Mode().Perm()&0o200 == 0 {
+			perm &^= 0o200 // keep a read-only file read-only (on unix fileMode already says so)
+		}
 	} else if perm == 0 {
 		// A plan that forgot to say is not a reason to create a file
 		// nobody, not even its owner, can read.
@@ -169,7 +179,9 @@ func backup(o *Options, path string, data []byte, perm fs.FileMode) (string, err
 		if i > 1 {
 			name += fmt.Sprintf("-%d", i)
 		}
-		f, err := os.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, perm)
+		// Created with the private descriptor on Windows (the mode is always private here); on unix
+		// O_NOFOLLOW changes nothing next to O_CREATE|O_EXCL.
+		f, err := fsperm.OpenNoFollow(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, perm)
 		if errors.Is(err, fs.ErrExist) {
 			continue
 		}
@@ -204,7 +216,13 @@ func writeAtomic(path string, data []byte, perm fs.FileMode) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
-	f, err := os.CreateTemp(dir, "."+filepath.Base(path)+".anet-tmp-*")
+	// A private file is private from the moment it exists (fsperm.CreateTempPrivate; on unix the same as
+	// os.CreateTemp).
+	createTemp := os.CreateTemp
+	if perm&0o077 == 0 {
+		createTemp = fsperm.CreateTempPrivate
+	}
+	f, err := createTemp(dir, "."+filepath.Base(path)+".anet-tmp-*")
 	if err != nil {
 		return err
 	}

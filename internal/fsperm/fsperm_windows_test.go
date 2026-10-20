@@ -504,3 +504,91 @@ func TestWindowsReplaceFileWhileReading(t *testing.T) {
 		t.Errorf("a missing source took %v", d)
 	}
 }
+
+// Missing parents are created private too, as os.MkdirAll(dir, 0o700) makes them on unix: none inherits
+// the access that the directory above it grants to other accounts. The existing directory is not changed.
+func TestWindowsMkdirAllPrivateParents(t *testing.T) {
+	base := t.TempDir()
+	// Users may read, and Authenticated Users may change (DELETE included), what is created below base.
+	winSetDACL(t, base, winPrivateDACL("(A;OICI;FR;;;BU)(A;OICI;0x1301bf;;;AU)"))
+	leaf := filepath.Join(base, "a", "b", "c")
+	if err := MkdirAllPrivate(leaf); err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range []string{filepath.Join(base, "a"), filepath.Join(base, "a", "b"), leaf} {
+		i, err := Inspect(d)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !i.Private() || i.OthersWrite || i.Owner != CurrentUser() {
+			t.Errorf("%s: %+v", d, i)
+		}
+		if _, protected := winACEs(t, d); !protected {
+			t.Errorf("%s: the DACL is not protected", d)
+		}
+	}
+	if i, err := Inspect(base); err != nil || !i.OthersRead || !i.OthersWrite {
+		t.Errorf("the existing directory was changed: %+v, %v", i, err)
+	}
+	// An existing parent is used as os.MkdirAll uses it, a junction included; what is created below it
+	// is private.
+	other := t.TempDir()
+	winJunction(t, filepath.Join(base, "j"), other)
+	if err := MkdirAllPrivate(filepath.Join(base, "j", "x", "y")); err != nil {
+		t.Fatalf("below an existing junction: %v", err)
+	}
+	if err := CheckPrivate(filepath.Join(other, "x")); err != nil {
+		t.Errorf("a parent created below an existing junction: %v", err)
+	}
+}
+
+// CreateTempPrivate gives the new file the private descriptor when it is created, whatever the directory
+// would let it inherit; names follow the pattern and do not repeat.
+func TestWindowsCreateTempPrivate(t *testing.T) {
+	dir := t.TempDir()
+	winSetDACL(t, dir, winPrivateDACL("(A;OICI;FR;;;WD)"))
+	seen := map[string]bool{}
+	for k := 0; k < 3; k++ {
+		f, err := CreateTempPrivate(dir, "secret.*.tmp")
+		if err != nil {
+			t.Fatal(err)
+		}
+		name := f.Name()
+		if _, err := f.WriteString("s3cr3t"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := f.Seek(0, 0); err != nil {
+			t.Fatal(err)
+		}
+		b := make([]byte, 6)
+		if _, err := f.Read(b); err != nil || string(b) != "s3cr3t" {
+			t.Fatalf("read back %q, %v", b, err)
+		}
+		f.Close()
+		base := filepath.Base(name)
+		if filepath.Dir(name) != dir || !strings.HasPrefix(base, "secret.") || !strings.HasSuffix(base, ".tmp") || seen[base] {
+			t.Errorf("name %s", name)
+		}
+		seen[base] = true
+		if err := CheckPrivate(name); err != nil {
+			t.Errorf("the temporary file is not private: %v", err)
+		}
+		ents, protected := winACEs(t, name)
+		if !protected || len(ents) != 3 {
+			t.Errorf("DACL of %s: protected %v, %d entries", name, protected, len(ents))
+		}
+	}
+	// A file created with os.CreateTemp in the same directory inherits Everyone's read access: the case
+	// CreateTempPrivate exists for.
+	f, err := os.CreateTemp(dir, "plain.*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	if i, err := Inspect(f.Name()); err != nil || !i.OthersRead {
+		t.Errorf("os.CreateTemp in a directory Everyone may read: %+v, %v", i, err)
+	}
+	if _, err := CreateTempPrivate(dir, `a\b*`); err == nil {
+		t.Error("a pattern with a separator was accepted")
+	}
+}

@@ -121,9 +121,16 @@ func (l Layout) InteractionsDir() string { return filepath.Join(l.Root, "interac
 // from the control plane, say) wrote into the same file, and the rename could put a mix of the two
 // in place: a config.json that no longer parses, and a daemon that then refuses to start (found on
 // the review of redteam F9).
+//
+// A temporary file for a perm that grants nothing to group or other is private from the moment it
+// exists (fsperm.CreateTempPrivate; on unix the same as os.CreateTemp, which creates it 0600).
 func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
 	dir := filepath.Dir(path)
-	f, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".tmp*")
+	createTemp := os.CreateTemp
+	if perm&0o077 == 0 {
+		createTemp = fsperm.CreateTempPrivate
+	}
+	f, err := createTemp(filepath.Dir(path), filepath.Base(path)+".tmp*")
 	if err != nil {
 		return err
 	}

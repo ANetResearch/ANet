@@ -20,6 +20,8 @@ import (
 	"path/filepath"
 
 	"github.com/ANetResearch/ANetCore/identity"
+
+	"github.com/ANetResearch/ANet/internal/fsperm"
 )
 
 const (
@@ -31,13 +33,19 @@ func localKeyPath(dataDir string) string { return filepath.Join(dataDir, localKe
 func localRecPath(dataDir string) string { return filepath.Join(dataDir, localRecName) }
 
 // writeFileDurable writes data to path through a temporary file in the same directory: fsync, then
-// rename. The file is mode perm; a directory that is missing is made 0700.
+// rename. The file is mode perm; a directory that is missing is made 0700. A temporary file for a perm
+// that grants nothing to group or other is private from the moment it exists (fsperm.CreateTempPrivate;
+// on unix the same as os.CreateTemp).
 func writeFileDurable(path string, data []byte, perm os.FileMode) error {
 	dir := filepath.Dir(path)
 	if err := mkdirDurable(dir); err != nil {
 		return err
 	}
-	f, err := os.CreateTemp(dir, filepath.Base(path)+".tmp*")
+	createTemp := os.CreateTemp
+	if perm&0o077 == 0 {
+		createTemp = fsperm.CreateTempPrivate
+	}
+	f, err := createTemp(dir, filepath.Base(path)+".tmp*")
 	if err != nil {
 		return err
 	}

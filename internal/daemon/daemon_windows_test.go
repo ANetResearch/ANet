@@ -336,3 +336,27 @@ func TestWindowsP2PConfigRefused(t *testing.T) {
 		t.Fatalf("a configuration without modules.p2p refused: %+v", r)
 	}
 }
+
+// A secret written through a temporary file is private while its bytes are written, not only once it is
+// in place: the temporary file is created with the private descriptor in a directory whose inheritable
+// access control list would let Everyone read it.
+func TestWindowsAtomicTempIsPrivateFromCreation(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "shared")
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	setDACL(t, dir, everyoneReadSDDL, true)
+	prev := atomicSync
+	t.Cleanup(func() { atomicSync = prev })
+	var during error
+	atomicSync = func(f *os.File) error {
+		during = fsperm.CheckPrivate(f.Name())
+		return f.Sync()
+	}
+	if err := writeFileAtomic(filepath.Join(dir, "secret"), []byte("s"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if during != nil {
+		t.Fatalf("the temporary file was not private while it was written: %v", during)
+	}
+}

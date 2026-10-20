@@ -79,7 +79,7 @@ func randomHex(n int) (string, error) {
 // renamed over path, and the directory synced (KEL D-42 E3: written, synced, then replaced).
 func writeSecretFile(path string, data []byte) error {
 	dir := filepath.Dir(path)
-	f, err := os.CreateTemp(dir, "."+filepath.Base(path)+".*")
+	f, err := fsperm.CreateTempPrivate(dir, "."+filepath.Base(path)+".*")
 	if err != nil {
 		return err
 	}
