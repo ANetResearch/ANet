@@ -5,19 +5,21 @@ Usage: build.py --dist DIR --out DIR [--allowed-signers FILE]
 
 DIR holds what build-release.sh writes and the download hosts serve under
 /dl/ and at the root: release.json, release.json.sig, install.sh,
-install.sh.sig and the .gz of every build that release.json names. The
-signatures are verified with ssh-keygen against internal/release/allowed_signers,
-and every .gz against its sha256 and size in release.json, before anything is
-written. The packages, one directory each under --out, are:
+install.sh.sig, install.ps1, install.ps1.sig and the .gz of every build that
+release.json names. The signatures are verified with ssh-keygen against
+internal/release/allowed_signers, and every .gz against its sha256 and size
+in release.json, before anything is written. The packages, one directory
+each under --out, are:
 
   @agentnetwork/<asset prefix>-<os>-<cpu>   one per build of release.json
+      (<os> and <cpu> in npm's names: linux, darwin or win32; x64 or arm64)
       dl/release.json, dl/release.json.sig, dl/<asset>.gz, README.md, LICENSE
-      The directory dl/ is a download base for install.sh and `anet update`
-      when a content delivery network for npm serves it.
+      The directory dl/ is a download base for install.sh, install.ps1 and
+      `anet update` when a content delivery network for npm serves it.
   @agentnetwork/anet
       bin/anet (the launcher, anet.js), allowed_signers, install.sh,
-      install.sh.sig, README.md, LICENSE; the default builds are optional
-      dependencies of exactly this version.
+      install.sh.sig, install.ps1, install.ps1.sig, README.md, LICENSE; the
+      default builds are optional dependencies of exactly this version.
 
 Publish the build packages first and @agentnetwork/anet last, so that its
 optional dependencies exist when it appears (see README.md). Nothing is
@@ -39,7 +41,10 @@ SCOPE = "@agentnetwork"
 NAMESPACE = "anet-release@agentnetwork.org.cn"
 IDENTITY = "anet-release@agentnetwork.org.cn"
 CPU = {"amd64": "x64", "arm64": "arm64"}
-OS_NAME = {"linux": "Linux", "darwin": "macOS"}
+# npm's name of each operating system (process.platform), by Go's name.
+NPM_OS = {"linux": "linux", "darwin": "darwin", "windows": "win32"}
+OS_NAME = {"linux": "Linux", "darwin": "macOS", "windows": "Windows"}
+INSTALLERS = ("install.sh", "install.sh.sig", "install.ps1", "install.ps1.sig")
 DOCS = "https://docs.agentnetwork.org.cn/docs/en/latest/intro/install.html"
 REPOSITORY = {"type": "git", "url": "git+https://github.com/ANetResearch/ANet.git", "directory": "deploy/release/npm"}
 
@@ -97,7 +102,7 @@ The {variant} build of [anet](https://github.com/ANetResearch/ANet) {version} fo
 This package is not run directly. The directory `dl/` holds `release.json`, `release.json.sig` and `{asset}.gz` exactly as the download hosts of the project serve them under `/dl/`:
 
 * The npm package `@agentnetwork/anet` depends on the default builds and runs the binary after it has verified the signature of `release.json` and the SHA-256 of the archive and of the binary.
-* `install.sh` and `anet update` use the copies of `dl/` that content delivery networks for npm serve as download hosts when the project's own hosts cannot be reached. Every file is checked against the signed manifest, as from any other host.
+* `install.sh`, `install.ps1` and `anet update` use the copies of `dl/` that content delivery networks for npm serve as download hosts when the project's own hosts cannot be reached. Every file is checked against the signed manifest, as from any other host.
 
 Installation: {docs}
 """
@@ -111,16 +116,20 @@ npm install --global @agentnetwork/anet
 anet version
 ```
 
-anet runs on Linux and macOS (x64 and arm64). Windows is not supported.
+anet runs on Linux, macOS and Windows (x64 and arm64).
 
 ## What the package runs
 
-The package contains a launcher (`bin/anet`, Node.js 18 or later) and no binary. The build of the platform is in the optional dependency `@agentnetwork/anet-<os>-<cpu>`, as the archive and the signed release manifest of the project. Before the first run of a version the launcher checks that `release.json` is signed by the anet release key (`allowed_signers` in this package, the same key as in `SECURITY.md` of the repository), that it names this version, and that the SHA-256 of the archive and of the binary are the ones it lists. Any failure stops the launcher before anything is run. The checked binary is written to `~/.cache/anet/npm/<version>/` (`~/Library/Caches/anet/npm/<version>/` on macOS) and run from there.
+The package contains a launcher (`bin/anet`, Node.js 18 or later) and no binary. The build of the platform is in the optional dependency `@agentnetwork/anet-<os>-<cpu>` (`<os>` is `linux`, `darwin` or `win32`), as the archive and the signed release manifest of the project. Before the first run of a version the launcher checks that `release.json` is signed by the anet release key (`allowed_signers` in this package, the same key as in `SECURITY.md` of the repository), that it names this version, and that the SHA-256 of the archive and of the binary are the ones it lists. Any failure stops the launcher before anything is run. The checked binary is written to `~/.cache/anet/npm/<version>/` (`~/Library/Caches/anet/npm/<version>/` on macOS, `%LOCALAPPDATA%\\anet\\npm\\<version>\\` on Windows) and run from there.
 
-Update with `npm update --global @agentnetwork/anet`. The installer of the project (`install.sh`, also in this package with its signature) installs the same binary into `~/.local/bin` instead:
+Update with `npm update --global @agentnetwork/anet`. The installers of the project (`install.sh` and `install.ps1`, also in this package with their signatures) install the same binary into `~/.local/bin`, or on Windows into `%LOCALAPPDATA%\\Programs\\anet`, instead:
 
 ```sh
 curl --proto '=https' --tlsv1.2 -fsSL https://agentnetwork.org.cn/install.sh | sh
+```
+
+```powershell
+[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor 3072; & ([scriptblock]::Create((Invoke-RestMethod -UseBasicParsing -Uri 'https://agentnetwork.org.cn/install.ps1')))
 ```
 
 Documentation: {docs}
@@ -135,11 +144,12 @@ def main():
     a = ap.parse_args()
     dist, out, allowed = a.dist.resolve(), a.out.resolve(), a.allowed_signers.resolve()
 
-    for f in ("release.json", "release.json.sig", "install.sh", "install.sh.sig"):
+    for f in ("release.json", "release.json.sig") + INSTALLERS:
         if not (dist / f).is_file():
             die(f"{dist / f} is missing")
     verify(dist / "release.json", allowed)
     verify(dist / "install.sh", allowed)
+    verify(dist / "install.ps1", allowed)
     m = json.loads((dist / "release.json").read_text())
     if m.get("schema") != "anet-release/1":
         die(f"release.json: schema {m.get('schema')} is not anet-release/1")
@@ -162,7 +172,7 @@ def main():
     licence = REPO / "LICENSE"
     optional = {}
     for asset, goos, goarch, variant in builds:
-        name = f"{SCOPE}/{asset.rsplit('-', 1)[0]}-{CPU[goarch]}"
+        name = f"{SCOPE}/{prefixes[variant]}-{NPM_OS[goos]}-{CPU[goarch]}"
         d = package_dir(out, name)
         (d / "dl").mkdir()
         for f in ("release.json", "release.json.sig", f"{asset}.gz"):
@@ -173,7 +183,7 @@ def main():
             name=name, variant=variant_text, version=version, os_name=OS_NAME[goos], cpu=CPU[goarch],
             asset=asset, docs=DOCS))
         pkg = {"name": name, **common(version, f"The {variant} build of anet {version} for {OS_NAME[goos]} {CPU[goarch]}, with its signed release manifest.")}
-        pkg.update({"os": [goos], "cpu": [CPU[goarch]], "files": ["dl", "README.md", "LICENSE"]})
+        pkg.update({"os": [NPM_OS[goos]], "cpu": [CPU[goarch]], "files": ["dl", "README.md", "LICENSE"]})
         write_json(d / "package.json", pkg)
         if variant == "default":
             optional[name] = version
@@ -184,7 +194,7 @@ def main():
     shutil.copyfile(HERE / "anet.js", d / "bin" / "anet")
     os.chmod(d / "bin" / "anet", 0o755)
     shutil.copyfile(allowed, d / "allowed_signers")
-    for f in ("install.sh", "install.sh.sig"):
+    for f in INSTALLERS:
         shutil.copyfile(dist / f, d / f)
     shutil.copyfile(licence, d / "LICENSE")
     (d / "README.md").write_text(MAIN_README.format(version=version, docs=DOCS))
@@ -192,8 +202,8 @@ def main():
     pkg.update({
         "keywords": ["anet", "agentnetwork", "a2a", "agent-to-agent", "mcp", "x402", "multi-agent", "cli"],
         "bin": {"anet": "bin/anet"},
-        "files": ["bin", "allowed_signers", "install.sh", "install.sh.sig", "README.md", "LICENSE"],
-        "os": sorted(OS_NAME),
+        "files": ["bin", "allowed_signers", *INSTALLERS, "README.md", "LICENSE"],
+        "os": sorted(NPM_OS.values()),
         "cpu": sorted(set(CPU.values())),
         "engines": {"node": ">=18"},
         "optionalDependencies": dict(sorted(optional.items())),

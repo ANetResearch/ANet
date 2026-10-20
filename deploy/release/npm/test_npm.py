@@ -46,12 +46,18 @@ class NpmPackages(unittest.TestCase):
         self.dist = self.tmp / "dist"
         self.dist.mkdir()
         assets = {}
-        for prefix, variant in (("anet", "default"), ("anet-shell", "shell")):
-            asset = f"{prefix}-{GOOS}-{GOARCH}"
-            binary = f"#!/bin/sh\necho 'anet {VERSION} {variant}'\necho \"args: $*\"\n".encode()
-            gz = gzip.compress(binary, mtime=0)
-            (self.dist / f"{asset}.gz").write_bytes(gz)
-            assets[asset] = {"variant": variant, "os": GOOS, "arch": GOARCH, "gz_sha256": sha(gz), "gz_size": len(gz), "sha256": sha(binary), "size": len(binary)}
+        # The builds of this machine, which the launcher runs, and the four
+        # Windows builds (PE files in a release; any bytes here).
+        builds = [(GOOS, GOARCH)] + [("windows", a) for a in ("amd64", "arm64") if (GOOS, GOARCH) != ("windows", a)]
+        for goos, goarch in builds:
+            for prefix, variant in (("anet", "default"), ("anet-shell", "shell")):
+                asset = f"{prefix}-{goos}-{goarch}"
+                binary = f"#!/bin/sh\necho 'anet {VERSION} {variant}'\necho \"args: $*\"\n".encode()
+                if goos == "windows":
+                    binary = f"MZ {asset}".encode()
+                gz = gzip.compress(binary, mtime=0)
+                (self.dist / f"{asset}.gz").write_bytes(gz)
+                assets[asset] = {"variant": variant, "os": goos, "arch": goarch, "gz_sha256": sha(gz), "gz_size": len(gz), "sha256": sha(binary), "size": len(binary)}
         manifest = {
             "schema": "anet-release/1", "version": VERSION, "commit": "0" * 40, "key_fingerprint": fp,
             "variants": {"default": {"asset_prefix": "anet", "modules": []}, "shell": {"asset_prefix": "anet-shell", "modules": ["shell"]}},
@@ -59,7 +65,8 @@ class NpmPackages(unittest.TestCase):
         }
         (self.dist / "release.json").write_text(json.dumps(manifest, indent=2) + "\n")
         (self.dist / "install.sh").write_text("#!/bin/sh\necho installer\n")
-        for f in ("release.json", "install.sh"):
+        (self.dist / "install.ps1").write_text("# installer\nWrite-Host installer\n")
+        for f in ("release.json", "install.sh", "install.ps1"):
             self.sign(self.dist / f)
 
     def sign(self, path, namespace=NAMESPACE, key=None):
@@ -86,12 +93,34 @@ class NpmPackages(unittest.TestCase):
     def test_build_and_run(self):
         r, out = self.build()
         self.assertEqual(r.returncode, 0, r.stderr)
-        names = sorted(json.loads((d / "package.json").read_text())["name"] for d in out.iterdir())
+        pkgs = {}
+        for d in out.iterdir():
+            p = json.loads((d / "package.json").read_text())
+            pkgs[p["name"]] = p
         cpu = CPU[GOARCH]
-        self.assertEqual(names, ["@agentnetwork/anet", f"@agentnetwork/anet-{GOOS}-{cpu}", f"@agentnetwork/anet-shell-{GOOS}-{cpu}"])
-        main = json.loads((out / "@agentnetwork__anet" / "package.json").read_text())
-        self.assertEqual(main["optionalDependencies"], {f"@agentnetwork/anet-{GOOS}-{cpu}": VERSION})
+        want = {"@agentnetwork/anet", f"@agentnetwork/anet-{GOOS}-{cpu}", f"@agentnetwork/anet-shell-{GOOS}-{cpu}",
+                "@agentnetwork/anet-win32-x64", "@agentnetwork/anet-win32-arm64",
+                "@agentnetwork/anet-shell-win32-x64", "@agentnetwork/anet-shell-win32-arm64"}
+        self.assertEqual(set(pkgs), want)
+        for name, p in pkgs.items():
+            if name == "@agentnetwork/anet":
+                continue
+            npm_os = "win32" if "-win32-" in name else GOOS
+            self.assertEqual(p["os"], [npm_os], name)
+            self.assertEqual(p["cpu"], [name.rsplit("-", 1)[1]], name)
+        # Inside a win32 package the archive keeps the asset name.
+        win = out / "@agentnetwork__anet-shell-win32-arm64"
+        self.assertEqual(sorted(p.name for p in (win / "dl").iterdir()), sorted(["release.json", "release.json.sig", "anet-shell-windows-arm64.gz"]))
+        self.assertIn("for Windows on arm64", (win / "README.md").read_text())
+        main = pkgs["@agentnetwork/anet"]
+        self.assertEqual(main["optionalDependencies"], {
+            f"@agentnetwork/anet-{GOOS}-{cpu}": VERSION, "@agentnetwork/anet-win32-x64": VERSION, "@agentnetwork/anet-win32-arm64": VERSION})
+        self.assertEqual(main["os"], ["darwin", "linux", "win32"])
         self.assertEqual(main["bin"], {"anet": "bin/anet"})
+        for f in ("install.sh", "install.sh.sig", "install.ps1", "install.ps1.sig"):
+            self.assertIn(f, main["files"])
+            self.assertEqual((out / "@agentnetwork__anet" / f).read_bytes(), (self.dist / f).read_bytes())
+        self.assertIn("anet runs on Linux, macOS and Windows (x64 and arm64).", (out / "@agentnetwork__anet" / "README.md").read_text())
         build = out / f"@agentnetwork__anet-{GOOS}-{cpu}"
         self.assertEqual(sorted(p.name for p in (build / "dl").iterdir()), sorted(["release.json", "release.json.sig", f"anet-{GOOS}-{GOARCH}.gz"]))
         self.assertEqual((build / "dl" / "release.json").read_bytes(), (self.dist / "release.json").read_bytes())
@@ -140,6 +169,25 @@ class NpmPackages(unittest.TestCase):
             run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(other)], check=True)
         self.sign(path, key=other)
 
+    def test_target(self):
+        """The launcher's map from Node's platform names to the build."""
+        r = run(["node", "-e", "const a = require(process.argv[1]); console.log(JSON.stringify("
+                 "[['win32','x64'],['win32','arm64'],['darwin','arm64'],['linux','x64'],['win32','ia32'],['freebsd','x64'],['aix','arm64']]"
+                 ".map(([p, c]) => a.target(p, c))))", str(HERE / "anet.js")])
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(json.loads(r.stdout), [
+            {"goos": "windows", "goarch": "amd64", "npmOS": "win32", "cpu": "x64", "exeName": "anet.exe"},
+            {"goos": "windows", "goarch": "arm64", "npmOS": "win32", "cpu": "arm64", "exeName": "anet.exe"},
+            {"goos": "darwin", "goarch": "arm64", "npmOS": "darwin", "cpu": "arm64", "exeName": "anet"},
+            {"goos": "linux", "goarch": "amd64", "npmOS": "linux", "cpu": "x64", "exeName": "anet"},
+            None, None, None,
+        ])
+        r = run(["node", "-e", "const re = require(process.argv[1]).asideRe('anet.exe'); console.log(JSON.stringify("
+                 "['anet.exe.old-1712345678901', 'ANET.EXE.old-1', 'anet.exe.old-', 'anet.exe.old-1.tmp', 'anetXexe.old-1', 'anet.old-1']"
+                 ".map((n) => re.test(n))))", str(HERE / "anet.js")])
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(json.loads(r.stdout), [True, True, False, False, False, False])
+
     def test_build_refuses(self):
         with self.subTest("archive"):
             gz = self.dist / f"anet-{GOOS}-{GOARCH}.gz"
@@ -152,10 +200,19 @@ class NpmPackages(unittest.TestCase):
             shutil.rmtree(self.tmp / "out", ignore_errors=True)
         with self.subTest("signature"):
             mf = self.dist / "release.json"
-            mf.write_text(mf.read_text() + " ")
+            good = mf.read_text()
+            mf.write_text(good + " ")
             r, _ = self.build()
             self.assertNotEqual(r.returncode, 0)
             self.assertIn("does not verify", r.stderr)
+            mf.write_text(good)
+            shutil.rmtree(self.tmp / "out", ignore_errors=True)
+        with self.subTest("installer signature"):
+            ps1 = self.dist / "install.ps1"
+            ps1.write_text(ps1.read_text() + "Write-Host changed\n")
+            r, _ = self.build()
+            self.assertNotEqual(r.returncode, 0)
+            self.assertIn("install.ps1.sig does not verify", r.stderr)
 
 
 if __name__ == "__main__":
