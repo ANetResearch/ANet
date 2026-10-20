@@ -1,35 +1,89 @@
 # AgentNetwork (anet) installer for Windows - https://agentnetwork.org.cn
 #
 # Installs the prebuilt anet.exe for this machine (Windows 10 1809 or
-# Windows Server 2019 and later, x64 or arm64) into
-# %LOCALAPPDATA%\Programs\anet, after checking it. Runs in Windows
-# PowerShell 5.1 and in PowerShell 7, in a window that is not elevated.
+# Windows Server 2019 and later, x64 or arm64) for the current account, after
+# checking it. Runs in Windows PowerShell 5.1 and in PowerShell 7. It asks
+# nothing: every decision is made from the parameters, and nothing reads the
+# console, so it also runs where no console is visible (an agent's tool call,
+# a CI job, WSL).
 #
-# Usage (one line):
-#   [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor 3072; & ([scriptblock]::Create((Invoke-RestMethod -UseBasicParsing -Uri 'https://agentnetwork.org.cn/install.ps1'))) -Controller '<controller AID>'
+# Usage. The same line runs unchanged in cmd.exe, Windows PowerShell 5.1,
+# PowerShell 7, bash or zsh in WSL 1 and WSL 2 (through WSL interoperability,
+# which is on by default) and Git Bash. It contains no character that one of
+# these shells would interpret. Install only (the default build):
 #
-# Without -Controller, the same line with no arguments installs the default
-# build and does nothing else.
+#   powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol=3072; & ([scriptblock]::Create((irm -UseBasicParsing https://agentnetwork.org.cn/install.ps1)))"
+#
+# Install the shell build and give the agent CONTROLLER_AID (replace it with
+# that agent's AID) the right to run commands on this computer as this user,
+# start the node, register it at the hub and start it at every logon. Giving
+# -Controller on the command line is the consent; nothing else is asked:
+#
+#   powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol=3072; & ([scriptblock]::Create((irm -UseBasicParsing https://agentnetwork.org.cn/install.ps1))) -Controller CONTROLLER_AID"
+#
+# Run inside WSL, the line installs the Windows build on the Windows host, for
+# the Windows user: that is the computer the controller is given. install.sh
+# installs anet inside the Linux distribution instead.
+#
+# The exit status of powershell.exe is the result (0: done). In a window that
+# was not started for this one command (the script pasted into an open
+# PowerShell window), the script does not end the window; $LASTEXITCODE holds
+# the result.
 #
 # Parameters:
 #   -Controller AID  Install the shell build, give the agent with this AID the
-#                    right to run commands on this machine as this user (one
-#                    confirmation on the console), start the node, register it
-#                    at the hub and start it at every logon.
+#                    right to run commands on this machine as this user, start
+#                    the node, register it at the hub and start it at every
+#                    logon.
 #   -Shell           Install the shell build without giving anyone access.
 #   -Hub URL         Start the node and join this hub (default with
 #                    -Controller: https://hub.agentnetwork.org.cn).
+#   -NoJoin          Do not register at a hub (with -Controller, the node is
+#                    still started); register later with anet hub-register.
 #   -Name NAME       The name to join under (default: the computer name).
-#   -Prefix DIR      Install into DIR (default %LOCALAPPDATA%\Programs\anet).
-#                    No directory above DIR may let another account rename
-#                    it or change its access control list; DIR must not
+#   -Prefix DIR      Install into DIR instead of the directory the installer
+#                    chooses. No directory above DIR may let another account
+#                    rename it or change its access control list; DIR must not
 #                    contain ; or %.
 #   -Without LIST    Turn these modules off in config.json.
 #   -Base URL|DIR    Download base, https only, or a local copy of a release
 #                    directory; replaces the list of download hosts.
 #   -NoAutostart     Do not start the node at logon.
-#   -NoPath          Do not add the install directory to the user's PATH.
-#   -Elevated        Allow running in an elevated window.
+#   -NoPath          Do not put the install directory on the user's PATH.
+#   -Elevated        Accepted for compatibility; it changes nothing.
+#
+# THE INSTALL DIRECTORY, without -Prefix: the first of these that passes the
+# checks below; each one skipped is reported in one line, with the reason and
+# the accounts it names:
+#
+#   1. the directory of an anet 0.3 or later already installed for this
+#      user (on the user's PATH or in the Run value below);
+#   2. %LOCALAPPDATA%\Programs\anet;
+#   3. %LOCALAPPDATA%\anet\bin (beside the node's runtime directory
+#      %LOCALAPPDATA%\anet\run);
+#   4. %USERPROFILE%\.anet-bin.
+#
+# A directory passes when no directory above it lets another account rename
+# it or change its access control list, and it (or, when it does not exist
+# yet, the nearest directory above it that exists) is private to this user:
+# owned by this user, SYSTEM or Administrators, and granting no other account
+# more than SYNCHRONIZE, FILE_TRAVERSE and FILE_READ_ATTRIBUTES. A directory
+# the installer creates gets an access control list of its own: full control
+# for this user, SYSTEM and Administrators, and nothing else.
+#
+# AN ELEVATED WINDOW: anet is installed for the current account all the same
+# (per-user directories, the user's PATH and Run value). The node is started
+# with standard user rights through the Task Scheduler when Windows has a
+# standard token for this user; when it has none (User Account Control off,
+# the built-in Administrator), or the Task Scheduler cannot start it, the
+# node starts with the rights of this window, and the installer says so.
+#
+# EARLIER ANET INSTALLATIONS of this user are taken over: an anet of another
+# line (1.x, 0.1, 0.2) found on the PATH or in the global npm prefix is
+# stopped with its own stop command, its npm package is removed with npm
+# uninstall -g @agentnetwork/anet, and its data in %USERPROFILE%\.anet is
+# renamed aside (never deleted). Another anet 0.3 or later is left in place
+# and taken off the user's PATH; npm launchers of 0.3 or later are left alone.
 #
 # WHAT IS CHECKED, and every check stops the install before anything is
 # installed or changed:
@@ -60,16 +114,16 @@
 #
 #   anet-release@agentnetwork.org.cn namespaces="anet-release@agentnetwork.org.cn,anet-official@agentnetwork.org.cn" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAMTUwPlzeKmU7qr+eicaQVuxmltc5mY1sTmwfhIJJEL
 #
-# Verify-first form (ssh-keygen -Y verify needs OpenSSH 8.1 or later; ssh -V
-# shows the version). It writes the line above into allowed_signers as UTF-8
-# without a byte order mark, checks the signature in cmd.exe (PowerShell has
-# no input redirection), and stops before running the script when the check
-# fails:
+# Verify-first form, in PowerShell (ssh-keygen -Y verify needs OpenSSH 8.1 or
+# later; ssh -V shows the version). It writes the line above into
+# allowed_signers as UTF-8 without a byte order mark, checks the signature in
+# cmd.exe (PowerShell has no input redirection), and stops before running the
+# script when the check fails:
 #
 #   Invoke-WebRequest -UseBasicParsing https://agentnetwork.org.cn/install.ps1 -OutFile install.ps1
 #   Invoke-WebRequest -UseBasicParsing https://agentnetwork.org.cn/install.ps1.sig -OutFile install.ps1.sig
 #   [IO.File]::WriteAllText((Join-Path $PWD.ProviderPath 'allowed_signers'), 'anet-release@agentnetwork.org.cn namespaces="anet-release@agentnetwork.org.cn,anet-official@agentnetwork.org.cn" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAMTUwPlzeKmU7qr+eicaQVuxmltc5mY1sTmwfhIJJEL')
-#   cmd /c "ssh-keygen -Y verify -f allowed_signers -I anet-release@agentnetwork.org.cn -n anet-release@agentnetwork.org.cn -s install.ps1.sig < install.ps1"; if ($LASTEXITCODE -ne 0) { throw 'install.ps1 did not verify' }; & ([scriptblock]::Create((Get-Content -Raw .\install.ps1))) -Controller '<controller AID>'
+#   cmd /c "ssh-keygen -Y verify -f allowed_signers -I anet-release@agentnetwork.org.cn -n anet-release@agentnetwork.org.cn -s install.ps1.sig < install.ps1"; if ($LASTEXITCODE -ne 0) { throw 'install.ps1 did not verify' }; & ([scriptblock]::Create((Get-Content -Raw .\install.ps1))) -Controller CONTROLLER_AID
 #
 # With an older OpenSSH, run the check on another machine with OpenSSH 8.1 or
 # later (the same command in cmd.exe and in a POSIX shell), and run the
@@ -89,19 +143,22 @@
 # config.json, modules.shell with allow = [AID], allow_arbitrary = true and
 # shell = powershell; the AID in peers.allow; the defaults of `anet init`
 # (inbound closed, no public capabilities, spending limits 0); the hub
-# registration; the Run value AgentNetwork under
+# registration (not with -NoJoin); the Run value AgentNetwork under
 # HKCU\Software\Microsoft\Windows\CurrentVersion\Run; the user's PATH. Nothing
 # else: no auto-reply, no other peer, no public capability, no listener beyond
-# the node's loopback ones.
+# the node's loopback ones. The installer prints what was granted, and how to
+# revoke it, at the end.
 #
 # Everything below is a parameter block, the release pins and function
 # definitions; the last line calls Install-Anet. A download cut short does
-# not parse, and runs nothing. This script contains no call to exit: the
-# window it runs in stays open, and $LASTEXITCODE holds the result.
+# not parse, and runs nothing. The script ends the PowerShell process only
+# when that process was started for this one command (powershell.exe
+# -Command, as in the lines above), with the result as its exit status.
 
 param(
   [string]$Controller, [switch]$Shell, [string]$Hub, [string]$Name, [string]$Prefix,
-  [string[]]$Without, [string]$Base, [switch]$NoAutostart, [switch]$NoPath, [switch]$Elevated
+  [string[]]$Without, [string]$Base, [switch]$NoAutostart, [switch]$NoPath, [switch]$Elevated,
+  [switch]$NoJoin
 )
 
 # BEGIN RELEASE PINS (written by deploy/release/build-release.sh; do not edit)
@@ -203,19 +260,28 @@ function Test-AnetHttpsUrl {
   return $false
 }
 
+# The placeholder of the published command with -Controller. cmd.exe would
+# read < and > as redirections, so the placeholder is a plain word, and the
+# installer refuses it by name.
+$AnetControllerPlaceholder = 'CONTROLLER_AID'
+
 # Get-AnetOptions validates the parameters (a hashtable of what was given)
 # and returns what the install will do. Nothing is read from or written to
 # the machine except $env:COMPUTERNAME, ANET_INSTALL_BASE and, for -Base and
-# -Prefix, whether a directory exists.
+# -Prefix, whether a directory exists. Without -Prefix, Prefix is empty: the
+# install directory is chosen later (Select-AnetInstallDir).
 function Get-AnetOptions {
   param([Parameter(Mandatory = $true)][hashtable]$Given)
   $o = @{
     Controller = ''; Variant = 'default'; AssetPrefix = 'anet'; Hub = ''; Join = $false; Name = '';
     Prefix = ''; PrefixGiven = $false; Without = @(); Base = ''; NoAutostart = [bool]$Given['NoAutostart'];
-    NoPath = [bool]$Given['NoPath']; Elevated = [bool]$Given['Elevated']
+    NoPath = [bool]$Given['NoPath']; Elevated = [bool]$Given['Elevated']; NoJoin = [bool]$Given['NoJoin']
   }
   $controller = [string]$Given['Controller']
   if ($Given.ContainsKey('Controller')) {
+    if ($controller.Trim() -ieq $AnetControllerPlaceholder) {
+      throw (New-AnetFailure ('-Controller ' + $AnetControllerPlaceholder + ' is the placeholder of the published command; replace it with the AID of the agent that is to control this computer (bafyrei followed by 52 characters a-z and 2-7)'))
+    }
     if (-not ($controller -cmatch '^bafyrei[a-z2-7]{52}$')) {
       throw (New-AnetFailure ('-Controller ' + $controller + ' is not an AID (bafyrei followed by 52 characters a-z and 2-7)'))
     }
@@ -225,13 +291,16 @@ function Get-AnetOptions {
     $o.Variant = 'shell'
     $o.AssetPrefix = 'anet-shell'
   }
+  if ($o.NoJoin -and $Given.ContainsKey('Hub')) {
+    throw (New-AnetFailure '-NoJoin and -Hub contradict each other; use one of them')
+  }
   if ($Given.ContainsKey('Hub')) {
     $hub = [string]$Given['Hub']
     if (-not (Test-AnetHttpsUrl -Text $hub -AllowLoopbackHttp)) {
       throw (New-AnetFailure ('-Hub ' + $hub + ' is not an absolute https:// URL (http:// only for 127.0.0.1 or localhost)'))
     }
     $o.Hub = $hub
-  } elseif ($o.Controller -ne '') {
+  } elseif ($o.Controller -ne '' -and -not $o.NoJoin) {
     $o.Hub = 'https://hub.agentnetwork.org.cn'
   }
   $o.Join = ($o.Hub -ne '')
@@ -269,12 +338,6 @@ function Get-AnetOptions {
     if ($o.Prefix.Length -le 2) {
       throw (New-AnetFailure ('-Prefix ' + $p + ' is the root of a drive; give a directory'))
     }
-  } else {
-    $local = [Environment]::GetFolderPath('LocalApplicationData')
-    if ([string]::IsNullOrEmpty($local)) {
-      throw (New-AnetFailure 'this account has no local application data folder; give -Prefix')
-    }
-    $o.Prefix = Join-Path (Join-Path $local 'Programs') 'anet'
   }
   if ($Given.ContainsKey('Base')) {
     $o.Base = Get-AnetBaseValue -Text ([string]$Given['Base']) -What '-Base'
@@ -469,9 +532,67 @@ function Get-AnetRelease {
   throw (New-AnetFailure ('no download base served release ' + $AnetRelease['Version'] + ' (tried: ' + ($tried -join ', ') + ')'))
 }
 
+# Get-AnetAccountName names an account for a message: DOMAIN\Name, or the
+# SID followed by (unresolved) when Windows cannot translate it (a deleted
+# account, an account of another computer, most capability SIDs).
+function Get-AnetAccountName {
+  param([string]$Sid)
+  try {
+    $n = (New-Object System.Security.Principal.SecurityIdentifier $Sid).Translate([System.Security.Principal.NTAccount]).Value
+    if (-not [string]::IsNullOrEmpty($n)) { return $n }
+  } catch { }
+  return $Sid + ' (unresolved)'
+}
+
+# Get-AnetRuleMask is the access mask of a rule of Get-Acl as an unsigned
+# 32-bit number (the generic rights are the high bits, which .NET shows as a
+# negative FileSystemRights).
+function Get-AnetRuleMask {
+  param($Rule)
+  return (([long][int]$Rule.FileSystemRights) -band [long]4294967295)
+}
+
+# Get-AnetRightsText says in words what an access mask grants.
+function Get-AnetRightsText {
+  param([long]$Mask)
+  if (($Mask -band 0x10000000) -ne 0 -or ($Mask -band 0x1F01FF) -eq 0x1F01FF) { return 'full control' }
+  $parts = New-Object System.Collections.Generic.List[string]
+  if (($Mask -band ([long]2147483648 -bor 0x1 -bor 0x8)) -ne 0) { $parts.Add('read') }
+  if (($Mask -band (0x40000000 -bor 0x2 -bor 0x4 -bor 0x10 -bor 0x100)) -ne 0) { $parts.Add('write') }
+  if (($Mask -band (0x10000 -bor 0x40)) -ne 0) { $parts.Add('delete') }
+  if (($Mask -band 0x40000) -ne 0) { $parts.Add('change permissions') }
+  if (($Mask -band 0x80000) -ne 0) { $parts.Add('take ownership') }
+  if (($Mask -band 0x20000000) -ne 0) { $parts.Add('execute') }
+  if (($Mask -band 0x20000) -ne 0) { $parts.Add('read permissions') }
+  if ($parts.Count -eq 0) { return ('access mask 0x{0:X8}' -f $Mask) }
+  return ($parts -join ', ')
+}
+
+# $AnetHarmlessRights is what an allow rule may grant another account without
+# making a directory less private: SYNCHRONIZE (0x100000), FILE_TRAVERSE
+# (0x20, FILE_EXECUTE on a file) and FILE_READ_ATTRIBUTES (0x80). With these
+# the account can pass through the directory to a path it already knows, and
+# read its timestamps and attributes; it cannot list the directory, read or
+# write a file in it, create, delete or rename anything, read its access
+# control list, or change it. Windows gives such entries to the capability
+# SIDs of app containers on the profile directory. READ_CONTROL is not in
+# the set: it would let the account read who has access, which no reader of
+# the directory needs. Every other right fails the check, the generic rights
+# included.
+$AnetHarmlessRights = [long]0x001000A0
+
+# Test-AnetHarmlessMask: an access mask that grants nothing beyond
+# $AnetHarmlessRights (an empty mask included).
+function Test-AnetHarmlessMask {
+  param([long]$Mask)
+  return (($Mask -band (-bnot $AnetHarmlessRights) -band [long]4294967295) -eq 0)
+}
+
 # Get-AnetPrivacyProblem says why a directory is not private to this user,
 # or returns $null when it is: it is not a reparse point, its owner is this
-# user, SYSTEM or Administrators, and every Allow rule names one of them.
+# user, SYSTEM or Administrators, and every Allow rule for any other account
+# (inherit-only rules included, since they reach what is created inside)
+# grants nothing beyond $AnetHarmlessRights. Accounts are named.
 function Get-AnetPrivacyProblem {
   param([Parameter(Mandatory = $true)][string]$Path)
   $user = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
@@ -490,11 +611,14 @@ function Get-AnetPrivacyProblem {
   } catch {
     return 'its access control list cannot be read: ' + $_.Exception.Message
   }
-  if ($allowed -notcontains $owner) { return 'it is owned by ' + $owner }
+  if ($allowed -notcontains $owner) { return 'it is owned by ' + (Get-AnetAccountName $owner) }
   foreach ($r in $rules) {
     if ($r.AccessControlType -ne [System.Security.AccessControl.AccessControlType]::Allow) { continue }
     $sid = $r.IdentityReference.Value
-    if ($allowed -notcontains $sid) { return 'access is granted to ' + $sid }
+    if ($allowed -contains $sid) { continue }
+    $mask = Get-AnetRuleMask $r
+    if (Test-AnetHarmlessMask $mask) { continue }
+    return 'access is granted to ' + (Get-AnetAccountName $sid) + ' (' + (Get-AnetRightsText $mask) + ')'
   }
   return $null
 }
@@ -525,14 +649,15 @@ function Get-AnetAncestorProblem {
       } catch {
         return $ancestor + ': its access control list cannot be read: ' + $_.Exception.Message
       }
-      if ($trusted -notcontains $owner) { return $ancestor + ': it is owned by ' + $owner }
+      if ($trusted -notcontains $owner) { return $ancestor + ': it is owned by ' + (Get-AnetAccountName $owner) }
       foreach ($r in $rules) {
         if ($r.AccessControlType -ne [System.Security.AccessControl.AccessControlType]::Allow) { continue }
         if (($r.PropagationFlags -band [System.Security.AccessControl.PropagationFlags]::InheritOnly) -ne 0) { continue }
         $sid = $r.IdentityReference.Value
         if ($trusted -contains $sid -or $sid -eq 'S-1-3-0' -or $sid -eq 'S-1-3-4') { continue }
-        if (([long][int]$r.FileSystemRights -band $moving) -ne 0) {
-          return $ancestor + ': ' + $sid + ' may rename it or change its access control list'
+        $mask = Get-AnetRuleMask $r
+        if (($mask -band $moving) -ne 0) {
+          return $ancestor + ': ' + (Get-AnetAccountName $sid) + ' may rename it or change its access control list (' + (Get-AnetRightsText $mask) + ')'
         }
       }
     }
@@ -570,22 +695,40 @@ function Set-AnetPrivateAcl {
   }
 }
 
-# Initialize-AnetDirectory makes sure the install directory exists and is
-# private to this user. A missing directory is created only below an
-# existing directory that is private to this user; the new directory then
-# gets its own access control list, and must be empty. With
-# -CheckAncestors (a directory given with -Prefix), no directory above it
-# may let another account move it away (Get-AnetAncestorProblem).
-function Initialize-AnetDirectory {
-  param([Parameter(Mandatory = $true)][string]$Dir, [switch]$CheckAncestors)
-  $refusal = $Dir + ' is not private to this user; choose -Prefix inside your profile'
-  if ($CheckAncestors) {
-    $why = Get-AnetAncestorProblem -Dir $Dir
-    if ($null -ne $why) {
-      Write-AnetLine ('   ' + $why)
-      throw (New-AnetFailure $refusal)
-    }
+# Get-AnetDirectoryProblem says why $Dir cannot be the install directory, or
+# returns $null: no directory above it may let another account move it
+# (Get-AnetAncestorProblem), and it must be private to this user
+# (Get-AnetPrivacyProblem), or, when it does not exist yet, the nearest
+# directory above it that exists must be.
+function Get-AnetDirectoryProblem {
+  param([Parameter(Mandatory = $true)][string]$Dir)
+  $why = Get-AnetAncestorProblem -Dir $Dir
+  if ($null -ne $why) { return $why }
+  if (Test-Path -LiteralPath $Dir) {
+    $why = Get-AnetPrivacyProblem -Path $Dir
+    if ($null -ne $why) { return $Dir + ': ' + $why }
+    return $null
   }
+  $ancestor = Split-Path -Parent $Dir
+  while (-not [string]::IsNullOrEmpty($ancestor) -and -not (Test-Path -LiteralPath $ancestor)) {
+    $ancestor = Split-Path -Parent $ancestor
+  }
+  if ([string]::IsNullOrEmpty($ancestor)) { return $Dir + ': no part of the path exists' }
+  $why = Get-AnetPrivacyProblem -Path $ancestor
+  if ($null -ne $why) { return $ancestor + ': ' + $why }
+  return $null
+}
+
+# Initialize-AnetDirectory makes sure the install directory exists and is
+# private to this user; the caller has checked it with
+# Get-AnetDirectoryProblem. Each missing level is created on its own, below
+# the previous one, gets the private access control list (Set-AnetPrivateAcl)
+# and must then be private and empty; so %LOCALAPPDATA%\anet, created on the
+# way to %LOCALAPPDATA%\anet\bin, is private as the node's runtime directory
+# beside it requires.
+function Initialize-AnetDirectory {
+  param([Parameter(Mandatory = $true)][string]$Dir)
+  $refusal = $Dir + ' is not private to this user'
   if (Test-Path -LiteralPath $Dir) {
     $why = Get-AnetPrivacyProblem -Path $Dir
     if ($null -ne $why) {
@@ -594,29 +737,33 @@ function Initialize-AnetDirectory {
     }
     return
   }
-  $ancestor = Split-Path -Parent $Dir
-  while (-not [string]::IsNullOrEmpty($ancestor) -and -not (Test-Path -LiteralPath $ancestor)) {
-    $ancestor = Split-Path -Parent $ancestor
+  $missing = New-Object System.Collections.Generic.List[string]
+  $p = $Dir
+  while (-not [string]::IsNullOrEmpty($p) -and -not (Test-Path -LiteralPath $p)) {
+    $missing.Insert(0, $p)
+    $p = Split-Path -Parent $p
   }
-  if ([string]::IsNullOrEmpty($ancestor)) {
+  if ([string]::IsNullOrEmpty($p)) {
     throw (New-AnetFailure ($Dir + ' cannot be created: no part of the path exists'))
   }
-  $why = Get-AnetPrivacyProblem -Path $ancestor
+  $why = Get-AnetPrivacyProblem -Path $p
   if ($null -ne $why) {
-    Write-AnetLine ('   ' + $ancestor + ': ' + $why)
+    Write-AnetLine ('   ' + $p + ': ' + $why)
     throw (New-AnetFailure $refusal)
   }
-  Write-AnetLine ('-> creating ' + $Dir)
-  $null = [IO.Directory]::CreateDirectory($Dir)
-  Set-AnetPrivateAcl -Path $Dir
-  $why = Get-AnetPrivacyProblem -Path $Dir
-  if ($null -ne $why) {
-    Write-AnetLine ('   ' + $Dir + ': ' + $why)
-    throw (New-AnetFailure $refusal)
-  }
-  if (@(Get-ChildItem -LiteralPath $Dir -Force).Count -ne 0) {
-    Write-AnetLine ('   ' + $Dir + ': it was created by this installer and is not empty')
-    throw (New-AnetFailure $refusal)
+  foreach ($level in $missing) {
+    Write-AnetLine ('-> creating ' + $level)
+    $null = [IO.Directory]::CreateDirectory($level)
+    Set-AnetPrivateAcl -Path $level
+    $why = Get-AnetPrivacyProblem -Path $level
+    if ($null -ne $why) {
+      Write-AnetLine ('   ' + $level + ': ' + $why)
+      throw (New-AnetFailure $refusal)
+    }
+    if (@(Get-ChildItem -LiteralPath $level -Force).Count -ne 0) {
+      Write-AnetLine ('   ' + $level + ': it was created by this installer and is not empty')
+      throw (New-AnetFailure $refusal)
+    }
   }
 }
 
@@ -633,14 +780,15 @@ function Test-AnetRetryable {
 }
 
 # Move-AnetFile renames $From to $To (which must not exist), retrying for at
-# most two seconds while another process holds one of them.
+# most two seconds while another process holds one of them. With
+# -Directory, $From is a directory.
 function Move-AnetFile {
-  param([string]$From, [string]$To)
+  param([string]$From, [string]$To, [switch]$Directory)
   $deadline = [DateTime]::UtcNow.AddSeconds(2)
   $wait = 10
   while ($true) {
     try {
-      [IO.File]::Move($From, $To)
+      if ($Directory) { [IO.Directory]::Move($From, $To) } else { [IO.File]::Move($From, $To) }
       return
     } catch {
       $e = $_.Exception
@@ -804,40 +952,654 @@ function Save-AnetRecord {
   }
 }
 
-# Add-AnetToPath appends the install directory to the user's PATH in the
-# registry, keeping the value's kind, tells running programs that the
-# environment changed, and puts the directory first in this session's PATH.
-function Add-AnetToPath {
+# ConvertTo-AnetArgument quotes one argument for a Windows command line the
+# way the C runtime splits it again: unchanged when it has no space, tab or
+# double quote; otherwise in double quotes, with each double quote and the
+# backslashes before it (or before the closing quote) escaped.
+function ConvertTo-AnetArgument {
+  param([string]$Text)
+  if ($Text -ne '' -and $Text -notmatch '[\s"]') { return $Text }
+  $quoted = [regex]::Replace($Text, '(\\*)"', { param($m) $m.Groups[1].Value + $m.Groups[1].Value + '\"' })
+  $quoted = [regex]::Replace($quoted, '(\\+)$', { param($m) $m.Groups[1].Value + $m.Groups[1].Value })
+  return '"' + $quoted + '"'
+}
+
+# Invoke-AnetTimed runs a program that is not the anet this script installs
+# (an earlier anet, npm, a fresh powershell.exe): its standard input is
+# closed at once, so it cannot wait for the console; its output is
+# captured; and after $TimeoutSeconds it is ended (that one process, which
+# this function started) and reported as timed out. With $PathVariable, the
+# program gets that PATH instead of this session's. A program that cannot
+# start sets Code to -1.
+function Invoke-AnetTimed {
+  param([Parameter(Mandatory = $true)][string]$FilePath, [string[]]$ArgumentList = @(), [int]$TimeoutSeconds = 30,
+        [string]$PathVariable = '', [Parameter(Mandatory = $true)][hashtable]$Result)
+  $Result['Code'] = -1
+  $Result['Output'] = @()
+  $Result['TimedOut'] = $false
+  $psi = New-Object System.Diagnostics.ProcessStartInfo
+  $psi.FileName = $FilePath
+  $psi.Arguments = (@($ArgumentList | ForEach-Object { ConvertTo-AnetArgument -Text ([string]$_) }) -join ' ')
+  $psi.UseShellExecute = $false
+  $psi.RedirectStandardInput = $true
+  $psi.RedirectStandardOutput = $true
+  $psi.RedirectStandardError = $true
+  $psi.CreateNoWindow = $true
+  if ($PathVariable -ne '') { $psi.EnvironmentVariables['Path'] = $PathVariable }
+  $p = New-Object System.Diagnostics.Process
+  $p.StartInfo = $psi
+  try {
+    $null = $p.Start()
+  } catch {
+    $Result['Output'] = @('cannot run ' + $FilePath + ': ' + $_.Exception.Message)
+    $p.Dispose()
+    return
+  }
+  try {
+    $p.StandardInput.Close()
+    $out = $p.StandardOutput.ReadToEndAsync()
+    $err = $p.StandardError.ReadToEndAsync()
+    if (-not $p.WaitForExit($TimeoutSeconds * 1000)) {
+      $Result['TimedOut'] = $true
+      try { $p.Kill() } catch { }
+      return
+    }
+    $p.WaitForExit()
+    $Result['Code'] = $p.ExitCode
+    $text = ''
+    if ($out.Wait(5000)) { $text = [string]$out.Result }
+    if ($err.Wait(1000)) { $text += "`n" + [string]$err.Result }
+    $Result['Output'] = @($text -split "`r?`n" | Where-Object { ([string]$_).Trim() -ne '' })
+  } finally {
+    $p.Dispose()
+  }
+}
+
+# Test-AnetOneShotHost reports whether this PowerShell process was started
+# to run one command (powershell.exe -Command, -EncodedCommand or
+# -CommandWithArgs, without -NoExit): then the script may end it with the
+# result as the exit status, which is how the result reaches cmd.exe, a
+# POSIX shell or the PowerShell that started it. Anything after the command
+# option is the command itself and is not read.
+function Test-AnetOneShotHost {
+  foreach ($a in @([Environment]::GetCommandLineArgs() | Select-Object -Skip 1)) {
+    $t = ([string]$a).ToLowerInvariant()
+    if ($t -match '^[-/]noe(x(i(t)?)?)?$') { return $false }
+    if ($t -match '^[-/](c(o(m(m(a(n(d)?)?)?)?)?)?|cwa|commandwithargs|e|ec|en(c(o(d(e(d(c(o(m(m(a(n(d)?)?)?)?)?)?)?)?)?)?)?)?)$') { return $true }
+  }
+  return $false
+}
+
+# Get-AnetPathEntries is the PATH of the user or of the machine as the
+# registry holds it: each directory expanded, without a trailing backslash,
+# empty entries left out.
+function Get-AnetPathEntries {
+  param([ValidateSet('User', 'Machine')][string]$Scope)
+  $raw = [string][Environment]::GetEnvironmentVariable('Path', $Scope)
+  $out = New-Object System.Collections.Generic.List[string]
+  foreach ($e in $raw.Split(';')) {
+    $d = [Environment]::ExpandEnvironmentVariables($e.Trim()).TrimEnd('\')
+    if ($d -ne '') { $out.Add($d) }
+  }
+  return $out.ToArray()
+}
+
+# Get-AnetVersionInfo runs `<exe> version` (Invoke-AnetTimed) and classifies
+# the answer: Current for anet 0.3 or later (its answer has a variant line),
+# Legacy for anything else that names a version (anet 1.x of the earlier
+# AgentNetwork line, 0.1, 0.2), Unknown when it names none or does not run.
+function Get-AnetVersionInfo {
+  param([string]$Exe)
+  $r = @{}
+  Invoke-AnetTimed -FilePath $Exe -ArgumentList @('version') -TimeoutSeconds 15 -Result $r
+  $lines = @($r['Output'])
+  $info = @{ Class = 'Unknown'; Version = '' }
+  if ($r['TimedOut'] -or $lines.Count -eq 0) { return $info }
+  $text = ($lines -join "`n")
+  if ($text -match '(?m)^variant: ' -and ([string]$lines[0]) -cmatch '^anet ([0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?) ') {
+    $info.Class = 'Current'
+    $info.Version = $Matches[1]
+    return $info
+  }
+  if ($text -match 'v?([0-9]+\.[0-9]+\.[0-9]+)') {
+    $info.Class = 'Legacy'
+    $info.Version = $Matches[1]
+  }
+  return $info
+}
+
+# Test-AnetSameDir compares two directory paths as Windows does: without
+# case, and without a trailing backslash.
+function Test-AnetSameDir {
+  param([string]$A, [string]$B)
+  return ($A.TrimEnd('\') -ieq $B.TrimEnd('\'))
+}
+
+# Get-AnetRunValueExe is the program the Run value AgentNetwork starts, or ''.
+function Get-AnetRunValueExe {
+  $key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Software\Microsoft\Windows\CurrentVersion\Run')
+  if ($null -eq $key) { return '' }
+  try {
+    $v = [string]$key.GetValue('AgentNetwork', '')
+  } finally {
+    $key.Close()
+  }
+  if ($v -match '^"([^"]+)"') { return $Matches[1] }
+  return ''
+}
+
+# Get-AnetExistingInstalls lists the directories of anet 0.3 or later that
+# are already installed for this user: an anet.exe in a directory of the
+# user's PATH, or the program of the Run value, that reports a version of
+# 0.3 or later. Each directory once.
+function Get-AnetExistingInstalls {
+  $found = New-Object System.Collections.Generic.List[hashtable]
+  $dirs = New-Object System.Collections.Generic.List[string]
+  $runExe = Get-AnetRunValueExe
+  if ($runExe -ne '') { $dirs.Add((Split-Path -Parent $runExe)) }
+  foreach ($d in @(Get-AnetPathEntries -Scope User)) { $dirs.Add($d) }
+  $seen = New-Object System.Collections.Generic.List[string]
+  foreach ($d in $dirs) {
+    if ([string]::IsNullOrEmpty($d) -or @($seen | Where-Object { Test-AnetSameDir $_ $d }).Count -gt 0) { continue }
+    $seen.Add($d)
+    $exe = Join-Path $d 'anet.exe'
+    if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) { continue }
+    $info = Get-AnetVersionInfo -Exe $exe
+    if ($info.Class -eq 'Current') { $found.Add(@{ Dir = $d; Exe = $exe; Version = $info.Version }) }
+  }
+  return $found.ToArray()
+}
+
+# Select-AnetInstallDir chooses the install directory when -Prefix is not
+# given: the first candidate for which Get-AnetDirectoryProblem finds
+# nothing. The candidates are an anet 0.3 or later already installed for
+# this user (Get-AnetExistingInstalls), %LOCALAPPDATA%\Programs\anet,
+# %LOCALAPPDATA%\anet\bin and %USERPROFILE%\.anet-bin. Each candidate that is
+# skipped is reported in one line, with the reason.
+function Select-AnetInstallDir {
+  param([hashtable[]]$Existing = @())
+  $candidates = New-Object System.Collections.Generic.List[string]
+  foreach ($e in $Existing) { $candidates.Add($e.Dir) }
+  $local = [Environment]::GetFolderPath('LocalApplicationData')
+  if (-not [string]::IsNullOrEmpty($local)) {
+    $candidates.Add((Join-Path (Join-Path $local 'Programs') 'anet'))
+    $candidates.Add((Join-Path (Join-Path $local 'anet') 'bin'))
+  }
+  $profileDir = [Environment]::GetFolderPath('UserProfile')
+  if (-not [string]::IsNullOrEmpty($profileDir)) { $candidates.Add((Join-Path $profileDir '.anet-bin')) }
+  $seen = New-Object System.Collections.Generic.List[string]
+  foreach ($c in $candidates) {
+    $c = [IO.Path]::GetFullPath($c).TrimEnd('\')
+    if (@($seen | Where-Object { Test-AnetSameDir $_ $c }).Count -gt 0) { continue }
+    $seen.Add($c)
+    $why = Get-AnetDirectoryProblem -Dir $c
+    if ($null -eq $why) { return $c }
+    Write-AnetLine ('   skipped ' + $c + ': ' + $why)
+  }
+  throw (New-AnetFailure 'no install directory passed the checks (the reasons are above); give -Prefix with a directory that is private to this user')
+}
+
+# Join-AnetPath joins a directory and the parts of a relative path given as
+# 'a\b\c', with the separator of this system.
+function Join-AnetPath {
+  param([string]$Dir, [string]$Relative)
+  $p = $Dir
+  foreach ($part in $Relative.Split('\')) { $p = [IO.Path]::Combine($p, $part) }
+  return $p
+}
+
+# Get-AnetNpmPackageVersion is the version of @agentnetwork/anet installed
+# in the npm prefix $Dir (whose bin shims are $Dir\anet.cmd and
+# $Dir\anet.ps1), or '' when that package is not there.
+function Get-AnetNpmPackageVersion {
   param([string]$Dir)
+  $pj = Join-AnetPath $Dir 'node_modules\@agentnetwork\anet\package.json'
+  if (-not (Test-Path -LiteralPath $pj -PathType Leaf)) { return '' }
+  try {
+    $j = [IO.File]::ReadAllText($pj) | ConvertFrom-Json
+    if (@($j.PSObject.Properties.Name) -contains 'version') { return [string]$j.version }
+  } catch { }
+  return ''
+}
+
+# Test-AnetLegacyVersion: a version of an earlier line (0.1, 0.2, or 1.x of
+# the earlier AgentNetwork npm package), not of anet 0.3 or later.
+function Test-AnetLegacyVersion {
+  param([string]$Version)
+  if (-not ($Version -match '^([0-9]+)\.([0-9]+)\.')) { return $false }
+  $major = [int]$Matches[1]
+  $minor = [int]$Matches[2]
+  return ($major -ge 1 -or $minor -lt 3)
+}
+
+# Find-AnetOthers lists every other anet of this user and machine: anet.exe,
+# anet.cmd and anet.ps1 in the directories of the machine's and the user's
+# PATH and in the global npm prefix (npm prefix -g), except in $InstallDir.
+# Each entry has the directory, what was found there, its class (Current,
+# Legacy, Unknown), its version, whether it is an npm installation of
+# @agentnetwork/anet, and for a legacy one the binary that can stop it.
+function Find-AnetOthers {
+  param([string]$InstallDir, [string]$NpmPrefix)
+  $dirs = New-Object System.Collections.Generic.List[string]
+  foreach ($d in @(Get-AnetPathEntries -Scope Machine)) { $dirs.Add($d) }
+  foreach ($d in @(Get-AnetPathEntries -Scope User)) { $dirs.Add($d) }
+  if ($NpmPrefix -ne '') { $dirs.Add($NpmPrefix.TrimEnd('\')) }
+  $seen = New-Object System.Collections.Generic.List[string]
+  $found = New-Object System.Collections.Generic.List[hashtable]
+  foreach ($d in $dirs) {
+    if (@($seen | Where-Object { Test-AnetSameDir $_ $d }).Count -gt 0) { continue }
+    $seen.Add($d)
+    if (Test-AnetSameDir $d $InstallDir) { continue }
+    $names = @(@('anet.exe', 'anet.cmd', 'anet.ps1') | Where-Object { Test-Path -LiteralPath (Join-Path $d $_) -PathType Leaf })
+    if ($names.Count -eq 0) { continue }
+    $e = @{ Dir = $d; Names = $names; Class = 'Unknown'; Version = ''; Npm = $false; StopExe = ''; ExeOnPath = $false }
+    $npmVersion = Get-AnetNpmPackageVersion -Dir $d
+    if ($npmVersion -ne '') {
+      $e.Npm = $true
+      $e.Version = $npmVersion
+      if (Test-AnetLegacyVersion $npmVersion) { $e.Class = 'Legacy' } else { $e.Class = 'Current' }
+      if ($e.Class -eq 'Legacy') {
+        foreach ($rel in @('node_modules\@agentnetwork\anet\node_modules\@agentnetwork\anet-win32-x64\bin\anet.exe',
+                           'node_modules\@agentnetwork\anet-win32-x64\bin\anet.exe')) {
+          $candidate = Join-AnetPath $d $rel
+          if (Test-Path -LiteralPath $candidate -PathType Leaf) { $e.StopExe = $candidate; break }
+        }
+      }
+    } elseif ($names -contains 'anet.exe') {
+      $e.ExeOnPath = $true
+      $info = Get-AnetVersionInfo -Exe (Join-Path $d 'anet.exe')
+      $e.Class = $info.Class
+      $e.Version = $info.Version
+      if ($e.Class -eq 'Legacy') { $e.StopExe = Join-Path $d 'anet.exe' }
+    }
+    $found.Add($e)
+  }
+  return $found.ToArray()
+}
+
+# Find-AnetNpm is npm.cmd: on this session's PATH, or in a directory of the
+# machine's or the user's PATH. '' when there is none.
+function Find-AnetNpm {
+  $c = @(Get-Command -Name 'npm.cmd' -CommandType Application -ErrorAction SilentlyContinue)
+  if ($c.Count -gt 0) { return [string]$c[0].Source }
+  foreach ($d in (@(Get-AnetPathEntries -Scope Machine) + @(Get-AnetPathEntries -Scope User))) {
+    $p = Join-Path $d 'npm.cmd'
+    if (Test-Path -LiteralPath $p -PathType Leaf) { return $p }
+  }
+  return ''
+}
+
+# Test-AnetBatchSafe: npm.cmd is a batch file, which cmd.exe runs and whose
+# arguments it reads again with its own rules. An argument with one of
+# these characters is not passed to it; the installer prints the command
+# instead.
+function Test-AnetBatchSafe {
+  param([string]$Text)
+  return -not ($Text -match '["%!^&|<>()\r\n]')
+}
+
+# Get-AnetLegacyData looks at the data directory $Root: the entries that
+# anet 1.x wrote there (api_token, anet, orgs, state), whether an identity of
+# anet 0.3 or later is there (identity.kel, whose type tag anet.identity/
+# leads the file) and whether an identity of 0.2 or earlier is (identity.kel
+# without that tag). An identity file that cannot be read counts as 0.3:
+# such a directory is never moved as a whole.
+function Get-AnetLegacyData {
+  param([string]$Root)
+  $d = @{ Exists = $false; Link = $false; Entries1x = @(); Has03 = $false; Has02 = $false }
+  if (-not (Test-Path -LiteralPath $Root -PathType Container)) { return $d }
+  $d.Exists = $true
+  if (Test-AnetReparsePoint -Path $Root) { $d.Link = $true; return $d }
+  $d.Entries1x = @(@('api_token', 'anet', 'orgs', 'state') | Where-Object { Test-Path -LiteralPath (Join-Path $Root $_) })
+  $kel = Join-Path $Root 'identity.kel'
+  if (Test-Path -LiteralPath $kel -PathType Leaf) {
+    try {
+      $fs = New-Object System.IO.FileStream -ArgumentList $kel, ([IO.FileMode]::Open), ([IO.FileAccess]::Read), ([IO.FileShare]::ReadWrite)
+      try {
+        $buf = New-Object byte[] 256
+        $n = $fs.Read($buf, 0, $buf.Length)
+      } finally {
+        $fs.Dispose()
+      }
+      if ([Text.Encoding]::ASCII.GetString($buf, 0, $n).Contains('anet.identity/')) { $d.Has03 = $true } else { $d.Has02 = $true }
+    } catch {
+      $d.Has03 = $true
+    }
+  }
+  return $d
+}
+
+# Move-AnetLegacyData moves the data of an earlier anet out of the data
+# directory $Root, after its daemon was stopped. The rule (the same as
+# install.sh's): when no identity of anet 0.3 or later is in the directory,
+# the whole directory is renamed to <Root>-legacy-<version>-<UTC time>;
+# when one is, only the entries anet 1.x wrote (api_token, anet, orgs,
+# state) are moved into a new directory of that name, and everything of 0.3
+# stays where it is. A directory without data of an earlier anet, or one
+# that is a link, is left alone. Nothing is deleted. Returns a line for the
+# report, or ''.
+function Move-AnetLegacyData {
+  param([string]$Root, [string]$Version)
+  $d = Get-AnetLegacyData -Root $Root
+  if (-not $d.Exists) { return '' }
+  if ($d.Link) { return ($Root + ' is a link; data of an earlier anet in it, if any, was left alone') }
+  if (@($d.Entries1x).Count -eq 0 -and -not $d.Has02) { return '' }
+  if ($Version -eq '') {
+    if (@($d.Entries1x).Count -gt 0) { $Version = '1.x' } else { $Version = '0.2' }
+  }
+  $stamp = [DateTime]::UtcNow.ToString("yyyyMMdd'T'HHmmss'Z'", [Globalization.CultureInfo]::InvariantCulture)
+  $aside = $Root + '-legacy-' + $Version + '-' + $stamp
+  try {
+    if (-not $d.Has03) {
+      Move-AnetFile -From $Root -To $aside -Directory
+      return ('moved the data directory of anet ' + $Version + ' aside: ' + $Root + ' -> ' + $aside)
+    }
+    $null = [IO.Directory]::CreateDirectory($aside)
+    foreach ($n in @($d.Entries1x)) {
+      Move-AnetFile -From (Join-Path $Root $n) -To (Join-Path $aside $n) -Directory:(Test-Path -LiteralPath (Join-Path $Root $n) -PathType Container)
+    }
+    return ('moved the entries of anet ' + $Version + ' (' + (@($d.Entries1x) -join ', ') + ') from ' + $Root + ' to ' + $aside + '; the anet 0.3 data stays')
+  } catch {
+    $why = $_.Exception.Message
+    if ($null -ne $_.Exception.InnerException) { $why = $_.Exception.InnerException.Message }
+    return ('Warning: could not move the data of anet ' + $Version + ' out of ' + $Root + ' (' + $why + '); stop the earlier anet and rename it by hand to ' + $aside)
+  }
+}
+
+# Invoke-AnetTakeover takes over from the other anet installations of this
+# user (Find-AnetOthers), without asking: an earlier anet (1.x, 0.1, 0.2) is
+# stopped with its own stop command, its npm package is uninstalled, and its
+# data is moved out of the data directory $DataDir (Move-AnetLegacyData);
+# another anet 0.3 or later outside npm is reported, for its directory to be
+# taken off the PATH; an npm launcher of 0.3 or later, and anything that is
+# not an anet of either line, are left alone. Returns the report lines and
+# the directories of other 0.3 installations.
+function Invoke-AnetTakeover {
+  param([string]$InstallDir, [string]$DataDir)
+  $report = New-Object System.Collections.Generic.List[string]
+  $current = New-Object System.Collections.Generic.List[string]
+  $npm = Find-AnetNpm
+  $npmPrefix = ''
+  if ($npm -ne '') {
+    $r = @{}
+    Invoke-AnetTimed -FilePath $npm -ArgumentList @('prefix', '-g') -TimeoutSeconds 60 -Result $r
+    $lines = @($r['Output'])
+    if ($r['Code'] -eq 0 -and $lines.Count -gt 0 -and [IO.Path]::IsPathRooted(([string]$lines[0]).Trim())) {
+      $npmPrefix = ([string]$lines[0]).Trim()
+    }
+  }
+  $others = @(Find-AnetOthers -InstallDir $InstallDir -NpmPrefix $npmPrefix)
+  $legacyVersion = ''
+  $stopFailed = $false
+  foreach ($e in $others) {
+    $what = $e.Dir + '\' + ($e.Names -join ', ')
+    if ($e.Class -eq 'Current') {
+      if ($e.Npm) {
+        $report.Add('left alone: ' + $what + ' (npm launcher of anet ' + $e.Version + ')')
+      } elseif ($e.ExeOnPath) {
+        $current.Add($e.Dir)
+      }
+      continue
+    }
+    if ($e.Class -ne 'Legacy') {
+      $report.Add('left alone: ' + $what + ' (not recognized as an anet installation)')
+      continue
+    }
+    if ($legacyVersion -eq '') { $legacyVersion = $e.Version }
+    Write-AnetLine ('-> taking over from anet ' + $e.Version + ' in ' + $e.Dir)
+    if ($e.StopExe -ne '') {
+      $r = @{}
+      Invoke-AnetTimed -FilePath $e.StopExe -ArgumentList @('stop') -TimeoutSeconds 30 -Result $r
+      if ($r['TimedOut']) {
+        $stopFailed = $true
+        $report.Add('Warning: ' + $e.StopExe + ' stop did not finish within 30 seconds; stop that anet by hand')
+      } else {
+        $report.Add('stopped anet ' + $e.Version + ' with its own stop command (' + $e.StopExe + ' stop, exit status ' + $r['Code'] + ')')
+      }
+    } else {
+      $report.Add('anet ' + $e.Version + ' in ' + $e.Dir + ' has no binary this installer can run to stop it')
+    }
+    if ($e.Npm) {
+      $argv = @('uninstall', '-g')
+      if (-not (Test-AnetSameDir $e.Dir $npmPrefix)) { $argv += @('--prefix', $e.Dir) }
+      $argv += '@agentnetwork/anet'
+      $typed = 'npm ' + (@($argv | ForEach-Object { ConvertTo-AnetArgument -Text $_ }) -join ' ')
+      if ($npm -eq '' -or @($argv | Where-Object { -not (Test-AnetBatchSafe $_) }).Count -gt 0) {
+        $report.Add('Warning: the npm package @agentnetwork/anet ' + $e.Version + ' was not removed; run: ' + $typed)
+      } else {
+        $r = @{}
+        Invoke-AnetTimed -FilePath $npm -ArgumentList $argv -TimeoutSeconds 180 -Result $r
+        if ($r['Code'] -eq 0 -and -not (Test-Path -LiteralPath (Join-AnetPath $e.Dir 'node_modules\@agentnetwork\anet\package.json'))) {
+          $report.Add('removed the npm package @agentnetwork/anet ' + $e.Version + ' (' + $typed + ')')
+        } else {
+          $report.Add('Warning: ' + $typed + ' did not remove the package (exit status ' + $r['Code'] + '); run it by hand')
+        }
+      }
+    } else {
+      $report.Add('left in place: ' + $e.Dir + '\anet.exe (anet ' + $e.Version + '); the new anet comes before it on your PATH unless that directory is on the machine PATH')
+    }
+  }
+  if ($stopFailed) {
+    $report.Add('the data directory ' + $DataDir + ' was not changed, because an earlier anet may still run')
+  } else {
+    $line = Move-AnetLegacyData -Root $DataDir -Version $legacyVersion
+    if ($line -ne '') { $report.Add($line) }
+  }
+  return @{ Report = $report.ToArray(); Current = $current.ToArray() }
+}
+
+# Set-AnetUserPath puts the install directory first in the user's PATH in
+# the registry and takes the directories in $Remove (other installations of
+# anet 0.3 or later) off it, keeping every other entry as written and the
+# value's kind; it tells running programs that the environment changed and
+# puts the directory first in this session's PATH. Windows builds the PATH
+# of a new process from the machine's PATH followed by the user's, so a
+# directory on the machine PATH still comes first (Test-AnetPathOrder
+# reports it).
+function Set-AnetUserPath {
+  param([string]$Dir, [string[]]$Remove = @())
   $key = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey('Environment')
   try {
     $raw = [string]$key.GetValue('Path', '', [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
     $kind = [Microsoft.Win32.RegistryValueKind]::String
     if (@($key.GetValueNames()) -contains 'Path') { $kind = $key.GetValueKind('Path') }
-    $present = $false
+    $keep = New-Object System.Collections.Generic.List[string]
+    $removed = New-Object System.Collections.Generic.List[string]
+    $first = $false
+    $i = 0
     foreach ($e in $raw.Split(';')) {
-      if ($e.Trim().TrimEnd('\') -ieq $Dir.TrimEnd('\')) { $present = $true }
+      $t = $e.Trim()
+      if ($t -eq '') { continue }
+      $x = [Environment]::ExpandEnvironmentVariables($t)
+      if (Test-AnetSameDir $x $Dir) {
+        if ($i -eq 0) { $first = $true }
+        $i++
+        continue
+      }
+      if (@($Remove | Where-Object { Test-AnetSameDir $_ $x }).Count -gt 0) {
+        $removed.Add($t)
+        continue
+      }
+      $keep.Add($t)
+      $i++
     }
-    if ($present) {
-      Write-AnetLine ('OK ' + $Dir + ' is already on your PATH')
+    if ($first -and $removed.Count -eq 0) {
+      Write-AnetLine ('OK ' + $Dir + ' is first on your PATH')
     } else {
-      $new = $Dir
-      if ($raw.Trim() -ne '') { $new = $raw.TrimEnd(';') + ';' + $Dir }
+      $new = (@($Dir) + $keep.ToArray()) -join ';'
       if ($kind -ne [Microsoft.Win32.RegistryValueKind]::ExpandString -and $new.Contains('%')) {
         $kind = [Microsoft.Win32.RegistryValueKind]::ExpandString
       }
       $key.SetValue('Path', $new, $kind)
       [Environment]::SetEnvironmentVariable('ANET_INSTALL_PATH_REFRESH', $null, 'User')
-      Write-AnetLine ('-> added ' + $Dir + ' to your PATH (new windows see it)')
+      Write-AnetLine ('-> put ' + $Dir + ' first on your PATH (new windows see it)')
+      foreach ($r in $removed) {
+        Write-AnetLine ('-> took ' + $r + ' off your PATH: it holds another anet 0.3 installation, which is left in place')
+      }
     }
   } finally {
     $key.Close()
   }
-  $here = $false
-  foreach ($e in ([string]$env:Path).Split(';')) {
-    if ($e.Trim().TrimEnd('\') -ieq $Dir.TrimEnd('\')) { $here = $true }
+  $parts = @(([string]$env:Path).Split(';') | Where-Object { $_.Trim() -ne '' -and -not (Test-AnetSameDir $_.Trim() $Dir) })
+  $env:Path = (@($Dir) + $parts) -join ';'
+}
+
+# Test-AnetPathOrder asks a new powershell.exe, started with the PATH a new
+# window gets (the machine's PATH, then the user's, from the registry), which
+# anet it runs, and reports in one line whether that is $Exe.
+function Test-AnetPathOrder {
+  param([string]$Exe)
+  $machine = [string][Environment]::GetEnvironmentVariable('Path', 'Machine')
+  $user = [string][Environment]::GetEnvironmentVariable('Path', 'User')
+  $path = $machine.TrimEnd(';') + ';' + $user
+  $ps = Join-Path ([Environment]::SystemDirectory) 'WindowsPowerShell\v1.0\powershell.exe'
+  $r = @{}
+  Invoke-AnetTimed -FilePath $ps -ArgumentList @('-NoProfile', '-NonInteractive', '-Command', '(Get-Command anet).Source') -PathVariable $path -TimeoutSeconds 60 -Result $r
+  $lines = @($r['Output'])
+  $got = ''
+  if ($r['Code'] -eq 0 -and $lines.Count -gt 0) { $got = ([string]$lines[0]).Trim() }
+  if ($got -ne '' -and $got -ieq $Exe) {
+    Write-AnetLine ('OK a new window runs ' + $Exe + ' for anet')
+  } elseif ($got -ne '') {
+    Write-AnetLine ('Warning: a new window runs ' + $got + ' for anet, not ' + $Exe + '; its directory comes first on the machine PATH: remove that anet, or run ' + $Exe + ' by its full path')
+  } else {
+    Write-AnetLine ('Warning: a new powershell.exe could not say which anet it runs; check with: (Get-Command anet).Source')
   }
-  if (-not $here) { $env:Path = $Dir + ';' + $env:Path }
+}
+
+# Get-AnetElevation says whether this window is elevated, and when it is,
+# why Windows has no standard user token for this account (''when it has
+# one): User Account Control is off, or this is the built-in Administrator
+# without Admin Approval Mode.
+function Get-AnetElevation {
+  $id = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+  $principal = New-Object System.Security.Principal.WindowsPrincipal $id
+  $e = @{ Elevated = $principal.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator); NoStandardToken = ''; Account = $id.Name }
+  if (-not $e.Elevated) { return $e }
+  $lua = 1
+  $filter = 0
+  $key = [Microsoft.Win32.Registry]::LocalMachine.OpenSubKey('SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System')
+  if ($null -ne $key) {
+    try {
+      $lua = [int]$key.GetValue('EnableLUA', 1)
+      $filter = [int]$key.GetValue('FilterAdministratorToken', 0)
+    } finally {
+      $key.Close()
+    }
+  }
+  if ($lua -eq 0) {
+    $e.NoStandardToken = 'User Account Control is off'
+  } elseif ($id.User.Value -match '-500$' -and $filter -ne 1) {
+    $e.NoStandardToken = 'this is the built-in Administrator account'
+  }
+  return $e
+}
+
+# Start-AnetStandardUser starts `<Exe> up` with the standard user token of
+# this account from an elevated window: a task of the Task Scheduler for
+# this user, with the interactive token (TASK_LOGON_INTERACTIVE_TOKEN, the
+# session the user is logged on to) and the least privileges
+# (TASK_RUNLEVEL_LUA), run once and deleted. Returns '' when `anet up` ran
+# that way and succeeded, or why it did not.
+function Start-AnetStandardUser {
+  param([string]$Exe, [string]$Account)
+  $name = 'AgentNetwork start ' + [Guid]::NewGuid().ToString('N')
+  try {
+    $svc = New-Object -ComObject Schedule.Service
+    $svc.Connect()
+    $folder = $svc.GetFolder('\')
+  } catch {
+    return 'the Task Scheduler is not available: ' + $_.Exception.Message
+  }
+  $registered = $false
+  try {
+    $def = $svc.NewTask(0)
+    $def.RegistrationInfo.Description = 'Starts the AgentNetwork node once with standard user rights; the installer deletes it.'
+    $def.Settings.Enabled = $true
+    $def.Settings.Hidden = $true
+    $def.Settings.DisallowStartIfOnBatteries = $false
+    $def.Settings.StopIfGoingOnBatteries = $false
+    $def.Settings.ExecutionTimeLimit = 'PT0S'
+    $def.Principal.UserId = $Account
+    $def.Principal.LogonType = 3
+    $def.Principal.RunLevel = 0
+    $action = $def.Actions.Create(0)
+    $action.Path = $Exe
+    $action.Arguments = 'up'
+    $action.WorkingDirectory = Split-Path -Parent $Exe
+    $task = $folder.RegisterTaskDefinition($name, $def, 6, $Account, $null, 3)
+    $registered = $true
+    $null = $task.Run($null)
+    $deadline = [DateTime]::UtcNow.AddSeconds(30)
+    while ([DateTime]::UtcNow -lt $deadline) {
+      Start-Sleep -Milliseconds 500
+      $t = $folder.GetTask($name)
+      # State 4 is running; LastRunTime stays in 1899 until the task has run.
+      if ($t.State -ne 4 -and ([DateTime]$t.LastRunTime).Year -gt 2000) {
+        if ([int]$t.LastTaskResult -eq 0) { return '' }
+        return ('anet up ended with exit status ' + [int]$t.LastTaskResult)
+      }
+    }
+    return 'the task did not run within 30 seconds (no one is logged on to this computer interactively as ' + $Account + ')'
+  } catch {
+    return $_.Exception.Message
+  } finally {
+    if ($registered) {
+      try { $folder.DeleteTask($name, 0) } catch { }
+    }
+  }
+}
+
+# Start-AnetNode starts the node (anet up). In a window that is not
+# elevated, directly. In an elevated window, with the standard user token
+# of this account (Start-AnetStandardUser), so that neither the node nor the
+# commands it runs for a controller have administrator rights; when Windows
+# has no standard token for the account, or the Task Scheduler cannot start
+# it, directly, saying so in one line. Returns the exit status.
+function Start-AnetNode {
+  param([string]$Exe, [hashtable]$Elevation)
+  if ($Elevation.Elevated) {
+    if ($Elevation.NoStandardToken -ne '') {
+      Write-AnetLine ('   This window is elevated and ' + $Elevation.NoStandardToken + ', so there is no standard user token: the node runs with administrator rights.')
+    } else {
+      $why = Start-AnetStandardUser -Exe $Exe -Account $Elevation.Account
+      if ($why -eq '') {
+        Write-AnetLine '   This window is elevated; the node was started with standard user rights through the Task Scheduler.'
+        return 0
+      }
+      Write-AnetLine ('   The Task Scheduler could not start the node with standard user rights (' + $why + '): the node runs with the administrator rights of this window.')
+    }
+  }
+  $r = @{}
+  Invoke-AnetNative -FilePath $Exe -ArgumentList @('up') -Result $r
+  return $r['Code']
+}
+
+# Write-AnetGrant prints what -Controller granted, read back from the data
+# directory, and the two steps that revoke it.
+function Write-AnetGrant {
+  param([string]$DataDir, [string]$Aid)
+  $config = Join-Path $DataDir 'config.json'
+  $allowFile = Join-Path $DataDir 'peers.allow'
+  $shellText = '(config.json could not be read)'
+  try {
+    $cfg = [IO.File]::ReadAllText($config) | ConvertFrom-Json
+    $sh = $cfg.modules.shell
+    $parts = @('allow = [' + (@($sh.allow) -join ', ') + ']', ('allow_arbitrary = ' + ([string]$sh.allow_arbitrary).ToLowerInvariant()))
+    if (@($sh.PSObject.Properties.Name) -contains 'shell') { $parts += ('shell = ' + [string]$sh.shell) }
+    $shellText = $parts -join ', '
+  } catch { }
+  $listed = 'no'
+  try {
+    if (@([IO.File]::ReadAllLines($allowFile) | Where-Object { $_.Trim() -ceq $Aid }).Count -gt 0) { $listed = 'yes' }
+  } catch { }
+  Write-AnetLine ''
+  Write-AnetLine ('Granted, as -Controller on the command line requested (that parameter is the consent; nothing was asked):')
+  Write-AnetLine ('  modules.shell in ' + $config + ': ' + $shellText)
+  Write-AnetLine ('  peers.allow in ' + $allowFile + ': ' + $Aid + ' (listed: ' + $listed + ')')
+  Write-AnetLine ('The agent ' + $Aid + ' can run any command on this computer as this user. To revoke it:')
+  Write-AnetLine ('  1. anet peers remove ' + $Aid)
+  Write-AnetLine ('  2. remove the modules.shell block from ' + $config + ', then restart the node: anet stop, then anet up')
 }
 
 # Set-AnetAutostart starts the node at every logon of this user.
@@ -866,7 +1628,8 @@ function Write-AnetInstalledFailure {
 function Install-Anet {
   param(
     [string]$Controller, [switch]$Shell, [string]$Hub, [string]$Name, [string]$Prefix,
-    [string[]]$Without, [string]$Base, [switch]$NoAutostart, [switch]$NoPath, [switch]$Elevated
+    [string[]]$Without, [string]$Base, [switch]$NoAutostart, [switch]$NoPath, [switch]$Elevated,
+    [switch]$NoJoin
   )
   $previousEAP = $ErrorActionPreference
   $previousProgress = $ProgressPreference
@@ -895,17 +1658,19 @@ function Install-Anet {
       throw (New-AnetFailure 'this is a 32-bit Windows; anet is built for 64-bit Windows (x64 and arm64)')
     }
     $arch = Get-AnetArch
-    $principal = New-Object System.Security.Principal.WindowsPrincipal ([System.Security.Principal.WindowsIdentity]::GetCurrent())
-    if ($principal.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator) -and -not $Elevated) {
-      throw (New-AnetFailure 'Run this in a PowerShell window that is not elevated; the node and the commands it runs for the controller run as the user that installs it. To install for an administrator account anyway, add -Elevated.')
-    }
+    # An elevated window is not refused (-Elevated changes nothing): anet is
+    # installed for this account as in any other window, and the node is
+    # started with standard user rights when Windows has them (step 12).
+    $elevation = Get-AnetElevation
 
     # 2. Parameters.
     $o = Get-AnetOptions -Given $given
     $asset = $o.AssetPrefix + '-windows-' + $arch
     $pin = $AnetRelease['Assets'][$asset]
-    $S.Exe = Join-Path $o.Prefix 'anet.exe'
-    Write-AnetLine ('-> Installing anet ' + $AnetRelease['Version'] + ' (' + $o.Variant + ' build, windows-' + $arch + ') into ' + $o.Prefix)
+    Write-AnetLine ('-> Installing anet ' + $AnetRelease['Version'] + ' (' + $o.Variant + ' build, windows-' + $arch + ') for ' + $elevation.Account)
+    if ($elevation.Elevated) {
+      Write-AnetLine '   This window is elevated. anet is installed for this account all the same: its own directories, PATH and Run value.'
+    }
     if ($o.Variant -eq 'shell') {
       Write-AnetLine '   The shell build CAN run commands on this machine for the agents its configuration allows.'
     }
@@ -923,8 +1688,20 @@ function Install-Anet {
     [IO.File]::WriteAllBytes((Join-Path $S.Tmp 'release.json'), $rel.Manifest)
     [IO.File]::WriteAllBytes((Join-Path $S.Tmp 'release.json.sig'), $rel.Signature)
 
-    # 5. Install directory.
-    Initialize-AnetDirectory -Dir $o.Prefix -CheckAncestors:$o.PrefixGiven
+    # 5. Install directory: -Prefix, or the first candidate that passes.
+    $existing = @(Get-AnetExistingInstalls)
+    if ($o.PrefixGiven) {
+      $why = Get-AnetDirectoryProblem -Dir $o.Prefix
+      if ($null -ne $why) {
+        Write-AnetLine ('   ' + $why)
+        throw (New-AnetFailure ('-Prefix ' + $o.Prefix + ' cannot be used: it is not private to this user; choose another directory, or leave -Prefix out and let the installer choose'))
+      }
+    } else {
+      $o.Prefix = Select-AnetInstallDir -Existing $existing
+    }
+    Write-AnetLine ('-> install directory: ' + $o.Prefix)
+    Initialize-AnetDirectory -Dir $o.Prefix
+    $S.Exe = Join-Path $o.Prefix 'anet.exe'
 
     # 6. Stage and verify.
     $S.Staged = Get-AnetStagedPath -Dir $o.Prefix
@@ -955,6 +1732,21 @@ function Install-Anet {
     if ($aside -ne '') {
       Write-AnetLine ('   The previous binary is ' + $aside + ' until it is no longer in use; a node still running it keeps it until restarted.')
     }
+
+    # 9. Earlier installations: stop and remove an earlier anet, move its
+    # data aside, and find other installations of 0.3 or later, before the
+    # data directory is initialized for this one.
+    $profileDir = [Environment]::GetFolderPath('UserProfile')
+    $dataDir = [string]$env:ANET_DATA_DIR
+    if ($dataDir -eq '') { $dataDir = Join-Path $profileDir '.anet' }
+    $takeover = Invoke-AnetTakeover -InstallDir $o.Prefix -DataDir (Join-Path $profileDir '.anet')
+    $otherCurrent = New-Object System.Collections.Generic.List[string]
+    foreach ($d in @($takeover.Current)) { $otherCurrent.Add($d) }
+    foreach ($e in $existing) {
+      if (-not (Test-AnetSameDir $e.Dir $o.Prefix) -and @($otherCurrent | Where-Object { Test-AnetSameDir $_ $e.Dir }).Count -eq 0) { $otherCurrent.Add($e.Dir) }
+    }
+    foreach ($line in @($takeover.Report)) { Write-AnetLine ('   ' + $line) }
+
     if (@($o.Without).Count -gt 0) {
       $list = $o.Without -join ','
       Write-AnetLine ('-> anet init --without ' + $list)
@@ -967,10 +1759,17 @@ function Install-Anet {
       }
     }
 
-    # 9. PATH.
-    if (-not $o.NoPath) { Add-AnetToPath -Dir $o.Prefix }
+    # 10. PATH: this directory first, other 0.3 installations off it, and a
+    # new powershell.exe asked which anet it runs.
+    if (-not $o.NoPath) {
+      Set-AnetUserPath -Dir $o.Prefix -Remove $otherCurrent.ToArray()
+      Test-AnetPathOrder -Exe $S.Exe
+    }
+    foreach ($d in $otherCurrent) {
+      Write-AnetLine ('   Another anet 0.3 installation stays in ' + $d + '; delete that directory when no node runs from it.')
+    }
 
-    # 10. Defaults.
+    # 11. Defaults.
     Write-AnetLine ''
     Write-AnetLine '-> anet init (explicit safe defaults: inbound closed, no public capabilities, spending limits 0)'
     $r = @{}
@@ -981,7 +1780,8 @@ function Install-Anet {
       return
     }
 
-    # 11. Controller.
+    # 12. Controller: -Controller on the command line is the consent, given
+    # to anet init with --yes; nothing is asked.
     $stopped = $false
     if ($o.Controller -ne '') {
       $r = @{}
@@ -997,31 +1797,26 @@ function Install-Anet {
         }
         $stopped = $true
       }
-      Write-AnetLine ('-> anet init --shell-controller ' + $o.Controller)
+      Write-AnetLine ('-> anet init --shell-controller ' + $o.Controller + ' --yes')
       $r = @{}
-      Invoke-AnetNative -FilePath $S.Exe -ArgumentList @('init', '--shell-controller', $o.Controller) -Result $r
+      Invoke-AnetNative -FilePath $S.Exe -ArgumentList @('init', '--shell-controller', $o.Controller, '--yes') -Result $r
       if ($r['Code'] -ne 0) {
-        if ($r['Code'] -eq 1) {
-          Write-AnetLine ('The controller was not given access; nothing was opened. anet ' + $AnetRelease['Version'] + ' is installed.')
-        } else {
-          Write-AnetInstalledFailure -State $S -Message ('anet init --shell-controller refused (exit status ' + $r['Code'] + '); its reason is above') -Next ''
-        }
+        Write-AnetInstalledFailure -State $S -Message ('anet init --shell-controller refused (exit status ' + $r['Code'] + '); its reason is above; the controller was not given access') -Next ''
         if ($stopped) { Write-AnetLine 'The node was stopped to change its configuration; start it again with: anet up' }
         $global:LASTEXITCODE = $r['Code']
         return
       }
     }
 
-    # 12. Start.
+    # 13. Start.
     $started = $false
     if ($o.Join -or $o.Controller -ne '') {
       Write-AnetLine ''
       Write-AnetLine '-> Starting the node'
-      $r = @{}
-      Invoke-AnetNative -FilePath $S.Exe -ArgumentList @('up') -Result $r
-      if ($r['Code'] -ne 0) {
-        Write-AnetInstalledFailure -State $S -Message ('the node did not start (exit status ' + $r['Code'] + ')') -Next 'anet up'
-        $global:LASTEXITCODE = $r['Code']
+      $code = Start-AnetNode -Exe $S.Exe -Elevation $elevation
+      if ($code -ne 0) {
+        Write-AnetInstalledFailure -State $S -Message ('the node did not start (exit status ' + $code + ')') -Next 'anet up'
+        $global:LASTEXITCODE = $code
         return
       }
       $started = $true
@@ -1033,35 +1828,36 @@ function Install-Anet {
       }
     }
 
-    # 13. Autostart.
-    if ($started -and -not $o.NoAutostart) { Set-AnetAutostart -Exe $S.Exe }
+    # 14. Autostart.
+    # A Run value an earlier installation wrote is pointed at this one.
+    if (-not $o.NoAutostart -and ($started -or (Get-AnetRunValueExe) -ne '')) { Set-AnetAutostart -Exe $S.Exe }
 
-    # 14. Report.
+    # 15. Report.
     Write-AnetLine ''
     $r = @{}
     Invoke-AnetNative -FilePath $S.Exe -ArgumentList @('doctor') -Result $r
     Write-AnetLine ''
     Write-AnetLine 'Next:'
-    if (-not $o.Join) {
+    if (-not $started) {
       Write-AnetLine '  anet up                      start the node in the background'
-      Write-AnetLine '  anet hub-register https://hub.agentnetwork.org.cn --name <name>'
+    }
+    if (-not $o.Join) {
+      Write-AnetLine '  anet hub-register https://hub.agentnetwork.org.cn --name NAME'
     }
     Write-AnetLine '  anet status                  this node''s identity (AID), data directory and console address'
     Write-AnetLine '  anet doctor                  check again later: signature, hub, what this node lets in'
     Write-AnetLine '  anet update                  update in place, checked against the release key'
     if ($o.Controller -ne '') {
-      Write-AnetLine ''
-      Write-AnetLine ('The agent ' + $o.Controller + ' can now run any command on this machine as this user.')
-      Write-AnetLine ('  anet peers remove ' + $o.Controller + '   revokes it; remove the modules.shell block of config.json as well')
-      Write-AnetLine '  anet audit                   every command it ran, and every refusal, is on the evidence chain'
+      Write-AnetLine '  anet audit                   every command the controller ran, and every refusal, is on the evidence chain'
       Write-AnetLine '  anet identity protect        set a recovery passphrase for this node''s identity'
+      Write-AnetGrant -DataDir $dataDir -Aid $o.Controller
     }
     if ($o.NoPath) {
       Write-AnetLine ''
       Write-AnetLine ('  ' + $o.Prefix + ' is not on your PATH (-NoPath); run anet as "' + $S.Exe + '"')
     }
 
-    # 15. Join, last: its lines as they are, and its exit status.
+    # 16. Join, last: its lines as they are, and its exit status.
     if ($o.Join) {
       Write-AnetLine ''
       Write-AnetLine ('-> anet hub-register ' + $o.Hub + ' --name ' + $o.Name)
@@ -1094,4 +1890,4 @@ function Install-Anet {
   }
 }
 
-if ($env:ANET_INSTALL_PS1_TEST -ne '1') { Install-Anet @PSBoundParameters }
+if ($env:ANET_INSTALL_PS1_TEST -ne '1') { Install-Anet @PSBoundParameters; if (Test-AnetOneShotHost) { exit $global:LASTEXITCODE } }

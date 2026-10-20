@@ -18,7 +18,7 @@ const (
 	ps1BeginMark = "# BEGIN RELEASE PINS (written by deploy/release/build-release.sh; do not edit)"
 	ps1EndMark   = "# END RELEASE PINS"
 	ps1NullLine  = "$AnetRelease = $null"
-	ps1LastLine  = "if ($env:ANET_INSTALL_PS1_TEST -ne '1') { Install-Anet @PSBoundParameters }"
+	ps1LastLine  = "if ($env:ANET_INSTALL_PS1_TEST -ne '1') { Install-Anet @PSBoundParameters; if (Test-AnetOneShotHost) { exit $global:LASTEXITCODE } }"
 )
 
 func installPS1(t *testing.T) string {
@@ -63,9 +63,10 @@ func TestInstallPS1FileRules(t *testing.T) {
 	if strings.Contains(strings.ToLower(code), "ssh-keygen") {
 		t.Error("install.ps1 runs ssh-keygen")
 	}
-	// The script never ends the PowerShell session it runs in.
-	if regexp.MustCompile(`(?im)(^|[;{}])\s*exit(\s|$)`).MatchString(code) {
-		t.Error("install.ps1 calls exit")
+	// The script ends the PowerShell process it runs in only on its last line, and only when that
+	// process was started for this one command (Test-AnetOneShotHost): an open window stays open.
+	if n := len(regexp.MustCompile(`(?im)(^|[;{}])\s*exit(\s|$)`).FindAllString(code, -1)); n != 1 {
+		t.Errorf("install.ps1 calls exit %d times, want once, on its last line", n)
 	}
 	// The pins block, exactly once, in the form ps1-pins.sh fills.
 	block := ps1BeginMark + "\n" + ps1NullLine + "\n" + ps1EndMark + "\n"
@@ -83,7 +84,7 @@ func TestInstallPS1FileRules(t *testing.T) {
 		t.Error("install.ps1 calls Install-Anet more than once")
 	}
 	if !strings.Contains(script, "\nparam(\n  [string]$Controller, [switch]$Shell, [string]$Hub, [string]$Name, [string]$Prefix,\n"+
-		"  [string[]]$Without, [string]$Base, [switch]$NoAutostart, [switch]$NoPath, [switch]$Elevated\n)\n") {
+		"  [string[]]$Without, [string]$Base, [switch]$NoAutostart, [switch]$NoPath, [switch]$Elevated,\n  [switch]$NoJoin\n)\n") {
 		t.Error("install.ps1 does not declare the parameters of the specification")
 	}
 	// Every program is started by the one helper, with an argument array.
@@ -91,11 +92,23 @@ func TestInstallPS1FileRules(t *testing.T) {
 		strings.Count(code, "& $FilePath @ArgumentList") != 2 {
 		t.Errorf("install.ps1 runs programs outside Invoke-AnetNative: %q", calls)
 	}
-	if regexp.MustCompile(`(?i)start-process|\[diagnostics\.process\]|cmd(\.exe)?\s+/c|2>&1|2>\$null`).MatchString(code) {
-		t.Error("install.ps1 starts a program another way, or redirects stderr")
+	if regexp.MustCompile(`(?i)start-process|\[(system\.)?diagnostics\.process\]|cmd(\.exe)?\s+/c|2>&1|2>\$null|invoke-item|read-host|\[console\]::(in|read)`).MatchString(code) {
+		t.Error("install.ps1 starts a program another way, redirects stderr, or reads the console")
+	}
+	// Programs that are not the anet it installs (an earlier anet, npm, a fresh powershell.exe) run
+	// through Invoke-AnetTimed alone, with standard input closed and a time limit; the only COM object
+	// is the Task Scheduler's.
+	timed := code[strings.Index(code, "function Invoke-AnetTimed {"):]
+	timed = timed[:strings.Index(timed, "\n}\n")]
+	if strings.Count(code, "System.Diagnostics.Process") != 2 || strings.Count(timed, "System.Diagnostics.Process") != 2 ||
+		!strings.Contains(timed, "$psi.RedirectStandardInput = $true") || !strings.Contains(timed, "$p.StandardInput.Close()") {
+		t.Error("install.ps1 creates a process outside Invoke-AnetTimed, or with the console as its input")
+	}
+	if m := regexp.MustCompile(`(?i)-ComObject\s+(\S+)`).FindAllStringSubmatch(code, -1); len(m) != 1 || m[0][1] != "Schedule.Service" {
+		t.Errorf("install.ps1 uses COM objects other than the Task Scheduler: %q", m)
 	}
 	// The commands of the CLI surface the installer depends on.
-	for _, s := range []string{"'--verify-dir'", "'--installed'", "'--shell-controller'", "'--passphrase-later'", "'--without'",
+	for _, s := range []string{"'--verify-dir'", "'--installed'", "'--shell-controller'", "'--yes'", "'--passphrase-later'", "'--without'",
 		"'hub-register'", "'init'", "'doctor'", "'up'", "'status'", "'stop'"} {
 		if !strings.Contains(code, s) {
 			t.Errorf("install.ps1 does not pass %s", s)
@@ -107,21 +120,26 @@ func TestInstallPS1FileRules(t *testing.T) {
 			t.Errorf("install.ps1 mentions %s", s)
 		}
 	}
-	// The refusal of an elevated window, word for word.
-	if !strings.Contains(script, "'Run this in a PowerShell window that is not elevated; the node and the commands it runs for the controller run as the user that installs it. To install for an administrator account anyway, add -Elevated.'") {
-		t.Error("install.ps1 lacks the refusal of an elevated window")
+	// An elevated window is not refused (v0.3.5): -Elevated is accepted and changes nothing.
+	if strings.Contains(code, "not elevated") || strings.Contains(code, "-not $Elevated") {
+		t.Error("install.ps1 still refuses an elevated window")
+	}
+	// The controller grant asks nothing: -Controller is the consent, passed on as --yes.
+	if !strings.Contains(code, "@('init', '--shell-controller', $o.Controller, '--yes')") {
+		t.Error("install.ps1 does not pass --yes with --shell-controller")
 	}
 	// The one line and the verify-first form are in the header. The verify-first form writes
 	// allowed_signers without a byte order mark, checks in cmd.exe and stops on a failed check before
 	// the run, on the same line; the check alone is one line, the same in cmd.exe and a POSIX shell.
 	verify := "ssh-keygen -Y verify -f allowed_signers -I " + Identity + " -n " + Namespace + " -s install.ps1.sig < install.ps1"
 	for _, s := range []string{
-		"#   " + installPS1OneLine("-Controller '<controller AID>'"),
+		"#   " + WindowsInstallCommand,
+		"#   " + WindowsInstallControllerCommand,
 		"#   Invoke-WebRequest -UseBasicParsing https://agentnetwork.org.cn/install.ps1 -OutFile install.ps1",
 		"#   Invoke-WebRequest -UseBasicParsing https://agentnetwork.org.cn/install.ps1.sig -OutFile install.ps1.sig",
 		"#   [IO.File]::WriteAllText((Join-Path $PWD.ProviderPath 'allowed_signers'), '" + strings.TrimSpace(allowedSigners) + "')",
 		"#   cmd /c \"" + verify + "\"; if ($LASTEXITCODE -ne 0) { throw 'install.ps1 did not verify' }; " +
-			"& ([scriptblock]::Create((Get-Content -Raw .\\install.ps1))) -Controller '<controller AID>'",
+			"& ([scriptblock]::Create((Get-Content -Raw .\\install.ps1))) -Controller CONTROLLER_AID",
 		"#   " + verify,
 	} {
 		if !strings.Contains(script, s+"\n") {
@@ -130,11 +148,49 @@ func TestInstallPS1FileRules(t *testing.T) {
 	}
 }
 
-// installPS1OneLine is the one-line installation command of the
-// specification, with args after it.
-func installPS1OneLine(args string) string {
-	return "[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor 3072; " +
-		"& ([scriptblock]::Create((Invoke-RestMethod -UseBasicParsing -Uri 'https://agentnetwork.org.cn/install.ps1'))) " + args
+// WindowsInstallCommand is the published Windows installation command (v0.3.5): one line whose bytes
+// run unchanged in cmd.exe, Windows PowerShell 5.1, PowerShell 7, bash and zsh in WSL and Git Bash. It
+// starts a new powershell.exe, which fetches install.ps1 and runs it as a script block.
+// WindowsInstallControllerCommand is the same with -Controller and the placeholder CONTROLLER_AID,
+// which install.ps1 refuses by name. cmd/anet's apexdocs test holds the published documents to them.
+const (
+	WindowsInstallCommand = `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ` +
+		`"[Net.ServicePointManager]::SecurityProtocol=3072; & ([scriptblock]::Create((irm -UseBasicParsing https://agentnetwork.org.cn/install.ps1)))"`
+	WindowsInstallControllerCommand = `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ` +
+		`"[Net.ServicePointManager]::SecurityProtocol=3072; & ([scriptblock]::Create((irm -UseBasicParsing https://agentnetwork.org.cn/install.ps1))) -Controller CONTROLLER_AID"`
+)
+
+// The published commands are one line, everything after -Command is one double-quoted argument, and
+// no character in them means anything to cmd.exe, PowerShell, a POSIX shell or Git Bash's path
+// conversion: no $, %, !, ^, backtick, single quote, < or >, and no inner double quote.
+func TestWindowsInstallCommandIsShellNeutral(t *testing.T) {
+	for _, c := range []string{WindowsInstallCommand, WindowsInstallControllerCommand} {
+		if strings.ContainsAny(c, "$%!^`'<>\r\n\t") {
+			t.Errorf("the command holds a character a shell interprets: %q", c)
+		}
+		for _, b := range []byte(c) {
+			if b < 0x20 || b > 0x7e {
+				t.Errorf("the command is not printable ASCII: %q", c)
+			}
+		}
+		head, arg, ok := strings.Cut(c, " -Command ")
+		if !ok || head != "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass" {
+			t.Errorf("the command does not start powershell.exe with -Command: %q", c)
+		}
+		if len(arg) < 2 || arg[0] != '"' || arg[len(arg)-1] != '"' || strings.Count(arg, `"`) != 2 {
+			t.Errorf("everything after -Command is not one double-quoted argument: %q", arg)
+		}
+		// Git Bash converts an argument that starts with / (or holds =/) into a Windows path.
+		if strings.HasPrefix(arg[1:], "/") || strings.Contains(c, "=/") {
+			t.Errorf("Git Bash would rewrite part of the command: %q", c)
+		}
+	}
+	if WindowsInstallControllerCommand != strings.TrimSuffix(WindowsInstallCommand, `"`)+` -Controller CONTROLLER_AID"` {
+		t.Error("the controller form is not the plain form with -Controller CONTROLLER_AID")
+	}
+	if !strings.Contains(installPS1(t), "$AnetControllerPlaceholder = 'CONTROLLER_AID'") {
+		t.Error("install.ps1 does not refuse the placeholder by name")
+	}
 }
 
 // The fingerprint the script compares with what the binary reports is that
