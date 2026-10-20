@@ -1,6 +1,7 @@
 // Command legacy-anet stands in for the anet 1.1.15 binary of the earlier AgentNetwork npm package in
-// the Windows installation test of CI (deploy/release/test-install-e2e.ps1). It answers version like
-// that line does, and records each stop in the file named by LEGACY_ANET_MARK, so the test can see that
+// the Windows installation test of CI (deploy/release/test-install-e2e.ps1). It carries the Go module
+// path of that project, by which install.ps1 recognizes a binary it may run, answers version like that
+// line does, and records each stop in the file named by LEGACY_ANET_MARK, so the test can see that
 // install.ps1 stopped it with its own stop command. It does nothing else.
 package main
 
@@ -9,8 +10,13 @@ import (
 	"os"
 )
 
+// legacyModulePath is the module path of AgentNetwork 1.x, kept in the binary as that project's
+// binaries keep it (in their build information and symbol names).
+const legacyModulePath = "github.com/ChatChatTech/AgentNetwork"
+
 func main() {
 	if len(os.Args) < 2 {
+		fmt.Fprintln(os.Stderr, "usage: anet version|stop ("+legacyModulePath+")")
 		os.Exit(2)
 	}
 	switch os.Args[1] {

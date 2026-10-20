@@ -52,7 +52,7 @@ if ($Plant) {
   # The npm package, packed and installed globally as npm installs it.
   $src = Join-Path ([IO.Path]::GetTempPath()) ('legacy-npm-' + [Guid]::NewGuid().ToString('N'))
   $null = New-Item -ItemType Directory -Path (Join-Path $src 'bin')
-  [IO.File]::WriteAllText((Join-Path $src 'package.json'), '{"name": "@agentnetwork/anet", "version": "1.1.15", "bin": {"anet": "bin/anet"}, "license": "MIT"}')
+  [IO.File]::WriteAllText((Join-Path $src 'package.json'), '{"name": "@agentnetwork/anet", "version": "1.1.15", "bin": {"anet": "bin/anet"}, "license": "MIT", "repository": {"type": "git", "url": "git+https://github.com/ChatChatTech/AgentNetwork.git"}}')
   [IO.File]::WriteAllText((Join-Path $src 'bin\anet'), "#!/usr/bin/env node`nconsole.log('AgentNetwork v1.1.15');`n")
   Push-Location $src
   try {
@@ -72,11 +72,14 @@ if ($Plant) {
   foreach ($n in @('anet.cmd', 'anet.ps1', 'node_modules\@agentnetwork\anet\package.json')) {
     Check ('planted ' + (Join-Path $prefix $n)) (Test-Path -LiteralPath (Join-Path $prefix $n))
   }
-  # The data of anet 1.x.
+  # The data of anet 1.x, as its daemon leaves it after one run, with a
+  # daemon.pid of a process that no longer exists.
   $null = New-Item -ItemType Directory -Path $dataDir
-  [IO.File]::WriteAllText((Join-Path $dataDir 'api_token'), 'legacy-token')
+  foreach ($n in @('api_token', 'agent_token', 'scoped_tokens.json', 'peer-journal.json', 'daemon.log', 'anet.db')) { [IO.File]::WriteAllText((Join-Path $dataDir $n), 'legacy') }
   foreach ($d in @('anet', 'orgs', 'state')) { $null = New-Item -ItemType Directory -Path (Join-Path $dataDir $d) }
+  [IO.File]::WriteAllText((Join-Path $dataDir 'anet\identity.json'), '{"did": "did:key:z6Mk"}')
   [IO.File]::WriteAllText((Join-Path $dataDir 'state\last.json'), '{}')
+  [IO.File]::WriteAllText((Join-Path $dataDir 'daemon.pid'), '4000000')
   Check 'planted the data of anet 1.x' (Test-Path -LiteralPath (Join-Path $dataDir 'state\last.json'))
 }
 
@@ -113,7 +116,9 @@ if ($Verify) {
     Check 'its anet.cmd shim was removed' (-not (Test-Path -LiteralPath (Join-Path $prefix 'anet.cmd')))
     $aside = @(Get-ChildItem -LiteralPath $profileDir -Force -Directory | Where-Object { $_.Name -like '.anet-legacy-1.1.15-*' })
     Check 'the data of anet 1.x was renamed aside' ($aside.Count -eq 1 -and (Test-Path -LiteralPath (Join-Path $aside[0].FullName 'api_token'))) (($aside | ForEach-Object { $_.Name }) -join ',')
-    Check 'the 0.3 data directory holds none of it' (-not (Test-Path -LiteralPath (Join-Path $dataDir 'api_token')) -and -not (Test-Path -LiteralPath (Join-Path $dataDir 'orgs')))
+    Check 'the 0.3 data directory holds none of it' (-not (Test-Path -LiteralPath (Join-Path $dataDir 'api_token')) -and -not (Test-Path -LiteralPath (Join-Path $dataDir 'orgs')) -and -not (Test-Path -LiteralPath (Join-Path $dataDir 'daemon.pid')))
+    Check 'the data directory of 0.3 is of this version' ((Get-AnetDataDirKind -Root $dataDir) -eq 'current') (Get-AnetDataDirKind -Root $dataDir)
+    Check 'the install directory holds anet files only' (Test-AnetDedicatedDir -Dir $dir)
   }
 
   # A new window, with the PATH Windows gives it, runs the new anet.

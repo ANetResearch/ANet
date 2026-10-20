@@ -260,15 +260,24 @@ if (-not (Test-IsWindows)) {
   $fake = Join-Path ([IO.Path]::GetTempPath()) ('anet-up-' + [Guid]::NewGuid().ToString('N'))
   [IO.File]::WriteAllText($fake, "#!/bin/sh`necho started `$1`nexit 0`n")
   & chmod 755 $fake
-  $code = Start-AnetNode -Exe $fake -Elevation @{ Elevated = $false; NoStandardToken = ''; Account = 'me' } 6>$null
-  Check 'Start-AnetNode returns the exit status alone' ($code -is [int] -and $code -eq 0) ([string]$code)
+  $start = Start-AnetNode -Exe $fake -Elevation @{ Elevated = $false; Restricted = $false; NoStandardToken = ''; Account = 'me' } 6>$null
+  Check 'Start-AnetNode returns the exit status alone' ($start.Code -is [int] -and $start.Code -eq 0 -and -not $start.Deferred) ([string]$start.Code)
   Remove-Item -LiteralPath $fake -Force
 }
 
 # --- earlier installations ---------------------------------------------------
 
-foreach ($v in @('1.1.15', '1.0.0', '0.2.1', '0.1.10', '2.0.0')) { Check ('legacy version ' + $v) (Test-AnetLegacyVersion $v) }
-foreach ($v in @('0.3.0', '0.3.5', '0.4.0-rc.1', '', 'x')) { Check ('not a legacy version: ''' + $v + '''') (-not (Test-AnetLegacyVersion $v)) }
+foreach ($v in @('1.1.15', '0.3.0', '0.4.0-rc.1', '999999.0.0')) { Check ('a version: ' + $v) (Test-AnetVersion $v) }
+foreach ($v in @('', 'x', '1.0', '1.0.0\..\..\Public\x', '1.0.0 ', '1.0.0-' + ('a' * 41), '1234567.0.0')) { Check ('not a version: ''' + $v + '''') (-not (Test-AnetVersion $v)) }
+Check 'version order' ((Compare-AnetVersion '0.3.4' '0.3.5') -eq -1 -and (Compare-AnetVersion '1.1.15' '0.3.0') -eq 1 -and (Compare-AnetVersion '0.3.5-rc.1' '0.3.5') -eq 0 -and (Compare-AnetVersion '0.10.0' '0.9.9') -eq 1)
+$repo1x = '{"name": "@agentnetwork/anet", "version": "1.1.15", "repository": {"url": "git+https://github.com/ChatChatTech/AgentNetwork.git"}}'
+$repoAnet = '{"name": "@agentnetwork/anet", "version": "1.2.0", "repository": {"url": "git+https://github.com/ANetResearch/ANet.git"}}'
+Check 'the 1.x package by its repository' (Test-AnetLegacyPackage -Text $repo1x -Version '1.1.15')
+Check 'a 1.x package without a repository field' (Test-AnetLegacyPackage -Text '{"name": "@agentnetwork/anet", "version": "1.1.15"}' -Version '1.1.15')
+Check 'a 0.2 package' (Test-AnetLegacyPackage -Text '{}' -Version '0.2.1')
+Check 'anet 0.3.4 as the npm launcher is not legacy' (-not (Test-AnetLegacyPackage -Text '{"name": "@agentnetwork/anet", "version": "0.3.4"}' -Version '0.3.4'))
+Check 'a future anet 1.x that names ANetResearch/ANet is not legacy' (-not (Test-AnetLegacyPackage -Text $repoAnet -Version '1.2.0'))
+Check 'a file that is not there has no family' ((Get-AnetBinaryFamily -Exe (Join-Path $here 'no-such.exe')) -eq '')
 
 # --- the pin check -----------------------------------------------------------
 
@@ -313,74 +322,189 @@ try {
 
   # --- earlier installations: npm prefixes and the data directory -----------
 
+  $plain = @{ Elevated = $false; Restricted = $false; NoStandardToken = ''; Account = 'me' }
+  $restricted = @{ Elevated = $true; Restricted = $true; NoStandardToken = ''; Account = 'me' }
+  # Stand-ins for binaries: a file that carries the Go module path of
+  # AgentNetwork 1.x, one that carries anet's, and one with neither.
+  $v1Bytes = [Text.Encoding]::ASCII.GetBytes('MZ' + ('x' * 3000) + 'github.com/ChatChatTech/AgentNetwork/cmd/anet.main' + ('y' * 3000))
+  $anetBytes = [Text.Encoding]::ASCII.GetBytes('MZ' + ('x' * 3000) + 'github.com/ANetResearch/ANet/internal/daemon.New' + ('y' * 3000))
+  $otherBytes = [Text.Encoding]::ASCII.GetBytes('MZ' + ('x' * 6000))
+  $bins = Join-Path $work 'bins'
+  $null = [IO.Directory]::CreateDirectory($bins)
+  [IO.File]::WriteAllBytes((Join-Path $bins 'v1.exe'), $v1Bytes)
+  [IO.File]::WriteAllBytes((Join-Path $bins 'anet.exe'), $anetBytes)
+  [IO.File]::WriteAllBytes((Join-Path $bins 'other.exe'), $otherBytes)
+  Check 'a binary with the module path of AgentNetwork 1.x is of family v1' ((Get-AnetBinaryFamily -Exe (Join-Path $bins 'v1.exe')) -eq 'v1')
+  Check 'a binary with the module path of this project is of family anet' ((Get-AnetBinaryFamily -Exe (Join-Path $bins 'anet.exe')) -eq 'anet')
+  Check 'a binary with neither is of no family' ((Get-AnetBinaryFamily -Exe (Join-Path $bins 'other.exe')) -eq '')
+  # A text that straddles the block boundary of the block-wise search.
+  $straddle = New-Object byte[] (1048576 + 20)
+  $marker = [Text.Encoding]::ASCII.GetBytes('ChatChatTech/AgentNetwork')
+  [Array]::Copy($marker, 0, $straddle, 1048576 - 10, $marker.Length)
+  [IO.File]::WriteAllBytes((Join-Path $bins 'straddle.bin'), $straddle)
+  Check 'a text across a block boundary is found' (Test-AnetFileContains -Path (Join-Path $bins 'straddle.bin') -Text 'ChatChatTech/AgentNetwork')
+  Check 'a text that is not there is not found' (-not (Test-AnetFileContains -Path (Join-Path $bins 'straddle.bin') -Text 'ChatChatTech/AgentNetworks'))
+  $info = Get-AnetVersionInfo -Exe (Join-Path $bins 'other.exe') -Elevation $plain
+  Check 'an anet.exe of neither project is Unknown and not run' ($info.Class -eq 'Unknown' -and $info.Version -eq '')
+  $info = Get-AnetVersionInfo -Exe (Join-Path $bins 'v1.exe') -Elevation $restricted
+  Check 'from a restricted window, a 1.x binary is Legacy without being run' ($info.Class -eq 'Legacy' -and $info.Version -eq '')
+  [IO.File]::WriteAllText((Join-Path $bins 'anet.exe.release.json'), '{"schema": "anet-release/1", "version": "0.3.4"}')
+  $info = Get-AnetVersionInfo -Exe (Join-Path $bins 'anet.exe') -Elevation $restricted
+  Check 'from a restricted window, an anet.exe is Current with the version of its release record' ($info.Class -eq 'Current' -and $info.Version -eq '0.3.4')
+  [IO.File]::WriteAllText((Join-Path $bins 'anet.exe.release.json'), '{"version": "0.3.4\\..\\x"}')
+  Check 'a release record with a version that is not one is ignored' ((Get-AnetRecordVersion -Exe (Join-Path $bins 'anet.exe')) -eq '')
+  $dedicated = Join-Path $work 'dedicated'
+  $null = [IO.Directory]::CreateDirectory($dedicated)
+  foreach ($n in @('anet.exe', 'anet.exe.release.json', 'anet.exe.release.json.sig', 'anet.exe.old-1700000000000', 'anet.new.exe')) { [IO.File]::WriteAllText((Join-Path $dedicated $n), 'x') }
+  Check 'a directory with anet files only is dedicated' (Test-AnetDedicatedDir -Dir $dedicated)
+  [IO.File]::WriteAllText((Join-Path $dedicated 'tool.exe'), 'x')
+  Check 'a directory with another program is not dedicated' (-not (Test-AnetDedicatedDir -Dir $dedicated))
+  Check 'a directory with other files is not dedicated' (-not (Test-AnetDedicatedDir -Dir $bins))
+
   function New-FakeNpm {
-    param([string]$Prefix, [string]$Version, [switch]$Binary)
+    param([string]$Prefix, [string]$Version, [string]$Repository = '', [byte[]]$Binary)
     $pkg = [IO.Path]::Combine($Prefix, 'node_modules', '@agentnetwork', 'anet')
     $null = [IO.Directory]::CreateDirectory($pkg)
-    [IO.File]::WriteAllText([IO.Path]::Combine($pkg, 'package.json'), '{"name": "@agentnetwork/anet", "version": "' + $Version + '"}')
+    $repo = ''
+    if ($Repository -ne '') { $repo = ', "repository": {"type": "git", "url": "' + $Repository + '"}' }
+    [IO.File]::WriteAllText([IO.Path]::Combine($pkg, 'package.json'), '{"name": "@agentnetwork/anet", "version": "' + $Version + '"' + $repo + '}')
     foreach ($n in @('anet.cmd', 'anet.ps1', 'anet')) { [IO.File]::WriteAllText((Join-Path $Prefix $n), 'shim') }
-    if ($Binary) {
+    if ($null -ne $Binary) {
       $bin = [IO.Path]::Combine($pkg, 'node_modules', '@agentnetwork', 'anet-win32-x64', 'bin')
       $null = [IO.Directory]::CreateDirectory($bin)
-      [IO.File]::WriteAllText([IO.Path]::Combine($bin, 'anet.exe'), 'MZ')
+      [IO.File]::WriteAllBytes([IO.Path]::Combine($bin, 'anet.exe'), $Binary)
     }
   }
   $npmOld = Join-Path $work 'npm-old'
-  New-FakeNpm -Prefix $npmOld -Version '1.1.15' -Binary
+  New-FakeNpm -Prefix $npmOld -Version '1.1.15' -Repository 'git+https://github.com/ChatChatTech/AgentNetwork.git' -Binary $v1Bytes
   $npmNew = Join-Path $work 'npm-new'
-  New-FakeNpm -Prefix $npmNew -Version '0.3.4'
+  New-FakeNpm -Prefix $npmNew -Version '0.3.4' -Repository 'git+https://github.com/ANetResearch/ANet.git'
+  $npmOdd = Join-Path $work 'npm-odd'
+  New-FakeNpm -Prefix $npmOdd -Version '1.1.15' -Binary $otherBytes
+  $npmBad = Join-Path $work 'npm-bad'
+  New-FakeNpm -Prefix $npmBad -Version '1.0.0\..\..\Public\x'
   $inst = Join-Path $work 'inst'
-  $e = @(Find-AnetOthers -InstallDir $inst -NpmPrefix $npmOld | Where-Object { Test-AnetSameDir $_.Dir $npmOld })
+  $e = @(Find-AnetOthers -InstallDir $inst -NpmPrefix $npmOld -Elevation $plain | Where-Object { Test-AnetSameDir $_.Dir $npmOld })
   Check 'an npm install of anet 1.1.15 in the npm prefix is legacy, with the binary that stops it' ($e.Count -eq 1 -and $e[0].Class -eq 'Legacy' -and $e[0].Npm -and $e[0].Version -eq '1.1.15' -and $e[0].StopExe -like '*anet-win32-x64*anet.exe' -and @($e[0].Names) -contains 'anet.cmd')
-  $e = @(Find-AnetOthers -InstallDir $inst -NpmPrefix $npmNew | Where-Object { Test-AnetSameDir $_.Dir $npmNew })
+  $e = @(Find-AnetOthers -InstallDir $inst -NpmPrefix $npmNew -Elevation $plain | Where-Object { Test-AnetSameDir $_.Dir $npmNew })
   Check 'an npm launcher of anet 0.3.4 is current, with nothing to stop' ($e.Count -eq 1 -and $e[0].Class -eq 'Current' -and $e[0].Npm -and $e[0].StopExe -eq '')
-  Check 'the install directory itself is never reported' (@(Find-AnetOthers -InstallDir $npmOld -NpmPrefix $npmOld | Where-Object { Test-AnetSameDir $_.Dir $npmOld }).Count -eq 0)
+  $e = @(Find-AnetOthers -InstallDir $inst -NpmPrefix $npmOdd -Elevation $plain | Where-Object { Test-AnetSameDir $_.Dir $npmOdd })
+  Check 'a 1.x package whose binary lacks the module path has no stop binary' ($e.Count -eq 1 -and $e[0].Class -eq 'Legacy' -and $e[0].StopExe -eq '' -and $e[0].StopNote -like '*not a binary of AgentNetwork 1.x*') ([string]$e[0].StopNote)
+  $e = @(Find-AnetOthers -InstallDir $inst -NpmPrefix $npmBad -Elevation $plain | Where-Object { Test-AnetSameDir $_.Dir $npmBad })
+  Check 'a package.json whose version is not one is not an npm installation of anet' ($e.Count -eq 1 -and -not $e[0].Npm -and $e[0].Class -eq 'Unknown')
+  Check 'the install directory itself is never reported' (@(Find-AnetOthers -InstallDir $npmOld -NpmPrefix $npmOld -Elevation $plain | Where-Object { Test-AnetSameDir $_.Dir $npmOld }).Count -eq 0)
 
-  $kel03 = [byte[]](@(0xA2, 0x00, 0x6F) + [Text.Encoding]::ASCII.GetBytes('anet.identity/2') + @(0x01, 0x40))
-  $kel02 = [byte[]](0xA3, 0x01, 0x40, 0x02, 0x40, 0x03, 0x80)
-  function New-DataDir {
-    param([string]$Root, [switch]$Legacy1x, [byte[]]$Kel)
-    $null = [IO.Directory]::CreateDirectory($Root)
-    if ($Legacy1x) {
-      [IO.File]::WriteAllText((Join-Path $Root 'api_token'), 'secret')
-      foreach ($d in @('anet', 'orgs', 'state')) { $null = [IO.Directory]::CreateDirectory((Join-Path $Root $d)) }
-      [IO.File]::WriteAllText([IO.Path]::Combine($Root, 'state', 'last.json'), '{}')
-    }
-    if ($null -ne $Kel) {
-      [IO.File]::WriteAllBytes((Join-Path $Root 'identity.kel'), $Kel)
-      [IO.File]::WriteAllText((Join-Path $Root 'config.json'), '{}')
-    }
+  # --- the data directory rule: the cases of TestInstallShDataDirKindAgrees --
+  function New-Kel {
+    param([string]$Tag)
+    $t = [Text.Encoding]::ASCII.GetBytes($Tag)
+    return [byte[]](@(0xA2, 0x00, (0x60 + $t.Length)) + $t + @(0x01, 0x40))
   }
+  $kel03 = New-Kel -Tag 'anet.identity/2'
+  $kel02 = [byte[]](0xA3, 0x01, 0x40, 0x02, 0x40, 0x03, 0x80)
+  function Write-V1Layout {
+    param([string]$Root)
+    foreach ($n in @('api_token', 'agent_token', 'scoped_tokens.json', 'peer-journal.json', 'daemon.log', 'anet.db')) { [IO.File]::WriteAllText((Join-Path $Root $n), 'x') }
+    $null = [IO.Directory]::CreateDirectory((Join-Path $Root 'anet'))
+    [IO.File]::WriteAllText([IO.Path]::Combine($Root, 'anet', 'identity.json'), '{"did":"did:key:z6Mk"}')
+    $null = [IO.Directory]::CreateDirectory([IO.Path]::Combine($Root, 'cas', 'pebble'))
+    [IO.File]::WriteAllText([IO.Path]::Combine($Root, 'cas', 'pebble', 'LOCK'), '')
+  }
+  function Write-Init034 {
+    param([string]$Root)
+    [IO.File]::WriteAllText((Join-Path $Root 'config.json'), '{"control_addr": "127.0.0.1:0"}')
+    foreach ($n in @('peers.allow', 'peers.deny', 'peers.trust', 'payees.allow')) { [IO.File]::WriteAllText((Join-Path $Root $n), '') }
+  }
+  $kinds = @(
+    @{ Name = 'missing'; Want = 'none'; Make = { param($r) [IO.Directory]::Delete($r) } },
+    @{ Name = 'empty'; Want = 'none'; Make = { param($r) } },
+    @{ Name = '0.3 identity'; Want = 'current'; Make = { param($r) Write-Init034 $r; [IO.File]::WriteAllBytes((Join-Path $r 'identity.kel'), $kel03) } },
+    @{ Name = '0.3 init only'; Want = 'current'; Make = { param($r) Write-Init034 $r } },
+    @{ Name = '0.2 identity'; Want = 'older'; Make = { param($r) [IO.File]::WriteAllBytes((Join-Path $r 'identity.kel'), $kel02) } },
+    @{ Name = 'identity tag 1'; Want = 'older'; Make = { param($r) [IO.File]::WriteAllBytes((Join-Path $r 'identity.kel'), (New-Kel -Tag 'anet.identity/1')) } },
+    @{ Name = 'identity tag 3'; Want = 'newer'; Make = { param($r) [IO.File]::WriteAllBytes((Join-Path $r 'identity.kel'), (New-Kel -Tag 'anet.identity/3')) } },
+    @{ Name = 'identity tag 03'; Want = 'invalid'; Make = { param($r) [IO.File]::WriteAllBytes((Join-Path $r 'identity.kel'), (New-Kel -Tag 'anet.identity/03')) } },
+    @{ Name = 'identity not cbor'; Want = 'invalid'; Make = { param($r) [IO.File]::WriteAllText((Join-Path $r 'identity.kel'), 'not an identity') } },
+    @{ Name = 'identity empty'; Want = 'invalid'; Make = { param($r) [IO.File]::WriteAllText((Join-Path $r 'identity.kel'), '') } },
+    @{ Name = '1.x'; Want = 'v1'; Make = { param($r) Write-V1Layout $r } },
+    @{ Name = '1.x and anet init of 0.3.4'; Want = 'v1'; Make = { param($r) Write-V1Layout $r; Write-Init034 $r } },
+    @{ Name = '1.x token only'; Want = 'v1'; Make = { param($r) $null = [IO.Directory]::CreateDirectory((Join-Path $r 'anet')); [IO.File]::WriteAllText([IO.Path]::Combine($r, 'anet', 'api_token'), 'x') } },
+    @{ Name = '1.x and a 0.3 identity'; Want = 'mixed'; Make = { param($r) Write-V1Layout $r; Write-Init034 $r; [IO.File]::WriteAllBytes((Join-Path $r 'identity.kel'), $kel03) } },
+    @{ Name = '1.x and a named 0.3 identity'; Want = 'mixed'; Make = { param($r) Write-V1Layout $r; $n = [IO.Path]::Combine($r, 'ids', 'work'); $null = [IO.Directory]::CreateDirectory($n); [IO.File]::WriteAllBytes((Join-Path $n 'identity.kel'), $kel03) } },
+    @{ Name = '1.x and a named 0.2 identity'; Want = 'v1'; Make = { param($r) Write-V1Layout $r; $n = [IO.Path]::Combine($r, 'ids', 'work'); $null = [IO.Directory]::CreateDirectory($n); [IO.File]::WriteAllBytes((Join-Path $n 'identity.kel'), $kel02) } },
+    @{ Name = '1.x and an empty named identity'; Want = 'v1'; Make = { param($r) Write-V1Layout $r; $n = [IO.Path]::Combine($r, 'ids', 'work'); $null = [IO.Directory]::CreateDirectory($n); [IO.File]::WriteAllText((Join-Path $n 'identity.kel'), '') } },
+    @{ Name = '1.x and a 0.2 identity'; Want = 'older'; Make = { param($r) Write-V1Layout $r; [IO.File]::WriteAllBytes((Join-Path $r 'identity.kel'), $kel02) } }
+  )
+  $k = 0
+  foreach ($c in $kinds) {
+    $k++
+    # Pattern characters in the path are read literally.
+    $root = [IO.Path]::Combine($work, ('kind' + $k + '[1]'), '.anet')
+    $null = [IO.Directory]::CreateDirectory($root)
+    & $c.Make $root
+    $got = Get-AnetDataDirKind -Root $root
+    Check ('data directory kind: ' + $c.Name + ' is ' + $c.Want) ($got -eq $c.Want) $got
+  }
+
   function Get-Asides {
     param([string]$Root)
     return @(Get-ChildItem -LiteralPath (Split-Path -Parent $Root) -Force | Where-Object { $_.Name -like ((Split-Path -Leaf $Root) + '-legacy-*') })
   }
-  $h = Join-Path $work 'home-1x'
-  $root = Join-Path $h '.anet'
-  New-DataDir -Root $root -Legacy1x
-  $line = Move-AnetLegacyData -Root $root -Version '1.1.15'
+  $root = [IO.Path]::Combine($work, 'home-1x', '.anet')
+  $null = [IO.Directory]::CreateDirectory($root)
+  Write-V1Layout $root
+  $m = Move-AnetLegacyData -Root $root -Version '1.1.15' -Kind 'v1' -Aside (Get-AnetLegacyAside -Root $root -Version '1.1.15')
   $aside = @(Get-Asides $root)
-  Check 'a data directory of anet 1.x alone is renamed aside as a whole' (-not (Test-Path -LiteralPath $root) -and $aside.Count -eq 1 -and $aside[0].Name -match '^\.anet-legacy-1\.1\.15-[0-9]{8}T[0-9]{6}Z$' -and (Test-Path -LiteralPath (Join-Path $aside[0].FullName 'api_token'))) $line
-  $h = Join-Path $work 'home-mixed'
-  $root = Join-Path $h '.anet'
-  New-DataDir -Root $root -Legacy1x -Kel $kel03
-  $line = Move-AnetLegacyData -Root $root -Version ''
+  Check 'a data directory of anet 1.x alone is renamed aside as a whole' (-not $m.Held -and -not (Test-Path -LiteralPath $root) -and $aside.Count -eq 1 -and $aside[0].Name -match '^\.anet-legacy-1\.1\.15-[0-9]{8}T[0-9]{6}Z$' -and (Test-Path -LiteralPath (Join-Path $aside[0].FullName 'api_token'))) $m.Line
+  $root = [IO.Path]::Combine($work, 'home-mixed', '.anet')
+  $null = [IO.Directory]::CreateDirectory($root)
+  Write-V1Layout $root
+  Write-Init034 $root
+  [IO.File]::WriteAllBytes((Join-Path $root 'identity.kel'), $kel03)
+  foreach ($d in @('orgs', 'state')) { $null = [IO.Directory]::CreateDirectory((Join-Path $root $d)) }
+  [IO.File]::WriteAllText([IO.Path]::Combine($root, 'state', 'last.json'), '{}')
+  [IO.File]::WriteAllText((Join-Path $root 'daemon.pid'), '1')
+  $m = Move-AnetLegacyData -Root $root -Version '1.x' -Kind 'mixed' -Aside (Get-AnetLegacyAside -Root $root -Version '1.x')
   $aside = @(Get-Asides $root)
-  Check 'with an identity of 0.3, only the entries of anet 1.x are moved' ((Test-Path -LiteralPath (Join-Path $root 'identity.kel')) -and (Test-Path -LiteralPath (Join-Path $root 'config.json')) -and
-    -not (Test-Path -LiteralPath (Join-Path $root 'api_token')) -and -not (Test-Path -LiteralPath (Join-Path $root 'state')) -and
-    $aside.Count -eq 1 -and $aside[0].Name -like '.anet-legacy-1.x-*' -and (Test-Path -LiteralPath ([IO.Path]::Combine($aside[0].FullName, 'state', 'last.json')))) $line
-  $h = Join-Path $work 'home-02'
-  $root = Join-Path $h '.anet'
-  New-DataDir -Root $root -Kel $kel02
-  $line = Move-AnetLegacyData -Root $root -Version ''
+  $stay = @('identity.kel', 'config.json', 'peers.allow', 'daemon.log') | Where-Object { -not (Test-Path -LiteralPath (Join-Path $root $_)) }
+  $gone = @('anet', 'anet.db', 'api_token', 'agent_token', 'scoped_tokens.json', 'peer-journal.json', 'cas', 'orgs', 'state', 'daemon.pid') | Where-Object { Test-Path -LiteralPath (Join-Path $root $_) }
+  Check 'with an identity of 0.3, exactly the entries of anet 1.x are moved' (-not $m.Held -and @($stay).Count -eq 0 -and @($gone).Count -eq 0 -and $aside.Count -eq 1 -and $aside[0].Name -like '.anet-legacy-1.x-*' -and (Test-Path -LiteralPath ([IO.Path]::Combine($aside[0].FullName, 'state', 'last.json')))) ($m.Line + ' stay=' + ($stay -join ',') + ' gone=' + ($gone -join ','))
+  $root = [IO.Path]::Combine($work, 'home-02', '.anet')
+  $null = [IO.Directory]::CreateDirectory($root)
+  [IO.File]::WriteAllBytes((Join-Path $root 'identity.kel'), $kel02)
+  $m = Move-AnetLegacyData -Root $root -Version '0.2' -Kind 'older' -Aside (Get-AnetLegacyAside -Root $root -Version '0.2')
   $aside = @(Get-Asides $root)
-  Check 'a data directory of anet 0.2 is renamed aside as a whole' (-not (Test-Path -LiteralPath $root) -and $aside.Count -eq 1 -and $aside[0].Name -like '.anet-legacy-0.2-*') $line
-  $h = Join-Path $work 'home-03'
-  $root = Join-Path $h '.anet'
-  New-DataDir -Root $root -Kel $kel03
-  $line = Move-AnetLegacyData -Root $root -Version '1.1.15'
-  Check 'a data directory of anet 0.3 is never moved' ($line -eq '' -and (Test-Path -LiteralPath (Join-Path $root 'identity.kel')) -and @(Get-Asides $root).Count -eq 0) $line
-  Check 'no data directory: nothing to do' ((Move-AnetLegacyData -Root (Join-Path $work 'none\.anet') -Version '') -eq '')
+  Check 'a data directory of anet 0.2 is renamed aside as a whole' (-not $m.Held -and -not (Test-Path -LiteralPath $root) -and $aside.Count -eq 1 -and $aside[0].Name -like '.anet-legacy-0.2-*') $m.Line
+  $cmd = Get-AnetMoveCommand -Root 'C:\Users\me\.anet' -Aside 'C:\Users\me\.anet-legacy-1.x-20260101T000000Z' -Kind 'v1'
+  Check 'the move command for a 1.x directory renames it' ($cmd -ceq 'Rename-Item -LiteralPath ''C:\Users\me\.anet'' -NewName ''.anet-legacy-1.x-20260101T000000Z''') $cmd
+  $cmd = Get-AnetMoveCommand -Root 'C:\Users\me\.anet' -Aside 'C:\Users\me\.anet-legacy-1.x-20260101T000000Z' -Kind 'mixed'
+  Check 'the move command for a mixed directory moves the 1.x entries' ($cmd -like 'New-Item -ItemType Directory -Path ''C:\Users\me\.anet-legacy-1.x-20260101T000000Z''; foreach ($n in ''anet'', ''anet.db'', *''daemon.pid'') { if (Test-Path -LiteralPath (Join-Path ''C:\Users\me\.anet'' $n)) { Move-Item -LiteralPath (Join-Path ''C:\Users\me\.anet'' $n) -Destination ''C:\Users\me\.anet-legacy-1.x-20260101T000000Z'' } }') $cmd
+
+  # The takeover with nothing found to stop: a data directory of an earlier
+  # anet is not moved, the installation is held with the command to move it,
+  # and a directory of 0.3, a newer one or one whose identity file does not
+  # read is left alone and does not hold the installation.
+  $root = [IO.Path]::Combine($work, 'home-held', '.anet')
+  $null = [IO.Directory]::CreateDirectory($root)
+  Write-V1Layout $root
+  $t = Invoke-AnetTakeover -InstallDir $inst -DataDir $root -Elevation $plain 6>$null
+  Check 'a 1.x data directory with nothing found to stop holds the installation' ($t.Held -and (Test-Path -LiteralPath (Join-Path $root 'api_token')) -and @(Get-Asides $root).Count -eq 0 -and @($t.Remaining).Count -eq 1 -and ([string]$t.Remaining[0]) -like ('Rename-Item -LiteralPath ''' + $root + ''' -NewName ''.anet-legacy-1.x-*''')) (($t.Report -join ' | ') + ' ' + ($t.Remaining -join ' | '))
+  Check 'the report says why' (@($t.Report | Where-Object { $_ -like '*no earlier anet was found to stop*' }).Count -eq 1) ($t.Report -join ' | ')
+  foreach ($case in @(@{ Name = '0.3'; Kel = $kel03 }, @{ Name = 'newer'; Kel = (New-Kel -Tag 'anet.identity/3') }, @{ Name = 'invalid'; Kel = [byte[]]@() })) {
+    $root = [IO.Path]::Combine($work, ('home-' + $case.Name), '.anet')
+    $null = [IO.Directory]::CreateDirectory($root)
+    Write-V1Layout $root
+    [IO.File]::WriteAllBytes((Join-Path $root 'identity.kel'), $case.Kel)
+    $t = Invoke-AnetTakeover -InstallDir $inst -DataDir $root -Elevation $plain 6>$null
+    $kind = Get-AnetDataDirKind -Root $root
+    if ($case.Name -eq '0.3') {
+      Check 'a mixed data directory with nothing found to stop holds the installation, and stays whole' ($t.Held -and $kind -eq 'mixed' -and (Test-Path -LiteralPath (Join-Path $root 'api_token')) -and (Test-Path -LiteralPath (Join-Path $root 'identity.kel')) -and @(Get-Asides $root).Count -eq 0) ($t.Report -join ' | ')
+    } else {
+      Check ('a data directory of kind ' + $kind + ' is left alone and does not hold the installation') (-not $t.Held -and (Test-Path -LiteralPath (Join-Path $root 'identity.kel')) -and (Test-Path -LiteralPath (Join-Path $root 'api_token')) -and @(Get-Asides $root).Count -eq 0 -and @($t.Remaining).Count -eq 0) ($t.Report -join ' | ')
+    }
+  }
+  $t = Invoke-AnetTakeover -InstallDir $inst -DataDir ([IO.Path]::Combine($work, 'none', '.anet')) -Elevation $plain 6>$null
+  Check 'no data directory: nothing to do' (-not $t.Held -and @($t.Remaining).Count -eq 0)
 
   # --- private directories, and the replacement of a binary (Windows) ----------
 
