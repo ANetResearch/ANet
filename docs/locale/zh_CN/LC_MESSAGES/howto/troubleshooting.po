@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ANet 0.3\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-20 07:09+0000\n"
+"POT-Creation-Date: 2026-10-20 12:36+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: zh_CN\n"
@@ -174,15 +174,17 @@ msgstr "``identity_v02``"
 
 #: ../../howto/troubleshooting.rst:79
 msgid ""
-"The data directory was written by anet 0.2. Version 0.3 does not migrate "
-"old data."
-msgstr "数据目录由 anet 0.2 写入。0.3 版不迁移旧数据。"
+"The data directory was written by anet 0.2, or by AgentNetwork 1.x and "
+"holds no identity of 0.3. Version 0.3 does not migrate old data."
+msgstr "数据目录由 anet 0.2 写入，或由 AgentNetwork 1.x 写入且其中没有 0.3 的身份。0.3 版不迁移旧数据。"
 
 #: ../../howto/troubleshooting.rst:81
 msgid ""
-"Move the directory away and run ``anet up`` to create a new identity. See"
-" :doc:`/upgrading`."
-msgstr "将该目录移开,并运行 ``anet up`` 以创建新的身份。参见 :doc:`/upgrading`\\ 。"
+"Move the directory away and run ``anet up`` to create a new identity. "
+"``install.sh`` does this from 0.3.5. See :doc:`/upgrading`."
+msgstr ""
+"将该目录移开，并运行 ``anet up`` 以创建新的身份。自 0.3.5 起，``install.sh`` 会自动完成这一步。参见 "
+":doc:`/upgrading`。"
 
 #: ../../howto/troubleshooting.rst:83
 msgid "``datadir_too_new``"

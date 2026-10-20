@@ -1966,9 +1966,13 @@ var reasonTable = []Row{
 		Zh:       "本机时钟与 hub 相差超过 5 分钟；请校准系统时间（例如启用 NTP）后重试。",
 		En:       "This computer's clock is more than 5 minutes off from the hub; fix the system time (for example enable NTP) and try again.",
 		NextKind: NextChangeInput},
+	// A data directory of an earlier release (FS-S1): an identity file of
+	// anet 0.1 or 0.2, or, from 0.3.5, the files of AgentNetwork 1.x (the
+	// npm package @agentnetwork/anet 1.x) without an identity of 0.3
+	// (daemon.DataDirV1). install.sh moves such a directory aside.
 	{Code: "identity_v02", Class: ClassC,
-		Zh:       "这是 anet 0.2 的数据目录，0.3.0 不迁移旧数据；请把这个目录移走后运行 anet up 生成新身份。",
-		En:       "This data directory is from anet 0.2, and 0.3.0 does not migrate old data; move it away and run anet up to create a new identity.",
+		Zh:       "这是早期版本（anet 0.2 或 AgentNetwork 1.x）的数据目录，0.3 不迁移旧数据；请把这个目录移走后运行 anet up 生成新身份。",
+		En:       "This data directory is from an earlier release (anet 0.2 or AgentNetwork 1.x), and 0.3 does not migrate old data; move it away and run anet up to create a new identity.",
 		NextKind: NextCommand, Next: "anet up"},
 	// A data directory a newer anet wrote (core CORE-V4, FS-S1): not an old
 	// one, so the next step is to upgrade, never to move it away.

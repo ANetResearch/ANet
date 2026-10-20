@@ -357,8 +357,9 @@ Damaged or incompatible data directories
 The node refuses to start in a data directory it cannot use and leaves the
 directory unchanged:
 
-``This data directory is from anet 0.2, and 0.3.0 does not migrate old data; move it away and run anet up to create a new identity.``
-   Release 0.3.0 does not migrate old identities. Move the directory away.
+``This data directory is from an earlier release (anet 0.2 or AgentNetwork 1.x), and 0.3 does not migrate old data; move it away and run anet up to create a new identity.``
+   Release 0.3 does not migrate old identities. Move the directory away; from
+   0.3.5, ``install.sh`` renames it to ``~/.anet-legacy-<version>-<time>``.
    The new identity must join a hub again.
 
 ``This data directory was written by a newer anet, which this version cannot open; run anet update and start again (do not delete the directory).``

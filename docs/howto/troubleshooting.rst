@@ -76,10 +76,10 @@ Node and installation
      - ``anet up``. If a node runs under another identity, the message names
        the command to use with ``--id``.
    * - ``identity_v02``
-     - The data directory was written by anet 0.2. Version 0.3 does not
-       migrate old data.
+     - The data directory was written by anet 0.2, or by AgentNetwork 1.x and
+       holds no identity of 0.3. Version 0.3 does not migrate old data.
      - Move the directory away and run ``anet up`` to create a new identity.
-       See :doc:`/upgrading`.
+       ``install.sh`` does this from 0.3.5. See :doc:`/upgrading`.
    * - ``datadir_too_new``
      - The data directory was written by a newer release.
      - ``anet update``. The directory is not deleted.
