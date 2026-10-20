@@ -31,10 +31,10 @@ Prerequisites
   documentation does not state a minimum version for MCP support; the version
   in use must support ``mcp.json`` as described in the
   `Cursor MCP documentation <https://cursor.com/docs/context/mcp>`_.
-* A supported system for ``anet``: Linux or macOS. Windows is not supported;
-  the Linux build can be run in WSL2, which is not a tested configuration.
-  Cursor itself is available on other systems, which does not extend the
-  support of ``anet``.
+* A supported system for ``anet``: Linux, macOS or Windows. On Windows,
+  install ``anet`` with the PowerShell installer (:ref:`intro-install-windows`)
+  and register it with ``anet agents wire cursor``; the plugin does not run on
+  Windows. The steps on this page were not run on Windows.
 
 
 Automatic registration
@@ -434,8 +434,9 @@ Alternatively, import the same repository as a team marketplace in the Cursor
 dashboard. To try the plugin from a local copy, start the command-line program
 with ``cursor-agent --plugin-dir <directory of the plugin>``.
 
-The plugin requires Linux or macOS. ``anet`` has no Windows build, so the
-plugin does not work on Windows. The ``anet-setup`` skill installs ``anet`` when
+The plugin requires Linux or macOS. Its launchers are POSIX shell scripts and
+do not run on Windows; on Windows, register ``anet`` with
+``anet agents wire cursor``. The ``anet-setup`` skill installs ``anet`` when
 it is missing, and needs ``curl``, ``gzip`` and ``ssh-keygen`` (OpenSSH 8.1 or
 later) for that.
 
@@ -548,8 +549,8 @@ real client was possible. The following has not been observed:
   pass the schema validator of the Cursor plugin repository.
 * The setup skill driven by a model, including the installer download in this
   flow, and the wording of the skills in a model session.
-* The plugin on macOS and on Windows (including WSL2), the PATH of the desktop
-  application, and the review for the Cursor Marketplace.
+* The plugin on macOS, ``anet agents wire cursor`` on Windows, the PATH of the
+  desktop application, and the review for the Cursor Marketplace.
 
 Plugin: troubleshooting
 ~~~~~~~~~~~~~~~~~~~~~~~

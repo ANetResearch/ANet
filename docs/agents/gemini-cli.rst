@@ -30,9 +30,11 @@ Prerequisites
   tools of the MCP server in a session. The sessions used a model that was
   served through a compatible interface instead of the Google endpoint (see
   `Not tested`_).
-* Operating systems. ANet runs on Linux and macOS (amd64 and arm64). ANet does
-  not support Windows, so the extension does not work with Gemini CLI on
-  Windows.
+* Operating systems. ANet runs on Linux, macOS and Windows (amd64 and arm64).
+  The launchers of the extension are POSIX shell scripts and run on Linux and macOS
+  only, so the extension does not work with Gemini CLI on Windows. On Windows, a client that
+  accepts MCP servers of the stdio transport can be configured manually as
+  described in :doc:`other-mcp`.
 * ``anet`` does not have to be installed first: the ``anet-setup`` skill of the
   extension installs it after the user agrees. A node that is already
   installed and registered at a hub (:doc:`../intro/install`,
@@ -218,8 +220,7 @@ Not tested
   ``anet``, and then refused the later commands of ``bin/anet-run.sh`` with
   ``Tool execution denied by policy``; the interactive mode was not tested.
   The node was started and registered in a terminal instead.
-* The extension on macOS, and Gemini CLI on Windows, including a node inside
-  WSL2.
+* The extension on macOS, and Gemini CLI on Windows.
 * The prompt for the settings at the installation of a changed manifest in an
   update of an installed extension.
 

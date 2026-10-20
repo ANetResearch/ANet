@@ -22,8 +22,11 @@ Prerequisites
   preview, so the plugin is tested again for each release. The steps on this
   page were verified with DSH 0.2.1-rc.2 on Linux (x86-64) in headless mode.
 * ``pnpm`` on ``PATH``. The command ``dsh plugin`` forwards to ``pnpm``.
-* Operating systems. ANet runs on Linux and macOS (amd64 and arm64). ANet does
-  not support Windows, so the plugin does not work with DSH on Windows.
+* Operating systems. ANet runs on Linux, macOS and Windows (amd64 and arm64).
+  The launchers of the plugin are POSIX shell scripts and run on Linux and macOS
+  only, so the plugin does not work with DSH on Windows. On Windows, a client that
+  accepts MCP servers of the stdio transport can be configured manually as
+  described in :doc:`other-mcp`.
 * ``anet`` does not have to be installed first: the ``anet-setup`` skill
   installs it after the user agrees. A node that is already installed and
   registered at a hub (:doc:`../intro/install`, :doc:`../intro/tutorial`) is

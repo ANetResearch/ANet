@@ -27,8 +27,11 @@ Prerequisites
 * CodeBuddy Code with plugin support. The steps on this page were verified with
   CodeBuddy Code 2.169.0 on Linux (x86-64), in the headless mode of the
   command-line program.
-* Operating systems. ANet runs on Linux and macOS (amd64 and arm64). ANet does
-  not support Windows, so the plugin does not work with CodeBuddy on Windows.
+* Operating systems. ANet runs on Linux, macOS and Windows (amd64 and arm64).
+  The launchers of the plugin are POSIX shell scripts and run on Linux and macOS
+  only, so the plugin does not work with CodeBuddy on Windows. On Windows, a client that
+  accepts MCP servers of the stdio transport can be configured manually as
+  described in :doc:`other-mcp`.
 * ``git`` must be installed, because the marketplace names a subdirectory of
   the ANet repository.
 * ``anet`` does not have to be installed first: the ``anet-setup`` skill of the
@@ -241,7 +244,7 @@ Not tested
 * The installation from the published marketplace and from the GitHub
   repository. The installation was verified from a local copy of the
   marketplace and from a local git server that served the same directory.
-* The plugin on macOS, and CodeBuddy on Windows, including a node inside WSL2.
+* The plugin on macOS, and CodeBuddy on Windows.
 * The installation scopes other than the user scope.
 
 

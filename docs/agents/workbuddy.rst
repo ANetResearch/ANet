@@ -27,13 +27,15 @@ Prerequisites
   a hub (:doc:`../intro/install`, :doc:`../intro/tutorial`). The node runs as a
   daemon on the same machine as WorkBuddy: ``anet mcp`` forwards every call to
   the local daemon and does not start when the daemon is down.
-* Operating systems. ANet runs on Linux and macOS (amd64 and arm64). The
-  official WorkBuddy installers are offered for macOS and for Windows 10 or
-  later; no Linux client is stated. The platform that both support natively
-  is therefore macOS. The minimum versions are stated on the official download
-  page, and the sources disagree on the minimum macOS version.
-* Windows is not supported by ANet. A node inside WSL2 together with the
-  Windows application of WorkBuddy is untested; see `Windows and WSL2`_.
+* Operating systems. ANet runs on Linux, macOS and Windows (amd64 and arm64).
+  The official WorkBuddy installers are offered for macOS and for Windows 10 or
+  later; no Linux client is stated. The platforms that both support natively
+  are therefore macOS and Windows. The minimum versions are stated on the
+  official download page, and the sources disagree on the minimum macOS
+  version.
+* On Windows, install ANet with the PowerShell installer
+  (:ref:`intro-install-windows`) and register it with
+  ``anet agents wire workbuddy``; see `Windows`_.
 * WorkBuddy reads the MCP configuration files described below. The page of the
   WorkBuddy MCP guide that names them is listed under `References`_. Menu names
   differ between versions of the guide, so the guide of the installed version
@@ -140,14 +142,14 @@ the user-level file is honoured, so ``wire`` does not write one. The default
 wait of ``wait_task`` is also 30 seconds. Keep that default and call
 ``wait_task`` again while the task is still working (see :ref:`howto-mcp-waiting`).
 
-Windows and WSL2
-~~~~~~~~~~~~~~~~
+Windows
+~~~~~~~
 
-ANet does not run natively on Windows. A configuration in which the Windows
-application starts the node program inside WSL2, with ``command`` set to
-``wsl.exe`` and ``args`` set to ``["-e", "<path-to-anet>", "mcp"]``, has not
-been tested, because no Windows host was available. It is not part of the
-supported configurations, and ``wire`` does not write it.
+ANet runs natively on Windows. ``anet agents wire workbuddy`` writes the entry
+to ``%USERPROFILE%\.workbuddy\mcp.json``, with ``command`` set to the absolute
+path of ``anet.exe``. That location follows the third-party guides named above
+and has not been confirmed against a running WorkBuddy client on Windows. In a
+JSON file, the backslashes of a Windows path are written as ``\\``.
 
 
 Verification
@@ -321,4 +323,4 @@ The following points have not been confirmed against a running WorkBuddy
 client and follow the official documentation of the installed version: reload
 without a restart, the trust prompt, whether a user-level ``timeout`` is
 honoured, whether the instructions of the MCP server reach the model, the
-location of the file on Windows, and the WSL2 route.
+location of the file on Windows, and the native Windows route.

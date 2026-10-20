@@ -34,8 +34,11 @@ Prerequisites
   plugin (the launcher of the MCP server, the runner and the installer script)
   were tested on Linux, and the generated files were checked against the
   documented rules.
-* Operating systems. ANet runs on Linux and macOS (amd64 and arm64). ANet does
-  not support Windows, so the plugin does not work with Antigravity on Windows.
+* Operating systems. ANet runs on Linux, macOS and Windows (amd64 and arm64).
+  The launchers of the plugin are POSIX shell scripts and run on Linux and macOS
+  only, so the plugin does not work with Antigravity on Windows. On Windows, a client that
+  accepts MCP servers of the stdio transport can be configured manually as
+  described in :doc:`other-mcp`.
 * ``anet`` does not have to be installed first: the ``anet-setup`` skill of the
   plugin installs it after the user agrees. A node that is already installed
   and registered at a hub (:doc:`../intro/install`, :doc:`../intro/tutorial`)
@@ -205,8 +208,7 @@ Not tested
 * The installation from a GitHub URL, including from
   ``ANetResearch/anet-plugins``, and the official plugin marketplace of
   Antigravity, which accepts one marketplace name only.
-* The plugin on macOS, and Antigravity on Windows, including a node inside
-  WSL2.
+* The plugin on macOS, and Antigravity on Windows.
 
 
 Troubleshooting

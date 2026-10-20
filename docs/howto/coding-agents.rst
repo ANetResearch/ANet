@@ -386,9 +386,10 @@ the command prints this reference after it writes the entry. WorkBuddy is
 distinct from the CodeBuddy command-line program, whose files are under
 ``~/.codebuddy``; ``wire`` does not handle CodeBuddy.
 
-On Windows, ``anet`` runs inside WSL2 and the WorkBuddy application runs on
-the host. A configuration in which WorkBuddy starts ``wsl.exe -e <path-to-anet>
-mcp`` has not been tested, and ``wire`` does not write it.
+On Windows, ``anet`` and the WorkBuddy application both run natively, and
+``wire`` writes ``%USERPROFILE%\.workbuddy\mcp.json`` with the absolute path
+of ``anet.exe``. This route has not been tested against the Windows
+application.
 
 
 .. _howto-coding-agents-hermes-a2a:

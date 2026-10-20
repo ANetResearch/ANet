@@ -36,9 +36,11 @@ Prerequisites
   the local daemon and does not start when the daemon is down (``anet up``).
 * The client supports MCP servers of the stdio transport. The minimum version
   of each client and its supported operating systems are stated in the
-  documentation of the client, listed under `References`_. ANet runs on Linux
-  and macOS (amd64 and arm64); Windows is not supported by ANet.
-* The absolute path of the binary is known (``command -v anet``). Graphical
+  documentation of the client, listed under `References`_. ANet runs on Linux,
+  macOS and Windows (amd64 and arm64). The configurations on this page were
+  not tested on Windows.
+* The absolute path of the binary is known (``command -v anet``; in
+  PowerShell, ``(Get-Command anet).Source``). Graphical
   clients do not load the shell profile of the operator, so a bare command
   name is not relied on.
 

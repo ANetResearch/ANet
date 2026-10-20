@@ -33,10 +33,11 @@ Prerequisites
 * Claude Code is installed. Anthropic documents no minimum version for MCP
   servers of the stdio type. The procedure on this page was verified with
   Claude Code 2.1.302 and ``anet`` 0.3.1 on Linux.
-* Operating systems. ``anet`` runs on Linux and macOS. Windows is not supported
-  by ANet; the Linux build in WSL2 is not a tested configuration. The paths
-  for macOS and Windows below follow the Claude Code documentation and were not
-  tested.
+* Operating systems. ``anet`` runs on Linux, macOS and Windows. On Windows,
+  install it with the PowerShell installer (:ref:`intro-install-windows`) and
+  register it with ``anet agents wire claude``; the plugin does not run on
+  Windows (see `Plugin`_). The paths for macOS and Windows below follow the
+  Claude Code documentation and were not tested.
 * The command line program, the VS Code extension, the JetBrains plugin and the
   Code tab of the desktop application are the surfaces of Claude Code. Only the
   command line program was exercised with ANet. The other surfaces are covered
@@ -193,7 +194,8 @@ of Claude Code is far longer (:ref:`howto-mcp-waiting`).
    * - Windows
      - ``%USERPROFILE%\.claude`` is the documented equivalent of ``~/.claude``.
        The exact location of the user-scope server file is not stated by
-       Anthropic in the pages consulted. ANet does not support Windows.
+       Anthropic in the pages consulted. ``anet agents wire claude`` writes
+       the paths below ``%USERPROFILE%``; this was not tested on Windows.
    * - ``CLAUDE_CONFIG_DIR`` set
      - ``$CLAUDE_CONFIG_DIR/.claude.json`` and
        ``$CLAUDE_CONFIG_DIR/skills/anet/SKILL.md`` (verified with Claude Code
@@ -536,6 +538,9 @@ the 14 tools become available in the same session. A later session finds the
 node running and starts ``anet mcp`` directly. This design avoids the failed
 start that Claude Code would otherwise remember for the server.
 
+The launchers of the plugin are POSIX shell scripts and run on Linux and macOS
+only. On Windows, register ``anet`` with ``anet agents wire claude`` instead.
+
 Installing the plugin
 ~~~~~~~~~~~~~~~~~~~~~
 
@@ -670,7 +675,7 @@ Not tested for the plugin
   ``/anet:anet-status`` is the documented one.
 * The VS Code extension, the JetBrains plugin and the desktop application.
 * macOS, including the fallback of the script that reads the options without
-  ``python3``. Windows is not supported by ANet.
+  ``python3``. The plugin does not run on Windows.
 * Environments in which Claude Code defers the tools of MCP servers.
 * The listing of the plugin in an official Anthropic directory.
 * One state of the setup was not isolated: with a second, named identity, the

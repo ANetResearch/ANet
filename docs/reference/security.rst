@@ -50,8 +50,10 @@ The model rests on these assumptions.
   terminal, and that check cannot distinguish the operator from a program that
   controls the terminal of the same user.
 
-Platforms: Linux and macOS are supported. Windows is not supported; use WSL2 with the
-Linux build.
+Platforms: Linux, macOS, and Windows 10 version 1809 or later or Windows Server 2019 or
+later, each on amd64 and arm64. Windows runs the native Windows build. Where a protection
+rests on a facility of Linux and macOS, :ref:`reference-security-windows` names the Windows
+equivalent.
 
 
 What is protected
@@ -431,9 +433,9 @@ Local execution
   budget so that the node does not run an agent for untrusted peers that day; they cannot exceed it. A
   run that the daemon loses by a crash is not counted.
 * A Unix-socket backend is checked for the user of the listening process on Linux, macOS and
-  FreeBSD. On other platforms it is refused unless the backend is configured with
-  ``peer_check: "path-only"``, in which case only the directory chain is checked. A TCP backend is
-  refused on macOS.
+  FreeBSD. On Windows it is refused. On other platforms it is refused unless the backend is
+  configured with ``peer_check: "path-only"``, in which case only the directory chain is checked. A
+  TCP backend on the same host is refused on macOS and on Windows.
 * ANetLink trusts the statement of the daemon about the caller. Only the permitted users can connect to
   ``c1.sock``, but a process of the same user as the daemon can impersonate it (same-user boundary).
   Authorization per peer happens in the lists and public capabilities of the daemon; a caller-signed
@@ -442,6 +444,36 @@ Local execution
   endpoint of the run.
 * Keys, conversation content and tickets are not passed on command lines. The ``api_key_on_argv`` check
   refuses a key on the command line.
+
+
+.. _reference-security-windows:
+
+Windows
+-------
+
+The Windows build keeps the protections of the Linux and macOS builds. Where a protection rests
+on a facility that Windows does not provide, the build uses the following equivalent.
+
+* *Private files.* The data directory and the secrets are private through a protected access
+  control list that grants access to the user, SYSTEM and Administrators only, instead of the
+  modes ``0700`` and ``0600``. A directory or file whose access control list grants any right to
+  another account is not considered private.
+* *Links.* Symbolic links and junctions are refused wherever Linux and macOS refuse symbolic links.
+* *Local control endpoint.* A client reaches the endpoint with the token in the private data
+  directory, and verifies the listener with the challenge before it sends the token, as on macOS.
+* *Data directory lock.* The lock uses ``LockFileEx``.
+* *Updates.* ``anet update`` replaces a running ``anet.exe`` by renaming it aside.
+* *Installer.* ``install.ps1`` is signed and carries the SHA-256 digests of the Windows release
+  binaries; nothing downloaded is run or installed before it matches them. The downloaded binary
+  then verifies the signature of ``release.json`` with the release key built into it, and the
+  manifest's expiry, version, binary digest and module set, and refuses a downgrade. No option
+  skips a check. See :ref:`intro-install-windows`.
+* *Sandbox.* There is no sandbox. Every run that needs one is refused; see
+  :doc:`../topics/sandbox`.
+* *Process trees.* A command of the ``shell`` module runs in a Job object. On a timeout or a
+  cancellation the whole process tree is terminated.
+
+The other limitations of the Windows build are listed in :ref:`reference-known-limitations-windows`.
 
 
 Correctness limits
@@ -485,10 +517,10 @@ Further limitations of tasks, evidence, peers and interfaces are listed in
   and ``open`` this is not visible.
 * *Web caches.* Files of the hub web page that carry a hash in their name are cached for a year. A fix is
   published under a new name; in extreme cases, an old page can remain in the cache of a visitor.
-* *Update channel.* Install ANet only with the signed ``install.sh`` or with ``anet update``. Both check the
-  release signature with the release key (see ``SECURITY.md`` in the repository). The host from which the
-  binaries are downloaded is not trusted; it can withhold a release but cannot make a different
-  binary accepted.
+* *Update channel.* Install ANet only with the signed ``install.sh``, the signed ``install.ps1`` on
+  Windows, or with ``anet update``. Each checks the release signature with the release key (see
+  ``SECURITY.md`` in the repository). The host from which the binaries are downloaded is not trusted;
+  it can withhold a release but cannot make a different binary accepted.
 
 
 Reporting a vulnerability

@@ -30,8 +30,11 @@ Prerequisites
 * Trae or Trae CN with support for MCP servers, skills and commands. The
   Trae documentation states no minimum version, and the steps on this page
   have not been run in the application (see `Not tested`_).
-* Operating systems. ANet runs on Linux and macOS (amd64 and arm64). ANet does
-  not support Windows, so the bundle does not work on Windows.
+* Operating systems. ANet runs on Linux, macOS and Windows (amd64 and arm64).
+  The launchers of the bundle and its ``install.sh`` are POSIX shell scripts
+  and run on Linux and macOS only, so the bundle does not work on Windows. On
+  Windows, a client that accepts MCP servers of the stdio transport can be
+  configured manually as described in :doc:`other-mcp`.
 * The bundle, from one of two sources:
 
   * the directory ``deploy/plugins/dist/trae`` of the ANet repository, or
@@ -333,7 +336,7 @@ unverified:
   ByteDance program ``trae-agent``, which is a different program from Trae,
   rejects it. Whether Trae accepts it is unknown.
 * macOS. ``install.sh`` was run on Linux with ``dash``, ``bash`` and ``sh``.
-* Windows, which ANet does not support.
+* Windows.
 
 
 Troubleshooting
