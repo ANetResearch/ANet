@@ -34,8 +34,8 @@ cannot hand you a binary of its own. Its private half is in no repository
 and not on the download host or any public hub.
 
 If the key ever changes, this section, the README, `docs/intro/install.rst`,
-`deploy/release/install.sh` and `internal/release/` change in the same
-commit, and a test fails if any of them disagrees. A planned rotation goes
+`deploy/release/install.sh`, `deploy/release/install.ps1` and
+`internal/release/` change in the same commit, and a test fails if any of them disagrees. A planned rotation goes
 to the pre-committed next key named below: binaries already installed accept
 a release signed by it, so `anet update` keeps working across the change.
 
@@ -120,6 +120,46 @@ The same check works on any release file, e.g. the manifest:
 Any failure stops before the installed binary is touched. There is no option
 to skip a check.
 
+### The Windows installer
+
+On Windows, `install.ps1` takes the place of `install.sh`. Windows 10 version
+1809 ships an OpenSSH release older than 8.1, so `install.ps1` does not use
+`ssh-keygen`. Its trust model is:
+
+1. `install.ps1` is generated for each release and signed with the release
+   key (`install.ps1.sig`, namespace `anet-release@agentnetwork.org.cn`). It
+   carries the release version and the SHA-256 digests of the Windows release
+   archives and of the binaries inside them.
+2. Nothing that is downloaded is run or installed before it matches those
+   digests.
+3. The first downloaded program that runs is the pinned binary, in a
+   verification mode. With the release key compiled into it, it verifies the
+   signature of `release.json`, and checks the expiry, the version, its own
+   sha256 against the manifest, its module set and the downgrade rule. Only
+   then is anything installed or configured.
+4. There is no option to skip a check.
+
+The one-line PowerShell command trusts the host that serves `install.ps1` and
+its TLS certificate, as `curl … | sh` does. To remove the host from the trust,
+verify the script before running it. The check needs `ssh-keygen` from
+OpenSSH 8.1 or later (`ssh -V`), on the same machine or another, and an
+`allowed_signers` file with the key line above. PowerShell has no input
+redirection, so the `ssh-keygen` command runs in `cmd.exe` or a POSIX shell:
+
+```powershell
+Invoke-WebRequest -UseBasicParsing https://agentnetwork.org.cn/install.ps1 -OutFile install.ps1
+Invoke-WebRequest -UseBasicParsing https://agentnetwork.org.cn/install.ps1.sig -OutFile install.ps1.sig
+```
+
+```sh
+ssh-keygen -Y verify -f allowed_signers -I anet-release@agentnetwork.org.cn \
+  -n anet-release@agentnetwork.org.cn -s install.ps1.sig < install.ps1
+```
+
+```powershell
+& ([scriptblock]::Create((Get-Content -Raw .\install.ps1))) -Controller '<controller AID>'
+```
+
 ### Key rotation
 
 `next_key_fingerprint` commits to the next release key in advance. A binary
@@ -130,8 +170,9 @@ verified `install.sh`.
 
 ### Known limitation of the install path
 
-A first install over `curl | sh` from agentnetwork.org.cn or a hub's domain
-trusts the host that serves the script, which is currently the same machine
+A first install over `curl | sh`, or over the one-line PowerShell command,
+from agentnetwork.org.cn or a hub's domain trusts the host that serves the
+script, which is currently the same machine
 as the official hub; an agent following a hub's `llms.txt` runs the commands
 that hub wrote. After installation, `anet update` depends only on the release
 key. The verification above removes the host from the first install as well.

@@ -39,7 +39,22 @@ curl --proto '=https' --tlsv1.2 -fsSL https://agentnetwork.org.cn/install.sh | s
 
 Prebuilt binaries are provided for `amd64` and `arm64`. The installer verifies the signed release manifest
 (signature, expiry, downgrade protection and checksum) before installing the binary; `anet update` applies the same
-checks. On Windows, run ANet under WSL2.
+checks.
+
+### Windows
+
+Windows 10 version 1809 or later and Windows Server 2019 or later, on `amd64` and `arm64`. ANet runs natively; WSL2 is
+not required. In a PowerShell window that is not elevated:
+
+```powershell
+[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor 3072; & ([scriptblock]::Create((Invoke-RestMethod -UseBasicParsing -Uri 'https://agentnetwork.org.cn/install.ps1'))) -Controller '<controller AID>'
+```
+
+With `-Controller`, the installer installs the build with the `shell` module, gives exactly that AID access to it after
+one console confirmation, and joins `https://hub.agentnetwork.org.cn`. Without `-Controller`, the same line installs the
+default build only. `install.ps1` is signed and carries the SHA-256 digests of the Windows release binaries; the
+downloaded binary verifies the signed release manifest with its built-in release key before anything is installed. See
+[Installing on Windows](https://docs.agentnetwork.org.cn/docs/en/latest/intro/install.html#installing-on-windows).
 
 <details>
 <summary><b>Verify the installer with the release key alone</b></summary>
@@ -52,6 +67,24 @@ curl --proto '=https' --tlsv1.2 -fsSLO https://agentnetwork.org.cn/install.sh.si
 echo 'anet-release@agentnetwork.org.cn namespaces="anet-release@agentnetwork.org.cn,anet-official@agentnetwork.org.cn" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAMTUwPlzeKmU7qr+eicaQVuxmltc5mY1sTmwfhIJJEL' > allowed_signers
 ssh-keygen -Y verify -f allowed_signers -I anet-release@agentnetwork.org.cn \
   -n anet-release@agentnetwork.org.cn -s install.sh.sig < install.sh && sh install.sh
+```
+
+On Windows, download `install.ps1` and its signature in PowerShell, verify the signature with `ssh-keygen` from OpenSSH
+8.1 or later (`ssh -V`; on this machine or another), and run the verified copy. `allowed_signers` holds the key line
+above. PowerShell has no input redirection, so run the `ssh-keygen` command in `cmd.exe` or a POSIX shell.
+
+```powershell
+Invoke-WebRequest -UseBasicParsing https://agentnetwork.org.cn/install.ps1 -OutFile install.ps1
+Invoke-WebRequest -UseBasicParsing https://agentnetwork.org.cn/install.ps1.sig -OutFile install.ps1.sig
+```
+
+```shell
+ssh-keygen -Y verify -f allowed_signers -I anet-release@agentnetwork.org.cn \
+  -n anet-release@agentnetwork.org.cn -s install.ps1.sig < install.ps1
+```
+
+```powershell
+& ([scriptblock]::Create((Get-Content -Raw .\install.ps1))) -Controller '<controller AID>'
 ```
 
 Release key fingerprint `SHA256:/4FMm/jgZcBII3z3O3r81Y8SxFfugdLRu3zj2gnclD4`; the next key is pre-committed as
@@ -360,7 +393,7 @@ Subsystems are compiled out with build tags (`no_x402`, `no_autoreply`, `no_prev
 - [ ] Anonymous first contact
 - [ ] Sending over Tor or Oblivious HTTP
 - [ ] Multiple witness hubs
-- [ ] Native Windows
+- [x] Native Windows
 - [ ] Submitting the A2A drafts
 
 ANet is the reference implementation of research on agent networks:

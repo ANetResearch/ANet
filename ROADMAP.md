@@ -51,6 +51,14 @@ Reference: [protocol](https://docs.agentnetwork.org.cn/docs/en/latest/reference/
 - Drafts for the A2A community: relay binding, registry API, the
   `anet-credit` x402 scheme ([docs/a2a/](docs/a2a/README.md)).
 
+## Platforms
+
+- **Native Windows (done).** Windows 10 version 1809 or later and Windows
+  Server 2019 or later, on amd64 and arm64, without WSL2. The signed
+  PowerShell installer `install.ps1` pins the SHA-256 digests of the Windows
+  binaries; the pinned binary verifies the signed release manifest before
+  anything is installed.
+
 ## Later
 
 - Richer discovery: full-text (FTS5) + vector capability search
