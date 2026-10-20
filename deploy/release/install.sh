@@ -896,7 +896,7 @@ legacy_defaults() {
 # of `anet init` alone (config.json, the peer lists) hold no identity and do
 # not count: such a directory is v1 and is moved aside whole, those files
 # with it, and the new `anet init` writes them again. When it holds an
-# identity of 0.3 (identity.kel, or ids/<name>/identity.kel), that identity
+# identity of 0.3 (identity.kel, or ids/<name>/identity.kel of 0.3), that identity
 # may already be registered with a hub, so the directory stays where it is
 # and only the 1.x entries are moved out of it (V1_ENTRIES).
 datadir_kind() {
@@ -912,7 +912,7 @@ datadir_kind() {
   fi
   if [ "$_v1" = 0 ]; then echo current; return 0; fi
   for _f in "$1"/ids/*/identity.kel; do
-    if [ -f "$_f" ]; then echo mixed; return 0; fi
+    if [ -f "$_f" ] && [ "$(identity_file_age "$_f")" = current ]; then echo mixed; return 0; fi
   done
   echo v1
 }

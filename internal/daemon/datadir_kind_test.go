@@ -164,6 +164,24 @@ func TestInstallShDataDirKindAgrees(t *testing.T) {
 			v1Layout(t, root)
 			incept(t, filepath.Join(root, "ids", "work"))
 		}, DataDirMixed, ""},
+		{"1.x and a named 0.2 identity", func(t *testing.T, root string) {
+			v1Layout(t, root)
+			named := filepath.Join(root, "ids", "work")
+			if err := os.MkdirAll(named, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			writeV02Identity(t, named)
+		}, DataDirV1, "identity_v02"},
+		{"1.x and an empty named identity", func(t *testing.T, root string) {
+			v1Layout(t, root)
+			named := filepath.Join(root, "ids", "work")
+			if err := os.MkdirAll(named, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(named, "identity.kel"), nil, 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}, DataDirV1, "identity_v02"},
 		{"1.x and a 0.2 identity", func(t *testing.T, root string) {
 			v1Layout(t, root)
 			writeV02Identity(t, root)
@@ -172,6 +190,10 @@ func TestInstallShDataDirKindAgrees(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			root := filepath.Join(t.TempDir(), ".anet")
+			if strings.Contains(c.name, "named") {
+				// Pattern characters in the path are read literally.
+				root = filepath.Join(t.TempDir(), "user[1]", ".anet")
+			}
 			if err := os.MkdirAll(root, 0o700); err != nil {
 				t.Fatal(err)
 			}

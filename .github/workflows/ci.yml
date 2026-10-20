@@ -505,6 +505,10 @@ jobs:
     permissions:
       contents: read
     timeout-minutes: 20
+    # bash -eo pipefail: a failed installer fails the step through the tee.
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

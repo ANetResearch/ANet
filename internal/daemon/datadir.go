@@ -231,9 +231,15 @@ func ClassifyDataDir(root string) DataDirKind {
 	if !v1 {
 		return DataDirCurrent
 	}
-	named, _ := filepath.Glob(filepath.Join(root, "ids", "*", "identity.kel"))
-	for _, p := range named {
-		if fi, err := os.Stat(p); err == nil && fi.Mode().IsRegular() {
+	// ids/ is listed rather than globbed: the root may hold pattern
+	// characters. A named identity counts only when it is of this version.
+	named, _ := os.ReadDir(filepath.Join(root, "ids"))
+	for _, e := range named {
+		p := filepath.Join(root, "ids", e.Name(), "identity.kel")
+		if fi, err := os.Stat(p); err != nil || !fi.Mode().IsRegular() {
+			continue
+		}
+		if b, err := os.ReadFile(p); err == nil && identityFileAge(b) == DataDirCurrent {
 			return DataDirMixed
 		}
 	}
