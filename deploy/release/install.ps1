@@ -3468,6 +3468,9 @@ function Install-Anet {
     Write-AnetLine ''
     foreach ($l in @($S.Lines)) { Write-AnetLine $l }
     Write-AnetLine ('exit status ' + $global:LASTEXITCODE)
+    # Saving the log runs icacls, which sets $LASTEXITCODE; the result of the
+    # installation is restored after it.
+    $exitCode = $global:LASTEXITCODE
     $why = @{}
     $log = ''
     try { $log = Save-AnetLog -DataDir $S.DataDir -Why $why } catch { $why['Text'] = $_.Exception.Message }
@@ -3477,6 +3480,7 @@ function Install-Anet {
       if ($red -and ([string]$l).StartsWith($errorPrefix)) { Write-Host $l -ForegroundColor Red } else { Write-Host $l }
     }
     Write-Host (Get-AnetDetailsLine -Log $log -Why ([string]$why['Text']))
+    $global:LASTEXITCODE = $exitCode
     $ProgressPreference = $previousProgress
     $ErrorActionPreference = $previousEAP
   }
