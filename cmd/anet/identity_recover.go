@@ -210,7 +210,7 @@ func (x *identityCLI) recover() error {
 		_ = os.RemoveAll(layout.Root)
 		return err
 	}
-	if err := os.Rename(path+".new", path); err != nil {
+	if err := renameDurable(path+".new", path); err != nil {
 		_ = os.RemoveAll(layout.Root)
 		return err
 	}

@@ -288,7 +288,7 @@ func (x *identityCLI) settleLeftovers(st daemon.IdentityStatus) {
 		info, perr := identity.ParseRecoveryFile(b)
 		if perr == nil && info.AID == st.AID && !info.Unprotected && st.Commitment != nil &&
 			string(info.Commits.Digest[:]) == string(st.Commitment) {
-			if os.Rename(np, p) == nil {
+			if renameDurable(np, p) == nil {
 				syncDir(filepath.Dir(p))
 				continue
 			}
@@ -514,7 +514,7 @@ func (x *identityCLI) step(sp stepSpec) error {
 		return err
 	}
 	if np != "" {
-		if err := os.Rename(np, sp.newPath); err != nil {
+		if err := renameDurable(np, sp.newPath); err != nil {
 			return err
 		}
 		syncDir(filepath.Dir(sp.newPath))
@@ -589,14 +589,20 @@ func (x *identityCLI) recoveryFileInfo(st daemon.IdentityStatus) recoveryFileInf
 	if st.Recovery.State == "unprotected" {
 		p := localRecPath(x.layout.Root)
 		fi, err := os.Stat(p)
-		return recoveryFileInfo{Path: p, Present: err == nil, ModeOK: err == nil && fi.Mode().Perm()&0o077 == 0, Unprotected: true}
+		return recoveryFileInfo{Path: p, Present: err == nil, ModeOK: err == nil && privateFile(p, fi), Unprotected: true}
 	}
 	p, err := x.recoveryPath(st.AID)
 	if err != nil {
 		return recoveryFileInfo{}
 	}
 	fi, serr := os.Stat(p)
-	return recoveryFileInfo{Path: p, Present: serr == nil, ModeOK: serr == nil && fi.Mode().Perm()&0o077 == 0}
+	return recoveryFileInfo{Path: p, Present: serr == nil, ModeOK: serr == nil && privateFile(p, fi)}
+}
+
+// privateFile reports whether no one but its owner can read the file at p (filePrivacy).
+func privateFile(p string, fi os.FileInfo) bool {
+	_, private := filePrivacy(p, fi)
+	return private
 }
 
 func b64enc(b []byte) string { return base64.StdEncoding.EncodeToString(b) }

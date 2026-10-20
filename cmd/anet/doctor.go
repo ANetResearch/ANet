@@ -406,8 +406,7 @@ func statFile(path string) fileState {
 		return fs
 	}
 	fs.Present = true
-	fs.Mode = fmt.Sprintf("%04o", fi.Mode().Perm())
-	fs.Private = fi.Mode().Perm()&0o077 == 0
+	fs.Mode, fs.Private = filePrivacy(path, fi)
 	return fs
 }
 
@@ -459,7 +458,7 @@ func collectDoctor(layout daemon.Layout, env doctorEnv) (*doctorReport, error) {
 		add("config", stFail, st.ConfigError, "the daemon will not start with this config")
 	case !cfgFile.Private:
 		add("config", stWarn, st.ConfigPath+" is readable by others (mode "+cfgFile.Mode+"); it may hold an API key",
-			"chmod 600 "+st.ConfigPath)
+			privateFileHint(st.ConfigPath))
 	default:
 		add("config", stOK, st.ConfigPath, "")
 	}
@@ -692,10 +691,10 @@ func collectDoctor(layout daemon.Layout, env doctorEnv) (*doctorReport, error) {
 			add("hermes.config", stOK, rep.Hermes.Config.Path+" mode "+rep.Hermes.Config.Mode, "")
 		case len(rep.Hermes.A2AAgents) > 0:
 			add("hermes.config", stFail, rep.Hermes.Config.Path+" holds the local A2A token and is readable by others (mode "+
-				rep.Hermes.Config.Mode+")", "chmod 600 "+rep.Hermes.Config.Path)
+				rep.Hermes.Config.Mode+")", privateFileHint(rep.Hermes.Config.Path))
 		default:
 			add("hermes.config", stWarn, rep.Hermes.Config.Path+" is readable by others (mode "+rep.Hermes.Config.Mode+")",
-				"chmod 600 "+rep.Hermes.Config.Path)
+				privateFileHint(rep.Hermes.Config.Path))
 		}
 		for _, e := range rep.Hermes.A2AAgents {
 			switch {
@@ -761,7 +760,7 @@ func tokenCheck(add func(id, status, detail, hint string), id string, fs fileSta
 	case !fs.Present:
 		add(id, stInfo, "no "+fs.Path+" yet (written when the daemon starts)", "")
 	case !fs.Private:
-		add(id, stFail, fs.Path+" is readable by others (mode "+fs.Mode+")", "chmod 600 "+fs.Path)
+		add(id, stFail, fs.Path+" is readable by others (mode "+fs.Mode+")", privateFileHint(fs.Path))
 	default:
 		add(id, stOK, fs.Path+" mode "+fs.Mode+" (does not expire; replaced by deleting it and restarting)", "")
 	}
