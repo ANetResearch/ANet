@@ -12,7 +12,6 @@ import (
 	"io"
 	"os"
 	"runtime"
-	"slices"
 	"strings"
 
 	"github.com/ANetResearch/ANetCore/identity"
@@ -24,8 +23,9 @@ import (
 
 const initUsage = "anet init [--without <module>[,<module>...]] [--with <module>] [--shell-controller <aid>] [--json]"
 
-// compiledModules is module.Compiled; tests replace it.
-var compiledModules = module.Compiled
+// shellInBinary reports whether this binary contains the shell module, asked of an Availability value
+// with nothing turned off (MOD-1: the registry is read through the value); tests replace it.
+var shellInBinary = func() bool { return module.Availability{}.Available("shell") }
 
 func runInit(layout daemon.Layout, rest []string) error {
 	pos, flags := splitFlags(rest)
@@ -200,7 +200,7 @@ func initShellControllerTo(w io.Writer, layout daemon.Layout, asJSON bool, aid s
 		}
 		return absentError{text}
 	}
-	if !slices.Contains(compiledModules(), "shell") {
+	if !shellInBinary() {
 		return absentError{"this anet binary does not contain the shell module; install the shell build " +
 			"(install.ps1 -Controller or -Shell on Windows, install.sh --shell elsewhere)"}
 	}

@@ -312,7 +312,8 @@ func TestAvailabilityThroughOneFunction(t *testing.T) {
 		"cmd/anet/update.go": true, // the modules a release must match
 		"cmd/anet/doctor.go": true, // doctor's modules row
 	}
-	call := regexp.MustCompile(`\bmodule\.Compiled\(\)`)
+	// Any mention, not only a call: a function value (x := module.Compiled) is a use too.
+	call := regexp.MustCompile(`\bmodule\.Compiled\b`)
 	err := filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -329,7 +330,7 @@ func TestAvailabilityThroughOneFunction(t *testing.T) {
 		}
 		b, _ := os.ReadFile(p)
 		if call.Match(b) && !allowed[rel] {
-			t.Errorf("%s calls module.Compiled(); ask an Availability value", rel)
+			t.Errorf("%s uses module.Compiled; ask an Availability value", rel)
 		}
 		return nil
 	})

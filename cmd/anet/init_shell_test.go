@@ -8,10 +8,12 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/ANetResearch/ANet/internal/daemon"
+	"github.com/ANetResearch/ANet/module"
 )
 
 // shellCtlAID is a whole AID (identity.ValidAID).
@@ -31,15 +33,10 @@ func (f *shellCtlTTY) Close() error                { return nil }
 // answer ("" for no terminal). It returns a pointer to the number of terminals opened.
 func withShellCtl(t *testing.T, hasShell bool, answer string) *int {
 	t.Helper()
-	prevTTY, prevErr, prevCompiled := openTTY, ttyStderr, compiledModules
-	t.Cleanup(func() { openTTY, ttyStderr, compiledModules = prevTTY, prevErr, prevCompiled })
+	prevTTY, prevErr, prevShell := openTTY, ttyStderr, shellInBinary
+	t.Cleanup(func() { openTTY, ttyStderr, shellInBinary = prevTTY, prevErr, prevShell })
 	ttyStderr = io.Discard
-	compiledModules = func() []string {
-		if hasShell {
-			return []string{"a2a", "shell"}
-		}
-		return []string{"a2a"}
-	}
+	shellInBinary = func() bool { return hasShell }
 	opened := new(int)
 	openTTY = func() (io.ReadWriteCloser, error) {
 		*opened++
@@ -208,5 +205,12 @@ func TestInitShellControllerCommandDaemonRunning(t *testing.T) {
 	devnull.Close()
 	if err == nil || exitStatus(err, io.Discard) != 1 || *opened != 0 {
 		t.Fatalf("error %v, terminal opened %d times", err, *opened)
+	}
+}
+
+// shellInBinary is true exactly when the shell module is compiled into this binary.
+func TestShellInBinaryIsTheCompiledSet(t *testing.T) {
+	if got, want := shellInBinary(), slices.Contains(module.Compiled(), "shell"); got != want {
+		t.Fatalf("shellInBinary() = %v, the compiled set says %v", got, want)
 	}
 }
