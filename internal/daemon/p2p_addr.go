@@ -105,6 +105,9 @@ func checkP2PConfig(_ Config, raw map[string]any) *a2ashape.Refusal {
 	if !ok {
 		return nil
 	}
+	if r := p2pPlatformRefusal(); r != nil {
+		return r
+	}
 	if v, ok := p["socket"]; ok {
 		if s, ok := v.(string); !ok || !filepath.IsAbs(s) {
 			return configInvalid("modules.p2p.socket", ruleText(`须是 anetpeer --socket 的绝对路径，如 "/run/anet/peer.sock"`,

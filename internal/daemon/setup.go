@@ -93,11 +93,8 @@ func InitLayout(l Layout) (InitReport, error) {
 			}
 			rep.Wrote = true
 			rep.Changes = append(rep.Changes, changes...)
-		} else if fi, err := os.Stat(l.ConfigPath()); err == nil && fi.Mode().Perm()&0o077 != 0 {
-			if err := os.Chmod(l.ConfigPath(), 0o600); err == nil {
-				rep.Changes = append(rep.Changes, InitChange{Key: "config.json", Action: "mode",
-					Note: fmt.Sprintf("%04o → 0600", fi.Mode().Perm())})
-			}
+		} else if ch, ok := narrowConfigMode(l.ConfigPath()); ok {
+			rep.Changes = append(rep.Changes, ch)
 		}
 	}
 

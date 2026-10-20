@@ -48,6 +48,9 @@ func init() {
 		if cfg.Socket == "" {
 			return nil, fmt.Errorf("socket is required")
 		}
+		if err := platformRefusal(); err != nil {
+			return nil, err
+		}
 		// The daemon refuses a relative socket before it starts
 		// (config_invalid); refused here too, for whoever builds the
 		// module another way, rather than as a dial that fails every

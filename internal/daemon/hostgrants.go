@@ -106,8 +106,9 @@ func newModuleHost(d *Daemon, name string) (module.Host, *hostState) {
 func (p sensitivePart) SensitivePaths() []string { return p.d.sensitivePaths() }
 
 func (d *Daemon) sensitivePaths() []string {
-	paths := []string{d.layout.Root, AnetHome(), legacyRuntimeDir(), filepath.Join("/run/user", fmt.Sprint(os.Getuid())),
-		d.layout.ControlTokenPath(), filepath.Join(anethome.A2ADir(d.layout.Root), anethome.A2ATokenFile)}
+	paths := []string{d.layout.Root, AnetHome(), d.layout.ControlTokenPath(),
+		filepath.Join(anethome.A2ADir(d.layout.Root), anethome.A2ATokenFile)}
+	paths = append(paths, runtimeSensitivePaths()...)
 	if x := os.Getenv("XDG_RUNTIME_DIR"); x != "" {
 		paths = append(paths, x)
 	}

@@ -11,18 +11,39 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"runtime"
+	"slices"
 	"strings"
+
+	"github.com/ANetResearch/ANetCore/identity"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
 	"github.com/ANetResearch/ANet/internal/daemon"
+	"github.com/ANetResearch/ANet/module"
 )
 
-const initUsage = "anet init [--without <module>[,<module>...]] [--with <module>] [--json]"
+const initUsage = "anet init [--without <module>[,<module>...]] [--with <module>] [--shell-controller <aid>] [--json]"
+
+// compiledModules is module.Compiled; tests replace it.
+var compiledModules = module.Compiled
 
 func runInit(layout daemon.Layout, rest []string) error {
 	pos, flags := splitFlags(rest)
 	if len(pos) > 0 {
 		return usageError{initUsage}
+	}
+	if v, ok := flags["shell-controller"]; ok {
+		aid := strings.TrimSpace(v)
+		if v == "true" || aid == "" {
+			return usageError{initUsage}
+		}
+		if _, ok := flags["without"]; ok {
+			return usageError{initUsage}
+		}
+		if _, ok := flags["with"]; ok {
+			return usageError{initUsage}
+		}
+		return initShellControllerTo(os.Stdout, layout, flags["json"] == "true", aid)
 	}
 	var without, with []string
 	for _, f := range []struct {
@@ -53,7 +74,7 @@ func splitNames(v string) []string {
 	return out
 }
 
-// initRefusal turns the refusals of daemon.InitWithout into what the command
+// initRefusal turns the refusals of daemon.InitWithout and daemon.InitShellController into what the command
 // prints: the sentence and its next step, exit status 2 for input that has
 // to change and 1 for a running daemon (02-ux, module sentences).
 func initRefusal(err error) error {
@@ -146,9 +167,69 @@ func initTo(w io.Writer, layout daemon.Layout, asJSON bool, without, with []stri
 		}
 	}
 	if localDaemonUp(layout) && rep.Wrote {
-		fmt.Fprintln(w, "\nThe daemon is running; restart it to read the completed config: anet stop && anet up")
+		fmt.Fprintln(w, "\nThe daemon is running; restart it to read the completed config: "+restartNodeCmds)
 	}
 	fmt.Fprintln(w, "\nNext: anet doctor")
+	return nil
+}
+
+// shellControllerInterp is the interpreter written into the controller's modules.shell block: PowerShell
+// on Windows, the module's default (/bin/sh) elsewhere.
+func shellControllerInterp() string {
+	if runtime.GOOS == "windows" {
+		return "powershell"
+	}
+	return ""
+}
+
+// initShellControllerTo is `anet init --shell-controller <aid>` (D9): it makes aid the one caller of the
+// shell module and puts it on peers.allow, under one confirmation on the terminal, while no daemon runs
+// (daemon.InitShellController). Exit status 2 for input that has to change (an AID that is not whole, a
+// binary without the shell module, a configuration that conflicts); 1 for a running daemon, no terminal
+// or a declined confirmation; 0 when written or already in place.
+func initShellControllerTo(w io.Writer, layout daemon.Layout, asJSON bool, aid string) error {
+	lang := a2ashape.Lang()
+	if !identity.ValidAID(aid) {
+		args := a2ashape.Args{"value": printable(aid, 64)}
+		if args["value"] == "" {
+			args["value"] = `""`
+		}
+		text := a2ashape.Sentence("aid_invalid", lang, args)
+		if n := a2ashape.Next("aid_invalid", lang, args); n != "" {
+			text += "\n" + nextPrefix + n
+		}
+		return absentError{text}
+	}
+	if !slices.Contains(compiledModules(), "shell") {
+		return absentError{"this anet binary does not contain the shell module; install the shell build " +
+			"(install.ps1 -Controller or -Shell on Windows, install.sh --shell elsewhere)"}
+	}
+	confirm := func(p daemon.ShellControllerPlan) error {
+		return ttyConfirm("shell_controller", func() (string, error) {
+			return a2ashape.Sentence("shell.controller_confirm", a2ashape.Lang(), a2ashape.Args{"peer": p.AID}), nil
+		})
+	}
+	plan, err := daemon.InitShellController(layout, aid, shellControllerInterp(), confirm)
+	if err != nil {
+		return initRefusal(err)
+	}
+	if asJSON {
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		return enc.Encode(plan)
+	}
+	fmt.Fprintf(w, "anet init --shell-controller — %s\n", layout.Root)
+	if !plan.Changed {
+		fmt.Fprintf(w, "  modules.shell and peers.allow already name %s; nothing changed\n", plan.AID)
+	}
+	if plan.ModuleBlock != nil {
+		fmt.Fprintf(w, "  + modules.shell %s\n", plan.ModuleBlock)
+	}
+	if plan.AddAllow {
+		fmt.Fprintf(w, "  + peers.allow %s\n", plan.AID)
+	}
+	fmt.Fprintf(w, "\nOnly %s can run commands through the shell module. Every command and every refusal is recorded "+
+		"on this node's evidence chain (anet audit). Start the node with: anet up\n", plan.AID)
 	return nil
 }
 

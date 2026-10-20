@@ -54,6 +54,7 @@ import (
 	"github.com/ANetResearch/ANetCore/identity"
 	"github.com/ANetResearch/ANetCore/seal"
 
+	"github.com/ANetResearch/ANet/internal/fsperm"
 	"github.com/ANetResearch/ANet/internal/hubapi"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 )
@@ -206,19 +207,18 @@ func writeMboxFile(path string, data []byte, step func(string) error) error {
 		_ = os.Remove(tmp)
 		return err
 	}
-	if err := os.Rename(tmp, path); err != nil {
+	if err := protectTemp(tmp); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	if err := fsperm.ReplaceFile(tmp, path); err != nil {
 		_ = os.Remove(tmp)
 		return err
 	}
 	if err := at("dirsync"); err != nil {
 		return err
 	}
-	d, err := os.Open(dir)
-	if err != nil {
-		return err
-	}
-	defer d.Close()
-	return d.Sync()
+	return syncDir(dir)
 }
 
 // mboxKey is this node's mailbox signing key in memory: what mbox.key
