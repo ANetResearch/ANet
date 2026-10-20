@@ -102,10 +102,11 @@
 # daemon to exit, its data in %USERPROFILE%\.anet is renamed aside (never
 # deleted; a directory whose identity file is this version's keeps it, and
 # only the 1.x entries move), and only then is the npm package removed with
-# npm uninstall -g @agentnetwork/anet. When the data cannot be moved (the
-# daemon still runs, nothing was found to stop it, or the move failed), the
-# installation stops before anet init with exit status 3 and the exact
-# commands, and the npm package stays. Another anet 0.3 or later is left in
+# npm uninstall -g @agentnetwork/anet; a data directory of an earlier anet
+# is moved the same way when no earlier installation was found, once no
+# daemon holds it. When the data cannot be moved (the daemon still runs, or
+# the move failed), the installation stops before anet init with exit
+# status 3 and the exact commands, and the npm package stays. Another anet 0.3 or later is left in
 # place; its directory is taken off the user's PATH only when it holds
 # nothing else. npm launchers of 0.3 or later, and files named anet.exe that
 # are not a program of either project, are left alone and never run.
@@ -1632,9 +1633,10 @@ function Move-AnetLegacyData {
 # stopped with its own stop command; the data directory $DataDir, when it is
 # an earlier anet's and its daemon has exited, is moved aside
 # (Move-AnetLegacyData); only then is the npm package of 1.x uninstalled.
-# When the data cannot be moved (its daemon still runs, nothing was found to
-# stop it, or the move failed), Held is set, the package stays, and
-# Remaining lists the exact commands to run. Another anet 0.3 or later
+# A data directory of an earlier anet is moved whether or not an earlier
+# installation was found, as install.sh does, once it is free. When it
+# cannot be moved (its daemon still runs, or the move failed), Held is set,
+# the package stays, and Remaining lists the exact commands to run. Another anet 0.3 or later
 # outside npm is reported, for its directory to be taken off the PATH; an
 # npm launcher of 0.3 or later, and anything that is not an anet of either
 # line, are left alone. From a Restricted window (elevated, while Windows has
@@ -1705,7 +1707,8 @@ function Invoke-AnetTakeover {
     }
   }
 
-  # The data directory, after the daemon that may hold it has exited.
+  # The data directory, after the daemon that may hold it has exited;
+  # found or not, an earlier anet's data is moved as install.sh moves it.
   $held = $false
   $kind = Get-AnetDataDirKind -Root $DataDir
   $version = $legacyVersion
@@ -1713,11 +1716,7 @@ function Invoke-AnetTakeover {
   if ($kind -eq 'older' -or $kind -eq 'v1' -or $kind -eq 'mixed') {
     $aside = Get-AnetLegacyAside -Root $DataDir -Version $version
     $moveCommand = Get-AnetMoveCommand -Root $DataDir -Aside $aside -Kind $kind
-    if ($legacy.Count -eq 0) {
-      $held = $true
-      $report.Add($DataDir + ' holds the data of an earlier anet (anet ' + $version + '), but no earlier anet was found to stop, so it was not moved; the new anet does not start on it')
-      $remaining.Add($moveCommand)
-    } elseif (-not (Wait-AnetDataDirFree -Root $DataDir -Seconds 15)) {
+    if (-not (Wait-AnetDataDirFree -Root $DataDir -Seconds 15)) {
       $held = $true
       $report.Add('Warning: ' + $DataDir + ' is still in use by the daemon of the earlier anet (the process of its daemon.pid runs, or 127.0.0.1:' + $AnetV1Port + ' answers), so it was not moved; the new anet does not start on it')
       $remaining.Add($moveCommand)

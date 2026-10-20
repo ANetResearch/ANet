@@ -49,9 +49,10 @@ Windows installation
 * The installer takes over from earlier installations: an ANet of the 1.x npm package,
   recognized by the module path in its binary, is stopped with its own ``stop`` command, the
   installer waits for its daemon to exit, its data in ``%USERPROFILE%\.anet`` is moved aside
-  by the rule of the daemon and ``install.sh`` without being deleted, and only then is its npm
-  package removed; when the data cannot be moved, the installation stops before ``anet init``
-  with exit status 3 and the remaining commands. Another installation of 0.3 or later is taken
+  by the rule of the daemon and ``install.sh`` without being deleted (also when no earlier
+  installation was found, once no daemon holds it), and only then is its npm package removed;
+  when the data cannot be moved, the installation stops before ``anet init`` with exit status 3
+  and the remaining commands. Another installation of 0.3 or later is taken
   off the user's ``PATH`` when its directory holds nothing else. The install directory is put
   first on the user's ``PATH``, and the installer confirms with a new ``powershell.exe`` which
   ``anet`` runs.

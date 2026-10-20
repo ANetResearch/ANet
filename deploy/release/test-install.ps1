@@ -480,27 +480,36 @@ try {
   $cmd = Get-AnetMoveCommand -Root 'C:\Users\me\.anet' -Aside 'C:\Users\me\.anet-legacy-1.x-20260101T000000Z' -Kind 'mixed'
   Check 'the move command for a mixed directory moves the 1.x entries' ($cmd -like 'New-Item -ItemType Directory -Path ''C:\Users\me\.anet-legacy-1.x-20260101T000000Z''; foreach ($n in ''anet'', ''anet.db'', *''daemon.pid'') { if (Test-Path -LiteralPath (Join-Path ''C:\Users\me\.anet'' $n)) { Move-Item -LiteralPath (Join-Path ''C:\Users\me\.anet'' $n) -Destination ''C:\Users\me\.anet-legacy-1.x-20260101T000000Z'' } }') $cmd
 
-  # The takeover with nothing found to stop: a data directory of an earlier
-  # anet is not moved, the installation is held with the command to move it,
-  # and a directory of 0.3, a newer one or one whose identity file does not
-  # read is left alone and does not hold the installation.
-  $root = [IO.Path]::Combine($work, 'home-held', '.anet')
+  # The takeover with nothing found to stop, as install.sh: a data directory
+  # of an earlier anet that no daemon holds is moved (whole for 1.x, the 1.x
+  # entries out of a mixed one); a directory of 0.3, a newer one or one
+  # whose identity file does not read is left alone; nothing holds the
+  # installation.
+  $root = [IO.Path]::Combine($work, 'home-free', '.anet')
   $null = [IO.Directory]::CreateDirectory($root)
   Write-V1Layout $root
+  [IO.File]::WriteAllText((Join-Path $root 'daemon.pid'), '2000000000')
   $t = Invoke-AnetTakeover -InstallDir $inst -DataDir $root -Elevation $plain 6>$null
-  Check 'a 1.x data directory with nothing found to stop holds the installation' ($t.Held -and (Test-Path -LiteralPath (Join-Path $root 'api_token')) -and @(Get-Asides $root).Count -eq 0 -and @($t.Remaining).Count -eq 1 -and ([string]$t.Remaining[0]) -like ('Rename-Item -LiteralPath ''' + $root + ''' -NewName ''.anet-legacy-1.x-*''')) (($t.Report -join ' | ') + ' ' + ($t.Remaining -join ' | '))
-  Check 'the report says why' (@($t.Report | Where-Object { $_ -like '*no earlier anet was found to stop*' }).Count -eq 1) ($t.Report -join ' | ')
+  $aside = @(Get-Asides $root)
+  Check 'a 1.x data directory that no daemon holds is moved aside whole, with nothing found to stop' (-not $t.Held -and -not (Test-Path -LiteralPath $root) -and $aside.Count -eq 1 -and $aside[0].Name -like '.anet-legacy-1.x-*' -and (Test-Path -LiteralPath (Join-Path $aside[0].FullName 'api_token')) -and @($t.Remaining).Count -eq 0) (($t.Report -join ' | ') + ' ' + ($t.Remaining -join ' | '))
+  $root = [IO.Path]::Combine($work, 'home-free-02', '.anet')
+  $null = [IO.Directory]::CreateDirectory($root)
+  [IO.File]::WriteAllBytes((Join-Path $root 'identity.kel'), $kel02)
+  $t = Invoke-AnetTakeover -InstallDir $inst -DataDir $root -Elevation $plain 6>$null
+  $aside = @(Get-Asides $root)
+  Check 'a 0.2 data directory is moved aside whole under the label 0.2' (-not $t.Held -and -not (Test-Path -LiteralPath $root) -and $aside.Count -eq 1 -and $aside[0].Name -like '.anet-legacy-0.2-*') ($t.Report -join ' | ')
   foreach ($case in @(@{ Name = '0.3'; Kel = $kel03 }, @{ Name = 'newer'; Kel = (New-Kel -Tag 'anet.identity/3') }, @{ Name = 'invalid'; Kel = [byte[]]@() })) {
     $root = [IO.Path]::Combine($work, ('home-' + $case.Name), '.anet')
     $null = [IO.Directory]::CreateDirectory($root)
     Write-V1Layout $root
     [IO.File]::WriteAllBytes((Join-Path $root 'identity.kel'), $case.Kel)
+    $before = Get-AnetDataDirKind -Root $root
     $t = Invoke-AnetTakeover -InstallDir $inst -DataDir $root -Elevation $plain 6>$null
-    $kind = Get-AnetDataDirKind -Root $root
     if ($case.Name -eq '0.3') {
-      Check 'a mixed data directory with nothing found to stop holds the installation, and stays whole' ($t.Held -and $kind -eq 'mixed' -and (Test-Path -LiteralPath (Join-Path $root 'api_token')) -and (Test-Path -LiteralPath (Join-Path $root 'identity.kel')) -and @(Get-Asides $root).Count -eq 0) ($t.Report -join ' | ')
+      $aside = @(Get-Asides $root)
+      Check 'a mixed data directory keeps its 0.3 identity and loses the 1.x entries, with nothing found to stop' (-not $t.Held -and $before -eq 'mixed' -and (Test-Path -LiteralPath (Join-Path $root 'identity.kel')) -and -not (Test-Path -LiteralPath (Join-Path $root 'api_token')) -and $aside.Count -eq 1 -and (Test-Path -LiteralPath (Join-Path $aside[0].FullName 'api_token')) -and (Get-AnetDataDirKind -Root $root) -eq 'current') ($t.Report -join ' | ')
     } else {
-      Check ('a data directory of kind ' + $kind + ' is left alone and does not hold the installation') (-not $t.Held -and (Test-Path -LiteralPath (Join-Path $root 'identity.kel')) -and (Test-Path -LiteralPath (Join-Path $root 'api_token')) -and @(Get-Asides $root).Count -eq 0 -and @($t.Remaining).Count -eq 0) ($t.Report -join ' | ')
+      Check ('a data directory of kind ' + $before + ' is left alone and does not hold the installation') (-not $t.Held -and (Test-Path -LiteralPath (Join-Path $root 'identity.kel')) -and (Test-Path -LiteralPath (Join-Path $root 'api_token')) -and @(Get-Asides $root).Count -eq 0 -and @($t.Remaining).Count -eq 0) ($t.Report -join ' | ')
     }
   }
   $t = Invoke-AnetTakeover -InstallDir $inst -DataDir ([IO.Path]::Combine($work, 'none', '.anet')) -Elevation $plain 6>$null

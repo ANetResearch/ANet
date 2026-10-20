@@ -559,10 +559,11 @@ asking, in an order that leaves a consistent state when a step fails:
   stays on the ``PATH`` and is reported. The npm launcher of 0.3 or later is
   left alone.
 
-When the data directory holds the data of an earlier release but cannot be
-moved, because its daemon still runs after the wait, because no earlier
-installation was found that could be stopped, or because the move failed, the
-installation stops before ``anet init``: nothing in that directory is changed,
+The data directory is moved in this way whether or not an earlier installation
+was found, as ``install.sh`` does, once no daemon holds it. When it holds the
+data of an earlier release but cannot be moved, because its daemon still runs
+after the wait or because the move failed, the installation stops before
+``anet init``: nothing in that directory is changed,
 the npm package stays, the exit status is 3, and the installer prints the
 exact commands that remain, in order (stopping the earlier daemon, renaming
 the directory, removing the package, ``anet init``, the grant, ``anet up``
