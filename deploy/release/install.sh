@@ -751,14 +751,14 @@ min_version() {
 # not, one line is printed when the download is done.
 download_phase() {
   [ -t 2 ] || return 0
-  show "$(m "Downloading anet $1 for $PLAT from $2" "正在下载 anet $1（$PLAT，来源：$2）")"
+  show "$(m "Downloading anet $1 for $PLAT from $2" "正在下载 anet $1（${PLAT}，来源：$2）")"
 }
 download_done() {
   _mb=$(awk -v b="${DL_BYTES:-0}" 'BEGIN { printf "%.1f", b / 1048576 }')
   if [ -t 2 ]; then
     say "downloaded ${_mb} MB in ${DL_SECS:-0} s"
   else
-    show "$(m "Downloaded anet $1 for $PLAT from $2 (${_mb} MB in ${DL_SECS:-0} s)" "已下载 anet $1（$PLAT，来源：$2，${_mb} MB，用时 ${DL_SECS:-0} 秒）")"
+    show "$(m "Downloaded anet $1 for $PLAT from $2 (${_mb} MB in ${DL_SECS:-0} s)" "已下载 anet $1（${PLAT}，来源：$2，${_mb} MB，用时 ${DL_SECS:-0} 秒）")"
   fi
 }
 
@@ -887,7 +887,7 @@ fetch_asset() {
     say "${SRC_URL}/${ASSET}.gz"
     download_phase "$VERSION" "$SRC_NAME"
     download "$SRC_URL/${ASSET}.gz" "$TMP/${ASSET}.gz" "$GZ_SIZE" "$GZ_SIZE" \
-      || die "$(m "could not download ${ASSET}.gz from $SRC_NAME ($SRC_URL); run the installer again, or name another source with --base URL" "无法从 $SRC_NAME 下载 ${ASSET}.gz（$SRC_URL）；请重新运行安装程序，或用 --base URL 指定其他下载源")"
+      || die "$(m "could not download ${ASSET}.gz from $SRC_NAME ($SRC_URL); run the installer again, or name another source with --base URL" "无法从 $SRC_NAME 下载 ${ASSET}.gz（${SRC_URL}）；请重新运行安装程序，或用 --base URL 指定其他下载源")"
     download_done "$VERSION" "$SRC_NAME"
   fi
   # The compressed file first: nothing unverified reaches gunzip.
@@ -1728,10 +1728,10 @@ replace_legacy_bins() {
       elif sudo -n rm -f "$_p" </dev/null 2>/dev/null; then
         note removed "$_p ($_label) (sudo -n)"; continue
       fi
-      note manual "$(m "$_p ($_label, owned by root) is no longer used; remove it with: sudo rm $_p" "$_p（$_label，属于 root）已不再使用；请用以下命令删除：sudo rm $_p")"
+      note manual "$(m "$_p ($_label, owned by root) is no longer used; remove it with: sudo rm $_p" "${_p}（${_label}，属于 root）已不再使用；请用以下命令删除：sudo rm $_p")"
       LEGACY_LEFT=1
     else
-      note manual "$(m "$_p ($_label, owned by root) is no longer used; remove it with: sudo rm $_p" "$_p（$_label，属于 root）已不再使用；请用以下命令删除：sudo rm $_p")"
+      note manual "$(m "$_p ($_label, owned by root) is no longer used; remove it with: sudo rm $_p" "${_p}（${_label}，属于 root）已不再使用；请用以下命令删除：sudo rm $_p")"
       LEGACY_LEFT=1
     fi
   done < "$TMP/anets"
@@ -2003,7 +2003,7 @@ start_node() {
   if status_json "$TMP/status.json"; then WAS_RUNNING=1; fi
   if [ "$START" = 0 ]; then
     if [ "$WAS_RUNNING" = 1 ] && [ -n "$INSTALLED" ] && [ "$INSTALLED" != "$VERSION" ]; then
-      note manual "$(m "the running node keeps anet $INSTALLED until it is restarted: anet stop --all && anet up --all" "运行中的节点在重启前仍使用 anet $INSTALLED：anet stop --all && anet up --all")"
+      note manual "$(m "the running node keeps anet $INSTALLED until it is restarted: anet stop --all && anet up --all" "运行中的节点在重启前仍使用 anet ${INSTALLED}：anet stop --all && anet up --all")"
     fi
     return 0
   fi
@@ -2080,16 +2080,16 @@ summary() {
   case "$HUB_STATE" in
     joined)  show "  Hub   $HUB_SHOWN $(m "(joined)" "（已加入）")" ;;
     kept)    show "  Hub   $HUB_SHOWN" ;;
-    pending) show "  Hub   $HUB_SHOWN $(m "(awaiting admission; its operator runs: $ADMIT)" "（等待准入；由其运营者运行：$ADMIT）")" ;;
+    pending) show "  Hub   $HUB_SHOWN $(m "(awaiting admission; its operator runs: $ADMIT)" "（等待准入；由其运营者运行：${ADMIT}）")" ;;
     failed)  show "  Hub   $HUB_SHOWN $(m "(not joined)" "（未加入）")" ;;
     off)     show "  Hub   $(m "not joined (--no-join)" "未加入（--no-join）")" ;;
   esac
   if grep -Eq '^(stopped|removed|replaced|moved)[|]' "$TMP/notes"; then
     _tk=${TAKEOVER_LABEL:-${MOVED_LABEL:-}}
     if [ -n "$_tk" ] && [ -n "$MOVED_TO" ]; then
-      show "$(m "Replaced $_tk; its data is kept in $(tilde "$MOVED_TO")" "已替换 $_tk；其数据保留在 $(tilde "$MOVED_TO")")"
+      show "$(m "Replaced $_tk; its data is kept in $(tilde "$MOVED_TO")" "已替换 ${_tk}；其数据保留在 $(tilde "$MOVED_TO")")"
     elif [ -n "$_tk" ]; then
-      show "$(m "Replaced $_tk." "已替换 $_tk。")"
+      show "$(m "Replaced $_tk." "已替换 ${_tk}。")"
     fi
   fi
   grep '^manual|' "$TMP/notes" 2>/dev/null | sed 's/^manual|//' | while IFS= read -r _nl; do

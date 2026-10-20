@@ -130,3 +130,19 @@ func TestInstallShJoinsByDefault(t *testing.T) {
 		t.Errorf("install.sh does not end with start_node and summary: %v", steps)
 	}
 }
+
+// The /bin/sh of macOS (bash 3.2 in POSIX mode) reads the bytes of a multibyte character that
+// follows $name as part of the name, and under set -u stops with "unbound variable" — even in the
+// Chinese text that is not shown. Every variable before a non-ASCII character is written ${name}.
+func TestInstallShBracesVariablesBeforeNonASCII(t *testing.T) {
+	script := repoFile(t, "deploy/release/install.sh")
+	re := regexp.MustCompile(`\$[A-Za-z_][A-Za-z0-9_]*[^\x00-\x7f]`)
+	for i, l := range strings.Split(string(script), "\n") {
+		if strings.HasPrefix(strings.TrimSpace(l), "#") {
+			continue
+		}
+		if m := re.FindString(l); m != "" {
+			t.Errorf("install.sh:%d: %q is read as one name by bash 3.2; write ${...}", i+1, m)
+		}
+	}
+}
