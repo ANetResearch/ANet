@@ -366,6 +366,128 @@ jobs:
           pwsh -NoProfile -File deploy\release\test-install.ps1
           exit $LASTEXITCODE
 
+  # A release of this commit for Windows, for the windows-install job. It is
+  # built with build-release.sh --unsigned from a local commit that replaces
+  # internal/release/allowed_signers with a key made in this job, and signed
+  # with that key; the private key is deleted at the end of the step, and the
+  # local commit is never pushed. The binaries trust that key alone, so the
+  # artifact (kept one day) can install nothing a release key signed, and a
+  # release built from the repository trusts nothing this job made. dist/
+  # also gets install.ps1 with the fingerprint of the key, and dist-legacy/
+  # the stand-in for anet 1.1.15 (deploy/release/testdata/legacy-anet).
+  windows-dist:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      CGO_ENABLED: "0"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: a Windows release of this commit, signed with a key made for this run
+        run: |
+          set -euo pipefail
+          key="$RUNNER_TEMP/ci-release-key"
+          ns=anet-release@agentnetwork.org.cn
+          ssh-keygen -q -t ed25519 -N '' -C ci-release-key -f "$key"
+          printf '%s namespaces="%s,%s" %s\n' "$ns" "$ns" anet-official@agentnetwork.org.cn "$(cut -d' ' -f1,2 "$key.pub")" \
+            > internal/release/allowed_signers
+          git -c user.name=ci -c user.email=ci@example.invalid commit -q -am "CI only: trust the key of this run"
+          ./deploy/release/build-release.sh --unsigned windows-amd64 windows-arm64
+          ssh-keygen -Y sign -f "$key" -n "$ns" dist/release.json
+          ssh-keygen -Y verify -f internal/release/allowed_signers -I "$ns" -n "$ns" -s dist/release.json.sig < dist/release.json
+          fp="$(ssh-keygen -lf "$key.pub" | awk '{print $2}')"
+          sed -i "s|^\$AnetReleaseKeyFingerprint = '.*'\$|\$AnetReleaseKeyFingerprint = '$fp'|" dist/install.ps1
+          grep -qxF "\$AnetReleaseKeyFingerprint = '$fp'" dist/install.ps1
+          rm -f "$key"
+          GOOS=windows GOARCH=amd64 go build -o dist-legacy/anet.exe ./deploy/release/testdata/legacy-anet
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-dist
+          retention-days: 1
+          path: |
+            dist
+            dist-legacy
+
+  # install.ps1 end to end on windows-latest (an elevated account), started
+  # with the published command from four shells: cmd.exe, Windows PowerShell
+  # 5.1, PowerShell 7 and Git Bash. The command is the published one with
+  # the address of a local server for install.ps1 (the download host serves
+  # it the same way, as text/plain) and with -Controller, -Base (the local
+  # release of windows-dist) and -NoJoin: nothing is downloaded from another
+  # host and no hub is contacted. Before the first run, an earlier anet
+  # (npm 1.1.15) and its data are planted, and the first run must take them
+  # over. After each run, test-install-e2e.ps1 checks the grant in
+  # config.json and peers.allow, the Run value, the PATH, the private
+  # install directory and anet version. No console input is available to
+  # the runs: one that asked a question would fail or hang.
+  windows-install:
+    needs: windows-dist
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    timeout-minutes: 30
+    env:
+      CI_AID: bafyreie6k7xot2qpitfcoseuevnuq7zcztdpdgx4coe3p2jlqjjl65hqu4
+      LEGACY_ANET_MARK: C:\anet-ci\legacy-stopped
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-dist
+          path: C:\anet-ci
+      - name: serve install.ps1 on 127.0.0.1 as text/plain
+        shell: pwsh
+        run: |
+          $code = @(
+            'import functools, http.server as h',
+            'h.SimpleHTTPRequestHandler.extensions_map[".ps1"] = "text/plain; charset=utf-8"',
+            'handler = functools.partial(h.SimpleHTTPRequestHandler, directory=r"C:\anet-ci\dist")',
+            'h.ThreadingHTTPServer(("127.0.0.1", 8719), handler).serve_forever()'
+          ) -join "`n"
+          [IO.File]::WriteAllText('C:\anet-ci\serve.py', $code)
+          $p = Start-Process -FilePath python -ArgumentList 'C:\anet-ci\serve.py' -PassThru -WindowStyle Hidden
+          "HTTP_PID=$($p.Id)" | Out-File -Append -Encoding ascii $env:GITHUB_ENV
+          for ($i = 0; $i -lt 30; $i++) {
+            try { $null = Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8719/install.ps1; exit 0 } catch { Start-Sleep -Seconds 1 }
+          }
+          exit 1
+      - name: an earlier anet (npm @agentnetwork/anet 1.1.15) and its data
+        shell: pwsh
+        run: deploy\release\test-install-e2e.ps1 -Plant -LegacyExe C:\anet-ci\dist-legacy\anet.exe
+      - name: the published command in cmd.exe, taking over from the earlier anet
+        shell: cmd
+        run: powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol=3072; & ([scriptblock]::Create((irm -UseBasicParsing http://127.0.0.1:8719/install.ps1))) -Controller bafyreie6k7xot2qpitfcoseuevnuq7zcztdpdgx4coe3p2jlqjjl65hqu4 -Base C:\anet-ci\dist -NoJoin"
+      - name: what the run in cmd.exe installed and took over
+        shell: pwsh
+        run: deploy\release\test-install-e2e.ps1 -Verify -Takeover -Aid $env:CI_AID
+      - name: the published command in Windows PowerShell 5.1
+        shell: powershell
+        run: powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol=3072; & ([scriptblock]::Create((irm -UseBasicParsing http://127.0.0.1:8719/install.ps1))) -Controller bafyreie6k7xot2qpitfcoseuevnuq7zcztdpdgx4coe3p2jlqjjl65hqu4 -Base C:\anet-ci\dist -NoJoin"
+      - name: what the run in Windows PowerShell 5.1 installed
+        shell: pwsh
+        run: deploy\release\test-install-e2e.ps1 -Verify -Aid $env:CI_AID
+      - name: the published command in PowerShell 7
+        shell: pwsh
+        run: powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol=3072; & ([scriptblock]::Create((irm -UseBasicParsing http://127.0.0.1:8719/install.ps1))) -Controller bafyreie6k7xot2qpitfcoseuevnuq7zcztdpdgx4coe3p2jlqjjl65hqu4 -Base C:\anet-ci\dist -NoJoin"
+      - name: what the run in PowerShell 7 installed
+        shell: pwsh
+        run: deploy\release\test-install-e2e.ps1 -Verify -Aid $env:CI_AID
+      - name: the published command in Git Bash
+        shell: bash
+        run: powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol=3072; & ([scriptblock]::Create((irm -UseBasicParsing http://127.0.0.1:8719/install.ps1))) -Controller bafyreie6k7xot2qpitfcoseuevnuq7zcztdpdgx4coe3p2jlqjjl65hqu4 -Base C:\anet-ci\dist -NoJoin"
+      - name: what the run in Git Bash installed
+        shell: pwsh
+        run: deploy\release\test-install-e2e.ps1 -Verify -Aid $env:CI_AID
+      - name: stop the node and the local server
+        if: always()
+        shell: pwsh
+        run: |
+          deploy\release\test-install-e2e.ps1 -Cleanup
+          if ($env:HTTP_PID) { Stop-Process -Id ([int]$env:HTTP_PID) -ErrorAction SilentlyContinue }
+
   # The platforms the release builds for, and one it does not: peercred is
   # read on Linux, macOS and FreeBSD, and on OpenBSD everything builds and
   # every Unix socket backend fails closed (peer_cred_unsupported).
