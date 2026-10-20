@@ -8,6 +8,7 @@ package main
 import (
 	"bufio"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -229,9 +230,120 @@ func TestWindowsHints(t *testing.T) {
 	if strings.Contains(restartNodeCmds, "&&") || strings.Contains(restartNodeQuoted, "&&") {
 		t.Fatalf("restart: %q %q", restartNodeCmds, restartNodeQuoted)
 	}
+	// A file whose access control list cannot be read: no /remove.
 	h := privateFileHint(`C:\Users\A B\.anet\config.json`)
-	if !strings.HasPrefix(h, `icacls "C:\Users\A B\.anet\config.json" /inheritance:r /grant:r "*`+fsperm.CurrentUser()+`:F"`) {
-		t.Fatalf("hint %q", h)
+	want := `icacls "C:\Users\A B\.anet\config.json" /inheritance:r /grant:r "*` + fsperm.CurrentUser() +
+		`:F" "*S-1-5-18:F" "*S-1-5-32-544:F"`
+	if h != want {
+		t.Fatalf("hint %q, want %q", h, want)
+	}
+}
+
+// winSetFileDACL sets the DACL of path from sddl. Unless protect is set, the entries that the
+// directory above passes on are added as inherited entries, as for any file created there.
+func winSetFileDACL(t *testing.T, path, sddl string, protect bool) {
+	t.Helper()
+	sd, err := windows.SecurityDescriptorFromString(sddl)
+	if err != nil {
+		t.Fatalf("SDDL %q: %v", sddl, err)
+	}
+	dacl, _, err := sd.DACL()
+	if err != nil {
+		t.Fatalf("SDDL %q: %v", sddl, err)
+	}
+	info := windows.SECURITY_INFORMATION(windows.DACL_SECURITY_INFORMATION | windows.UNPROTECTED_DACL_SECURITY_INFORMATION)
+	if protect {
+		info = windows.DACL_SECURITY_INFORMATION | windows.PROTECTED_DACL_SECURITY_INFORMATION
+	}
+	if err := windows.SetNamedSecurityInfo(path, windows.SE_FILE_OBJECT, info, nil, nil, dacl, nil); err != nil {
+		t.Fatalf("set the DACL of %s: %v", path, err)
+	}
+}
+
+// The command privateFileHint prints leaves exactly the private access control list, whichever shell
+// runs it: inherited entries for another account and explicit allow and deny entries for other
+// accounts are all removed, and the file has three entries, for this user, SYSTEM and Administrators.
+func TestWindowsPrivateFileHintLeavesOnlyThePrivateACL(t *testing.T) {
+	user := fsperm.CurrentUser()
+	dir := t.TempDir()
+	// The directory passes read access for Authenticated Users on to the file (an inherited entry).
+	winSetFileDACL(t, dir, "D:P(A;OICI;FA;;;"+user+")(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FR;;;AU)", true)
+	p := filepath.Join(dir, "config.json")
+	if err := os.WriteFile(p, []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// Explicit entries: read for Everyone, a denial for Guests, and the user's own grant.
+	messy := "D:(A;;FR;;;WD)(D;;FW;;;BG)(A;;FA;;;" + user + ")"
+
+	type shell struct {
+		name, ext, body string
+		cmd             func(script string) *exec.Cmd
+	}
+	shells := []shell{
+		{"cmd", ".cmd", "@echo off\r\n%s\r\nexit /b %%errorlevel%%\r\n", func(script string) *exec.Cmd {
+			return exec.Command("cmd.exe", "/d", "/c", script)
+		}},
+		{"powershell", ".ps1", "%s\r\nexit $LASTEXITCODE\r\n", func(script string) *exec.Cmd {
+			return exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", script)
+		}},
+	}
+	for _, sh := range shells {
+		t.Run(sh.name, func(t *testing.T) {
+			if err := sh.cmd("x").Err; err != nil {
+				t.Skipf("%s is not available: %v", sh.name, err)
+			}
+			winSetFileDACL(t, p, messy, false)
+			if info, err := fsperm.Inspect(p); err != nil || info.Private() {
+				t.Fatalf("the prepared file is private (%v) or cannot be read: %v", info.Private(), err)
+			}
+			h := privateFileHint(p)
+			for _, sid := range []string{"S-1-1-0", "S-1-5-32-546"} {
+				if !strings.Contains(h, ` "*`+sid+`"`) {
+					t.Errorf("hint %q does not remove %s", h, sid)
+				}
+			}
+			if strings.Contains(h, "S-1-5-11") || strings.Count(h, user) != 1 {
+				t.Errorf("hint %q names an inherited entry or removes this user", h)
+			}
+			script := filepath.Join(t.TempDir(), "hint"+sh.ext)
+			if err := os.WriteFile(script, []byte(fmt.Sprintf(sh.body, h)), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if out, err := sh.cmd(script).CombinedOutput(); err != nil {
+				t.Fatalf("%s: %v\n%s", h, err, out)
+			}
+			info, err := fsperm.Inspect(p)
+			if err != nil || !info.Private() {
+				t.Fatalf("after the hint the file is not private: %+v %v", info, err)
+			}
+			sids, err := fsperm.ExplicitSIDs(p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := map[string]bool{}
+			for _, s := range sids {
+				got[s] = true
+			}
+			if len(sids) != 3 || !got[user] || !got["S-1-5-18"] || !got["S-1-5-32-544"] {
+				t.Errorf("explicit entries after the hint: %v", sids)
+			}
+			sd, err := windows.GetNamedSecurityInfo(p, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctl, _, err := sd.Control()
+			if err != nil {
+				t.Fatal(err)
+			}
+			dacl, _, err := sd.DACL()
+			if err != nil || dacl == nil {
+				t.Fatalf("DACL: %v", err)
+			}
+			if ctl&windows.SE_DACL_PROTECTED == 0 || dacl.AceCount != 3 {
+				t.Errorf("after the hint: protected %v, %d entries; want protected and 3",
+					ctl&windows.SE_DACL_PROTECTED != 0, dacl.AceCount)
+			}
+		})
 	}
 }
 
