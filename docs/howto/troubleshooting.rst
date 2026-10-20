@@ -633,8 +633,10 @@ self-check of the sandbox.
      - One of the self-check steps failed.
      - ``anet doctor`` for details.
    * - ``platform_unsupported``
-     - The sandbox exists on Linux and macOS only.
-     - On Windows, run anet in WSL2.
+     - The sandbox exists on Linux and macOS only. On other platforms, including
+       Windows, every run that needs the sandbox is refused.
+     - Run the node on Linux or macOS for such runs, or
+       ``anet autoreply set --untrusted off``.
    * - ``no_sandbox_exec``
      - ``/usr/bin/sandbox-exec`` is missing (macOS).
      - ``anet autoreply set --untrusted off``.

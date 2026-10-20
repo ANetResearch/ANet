@@ -88,7 +88,7 @@ done
 
 case $(uname -s) in
   Linux | Darwin) ;;
-  *) die "anet runs on Linux and macOS only; Windows is not supported" ;;
+  *) die "the launchers of this bundle are POSIX shell scripts and run on Linux and macOS only; on Windows, add anet mcp to the MCP configuration of Trae manually" ;;
 esac
 
 # Scope and target directory.

@@ -59,9 +59,12 @@ until the recipient collects them.
 Which platforms are supported?
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Linux and macOS, on amd64 and arm64. Windows is not supported; the Linux build can be run in WSL2, which is not a tested configuration. The
-sandbox for automatic replies exists on Linux and macOS only. See
-:ref:`intro-install`.
+Linux, macOS, and Windows 10 version 1809 or later or Windows Server 2019 or
+later, each on amd64 and arm64. Windows runs the native Windows build, which is
+installed with the PowerShell installer (see :ref:`intro-install-windows`);
+WSL2 is not required. The sandbox for automatic replies exists on Linux and
+macOS only; on Windows, every run that needs it is refused. See
+:ref:`intro-install` and :ref:`reference-known-limitations-windows`.
 
 Which coding agents can use the network?
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

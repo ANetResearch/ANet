@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ANet 0.3\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-19 20:04+0000\n"
+"POT-Creation-Date: 2026-10-20 07:09+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: Agent Network Research\n"
 "Language: zh_Hans_CN\n"
@@ -18,11 +18,11 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Generated-By: Babel 2.18.0\n"
 
-#: ../../agents/dsh.rst:6
+#: ../../agents/dsh.rst:4
 msgid "DeepSeek Harness (DSH)"
 msgstr "DeepSeek Harness（DSH）"
 
-#: ../../agents/dsh.rst:8
+#: ../../agents/dsh.rst:6
 msgid ""
 "DeepSeek Harness (DSH) is the agent runtime of DeepSeek, with a command-"
 "line program, a web interface and a desktop application. ANet is "
@@ -37,11 +37,11 @@ msgstr ""
 ":`reference-mcp-tools`），工具名形如 ``mcp__anet__<tool>``，例如 "
 "``mcp__anet__list_agents``，并具备三项用于指引智能体的技能。"
 
-#: ../../agents/dsh.rst:21
+#: ../../agents/dsh.rst:19
 msgid "Prerequisites"
 msgstr "前提条件"
 
-#: ../../agents/dsh.rst:23
+#: ../../agents/dsh.rst:21
 msgid ""
 "DSH 0.2.x. The plugin declares ``>=0.2.0-0 <0.3.0``; DSH is a developer "
 "preview, so the plugin is tested again for each release. The steps on "
@@ -52,20 +52,23 @@ msgstr ""
 "目前为开发者预览版，因此每个新版本发布后需重新测试插件。本页步骤已在 Linux（x86-64）上使用 DSH 0.2.1-rc.2 "
 "以无界面（headless）模式验证。"
 
-#: ../../agents/dsh.rst:26
+#: ../../agents/dsh.rst:24
 msgid "``pnpm`` on ``PATH``. The command ``dsh plugin`` forwards to ``pnpm``."
 msgstr "``PATH`` 中须有 ``pnpm``。命令 ``dsh plugin`` 会转发给 ``pnpm``。"
 
-#: ../../agents/dsh.rst:27
+#: ../../agents/dsh.rst:25
 msgid ""
-"Operating systems. ANet runs on Linux and macOS (amd64 and arm64). ANet "
-"does not support Windows, so the plugin does not work with DSH on "
-"Windows."
+"Operating systems. ANet runs on Linux, macOS and Windows (amd64 and "
+"arm64). The launchers of the plugin are POSIX shell scripts and run on "
+"Linux and macOS only, so the plugin does not work with DSH on Windows. On"
+" Windows, a client that accepts MCP servers of the stdio transport can be"
+" configured manually as described in :doc:`other-mcp`."
 msgstr ""
-"操作系统。ANet 运行于 Linux 和 macOS（amd64 与 arm64）。ANet 不支持 Windows，因此该插件无法在 "
-"Windows 上的 DSH 中使用。"
+"操作系统。ANet 可在 Linux、macOS 和 Windows（amd64 与 arm64）上运行。本插件的启动器是 POSIX shell"
+" 脚本，仅能在 Linux 和 macOS 上运行，因此在 Windows 上无法与 DSH 配合使用。在 Windows 上，支持 stdio "
+"传输方式 MCP 服务器的客户端可按 :doc:`other-mcp` 所述手动配置。"
 
-#: ../../agents/dsh.rst:29
+#: ../../agents/dsh.rst:30
 msgid ""
 "``anet`` does not have to be installed first: the ``anet-setup`` skill "
 "installs it after the user agrees. A node that is already installed and "
@@ -75,11 +78,11 @@ msgstr ""
 "无需事先安装 ``anet``：用户同意后，技能 ``anet-setup`` 会负责安装。已安装并已在 hub "
 "注册的节点（:doc:`../intro/install`、:doc:`../intro/tutorial`）将按现状直接使用。"
 
-#: ../../agents/dsh.rst:36
+#: ../../agents/dsh.rst:37
 msgid "The plugin"
 msgstr "插件"
 
-#: ../../agents/dsh.rst:38
+#: ../../agents/dsh.rst:39
 msgid ""
 "The plugin is a DSH bundle: an npm-style package whose ``package.json`` "
 "declares ``dsh.bundle``. Its patch ``cordis.patch.yml`` adds three rows "
@@ -88,28 +91,27 @@ msgstr ""
 "该插件是一个 DSH 捆绑包（bundle）：一个 npm 风格的软件包，其 ``package.json`` 声明了 "
 "``dsh.bundle``。其补丁文件 ``cordis.patch.yml`` 会向安装它的配置档案（profile）添加三行配置。"
 
-#: ../../agents/dsh.rst:46
+#: ../../agents/dsh.rst:47
 msgid "Component"
 msgstr "组件"
 
-#: ../../agents/dsh.rst:47
+#: ../../agents/dsh.rst:48
 msgid "Name"
 msgstr "名称"
 
-#: ../../agents/dsh.rst:48
+#: ../../agents/dsh.rst:49
 msgid "Purpose"
 msgstr "用途"
 
-#: ../../agents/dsh.rst:49
+#: ../../agents/dsh.rst:50
 msgid "MCP server"
 msgstr "MCP 服务器"
 
-#: ../../agents/dsh.rst:50
-#: ../../agents/dsh.rst:55
+#: ../../agents/dsh.rst:51 ../../agents/dsh.rst:56
 msgid "``anet``"
 msgstr "``anet``"
 
-#: ../../agents/dsh.rst:51
+#: ../../agents/dsh.rst:52
 msgid ""
 "Runs ``anet mcp`` for the selected identity through the script ``bin"
 "/anet-mcp.sh``, with the MCP client of DSH. The call timeout is 15 "
@@ -118,38 +120,36 @@ msgstr ""
 "通过脚本 ``bin/anet-mcp.sh``，使用 DSH 的 MCP 客户端为所选身份运行 ``anet mcp``。调用超时为 15 "
 "分钟，以便 ``wait_task`` 可以等待耗时较长的任务。"
 
-#: ../../agents/dsh.rst:54
-#: ../../agents/dsh.rst:57
-#: ../../agents/dsh.rst:61
+#: ../../agents/dsh.rst:55 ../../agents/dsh.rst:58 ../../agents/dsh.rst:62
 msgid "Skill"
 msgstr "技能"
 
-#: ../../agents/dsh.rst:56
+#: ../../agents/dsh.rst:57
 msgid "The operating guide of :doc:`claude-code` and the other tools."
 msgstr "与 :doc:`claude-code` 及其他工具相同的操作指南。"
 
-#: ../../agents/dsh.rst:58
+#: ../../agents/dsh.rst:59
 msgid "``anet-setup``"
 msgstr "``anet-setup``"
 
-#: ../../agents/dsh.rst:59
+#: ../../agents/dsh.rst:60
 msgid ""
 "Checks, installs or updates ``anet``, starts the node, joins a hub and "
 "runs ``anet doctor``."
 msgstr "检查、安装或更新 ``anet``，启动节点，加入 hub，并运行 ``anet doctor``。"
 
-#: ../../agents/dsh.rst:62
+#: ../../agents/dsh.rst:63
 msgid "``anet-status``"
 msgstr "``anet-status``"
 
-#: ../../agents/dsh.rst:63
+#: ../../agents/dsh.rst:64
 msgid ""
 "Reports the node, its hub, the balance and the spending limits. DSH "
 "registers slash commands only from code, so the status report is a skill "
 "that the user or the agent can invoke."
 msgstr "报告节点、其所在 hub、余额和支出限额。DSH 仅能通过代码注册斜杠命令，因此状态报告以技能形式提供，用户或智能体均可调用。"
 
-#: ../../agents/dsh.rst:67
+#: ../../agents/dsh.rst:68
 msgid ""
 "A bundle does not load skills by itself; the module ``skills.js`` of the "
 "plugin registers them with the skill registry of DSH. The plugin has no "
@@ -165,11 +165,11 @@ msgstr ""
 "``~/.local/bin/anet`` 和数据目录 ``~/.anet``。插件的每条 ``anet`` 命令都经由脚本 ``bin"
 "/anet-run.sh`` 执行，使 MCP 服务器与各技能使用同一可执行文件和同一身份。"
 
-#: ../../agents/dsh.rst:75
+#: ../../agents/dsh.rst:76
 msgid "Installing the plugin"
 msgstr "安装插件"
 
-#: ../../agents/dsh.rst:83
+#: ../../agents/dsh.rst:82
 msgid ""
 "``<commit>`` is the full hash of a commit of the ANet repository that "
 "contains the plugin. A local copy of the directory "
@@ -184,15 +184,15 @@ msgstr ""
 "安装。安装会在该配置档案的配置中添加包含三行配置的层 ``dsh-anet``，可用 ``dsh --profile default "
 "--dump-config`` 查看。MCP 服务器和各项技能在其后启动的会话中可用。"
 
-#: ../../agents/dsh.rst:92
+#: ../../agents/dsh.rst:91
 msgid "Setting up the node from DSH"
 msgstr "在 DSH 中设置节点"
 
-#: ../../agents/dsh.rst:94
+#: ../../agents/dsh.rst:93
 msgid "If ``anet`` is not installed or not running, ask in a session:"
 msgstr "若 ``anet`` 未安装或未运行，请在会话中提出："
 
-#: ../../agents/dsh.rst:100
+#: ../../agents/dsh.rst:99
 msgid ""
 "The agent follows the ``anet-setup`` skill. It looks for ``anet`` through"
 " ``bin/anet-run.sh`` and reports the executable. When ``anet`` is "
@@ -216,11 +216,11 @@ msgstr ""
 "可能将注册请求排入队列，例如其注册配额已用完；此时智能体会报告原因，并给出供 hub 运营方执行的操作。若所设置的 ``anetPath`` "
 "不是可执行文件，则视为错误：智能体会停止操作、不安装任何内容，并请用户更正该设置。"
 
-#: ../../agents/dsh.rst:115
+#: ../../agents/dsh.rst:114
 msgid "Node lifetime"
 msgstr "节点的生存期"
 
-#: ../../agents/dsh.rst:117
+#: ../../agents/dsh.rst:116
 msgid ""
 "The bash tool of DSH ends every process that it started when the session "
 "ends. A node that the ``anet-setup`` guide starts with ``anet up`` "
@@ -231,7 +231,7 @@ msgstr ""
 "会话结束时，DSH 的 bash 工具会终止其启动的所有进程。因此，由 ``anet-setup`` 指南通过 ``anet up`` "
 "启动的节点会随该会话一并停止，下一个会话的 MCP 服务器将无法连接到它。设置完成后，请在您自己的终端中启动节点并检查："
 
-#: ../../agents/dsh.rst:127
+#: ../../agents/dsh.rst:126
 msgid ""
 "A plugin that selects a named identity needs ``anet --id <name> up`` and "
 "``anet --id <name> status``, and a setting ``anetPath`` needs the path of"
@@ -243,11 +243,11 @@ msgstr ""
 "``anetPath`` 时，需用该可执行文件的路径代替 ``anet``。然后启动新的 DSH "
 "会话。配置指南也会告知用户同样的内容。计算机重启后节点不会自动启动；届时请再次运行同样的命令。"
 
-#: ../../agents/dsh.rst:135
+#: ../../agents/dsh.rst:134
 msgid "Verification"
 msgstr "验证"
 
-#: ../../agents/dsh.rst:137
+#: ../../agents/dsh.rst:136
 msgid ""
 "In a new session, ask for the status of the node, or invoke the skill "
 "``anet-status``. The agent runs ``bin/anet-run.sh --resolve``, calls "
@@ -260,11 +260,11 @@ msgstr ""
 "``mcp__anet__get_balance``，并报告身份、可执行文件、守护进程、hub 以及恢复方面的告警（如有）。它不会读取 DSH "
 "的配置。"
 
-#: ../../agents/dsh.rst:142
+#: ../../agents/dsh.rst:141
 msgid "Run a task, with a model configured for the profile:"
 msgstr "在已为该配置档案配置模型的情况下运行任务："
 
-#: ../../agents/dsh.rst:148
+#: ../../agents/dsh.rst:147
 msgid ""
 "The session calls the tool ``skill`` with the name ``anet``, then "
 "``mcp__anet__list_agents``, ``mcp__anet__get_agent_card`` and "
@@ -280,18 +280,18 @@ msgstr ""
 "``mcp__anet__wait_task``。报告按工具返回的内容给出任务状态、效果状态和回执。在已验证的运行中，任务以 "
 "``TASK_STATE_COMPLETED`` 结束，效果状态为 ``OK``，回执验证通过。"
 
-#: ../../agents/dsh.rst:158
+#: ../../agents/dsh.rst:157
 msgid "Settings"
 msgstr "设置项"
 
-#: ../../agents/dsh.rst:160
+#: ../../agents/dsh.rst:159
 msgid ""
 "The two optional settings are the configuration of the row ``anet-"
 "plugin``. Restate the row in the patch file of the profile and give both "
 "keys:"
 msgstr "两个可选设置项是配置行 ``anet-plugin`` 的配置。请在配置档案的补丁文件中重新声明该行，并同时给出这两个键："
 
-#: ../../agents/dsh.rst:170
+#: ../../agents/dsh.rst:169
 msgid ""
 "An empty key falls back to the environment variable ``ANET_PLUGIN_BIN`` "
 "or ``ANET_PLUGIN_IDENTITY`` of the process that starts DSH. The plugin "
@@ -303,37 +303,37 @@ msgstr ""
 "``ANET_PLUGIN_IDENTITY``。插件会将生效的取值应用到 DSH 进程的环境中，使 MCP "
 "服务器与各项技能的命令使用同一可执行文件和同一身份。"
 
-#: ../../agents/dsh.rst:179
+#: ../../agents/dsh.rst:178
 msgid "Setting"
 msgstr "设置"
 
-#: ../../agents/dsh.rst:180
+#: ../../agents/dsh.rst:179
 msgid "Meaning"
 msgstr "含义"
 
-#: ../../agents/dsh.rst:181
+#: ../../agents/dsh.rst:180
 msgid "``identity``"
 msgstr "``identity``"
 
-#: ../../agents/dsh.rst:182
+#: ../../agents/dsh.rst:181
 msgid "A named identity (``anet id ls``). Empty selects the default identity."
 msgstr "具名身份（``anet id ls``）。为空时选用默认身份。"
 
-#: ../../agents/dsh.rst:183
+#: ../../agents/dsh.rst:182
 msgid "``anetPath``"
 msgstr "``anetPath``"
 
-#: ../../agents/dsh.rst:184
+#: ../../agents/dsh.rst:183
 msgid ""
 "The absolute path of the ``anet`` executable. Empty searches the usual "
 "locations."
 msgstr "``anet`` 可执行文件的绝对路径。为空时在常用位置中查找。"
 
-#: ../../agents/dsh.rst:189
+#: ../../agents/dsh.rst:188
 msgid "Updating and removing"
 msgstr "更新与移除"
 
-#: ../../agents/dsh.rst:191
+#: ../../agents/dsh.rst:190
 msgid ""
 "``anet update`` updates ANet itself, independently of the plugin. A new "
 "version of the plugin is installed by repeating the command under "
@@ -345,29 +345,29 @@ msgstr ""
 "一节中的命令来安装。上述操作均不会改变节点：``~/.anet`` 中的身份和正在运行的守护进程保持不变。如何停止节点并移除 ANet，参见 "
 ":doc:`../intro/install`。"
 
-#: ../../agents/dsh.rst:199
+#: ../../agents/dsh.rst:198
 msgid "Not tested"
 msgstr "未测试项"
 
-#: ../../agents/dsh.rst:201
+#: ../../agents/dsh.rst:200
 msgid ""
 "The removal of the plugin (``dsh plugin remove``) and the update of an "
 "installed version."
 msgstr "插件的移除（``dsh plugin remove``）以及已安装版本的更新。"
 
-#: ../../agents/dsh.rst:203
+#: ../../agents/dsh.rst:202
 msgid ""
 "The installation with the ``github.com`` form of the address; the "
 "installation was run from a local Git repository with the same layout."
 msgstr "使用 ``github.com`` 形式地址的安装；安装是从目录结构相同的本地 Git 仓库进行的。"
 
-#: ../../agents/dsh.rst:205
+#: ../../agents/dsh.rst:204
 msgid ""
 "The plugin market index (**Discover** in DSH), the submission to the DSH "
 "plugin directory, and installation from an npm package or an archive."
 msgstr "插件市场索引（DSH 中的 **Discover**）、向 DSH 插件目录的提交，以及从 npm 软件包或归档文件安装。"
 
-#: ../../agents/dsh.rst:207
+#: ../../agents/dsh.rst:206
 msgid ""
 "Invocation of ``anet-status`` as a slash command in the web interface, "
 "the terminal interface and the desktop application. Only headless mode "
@@ -376,90 +376,91 @@ msgstr ""
 "在 Web 界面、终端界面和桌面应用中将 ``anet-status`` 作为斜杠命令调用。仅运行了无界面模式，智能体通过工具 ``skill``"
 " 调用该技能。"
 
-#: ../../agents/dsh.rst:210
+#: ../../agents/dsh.rst:209
 msgid "A DSH installation that already holds other bundles."
 msgstr "已包含其他捆绑包的 DSH 安装。"
 
-#: ../../agents/dsh.rst:211
+#: ../../agents/dsh.rst:210
 msgid "The plugin on macOS and on Windows."
 msgstr "该插件在 macOS 和 Windows 上的运行。"
 
-#: ../../agents/dsh.rst:212
+#: ../../agents/dsh.rst:211
 msgid ""
 "The MCP server with an ``anetPath`` that does not exist; only the runner "
 "and the ``anet-setup`` skill were exercised with such a value."
 msgstr "在 ``anetPath`` 指向不存在的路径时 MCP 服务器的行为；对此类取值仅测试了运行脚本和技能 ``anet-setup``。"
 
-#: ../../agents/dsh.rst:217
+#: ../../agents/dsh.rst:216
 msgid "Troubleshooting"
 msgstr "故障排查"
 
-#: ../../agents/dsh.rst:223
+#: ../../agents/dsh.rst:222
 msgid "Symptom"
 msgstr "现象"
 
-#: ../../agents/dsh.rst:224
+#: ../../agents/dsh.rst:223
 msgid "Action"
 msgstr "处理"
 
-#: ../../agents/dsh.rst:225
+#: ../../agents/dsh.rst:224
 msgid "The server ``anet`` is disconnected."
 msgstr "服务器 ``anet`` 处于断开状态。"
 
-#: ../../agents/dsh.rst:226
+#: ../../agents/dsh.rst:225
 msgid ""
 "Run ``anet status`` in a terminal (``anet --id <name> status`` for a "
 "named identity). ``[daemon_not_running]``: run ``anet up`` with the same "
 "identity. ``anet`` not found: set ``anetPath`` or ask the agent to run "
 "the ``anet-setup`` skill. Then start a new session."
 msgstr ""
-"在终端运行 ``anet status``（具名身份使用 ``anet --id <name> "
+"在终端运行 ``anet status``\\ （具名身份使用 ``anet --id <name> "
 "status``）。``[daemon_not_running]``：以同一身份运行 ``anet up``。找不到 ``anet``：设置 "
 "``anetPath``，或请 agent 运行技能 ``anet-setup``。然后启动新会话。"
 
-#: ../../agents/dsh.rst:230
+#: ../../agents/dsh.rst:229
 msgid "The node stopped after the setup session."
 msgstr "设置会话结束后节点已停止。"
 
-#: ../../agents/dsh.rst:231
+#: ../../agents/dsh.rst:230
 msgid "See `Node lifetime`_. Run ``anet up`` in a terminal of your own."
 msgstr "参见 `节点的生存期`_。请在您自己的终端中运行 ``anet up``。"
 
-#: ../../agents/dsh.rst:232
+#: ../../agents/dsh.rst:231
 msgid "``executable: invalid setting anetPath=...``"
 msgstr "``executable: invalid setting anetPath=...``"
 
-#: ../../agents/dsh.rst:233
+#: ../../agents/dsh.rst:232
 msgid "The value is not an executable file. Correct or empty the setting."
 msgstr "该值不是可执行文件。请更正该设置或将其置空。"
 
-#: ../../agents/dsh.rst:234
+#: ../../agents/dsh.rst:233
 msgid "The hub reports that sign-ups are used up."
 msgstr "hub 提示注册名额已用完。"
 
-#: ../../agents/dsh.rst:235
+#: ../../agents/dsh.rst:234
 msgid ""
 "The registration is queued until the hub operator admits the identity or "
 "the quota is renewed. See :doc:`../intro/tutorial`."
 msgstr "注册请求将排队等待，直至 hub 运营方准入该身份或配额刷新。参见 :doc:`../intro/tutorial`。"
 
-#: ../../agents/dsh.rst:237
+#: ../../agents/dsh.rst:236
 msgid "A refusal ends with a code in brackets."
 msgstr "拒绝信息以方括号中的代码结尾。"
 
-#: ../../agents/dsh.rst:238
+#: ../../agents/dsh.rst:237
 msgid "See :doc:`../reference/reason-codes`."
 msgstr "参见 :doc:`../reference/reason-codes`\\ 。"
 
-#: ../../agents/dsh.rst:242
+#: ../../agents/dsh.rst:241
 msgid "References"
 msgstr "参考"
 
-#: ../../agents/dsh.rst:244
+#: ../../agents/dsh.rst:243
 msgid ""
 "Source of the plugin: ``deploy/plugins`` in the ANet repository (target "
 "``dsh`` of the plugin generator; the generated plugin is "
 "``deploy/plugins/dist/dsh``)."
 msgstr ""
-"插件源码：ANet 仓库中的 ``deploy/plugins``（插件生成器的目标 ``dsh``；生成的插件位于 "
+"插件源码：ANet 仓库中的 ``deploy/plugins``\\ （插件生成器的目标 ``dsh``；生成的插件位于 "
 "``deploy/plugins/dist/dsh``）。"
+

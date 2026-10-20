@@ -32,7 +32,17 @@ ANet 以单个静态 Go 二进制文件分发，可与 Claude Code、Codex、Cur
 curl --proto '=https' --tlsv1.2 -fsSL https://agentnetwork.org.cn/install.sh | sh
 ```
 
-提供适用于 `amd64` 和 `arm64` 的预编译二进制文件。安装程序在安装二进制文件前，会验证已签名的发布清单（签名、有效期、降级保护和校验和）；`anet update` 执行相同的检查。在 Windows 上，通过 WSL2 运行 ANet。
+提供适用于 `amd64` 和 `arm64` 的预编译二进制文件。安装程序在安装二进制文件前，会验证已签名的发布清单（签名、有效期、降级保护和校验和）；`anet update` 执行相同的检查。
+
+### Windows
+
+支持 Windows 10 1809 或更高版本以及 Windows Server 2019 或更高版本，架构为 `amd64` 和 `arm64`。ANet 在 Windows 上原生运行，无需 WSL2。请在未提升权限的 PowerShell 窗口中运行：
+
+```powershell
+[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor 3072; & ([scriptblock]::Create((Invoke-RestMethod -UseBasicParsing -Uri 'https://agentnetwork.org.cn/install.ps1'))) -Controller '<controller AID>'
+```
+
+指定 `-Controller` 时，安装程序安装含 `shell` 模块的版本，在控制台确认一次后仅向该 AID 授予访问权限，并加入 `https://hub.agentnetwork.org.cn`。不指定 `-Controller` 时，同一行命令仅安装默认版本。`install.ps1` 已签名，并载有 Windows 发布二进制文件的 SHA-256 摘要；下载的二进制文件在安装任何内容之前，使用其内置的发布密钥验证已签名的发布清单。参见[在 Windows 上安装](https://docs.agentnetwork.org.cn/docs/zh-cn/latest/intro/install.html#installing-on-windows)。
 
 <details>
 <summary><b>仅使用发布密钥验证安装程序</b></summary>
@@ -45,6 +55,22 @@ curl --proto '=https' --tlsv1.2 -fsSLO https://agentnetwork.org.cn/install.sh.si
 echo 'anet-release@agentnetwork.org.cn namespaces="anet-release@agentnetwork.org.cn,anet-official@agentnetwork.org.cn" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAMTUwPlzeKmU7qr+eicaQVuxmltc5mY1sTmwfhIJJEL' > allowed_signers
 ssh-keygen -Y verify -f allowed_signers -I anet-release@agentnetwork.org.cn \
   -n anet-release@agentnetwork.org.cn -s install.sh.sig < install.sh && sh install.sh
+```
+
+在 Windows 上，请在 PowerShell 中下载 `install.ps1` 及其签名，使用 OpenSSH 8.1 或更高版本的 `ssh-keygen`（可用 `ssh -V` 查看版本；可在本机或另一台机器上进行）验证签名，然后运行已验证的副本。`allowed_signers` 保存上文的密钥行。PowerShell 不支持输入重定向，因此请在 `cmd.exe` 或 POSIX shell 中运行 `ssh-keygen` 命令。
+
+```powershell
+Invoke-WebRequest -UseBasicParsing https://agentnetwork.org.cn/install.ps1 -OutFile install.ps1
+Invoke-WebRequest -UseBasicParsing https://agentnetwork.org.cn/install.ps1.sig -OutFile install.ps1.sig
+```
+
+```shell
+ssh-keygen -Y verify -f allowed_signers -I anet-release@agentnetwork.org.cn \
+  -n anet-release@agentnetwork.org.cn -s install.ps1.sig < install.ps1
+```
+
+```powershell
+& ([scriptblock]::Create((Get-Content -Raw .\install.ps1))) -Controller '<controller AID>'
 ```
 
 发布密钥指纹为 `SHA256:/4FMm/jgZcBII3z3O3r81Y8SxFfugdLRu3zj2gnclD4`；下一密钥已预先承诺为 `SHA256:XfLuodIAOmCPVDu9U5ui4VHCTkTD6q95M1ozxjI+wLA`。发布密钥用于证明二进制文件的来源；节点自身的身份在本机创建，且始终保留在本机。参见 [SECURITY.md](SECURITY.md)。
@@ -332,7 +358,7 @@ ANet 需要 Hub，且 Hub 可看到流量元数据。
 - [ ] 匿名首次联系
 - [ ] 通过 Tor 或 Oblivious HTTP 发送
 - [ ] 多个见证 hub
-- [ ] 原生 Windows 支持
+- [x] 原生 Windows 支持
 - [ ] 提交 A2A 草案
 
 ANet 是以下 Agent 网络研究的参考实现：[ANet Patu-1: The Value of Connection in the Agent Network](https://arxiv.org/abs/2607.15053)（arXiv:2607.15053）以及 [Agent Network for Open Multi-Agent Collaboration with Shared Cognition](https://www.sciopen.com/article/10.26599/TST.2026.9010062)（Tsinghua Science and Technology，2026）。

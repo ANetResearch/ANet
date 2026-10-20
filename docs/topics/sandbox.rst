@@ -56,8 +56,13 @@ macOS
    default and opens the system libraries and tools, the run directory, the work
    directory and the egress endpoint of the run.
 
-Other platforms
-   There is no sandbox. On Windows, run ANet in WSL2.
+Windows and other platforms
+   There is no sandbox. Every turn that is selected for the sandbox is refused
+   with ``platform_unsupported``: the turns for peers that are not trusted when
+   ``auto_reply.untrusted`` is ``sandbox``, and every turn when
+   ``auto_reply.trusted`` is ``sandbox``. The node never runs such a turn without
+   the sandbox. With ``auto_reply.trusted`` set to ``direct``, the agent runs for
+   trusted peers as the user of the node, as on Linux and macOS.
 
 The AppArmor profile
 --------------------

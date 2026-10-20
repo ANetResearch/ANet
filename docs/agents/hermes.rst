@@ -31,9 +31,10 @@ Prerequisites
   the `Hermes installation guide
   <https://hermes-agent.nousresearch.com/docs/getting-started/installation>`_,
   and the requirements of later versions are as stated there.
-* ANet supports Windows only through WSL2, and that configuration is untested.
-  The verification of this page was carried out on Linux; macOS and Windows
-  were not tested.
+* ANet runs on Linux, macOS and Windows. On native Windows, install ANet with
+  the PowerShell installer (:ref:`intro-install-windows`) and register it with
+  ``anet agents wire hermes``. The verification of this page was carried out on
+  Linux; macOS and Windows were not tested.
 
 
 Automatic wiring

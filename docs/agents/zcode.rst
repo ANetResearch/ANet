@@ -27,8 +27,11 @@ Prerequisites
 * ZCode with plugin support. The steps on this page were verified with
   ZCode 3.15.3 on Linux (x86-64), in the desktop application and in its
   command-line program 0.16.9.
-* Operating systems. ANet runs on Linux and macOS (amd64 and arm64). ANet does
-  not support Windows, so the plugin does not work with ZCode on Windows.
+* Operating systems. ANet runs on Linux, macOS and Windows (amd64 and arm64).
+  The launchers of the plugin are POSIX shell scripts and run on Linux and macOS
+  only, so the plugin does not work with ZCode on Windows. On Windows, a client that
+  accepts MCP servers of the stdio transport can be configured manually as
+  described in :doc:`other-mcp`.
 * ``anet`` does not have to be installed first: the ``anet-setup`` skill of the
   plugin installs it after the user agrees. A node that is already installed
   and registered at a hub (:doc:`../intro/install`, :doc:`../intro/tutorial`)
@@ -226,7 +229,7 @@ Not tested
 
 * The plugin on macOS. The script uses only ``sh`` and the locations of the
   ANet installer and of Homebrew; the run on macOS has not been verified.
-* ZCode on Windows, including a node inside WSL2.
+* ZCode on Windows.
 
 
 Troubleshooting

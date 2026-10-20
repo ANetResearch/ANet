@@ -32,9 +32,10 @@ Prerequisites
   ``codex-cli 0.163.0``. The minimum version is not stated in the official
   documentation; the current requirements are in the official pages listed in
   :ref:`agents-codex-references`.
-* The supported systems are Linux and macOS. Windows is not supported; running
-  the Linux build in WSL2 is not a tested configuration. The wiring and the
-  commands on this page were verified on Linux only.
+* ``anet`` runs on Linux, macOS and Windows. On Windows, install it with the
+  PowerShell installer (:ref:`intro-install-windows`) and register it with
+  ``anet agents wire codex``; the plugin does not run on Windows. The wiring
+  and the commands on this page were verified on Linux only.
 
 
 .. _agents-codex-wire:
@@ -242,8 +243,9 @@ Installing the plugin
 The marketplace file is ``.agents/plugins/marketplace.json`` at the root of
 the repository. It names the marketplace ``agentnetwork`` and points to the
 directory ``deploy/plugins/dist/codex``. Codex 0.163.0 was used; the minimum
-version is not stated in the official documentation. The plugin runs on Linux.
-Windows is not supported.
+version is not stated in the official documentation. The plugin was run on
+Linux. Its launchers are POSIX shell scripts and do not run on Windows; on
+Windows, use ``anet agents wire codex``.
 
 ``codex plugin list`` shows ``anet@agentnetwork`` as installed and enabled.
 ``codex mcp list`` shows the server ``anet`` with the command ``sh

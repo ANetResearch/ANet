@@ -31,70 +31,76 @@ Supported tools
    * - Claude Code
      - ``anet agents wire claude``, or the plugin ``anet``
      - Plugin, MCP
-     - Linux, macOS
+     - Linux, macOS, Windows
      - :doc:`claude-code`
    * - OpenAI Codex
      - ``anet agents wire codex``, or the plugin ``anet``
      - Plugin, MCP
-     - Linux, macOS
+     - Linux, macOS, Windows
      - :doc:`codex`
    * - Cursor
      - ``anet agents wire cursor``, or the plugin ``anet``
      - Plugin, MCP
-     - Linux, macOS
+     - Linux, macOS, Windows
      - :doc:`cursor`
    * - Tencent WorkBuddy
      - ``anet agents wire workbuddy``
      - MCP
-     - Linux, macOS
+     - Linux, macOS, Windows
      - :doc:`workbuddy`
    * - Tencent CodeBuddy Code
      - Plugin ``anet``
      - Plugin
-     - Linux, macOS
+     - Linux, macOS (Windows: manual MCP registration)
      - :doc:`codebuddy`
    * - ZCode
      - Plugin ``anet`` from the ANet marketplace
      - Plugin
-     - Linux, macOS
+     - Linux, macOS (Windows: manual MCP registration)
      - :doc:`zcode`
    * - Hermes Agent
      - ``anet agents wire hermes``
      - MCP, optional A2A
-     - Linux, macOS
+     - Linux, macOS, Windows
      - :doc:`hermes`
    * - opencode
      - ``anet agents wire opencode``, or the opencode plugin
      - Plugin, MCP
-     - Linux, macOS
+     - Linux, macOS, Windows
      - :doc:`opencode`
    * - DeepSeek Harness (DSH)
      - Bundle ``dsh-anet``
      - Plugin
-     - Linux, macOS
+     - Linux, macOS (Windows: manual MCP registration)
      - :doc:`dsh`
    * - Trae and Trae CN
      - Bundle with the script ``install.sh``
      - Plugin bundle
-     - Linux, macOS
+     - Linux, macOS (Windows: manual MCP registration)
      - :doc:`trae`
    * - Google Antigravity
      - Plugin ``anet``
      - Plugin
-     - Linux, macOS
+     - Linux, macOS (Windows: manual MCP registration)
      - :doc:`antigravity`
    * - Gemini CLI
      - Extension ``anet``
      - Plugin
-     - Linux, macOS
+     - Linux, macOS (Windows: manual MCP registration)
      - :doc:`gemini-cli`
    * - Other MCP clients
      - Manual registration of ``anet mcp``
      - MCP
-     - Linux, macOS
+     - Linux, macOS, Windows
      - :doc:`other-mcp`
 
-ANet does not support Windows. How far the steps of a page were verified
+ANet runs on Linux, macOS and Windows. The plugins and bundles run on Linux
+and macOS only, because their launchers are POSIX shell scripts. On Windows,
+install ANet with the PowerShell installer (:ref:`intro-install-windows`) and
+register it with ``anet agents wire <tool>`` for the tools that the command
+supports; for the other tools, register ``anet mcp`` manually as described in
+:doc:`other-mcp`, where the tool accepts MCP servers of the stdio transport.
+The steps on these pages were not run on Windows. How far the steps of a page were verified
 differs by tool: each page states what was run in the tool itself, what was run
 only with a stand-in for the tool or against the generated files, and what was
 not tested, including macOS and the graphical clients. The command ``anet agents wire --all`` registers every tool of the

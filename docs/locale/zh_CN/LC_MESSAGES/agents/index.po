@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ANet 0.3\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-10-19 20:04+0000\n"
+"POT-Creation-Date: 2026-10-20 07:09+0000\n"
 "PO-Revision-Date: 2026-10-17 10:06+0000\n"
 "Last-Translator: Agent Network <hi@anet0.com>\n"
 "Language: zh_CN\n"
@@ -79,28 +79,17 @@ msgstr "Claude Code"
 msgid "``anet agents wire claude``, or the plugin ``anet``"
 msgstr "``anet agents wire claude``，或插件 ``anet``"
 
-#: ../../agents/index.rst:33
-#: ../../agents/index.rst:38
-#: ../../agents/index.rst:43
-#: ../../agents/index.rst:68
+#: ../../agents/index.rst:33 ../../agents/index.rst:38
+#: ../../agents/index.rst:43 ../../agents/index.rst:68
 msgid "Plugin, MCP"
 msgstr "插件、MCP"
 
-#: ../../agents/index.rst:34
-#: ../../agents/index.rst:39
-#: ../../agents/index.rst:44
-#: ../../agents/index.rst:49
-#: ../../agents/index.rst:54
-#: ../../agents/index.rst:59
-#: ../../agents/index.rst:64
-#: ../../agents/index.rst:69
-#: ../../agents/index.rst:74
-#: ../../agents/index.rst:79
-#: ../../agents/index.rst:84
-#: ../../agents/index.rst:89
+#: ../../agents/index.rst:34 ../../agents/index.rst:39
+#: ../../agents/index.rst:44 ../../agents/index.rst:49
+#: ../../agents/index.rst:64 ../../agents/index.rst:69
 #: ../../agents/index.rst:94
-msgid "Linux, macOS"
-msgstr "Linux、macOS"
+msgid "Linux, macOS, Windows"
+msgstr "Linux、macOS、Windows"
 
 #: ../../agents/index.rst:35
 msgid ":doc:`claude-code`"
@@ -138,8 +127,7 @@ msgstr "腾讯 WorkBuddy"
 msgid "``anet agents wire workbuddy``"
 msgstr "``anet agents wire workbuddy``"
 
-#: ../../agents/index.rst:48
-#: ../../agents/index.rst:93
+#: ../../agents/index.rst:48 ../../agents/index.rst:93
 msgid "MCP"
 msgstr "MCP"
 
@@ -151,18 +139,21 @@ msgstr ":doc:`workbuddy`"
 msgid "Tencent CodeBuddy Code"
 msgstr "腾讯 CodeBuddy Code"
 
-#: ../../agents/index.rst:52
-#: ../../agents/index.rst:82
+#: ../../agents/index.rst:52 ../../agents/index.rst:82
 msgid "Plugin ``anet``"
 msgstr "插件 ``anet``"
 
-#: ../../agents/index.rst:53
-#: ../../agents/index.rst:58
-#: ../../agents/index.rst:73
-#: ../../agents/index.rst:83
+#: ../../agents/index.rst:53 ../../agents/index.rst:58
+#: ../../agents/index.rst:73 ../../agents/index.rst:83
 #: ../../agents/index.rst:88
 msgid "Plugin"
 msgstr "插件"
+
+#: ../../agents/index.rst:54 ../../agents/index.rst:59
+#: ../../agents/index.rst:74 ../../agents/index.rst:79
+#: ../../agents/index.rst:84 ../../agents/index.rst:89
+msgid "Linux, macOS (Windows: manual MCP registration)"
+msgstr "Linux、macOS（Windows：手动注册 MCP）"
 
 #: ../../agents/index.rst:55
 msgid ":doc:`codebuddy`"
@@ -270,20 +261,31 @@ msgstr ":doc:`other-mcp`"
 
 #: ../../agents/index.rst:97
 msgid ""
-"ANet does not support Windows. How far the steps of a page were verified "
-"differs by tool: each page states what was run in the tool itself, what "
-"was run only with a stand-in for the tool or against the generated files,"
-" and what was not tested, including macOS and the graphical clients. The "
-"command ``anet agents wire --all`` registers every tool of the table that"
-" it supports and detects, and leaves the others unchanged. It changes "
-"only the tools for which a registration command is listed."
+"ANet runs on Linux, macOS and Windows. The plugins and bundles run on "
+"Linux and macOS only, because their launchers are POSIX shell scripts. On"
+" Windows, install ANet with the PowerShell installer (:ref:`intro-"
+"install-windows`) and register it with ``anet agents wire <tool>`` for "
+"the tools that the command supports; for the other tools, register ``anet"
+" mcp`` manually as described in :doc:`other-mcp`, where the tool accepts "
+"MCP servers of the stdio transport. The steps on these pages were not run"
+" on Windows. How far the steps of a page were verified differs by tool: "
+"each page states what was run in the tool itself, what was run only with "
+"a stand-in for the tool or against the generated files, and what was not "
+"tested, including macOS and the graphical clients. The command ``anet "
+"agents wire --all`` registers every tool of the table that it supports "
+"and detects, and leaves the others unchanged. It changes only the tools "
+"for which a registration command is listed."
 msgstr ""
-"ANet 不支持 "
-"Windows。各页步骤的验证程度因工具而异：每页都说明哪些内容在该工具本身中运行过，哪些内容只借助该工具的替身或针对生成的文件运行过，以及哪些内容未经测试（包括"
-" macOS 和图形客户端）。命令 ``anet agents wire --all`` "
-"会登记表中它所支持且检测到的全部工具，其余保持不变；它只改动列有登记命令的工具。"
+"ANet 可在 Linux、macOS 和 Windows 上运行。插件和插件包仅能在 Linux 和 macOS 上运行，因为其启动器是 "
+"POSIX shell 脚本。在 Windows 上，请使用 PowerShell 安装程序安装 ANet（:ref:`intro-"
+"install-windows`），对该命令支持的工具用 ``anet agents wire <tool>`` 注册；对其他工具，若其接受 "
+"stdio 传输方式的 MCP 服务器，则按 :doc:`other-mcp` 所述手动注册 ``anet mcp``\\ 。这些页面中的步骤未在"
+" Windows "
+"上运行。各页步骤的验证程度因工具而异：每页都说明了哪些步骤在工具本身中运行过，哪些仅用工具的替身或针对生成的文件运行过，以及哪些未经测试，包括 "
+"macOS 和图形界面客户端。命令 ``anet agents wire --all`` "
+"注册表中它所支持并检测到的每个工具，其他工具保持不变。它只更改列有注册命令的工具。"
 
-#: ../../agents/index.rst:104
+#: ../../agents/index.rst:110
 msgid ""
 "A plugin is an alternative to ``anet agents wire``, not an addition to "
 "it. A plugin registers the MCP server and installs the operating guide, a"
@@ -300,8 +302,9 @@ msgstr ""
 "``anet`` 的服务器；各页说明了如何移除另一种登记，opencode 一页还说明两者如何共存。各插件由同一份源码生成（ANet 仓库中的 "
 "``deploy/plugins``），因此共用选择可执行文件与身份的运行脚本。"
 
-#: ../../agents/index.rst:113
+#: ../../agents/index.rst:119
 msgid ""
 "The reference for the command, the files and the rules that apply to "
 "every change is :doc:`../howto/coding-agents`."
 msgstr "该命令、被修改的文件以及适用于每次修改的规则，参见 :doc:`../howto/coding-agents`。"
+

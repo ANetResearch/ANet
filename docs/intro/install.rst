@@ -4,11 +4,13 @@
 Installation
 ============
 
-ANet is installed as a single static binary named ``anet``. The installer
-downloads the binary for the platform, checks it against a signed release
-manifest, and writes it to a directory on the search path. No compiler,
-language runtime or superuser privilege is required for a per-user
-installation.
+ANet is installed as a single static binary named ``anet`` (``anet.exe`` on
+Windows). The installer downloads the binary for the platform, checks it
+against a signed release manifest, and writes it to a directory on the search
+path. No compiler, language runtime or superuser privilege is required for a
+per-user installation. Linux and macOS use the shell script ``install.sh``;
+Windows uses the PowerShell script ``install.ps1`` (see
+:ref:`intro-install-windows`).
 
 .. contents:: On this page
    :local:
@@ -20,13 +22,16 @@ Requirements
 ============
 
 Supported platforms
-   Linux and macOS, on amd64 and arm64. Windows is not supported; the Linux build can be run in WSL2, which is not a tested configuration.
+   Linux, macOS, and Windows 10 version 1809 or later or Windows Server 2019
+   or later, each on amd64 and arm64. Windows runs the native Windows build;
+   WSL2 is not required.
 
 Tools used by the installer
-   ``curl``, ``gzip`` (``gunzip``), ``sha256sum`` or ``shasum``, and
-   ``ssh-keygen`` from OpenSSH 8.1 or later. The signature check uses
-   ``ssh-keygen``. If it is missing, the installer stops and names the
-   package to install; no option skips the signature check.
+   On Linux and macOS: ``curl``, ``gzip`` (``gunzip``), ``sha256sum`` or
+   ``shasum``, and ``ssh-keygen`` from OpenSSH 8.1 or later. The signature
+   check uses ``ssh-keygen``. If it is missing, the installer stops and names
+   the package to install; no option skips the signature check. On Windows:
+   Windows PowerShell 5.1 or PowerShell 7, and no other tool.
 
 Network
    Outbound HTTPS to the download host. A node needs no inbound connection
@@ -185,6 +190,203 @@ The key fingerprint is ``SHA256:/4FMm/jgZcBII3z3O3r81Y8SxFfugdLRu3zj2gnclD4``.
 A successful check prints ``Good "anet-release@agentnetwork.org.cn"
 signature`` followed by the fingerprint.
 
+.. _intro-install-windows:
+
+Installing on Windows
+=====================
+
+The Windows build runs natively on Windows 10 version 1809 or later and on
+Windows Server 2019 or later, on amd64 and arm64. WSL2 is not required.
+
+Requirements
+------------
+
+* Windows PowerShell 5.1 or PowerShell 7. The installer uses no other tool;
+  in particular it does not use ``ssh-keygen``, because Windows 10 version
+  1809 ships an OpenSSH release older than 8.1.
+* A PowerShell window that is not elevated. The node, and every command that
+  it runs for a controller, run as the user who installs it. The installer
+  refuses to run in an elevated window unless ``-Elevated`` is given.
+* Outbound HTTPS to the download hosts.
+
+Installing with the one-line command
+------------------------------------
+
+Run the following line in PowerShell. ``<controller AID>`` is the AID of the
+node that is to be given access to the shell module of this computer:
+
+.. code-block:: powershell
+
+   [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor 3072; & ([scriptblock]::Create((Invoke-RestMethod -UseBasicParsing -Uri 'https://agentnetwork.org.cn/install.ps1'))) -Controller '<controller AID>'
+
+The first statement adds TLS 1.2 to the protocols of the session, which
+Windows PowerShell 5.1 requires. Without ``-Controller``, the same line
+installs the default build only and changes nothing else.
+
+.. _intro-install-windows-verify:
+
+Verifying the installer before running it
+-----------------------------------------
+
+The one-line command trusts the host that serves ``install.ps1`` and its TLS
+certificate. To avoid that trust, download the script and its signature,
+verify the signature with the release key, and run the verified copy:
+
+.. code-block:: powershell
+
+   Invoke-WebRequest -UseBasicParsing https://agentnetwork.org.cn/install.ps1 -OutFile install.ps1
+   Invoke-WebRequest -UseBasicParsing https://agentnetwork.org.cn/install.ps1.sig -OutFile install.ps1.sig
+
+The signature is checked with ``ssh-keygen -Y verify`` from OpenSSH 8.1 or
+later (``ssh -V`` prints the version), on this computer or on another one. The
+file ``allowed_signers`` holds the release key line given in
+:ref:`intro-install-verify`. The command reads ``install.ps1`` through input
+redirection, which PowerShell does not provide; run it in ``cmd.exe`` or in a
+POSIX shell:
+
+.. code-block:: console
+
+   $ ssh-keygen -Y verify -f allowed_signers -I anet-release@agentnetwork.org.cn -n anet-release@agentnetwork.org.cn -s install.ps1.sig < install.ps1
+
+A successful check prints ``Good "anet-release@agentnetwork.org.cn"
+signature`` followed by the key fingerprint. Then run the verified copy in
+PowerShell, in the directory that holds it:
+
+.. code-block:: powershell
+
+   & ([scriptblock]::Create((Get-Content -Raw .\install.ps1))) -Controller '<controller AID>'
+
+Installer parameters
+--------------------
+
+.. list-table::
+   :header-rows: 1
+   :widths: 26 74
+
+   * - Parameter
+     - Effect
+   * - ``-Controller <AID>``
+     - Install the build with the ``shell`` module, give exactly this AID
+       access to it (see :ref:`intro-install-windows-controller`), and join
+       ``https://hub.agentnetwork.org.cn`` unless ``-Hub`` is given.
+   * - ``-Shell``
+     - Install the build with the ``shell`` module. No caller is given access.
+   * - ``-Hub <URL>``
+     - Start the node and register it with the hub at ``URL`` as the last
+       step.
+   * - ``-Name <name>``
+     - The name to register under. The default is the computer name.
+   * - ``-Prefix <directory>``
+     - Install to this absolute directory. The default is
+       ``%LOCALAPPDATA%\Programs\anet``.
+   * - ``-Without <modules>``
+     - Switch off the listed modules in the configuration, as
+       ``install.sh --without`` does (see :ref:`intro-install-modules`).
+   * - ``-Base <URL or directory>``
+     - Download from this ``https://`` address, or read a release from this
+       local directory, instead of the default hosts. Every check is the same.
+   * - ``-NoAutostart``
+     - Do not write the value that starts the node at logon.
+   * - ``-NoPath``
+     - Do not add the installation directory to the user's ``PATH``.
+   * - ``-Elevated``
+     - Required to install from an elevated PowerShell window. The controller
+       then runs its commands with administrator rights.
+
+The download hosts are those of :ref:`intro-install-hosts`. The npm packages of
+the Windows builds are ``@agentnetwork/anet-win32-<cpu>`` and
+``@agentnetwork/anet-shell-win32-<cpu>``.
+
+Paths
+-----
+
+.. list-table::
+   :header-rows: 1
+   :widths: 32 68
+
+   * - Item
+     - Location
+   * - Binary
+     - ``%LOCALAPPDATA%\Programs\anet\anet.exe``, with the release manifest
+       ``anet.exe.release.json`` and its signature
+       ``anet.exe.release.json.sig`` beside it.
+   * - Data directory
+     - ``%USERPROFILE%\.anet``
+   * - Runtime directory
+     - ``%LOCALAPPDATA%\anet\run``
+   * - Start at logon
+     - The value ``AgentNetwork`` under
+       ``HKCU\Software\Microsoft\Windows\CurrentVersion\Run``. Removing the
+       value stops the start at logon.
+
+What the installer checks
+-------------------------
+
+* ``install.ps1`` is signed (``install.ps1.sig``) and carries the SHA-256
+  digests of the Windows release binaries.
+* Nothing that is downloaded is run or installed before it matches those
+  digests.
+* The downloaded binary then verifies, with the release key built into it, the
+  signature of ``release.json``, its expiry, its version, the SHA-256 digest of
+  the binary itself and its module set, and it refuses a downgrade.
+* No option skips a check.
+
+.. _intro-install-windows-controller:
+
+What ``-Controller`` opens
+--------------------------
+
+``-Controller`` changes exactly the following, and nothing else:
+
+* The configuration block
+  ``modules.shell = {"allow":["<AID>"],"allow_arbitrary":true,"shell":"powershell"}``.
+* The AID on ``peers.allow``.
+* The defaults of ``anet init``: the inbound policy ``closed``, no public
+  capabilities and spending limits of 0 (see :ref:`intro-install-init`).
+* The registration with the hub.
+
+The installer asks one confirmation on the console, through
+``anet init --shell-controller``. Declining it leaves the access closed. The
+recovery passphrase is not asked during the installation
+(``anet hub-register --passphrase-later``); set it afterwards with
+``anet identity protect``. Access is revoked with ``anet peers remove <AID>``
+and by removing the ``modules.shell`` block. The shell module on Windows is
+described in :ref:`topics-shell-windows`.
+
+Background operation
+--------------------
+
+``anet up`` starts the daemon detached from the console. The daemon keeps
+running when the PowerShell window is closed, stops at logoff, and starts
+again at logon through the ``Run`` value above. It runs as the logged-on user
+and never as a Windows service.
+
+Updating on Windows
+-------------------
+
+``anet update`` applies the checks described in :ref:`intro-install-update`.
+A running ``anet.exe`` cannot be overwritten, so the update renames it aside
+and puts the new binary in its place. The daemon keeps the old binary until it
+is restarted. Windows PowerShell 5.1 has no ``&&`` operator; run the two
+commands one after the other:
+
+.. code-block:: powershell
+
+   anet stop --all
+   anet up --all
+
+Uninstalling on Windows
+-----------------------
+
+#. Stop the daemons with ``anet stop --all``.
+#. Remove the value ``AgentNetwork`` under
+   ``HKCU\Software\Microsoft\Windows\CurrentVersion\Run``.
+#. Delete the directory ``%LOCALAPPDATA%\Programs\anet``.
+#. Remove that directory from the user's ``PATH``.
+
+The data directory ``%USERPROFILE%\.anet`` holds the identity. Delete it only
+deliberately, as described in :ref:`intro-install-remove`.
+
 .. _intro-install-npm:
 
 Installing with npm
@@ -207,7 +409,8 @@ version of the package, and that the SHA-256 digests of the archive and of the
 binary equal the digests in the manifest. A failure of any check stops the
 launcher before anything is run. The checked binary is written, with the
 manifest and its signature, to ``~/.cache/anet/npm/<version>/``
-(``~/Library/Caches/anet/npm/<version>/`` on macOS, or below
+(``~/Library/Caches/anet/npm/<version>/`` on macOS,
+``%LOCALAPPDATA%\anet\npm\<version>`` on Windows, or below
 ``XDG_CACHE_HOME`` when it is set) and is run from there.
 
 Update the package with ``npm update --global @agentnetwork/anet``. Do not run
@@ -215,7 +418,8 @@ Update the package with ``npm update --global @agentnetwork/anet``. Do not run
 the package and replaces a changed binary with that version on its next run.
 Installations with ``--omit=optional`` lack the build and are refused with a
 message. The variant with the ``shell`` module is not available through the
-launcher; install it with ``install.sh --shell``.
+launcher; install it with ``install.sh --shell``, or on Windows with
+``install.ps1 -Shell``.
 
 The package also contains ``install.sh`` and ``install.sh.sig``, so that the
 installer can be obtained from npm when the project hosts cannot be reached,
@@ -329,8 +533,8 @@ the command to run next:
 The registration and the first exchange are described in :doc:`tutorial`.
 For the lifecycle commands, see :ref:`reference-cli`.
 
-The data directory is ``~/.anet``. Set ``ANET_DATA_DIR`` to use another
-location. Further identities, created with ``anet id new NAME``, are kept
+The data directory is ``~/.anet`` (``%USERPROFILE%\.anet`` on Windows). Set
+``ANET_DATA_DIR`` to use another location. Further identities, created with ``anet id new NAME``, are kept
 under ``~/.anet/ids/NAME``. The data directory contains the identity
 (``identity.kel``), the configuration, the peer lists, the evidence chain
 and the control token. The directory must not be shared or copied to
@@ -374,7 +578,8 @@ variants.
    approved by the operator. Even this variant runs nothing until the
    configuration names the commands and lists the AIDs that may call them;
    an empty list refuses every caller. The variant is selected with
-   ``--shell`` at installation and is retained by ``anet update``.
+   ``--shell`` (``-Shell`` or ``-Controller`` on Windows) at installation and
+   is retained by ``anet update``.
 
 The module names are used for the installer option, for ``anet init`` and
 in the configuration.
@@ -513,6 +718,9 @@ that is already running keeps the old binary until it is restarted:
 
    $ anet stop --all && anet up --all
 
+On Windows, the running ``anet.exe`` is renamed aside instead of replaced; see
+:ref:`intro-install-windows`.
+
 ``--base URL`` selects another download host, with the same checks. Releases
 after 0.3.3 also try the npm packages of :ref:`intro-install-hosts` after the
 project hosts. Re-running the installer is not required on a machine that
@@ -530,6 +738,8 @@ Stop the daemons and delete the binary:
 
    $ anet stop --all
    $ rm "$(command -v anet)"
+
+On Windows, follow the steps in :ref:`intro-install-windows` instead.
 
 A hub that is the witness of an identity cannot be left with
 ``anet hub-leave``, because without it nobody can confirm the key of the

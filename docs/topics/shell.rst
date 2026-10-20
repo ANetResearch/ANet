@@ -11,8 +11,8 @@ revocable at any time.
 
 The module is the only one that turns a request from the network into a command on the host.
 It is therefore *additive*: it is not part of the default build, and it is included only in
-the build with the tag ``shell`` (``install.sh --shell``, or ``./build.sh --with shell``). See
-:doc:`modules`.
+the build with the tag ``shell`` (``install.sh --shell``, ``install.ps1 -Shell`` on Windows, or
+``./build.sh --with shell``). See :doc:`modules`.
 
 .. contents::
    :local:
@@ -101,7 +101,8 @@ Configuration
      - The largest size of the output that is returned. The default is 65,536 and the largest
        value is 4 MiB.
    * - ``shell``
-     - The interpreter. The default is ``/bin/sh``.
+     - The interpreter. The default is ``/bin/sh``, and ``powershell`` on Windows (see
+       :ref:`topics-shell-windows`).
 
 The node writes a warning to standard error at the start when no caller is allowed, and when
 ``allow_arbitrary`` is on.
@@ -163,3 +164,70 @@ Behavior
 
 The line that a ``run`` contains is not restricted. The operator who writes it is trusted, and
 the trust boundary lies between what the operator wrote and what the network sent.
+
+
+.. _topics-shell-windows:
+
+Windows
+-------
+
+The module runs on Windows with the same access control: the caller must be on
+``peers.allow`` and on the list of the module, and ``allow_local`` stays off. The installer
+parameter ``-Controller`` writes such a configuration for exactly one AID (see
+:ref:`intro-install-windows-controller`).
+
+*Interpreters.* The key ``shell`` accepts the following values. Any other value is a
+configuration error.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 32 68
+
+   * - Value
+     - Interpreter
+   * - ``powershell`` (the default)
+     - ``%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe``. The path is fixed and
+       never looked up on ``PATH``.
+   * - ``pwsh``
+     - PowerShell 7 (``pwsh.exe``).
+   * - ``cmd``
+     - ``cmd.exe``.
+   * - An absolute path
+     - A path to ``powershell.exe``, ``pwsh.exe``, ``cmd.exe``, ``sh.exe`` or ``bash.exe``.
+
+*Invocation.* PowerShell receives the command as ``-EncodedCommand``, with ``-NoProfile``,
+``-NonInteractive`` and ``-ExecutionPolicy Bypass``, and writes its output as UTF-8. A command
+that would exceed the length limit of a Windows command line is refused.
+
+*Arguments.* The arguments of a command with ``args: true`` are quoted for PowerShell: each
+argument is enclosed in single quotes, and the single quote characters inside it, including the
+typographic ones, are doubled. ``cmd`` does not accept arguments; a command with ``args: true``
+is refused with that interpreter.
+
+*Process trees.* Each command runs in a Job object. On a timeout or a cancellation the whole
+process tree is terminated. A process that a command leaves running survives the command, as
+on Linux and macOS, but ends when the daemon ends.
+
+*Working directory.* The default working directory is the profile directory of the user.
+
+*Privileges.* Commands run as the user that runs the node. The node runs as the logged-on
+user and never as a Windows service, and the module uses no elevation mechanism.
+
+A configuration for Windows:
+
+.. code-block:: json
+
+   {
+     "modules": {
+       "shell": {
+         "shell": "powershell",
+         "commands": {
+           "app-status": {"run": "Get-Process -Name myapp", "description": "Report the application process"},
+           "tail-log":   {"run": "Get-Content -Tail 200 $env:LOCALAPPDATA\\MyApp\\app.log"},
+           "disk-free":  {"run": "Get-PSDrive -PSProvider FileSystem"}
+         },
+         "allow_file": "C:\\Users\\operator\\.anet\\shell-allow",
+         "timeout_s": 30
+       }
+     }
+   }

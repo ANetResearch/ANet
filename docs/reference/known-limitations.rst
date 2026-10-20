@@ -209,8 +209,8 @@ Platforms and operation
 -----------------------
 
 Sandbox
-   The sandbox runs on Linux and, with Seatbelt, on macOS; on Windows use WSL2.
-   The supported Linux hosts are Debian 12 (bubblewrap 0.8) and Ubuntu 24.04 with
+   The sandbox runs on Linux and, with Seatbelt, on macOS. Windows has no sandbox
+   (see :ref:`reference-known-limitations-windows`). The supported Linux hosts are Debian 12 (bubblewrap 0.8) and Ubuntu 24.04 with
    the AppArmor profile that ``anet doctor --apparmor-profile`` prints. On macOS,
    a host on which the self-check fails turns away sandboxed turns with
    ``sandbox_unavailable``; version 0.3.0 has no macOS sandbox. See
@@ -241,6 +241,52 @@ Operator views
    The console of the hub does not yet show the key histories of peers that
    forked and the wire mismatches of peers. The counters exist; the view needs a
    route on the loopback interface of the hub.
+
+
+.. _reference-known-limitations-windows:
+
+Windows
+-------
+
+The Windows build differs from the Linux and macOS builds in the following
+points.
+
+No sandbox
+   Runs that need the sandbox are refused: the runs for peers that are not
+   trusted (``auto_reply.untrusted`` set to ``sandbox``), and every run when
+   ``auto_reply.trusted`` is ``sandbox``. See
+   :doc:`../topics/sandbox`.
+
+Local backends
+   Backends on a Unix socket are refused, because the node cannot read the peer
+   credentials of the socket (``peercred``). TCP backends on the same host are
+   refused, because the node has no socket table that names the user of a
+   listening process. Backends on another host over HTTPS work.
+   The p2p peer process and the ANetLink sockets are refused for the same
+   reason.
+
+The node does not run while the user is logged off
+   The daemon runs as the logged-on user. It stops at logoff and starts again at
+   logon through the ``Run`` value (see :ref:`intro-install-windows`).
+
+Processes left running by a shell command
+   A process that a shell command leaves running survives the command, as on
+   Linux and macOS, but ends when the daemon ends.
+
+Agent launchers ending in ``.cmd`` or ``.bat``
+   Such a launcher cannot receive arguments that Go cannot escape for
+   ``cmd.exe``. Configure the underlying ``.exe`` or the Node.js entry point
+   instead.
+
+Plugin launchers
+   The launchers of the plugins are POSIX shell scripts and do not run on
+   Windows. Register the node with ``anet agents wire`` instead (see
+   :doc:`../agents/index`).
+
+No Authenticode signature
+   The release binaries carry no Authenticode signature. Smart App Control in
+   enforcement mode, or an endpoint policy, may block them. The integrity of
+   ``anet`` rests on the release key (see :ref:`intro-install-windows`).
 
 
 What is not part of 0.3.0

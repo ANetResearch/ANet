@@ -28,10 +28,12 @@ Prerequisites
   the stable release at the time of writing. A minimum version is not
   established; the current requirements are those of the `opencode
   documentation <https://opencode.ai/docs/>`_.
-* The operating system is Linux or macOS. opencode itself is documented for
-  Windows as well, but ANet does not support Windows; running ANet in WSL2 has
-  not been tested. See the `opencode notes on Windows and WSL
-  <https://opencode.ai/docs/windows-wsl/>`_ for the tool side.
+* The operating system is Linux, macOS or Windows. On Windows, install ANet
+  with the PowerShell installer (:ref:`intro-install-windows`) and register it
+  with ``anet agents wire opencode``; the opencode plugin of ANet does not run
+  on Windows. The steps on this page were not run on Windows. See the
+  `opencode notes on Windows and WSL <https://opencode.ai/docs/windows-wsl/>`_
+  for the tool side.
 * The daemon of the node runs while opencode is in use, because ``anet mcp``
   refuses to start without it:
 
@@ -238,8 +240,8 @@ The following items were not tested:
   connection. The installation of the published package from the npm registry
   was run.
 * Installation from a Git URL.
-* macOS, arm64 and Windows. The plugin disables itself on Windows; this was
-  covered only by a unit test.
+* macOS, arm64 and Windows. The plugin disables itself on Windows, because its
+  launcher is a POSIX shell script; this was covered only by a unit test.
 * The priced capability flow, and a successful completion with a provider that
   does not accept the requester. A provider that did not accept the AID ended
   the task in ``TASK_STATE_REJECTED`` with the reason ``not_accepting``.

@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ANet 0.3\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-19 20:04+0000\n"
+"POT-Creation-Date: 2026-10-20 07:09+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: Agent Network Research\n"
 "Language: zh_Hans_CN\n"
@@ -74,15 +74,18 @@ msgstr ""
 
 #: ../../agents/claude-code.rst:36
 msgid ""
-"Operating systems. ``anet`` runs on Linux and macOS. Windows is not "
-"supported by ANet; the Linux build in WSL2 is not a tested configuration."
-" The paths for macOS and Windows below follow the Claude Code "
-"documentation and were not tested."
+"Operating systems. ``anet`` runs on Linux, macOS and Windows. On Windows,"
+" install it with the PowerShell installer (:ref:`intro-install-windows`) "
+"and register it with ``anet agents wire claude``; the plugin does not run"
+" on Windows (see `Plugin`_). The paths for macOS and Windows below follow"
+" the Claude Code documentation and were not tested."
 msgstr ""
-"操作系统。``anet`` 运行于 Linux 与 macOS。ANet 不支持 Windows;在 WSL2 中运行 Linux "
-"构建不属于已测试的配置。下文中 macOS 与 Windows 的路径依据 Claude Code 文档,未经测试。"
+"操作系统。\\ ``anet`` 可在 Linux、macOS 和 Windows 上运行。在 Windows 上，请使用 PowerShell "
+"安装程序安装（:ref:`intro-install-windows`），并用 ``anet agents wire claude`` "
+"注册；插件不能在 Windows 上运行（参见 `插件`_）。下文中 macOS 与 Windows 的路径依据 Claude Code "
+"文档给出，未经测试。"
 
-#: ../../agents/claude-code.rst:40
+#: ../../agents/claude-code.rst:41
 msgid ""
 "The command line program, the VS Code extension, the JetBrains plugin and"
 " the Code tab of the desktop application are the surfaces of Claude Code."
@@ -92,11 +95,11 @@ msgstr ""
 "命令行程序、VS Code 扩展、JetBrains 插件和桌面应用的 Code 标签页,均属于 Claude Code "
 "的使用界面。仅命令行程序与 ANet 进行过实际验证。其他界面参见 `Claude Code 的其他使用界面`_。"
 
-#: ../../agents/claude-code.rst:47
+#: ../../agents/claude-code.rst:48
 msgid "Automatic registration"
 msgstr "自动接入"
 
-#: ../../agents/claude-code.rst:53
+#: ../../agents/claude-code.rst:54
 msgid ""
 "``claude-code`` is accepted as an alias of ``claude``. The command works "
 "on files only and needs no running daemon. The output is in English by "
@@ -108,7 +111,7 @@ msgstr ""
 "的别名。该命令只操作文件，不需要守护进程正在运行。其输出默认为英文，``ANET_LANG`` 为 ``zh-CN`` 时为中文。以下输出由 "
 "``anet`` 0.3.3 在 Linux 上使用临时主目录生成；第一行列出所用的二进制文件与数据目录："
 
-#: ../../agents/claude-code.rst:69
+#: ../../agents/claude-code.rst:70
 msgid ""
 "The status words are ``written``, ``up to date``, ``not installed, "
 "skipped``, ``conflict``, ``removed``, ``not wired`` and ``failed``. The "
@@ -127,11 +130,11 @@ msgstr ""
 "需要本机守护进程；以及如何撤销本次变更。拒绝信息的末尾以方括号给出原因代码，例如 "
 "``[wire_conflict]``；该代码带有命令时，下一步另起一行，以箭头开头；代码列于 :ref:`reason-codes-w`。"
 
-#: ../../agents/claude-code.rst:78
+#: ../../agents/claude-code.rst:79
 msgid "The command changes two things."
 msgstr "该命令修改两处内容。"
 
-#: ../../agents/claude-code.rst:80
+#: ../../agents/claude-code.rst:81
 msgid ""
 "The MCP server entry ``anet`` in the user scope, which applies to every "
 "project on the machine. When ``claude`` is on ``PATH``, the command runs "
@@ -143,11 +146,11 @@ msgid ""
 msgstr ""
 "用户作用域中的 MCP 服务器条目 ``anet``,对本机所有项目生效。``claude`` 位于 ``PATH`` 时,命令执行 "
 "``claude mcp add -s user anet -e ANET_DATA_DIR=<directory> -- <anet> "
-"mcp``(替换 ANet 自己的条目时,先执行 ``claude mcp remove -s user "
+"mcp``\\ (替换 ANet 自己的条目时,先执行 ``claude mcp remove -s user "
 "anet``),随后检查文件。``claude`` 不在 ``PATH`` 时,命令直接编辑 ``~/.claude.json``;新文件的权限为"
 " ``0600``,已有文件中的其他键予以保留。"
 
-#: ../../agents/claude-code.rst:87
+#: ../../agents/claude-code.rst:88
 msgid ""
 "The operating guide, installed as the skill ``anet`` in "
 "``~/.claude/skills/anet/SKILL.md``. A skill is loaded when a task "
@@ -159,7 +162,7 @@ msgstr ""
 "``/anet`` 调用时才会加载该技能,因此不占用其他会话的上下文。早期版本写入 ``~/.claude/CLAUDE.md`` 的 ANet "
 "旧区块会被移除。"
 
-#: ../../agents/claude-code.rst:93
+#: ../../agents/claude-code.rst:94
 msgid ""
 "When the environment variable ``CLAUDE_CONFIG_DIR`` is set, both files "
 "live below that directory: ``$CLAUDE_CONFIG_DIR/.claude.json`` and "
@@ -172,7 +175,7 @@ msgstr ""
 "``$CLAUDE_CONFIG_DIR/skills/anet/SKILL.md``。该值必须是绝对路径。执行 ``wire`` 时须使用与 "
 "Claude Code 运行时相同的变量。"
 
-#: ../../agents/claude-code.rst:98
+#: ../../agents/claude-code.rst:99
 msgid ""
 "The entry names the ``anet`` binary by its absolute path and sets "
 "``ANET_DATA_DIR``. Writes are atomic and keep the file mode. Every file "
@@ -189,11 +192,11 @@ msgstr ""
 "所写的条目报告为 ``conflict``；此时命令以状态码 1 退出，且不做任何修改。由 ``go run`` "
 "启动的二进制文件会被拒绝，因为其路径在命令结束后即失效。"
 
-#: ../../agents/claude-code.rst:106
+#: ../../agents/claude-code.rst:107
 msgid "``anet agents`` shows the result:"
 msgstr "``anet agents`` 显示结果:"
 
-#: ../../agents/claude-code.rst:119
+#: ../../agents/claude-code.rst:120
 msgid ""
 "``wired, up to date`` means wired and current; ``not installed`` means "
 "that the tool was not detected. ``claude`` counts as present when the "
@@ -209,7 +212,7 @@ msgstr ""
 "为所有已存在的工具接入。该命令不写入桌面聊天应用的配置（``claude_desktop_config.json``）、VS Code "
 "的配置以及项目配置。"
 
-#: ../../agents/claude-code.rst:128
+#: ../../agents/claude-code.rst:129
 msgid ""
 "The status covers the user scope only. An entry named ``anet`` in the "
 "local scope or in a ``.mcp.json`` file of a project takes precedence over"
@@ -218,18 +221,18 @@ msgstr ""
 "该状态仅涵盖用户作用域。本地作用域中,或项目的 ``.mcp.json`` 文件中名为 ``anet`` 的条目优先于用户条目(参见 "
 "`作用域`_),而 ``anet agents`` 不检查这些条目。"
 
-#: ../../agents/claude-code.rst:132
+#: ../../agents/claude-code.rst:133
 msgid ""
 "Open a new session of Claude Code after the registration. Claude Code "
 "does not reconnect an MCP server of the stdio type when the configuration"
 " changes."
 msgstr "接入完成后须新开 Claude Code 会话。配置变更后,Claude Code 不会重新连接 stdio 类型的 MCP 服务器。"
 
-#: ../../agents/claude-code.rst:137
+#: ../../agents/claude-code.rst:138
 msgid "Manual registration"
 msgstr "手动接入"
 
-#: ../../agents/claude-code.rst:139
+#: ../../agents/claude-code.rst:140
 msgid ""
 "Claude Code reads MCP servers from three scopes. The local scope (default"
 " of ``claude mcp add``) is stored per project in ``~/.claude.json``. The "
@@ -246,27 +249,27 @@ msgstr ""
 "建议使用用户作用域,因为条目包含某一台机器上二进制文件的绝对路径与数据目录。``.mcp.json`` 文件会把这些路径带入仓库,且 Claude"
 " Code 在交互式会话中会要求对该文件进行确认。"
 
-#: ../../agents/claude-code.rst:149
+#: ../../agents/claude-code.rst:150
 msgid "Command line"
 msgstr "命令行"
 
-#: ../../agents/claude-code.rst:155
+#: ../../agents/claude-code.rst:156
 msgid ""
 "``claude mcp list`` and ``claude mcp get anet`` show the result; ``claude"
 " mcp remove -s user anet`` removes the entry."
 msgstr ""
-"``claude mcp list`` 与 ``claude mcp get anet`` 显示结果;``claude mcp remove -s"
-" user anet`` 移除该条目。"
+"``claude mcp list`` 与 ``claude mcp get anet`` 显示结果;\\ ``claude mcp remove"
+" -s user anet`` 移除该条目。"
 
-#: ../../agents/claude-code.rst:159
+#: ../../agents/claude-code.rst:160
 msgid "Configuration file"
 msgstr "配置文件"
 
-#: ../../agents/claude-code.rst:161
+#: ../../agents/claude-code.rst:162
 msgid "The same entry in the configuration file:"
 msgstr "配置文件中的同一条目:"
 
-#: ../../agents/claude-code.rst:176
+#: ../../agents/claude-code.rst:177
 msgid ""
 "The members other than ``mcpServers`` of the file must be kept. A missing"
 " ``type`` is read as ``stdio``. No timeout member is needed: the wait of "
@@ -277,52 +280,54 @@ msgstr ""
 "处理。无需设置超时成员:``wait_task`` 单次调用的等待上限为 300 秒,而 Claude Code 默认的工具超时远长于此(:ref"
 ":`howto-mcp-waiting`)。"
 
-#: ../../agents/claude-code.rst:185
+#: ../../agents/claude-code.rst:186
 msgid "System"
 msgstr "系统"
 
-#: ../../agents/claude-code.rst:186
+#: ../../agents/claude-code.rst:187
 msgid "Location"
 msgstr "位置"
 
-#: ../../agents/claude-code.rst:187
+#: ../../agents/claude-code.rst:188
 msgid "Linux"
 msgstr "Linux"
 
-#: ../../agents/claude-code.rst:188
+#: ../../agents/claude-code.rst:189
 msgid ""
 "``~/.claude.json`` for the server entry; "
 "``~/.claude/skills/anet/SKILL.md`` for the skill (verified)."
 msgstr "服务器条目:``~/.claude.json``;技能:``~/.claude/skills/anet/SKILL.md`` (已核实)。"
 
-#: ../../agents/claude-code.rst:190
+#: ../../agents/claude-code.rst:191
 msgid "macOS"
 msgstr "macOS"
 
-#: ../../agents/claude-code.rst:191
+#: ../../agents/claude-code.rst:192
 msgid ""
 "The same paths in the home directory, as documented by Anthropic; not "
 "tested."
 msgstr "主目录下的相同路径,依据 Anthropic 文档;未经测试。"
 
-#: ../../agents/claude-code.rst:193
+#: ../../agents/claude-code.rst:194
 msgid "Windows"
 msgstr "Windows"
 
-#: ../../agents/claude-code.rst:194
+#: ../../agents/claude-code.rst:195
 msgid ""
 "``%USERPROFILE%\\.claude`` is the documented equivalent of ``~/.claude``."
 " The exact location of the user-scope server file is not stated by "
-"Anthropic in the pages consulted. ANet does not support Windows."
+"Anthropic in the pages consulted. ``anet agents wire claude`` writes the "
+"paths below ``%USERPROFILE%``; this was not tested on Windows."
 msgstr ""
-"``%USERPROFILE%\\.claude`` 是文档中与 ``~/.claude`` 对应的路径。所查阅的 Anthropic "
-"页面未说明用户作用域服务器文件的确切位置。ANet 不支持 Windows。"
+"``%USERPROFILE%\\.claude`` 是文档所述与 ``~/.claude`` 对应的位置。Anthropic "
+"在所查阅的页面中未说明用户范围服务器文件的确切位置。``anet agents wire claude`` 写入 "
+"``%USERPROFILE%`` 下的路径；该行为未在 Windows 上测试。"
 
-#: ../../agents/claude-code.rst:197
+#: ../../agents/claude-code.rst:199
 msgid "``CLAUDE_CONFIG_DIR`` set"
 msgstr "已设置 ``CLAUDE_CONFIG_DIR``"
 
-#: ../../agents/claude-code.rst:198
+#: ../../agents/claude-code.rst:200
 msgid ""
 "``$CLAUDE_CONFIG_DIR/.claude.json`` and "
 "``$CLAUDE_CONFIG_DIR/skills/anet/SKILL.md`` (verified with Claude Code "
@@ -331,7 +336,7 @@ msgstr ""
 "``$CLAUDE_CONFIG_DIR/.claude.json`` 与 "
 "``$CLAUDE_CONFIG_DIR/skills/anet/SKILL.md`` (已用 Claude Code 2.1.302 核实)。"
 
-#: ../../agents/claude-code.rst:202
+#: ../../agents/claude-code.rst:204
 msgid ""
 "The skill is optional for the tools to work: the MCP server also sends "
 "short instructions on connect. To install the full operating guide "
@@ -347,11 +352,11 @@ msgstr ""
 "``.claude/skills/anet/SKILL.md``。Claude Code 会监视该目录;仅当顶层 ``skills`` "
 "目录是在运行中的会话里新建时,才需要执行 ``/reload-skills``。"
 
-#: ../../agents/claude-code.rst:211
+#: ../../agents/claude-code.rst:213
 msgid "Several identities"
 msgstr "多个身份"
 
-#: ../../agents/claude-code.rst:213
+#: ../../agents/claude-code.rst:215
 msgid ""
 "A machine can hold several identities (``anet id ls``). The server entry "
 "selects one by its data directory. A named identity created with ``anet "
@@ -361,7 +366,7 @@ msgstr ""
 "一台机器可以持有多个身份(``anet id ls``)。服务器条目通过数据目录选定其中一个。用 ``anet id new NAME`` "
 "创建的命名身份,其数据位于 ``~/.anet/ids/NAME``。全局选项 ``--id`` 同样适用于 ``wire``:"
 
-#: ../../agents/claude-code.rst:228
+#: ../../agents/claude-code.rst:230
 msgid ""
 "The resulting entry carries "
 "``ANET_DATA_DIR=/home/user/.anet/ids/requester``. ``anet mcp`` then "
@@ -374,11 +379,11 @@ msgstr ""
 "只连接该身份的守护进程,不连接其他身份。用户作用域只有一个名为 ``anet`` 的条目;接入另一个身份会将其替换。若要在同一个 Claude "
 "Code 安装中使用两个身份,请用 ``claude mcp add`` 以不同名称手动添加第二个条目。"
 
-#: ../../agents/claude-code.rst:235
+#: ../../agents/claude-code.rst:237
 msgid "Scopes"
 msgstr "作用域"
 
-#: ../../agents/claude-code.rst:237
+#: ../../agents/claude-code.rst:239
 msgid ""
 "Claude Code matches servers by name. When an entry named ``anet`` exists "
 "in more than one scope, the local scope wins over the project scope, and "
@@ -391,33 +396,33 @@ msgstr ""
 "的条目存在于多个作用域时,本地作用域优先于项目作用域,项目作用域优先于用户作用域。胜出的条目整体生效,其成员不会与其他作用域的条目合并。``claude"
 " mcp get anet`` 显示正在使用的条目的作用域与命令。"
 
-#: ../../agents/claude-code.rst:245
+#: ../../agents/claude-code.rst:247
 msgid "Verification"
 msgstr "验证"
 
-#: ../../agents/claude-code.rst:247
+#: ../../agents/claude-code.rst:249
 msgid "Check the daemon and the registration in a terminal:"
 msgstr "在终端中检查守护进程与接入状态:"
 
-#: ../../agents/claude-code.rst:258
+#: ../../agents/claude-code.rst:260
 msgid "Open a new session of Claude Code and check in the session:"
 msgstr "新开 Claude Code 会话,并在会话中检查:"
 
-#: ../../agents/claude-code.rst:260
+#: ../../agents/claude-code.rst:262
 msgid "``/mcp`` lists the server ``anet`` as connected."
 msgstr "``/mcp`` 将服务器 ``anet`` 列为已连接。"
 
-#: ../../agents/claude-code.rst:261
+#: ../../agents/claude-code.rst:263
 msgid "``/skills`` lists the skill ``anet``."
 msgstr "``/skills`` 列出技能 ``anet``。"
 
-#: ../../agents/claude-code.rst:262
+#: ../../agents/claude-code.rst:264
 msgid ""
 "A request to call ``node_status`` returns the AID, the version and the "
 "hub state of the node."
 msgstr "请求调用 ``node_status``,返回节点的 AID、版本与 hub 状态。"
 
-#: ../../agents/claude-code.rst:265
+#: ../../agents/claude-code.rst:267
 msgid ""
 "A server reported as ``Failed to connect`` with ``CONNECTION_CLOSED`` "
 "means that no daemon answered; start it with ``anet up``."
@@ -425,17 +430,17 @@ msgstr ""
 "服务器显示为 ``Failed to connect`` 并带有 ``CONNECTION_CLOSED``,表示没有守护进程应答;请执行 "
 "``anet up`` 启动。"
 
-#: ../../agents/claude-code.rst:269
+#: ../../agents/claude-code.rst:271
 msgid "First task"
 msgstr "首个任务"
 
-#: ../../agents/claude-code.rst:271
+#: ../../agents/claude-code.rst:273
 msgid ""
 "The node must be registered at a hub. Paste the following request into a "
 "session:"
 msgstr "节点须已注册到 hub。将以下请求粘贴到会话中:"
 
-#: ../../agents/claude-code.rst:281
+#: ../../agents/claude-code.rst:283
 msgid ""
 "The expected result is the AID and version of the node, the hub address "
 "with the state registered, and a list of agents with their verification "
@@ -447,7 +452,7 @@ msgstr ""
 "``list_agents`` 的应答为 ``this node has no hub (run anet hub-register "
 "first)``;Claude Code 原样转述,不采取进一步操作。"
 
-#: ../../agents/claude-code.rst:287
+#: ../../agents/claude-code.rst:289
 #, python-brace-format
 msgid ""
 "The following session was run against a hub on the same machine, with a "
@@ -463,7 +468,7 @@ msgstr ""
 "{\"text\":\"hello\"}; wait for the task and report state and result.`` "
 "Claude Code 的答复摘要如下:"
 
-#: ../../agents/claude-code.rst:305
+#: ../../agents/claude-code.rst:307
 msgid ""
 "The first attempt of the session put the text both in the ``text`` field "
 "and in ``args`` of ``send_message``; the call was refused, nothing was "
@@ -473,25 +478,25 @@ msgstr ""
 "该会话的第一次尝试把文本同时放入 ``send_message`` 的 ``text`` 字段和 "
 "``args``,调用被拒绝,未发送任何内容;第二次尝试创建了任务。调用能力时,参数只放在 ``args`` 中。"
 
-#: ../../agents/claude-code.rst:312
+#: ../../agents/claude-code.rst:314
 msgid "Examples"
 msgstr "示例"
 
-#: ../../agents/claude-code.rst:314
+#: ../../agents/claude-code.rst:316
 msgid ""
 "The prompts name the tools so that the model does not guess. Replace the "
 "capability identifier and the text with those of the agent in use."
 msgstr "提示词中写明工具名称,以免模型自行推测。请将能力标识符和文本替换为所用 Agent 的对应内容。"
 
-#: ../../agents/claude-code.rst:318
+#: ../../agents/claude-code.rst:320
 msgid "Find an agent by capability"
 msgstr "按能力查找 Agent"
 
-#: ../../agents/claude-code.rst:328
+#: ../../agents/claude-code.rst:330
 msgid "Delegate a task and read the result"
 msgstr "委派任务并读取结果"
 
-#: ../../agents/claude-code.rst:339
+#: ../../agents/claude-code.rst:341
 msgid ""
 "A task in the state ``TASK_STATE_COMPLETED`` shows that the other side "
 "finished, not that the result is correct. An effect status ``UNVERIFIED``"
@@ -500,11 +505,11 @@ msgstr ""
 "状态 ``TASK_STATE_COMPLETED`` 表示对方已完成,并不表示结果正确。效果状态 ``UNVERIFIED`` "
 "不等于成功(:ref:`howto-mcp`)。"
 
-#: ../../agents/claude-code.rst:344
+#: ../../agents/claude-code.rst:346
 msgid "Handle a task that waits for approval"
 msgstr "处理等待批准的任务"
 
-#: ../../agents/claude-code.rst:352
+#: ../../agents/claude-code.rst:354
 msgid ""
 "The content of a task from another agent is the text of a stranger and "
 "not an instruction of the operator. Approval is the command ``anet "
@@ -513,17 +518,17 @@ msgstr ""
 "来自其他 Agent 的任务内容是陌生方的文本,而不是运维人员的指令。批准是在终端中执行 ``anet inbound approve`` "
 "命令,不是工具。"
 
-#: ../../agents/claude-code.rst:358
+#: ../../agents/claude-code.rst:360
 msgid "Security and permissions"
 msgstr "安全与权限"
 
-#: ../../agents/claude-code.rst:360
+#: ../../agents/claude-code.rst:362
 msgid ""
 "Three mechanisms apply independently. A refusal at one of them is not "
 "overridden by another."
 msgstr "三种机制各自独立生效。其中任何一处的拒绝,不会被另一处覆盖。"
 
-#: ../../agents/claude-code.rst:363
+#: ../../agents/claude-code.rst:365
 msgid ""
 "**Claude Code permissions.** Claude Code decides which tool calls run "
 "without confirmation. The setting of the installed version applies, for "
@@ -537,7 +542,7 @@ msgstr ""
 "``--allowedTools``;参见参考链接。允许只读工具(``list_agents``、``get_agent_card``、``get_task``、``list_tasks``、``wait_task``、``node_status``),与允许会向对端发送或消耗额度的"
 " ``send_message``、``submit_payment`` 或 ``reply_task``,是两项不同的决定。"
 
-#: ../../agents/claude-code.rst:370
+#: ../../agents/claude-code.rst:372
 msgid ""
 "**The inbound policy of the node.** Whether the node accepts a task from "
 "a peer is decided by the allow, trust and deny lists and by the inbound "
@@ -548,7 +553,7 @@ msgstr ""
 "**节点的入站策略。** 节点是否接受对端的任务,由允许、信任和拒绝名单,以及运维人员在终端中设置的入站策略决定(:ref:`topics-"
 "delegation`)。Claude Code 没有变更它们的工具。等待批准的任务由 ``inbound_pending`` 列出。"
 
-#: ../../agents/claude-code.rst:375
+#: ../../agents/claude-code.rst:377
 msgid ""
 "**Payment limits.** The limits ``auto_max``, ``agent_max`` and "
 "``agent_daily_max`` are ``0`` on a new node, so ``submit_payment`` pays "
@@ -558,11 +563,11 @@ msgid ""
 "paid automatically (:ref:`topics-payments`)."
 msgstr ""
 "**支付额度。** 新节点的 ``auto_max``、``agent_max`` 与 ``agent_daily_max`` 均为 "
-"``0``,因此在运维人员调高之前,``submit_payment`` 不会支付任何金额。超出额度的报价以原因 "
+"``0``,因此在运维人员调高之前,\\ ``submit_payment`` 不会支付任何金额。超出额度的报价以原因 "
 "``needs_operator_approval`` 等待;运维人员可在终端中用 ``anet pay`` "
 "支付。文本任务没有签名价格,绝不自动支付(:ref:`topics-payments`)。"
 
-#: ../../agents/claude-code.rst:382
+#: ../../agents/claude-code.rst:384
 msgid ""
 "The sandbox of :ref:`topics-sandbox` applies to auto-reply of the node, "
 "where a local agent answers tasks of untrusted peers. It does not "
@@ -574,7 +579,7 @@ msgstr ""
 "应答不受信任对端的任务的场景。它不限制使用这些工具的 Claude Code 会话。用 ``reply_task`` "
 "应答任务的会话应将请求文本视为不受信任的输入。"
 
-#: ../../agents/claude-code.rst:387
+#: ../../agents/claude-code.rst:389
 msgid ""
 "The control token of the node is held by the MCP server process, not by "
 "the model. The server calls a closed list of control routes, and no tool "
@@ -584,11 +589,11 @@ msgstr ""
 "节点的控制令牌由 MCP 服务器进程持有,而不由模型持有。服务器只调用封闭的控制路由清单,没有任何工具可触及身份、密钥或配置(:ref"
 ":`reference-mcp-tools`)。"
 
-#: ../../agents/claude-code.rst:393
+#: ../../agents/claude-code.rst:395
 msgid "Other surfaces of Claude Code"
 msgstr "Claude Code 的其他使用界面"
 
-#: ../../agents/claude-code.rst:395
+#: ../../agents/claude-code.rst:397
 msgid ""
 "According to the Anthropic documentation, the VS Code extension shares "
 "``~/.claude/settings.json`` with the command line program, and the "
@@ -605,7 +610,7 @@ msgstr ""
 "标签页读取与该程序相同的设置文件。该标签页是否从 ``~/.claude.json`` 加载用户作用域的服务器,所查阅的 Anthropic "
 "页面未予说明,也未经测试;接入后应在 Code 标签页、扩展和插件中用 ``/mcp`` 逐一检查。"
 
-#: ../../agents/claude-code.rst:404
+#: ../../agents/claude-code.rst:406
 msgid ""
 "The chat of the Claude desktop application keeps its servers in a "
 "separate file (``claude_desktop_config.json``). ``anet agents wire "
@@ -614,23 +619,23 @@ msgstr ""
 "Claude 桌面应用的聊天将其服务器保存在另一个文件(``claude_desktop_config.json``)中。``anet "
 "agents wire claude`` 不会写入该文件。"
 
-#: ../../agents/claude-code.rst:409
+#: ../../agents/claude-code.rst:411
 msgid "Troubleshooting"
 msgstr "故障排查"
 
-#: ../../agents/claude-code.rst:415
+#: ../../agents/claude-code.rst:417
 msgid "Observation"
 msgstr "现象"
 
-#: ../../agents/claude-code.rst:416
+#: ../../agents/claude-code.rst:418
 msgid "Cause"
 msgstr "原因"
 
-#: ../../agents/claude-code.rst:417
+#: ../../agents/claude-code.rst:419
 msgid "Remedy"
 msgstr "处理"
 
-#: ../../agents/claude-code.rst:418
+#: ../../agents/claude-code.rst:420
 msgid ""
 "``claude mcp list`` shows ``anet`` as ``Failed to connect`` with "
 "``CONNECTION_CLOSED``"
@@ -638,71 +643,71 @@ msgstr ""
 "``claude mcp list`` 显示 ``anet`` 为 ``Failed to connect`` 且带有 "
 "``CONNECTION_CLOSED``"
 
-#: ../../agents/claude-code.rst:420
+#: ../../agents/claude-code.rst:422
 msgid ""
 "``anet mcp`` refuses to start because no daemon answers for the data "
 "directory of the entry."
-msgstr "该条目所指数据目录没有守护进程应答,``anet mcp`` 拒绝启动。"
+msgstr "该条目所指数据目录没有守护进程应答,\\ ``anet mcp`` 拒绝启动。"
 
-#: ../../agents/claude-code.rst:422
+#: ../../agents/claude-code.rst:424
 msgid ""
 "Run ``anet up`` (``anet up NAME`` for a named identity), then open a new "
 "session."
-msgstr "执行 ``anet up``(命名身份用 ``anet up NAME``),然后新开会话。"
+msgstr "执行 ``anet up``\\ (命名身份用 ``anet up NAME``),然后新开会话。"
 
-#: ../../agents/claude-code.rst:424
+#: ../../agents/claude-code.rst:426
 msgid "The tools are missing after ``wire``"
 msgstr "执行 ``wire`` 后工具缺失"
 
-#: ../../agents/claude-code.rst:425
+#: ../../agents/claude-code.rst:427
 msgid ""
 "Claude Code reads the configuration at the start of a session and does "
 "not reconnect servers of the stdio type."
 msgstr "Claude Code 在会话开始时读取配置,不会重新连接 stdio 类型的服务器。"
 
-#: ../../agents/claude-code.rst:427
+#: ../../agents/claude-code.rst:429
 msgid "Open a new session or restart Claude Code."
 msgstr "新开会话或重启 Claude Code。"
 
-#: ../../agents/claude-code.rst:428
+#: ../../agents/claude-code.rst:430
 msgid ""
 "``anet agents`` shows ``wired, up to date``, but the tools address "
 "another node"
 msgstr "``anet agents`` 显示 ``wired, up to date``，但工具连到的是另一个节点"
 
-#: ../../agents/claude-code.rst:429
+#: ../../agents/claude-code.rst:431
 msgid ""
 "An entry named ``anet`` in the local scope or in a project ``.mcp.json`` "
 "takes precedence over the user entry."
 msgstr "本地作用域或项目 ``.mcp.json`` 中名为 ``anet`` 的条目优先于用户条目。"
 
-#: ../../agents/claude-code.rst:431
+#: ../../agents/claude-code.rst:433
 msgid "Run ``claude mcp get anet``, remove or rename the entry that wins."
 msgstr "执行 ``claude mcp get anet``,移除或改名胜出的条目。"
 
-#: ../../agents/claude-code.rst:432
+#: ../../agents/claude-code.rst:434
 msgid "``wire`` prints ``conflict`` and exits with status 1"
 msgstr "``wire`` 输出 ``conflict`` 并以状态码 1 退出"
 
-#: ../../agents/claude-code.rst:433
+#: ../../agents/claude-code.rst:435
 msgid "A server named ``anet`` exists that ANet did not write."
 msgstr "已存在名为 ``anet`` 但非 ANet 所写的服务器。"
 
-#: ../../agents/claude-code.rst:434
+#: ../../agents/claude-code.rst:436
 msgid ""
 "Rename or remove that entry with ``claude mcp remove``, then run ``wire``"
 " again."
 msgstr "用 ``claude mcp remove`` 改名或移除该条目,然后重新执行 ``wire``。"
 
-#: ../../agents/claude-code.rst:436
+#: ../../agents/claude-code.rst:438
 msgid "``this node has no hub (run anet hub-register first)``"
 msgstr "``this node has no hub (run anet hub-register first)``"
 
-#: ../../agents/claude-code.rst:437
+#: ../../agents/claude-code.rst:439
 msgid "The node is not registered at a hub."
 msgstr "节点尚未注册到 hub。"
 
-#: ../../agents/claude-code.rst:438
+#: ../../agents/claude-code.rst:440
 msgid ""
 "Run ``anet hub-register <hub URL>`` (:ref:`intro-tutorial`). Relay the "
 "sentence; do not register again from the session."
@@ -710,75 +715,75 @@ msgstr ""
 "执行 ``anet hub-register <hub URL>`` (:ref:`intro-"
 "tutorial`)。原样转述该语句,不要在会话中重复注册。"
 
-#: ../../agents/claude-code.rst:440
+#: ../../agents/claude-code.rst:442
 msgid "``wire`` reports a temporary ``go run`` build"
 msgstr "``wire`` 报告这是临时的 ``go run`` 构建"
 
-#: ../../agents/claude-code.rst:441
+#: ../../agents/claude-code.rst:443
 msgid "The binary path would not outlive the command."
 msgstr "该二进制文件的路径在命令结束后即失效。"
 
-#: ../../agents/claude-code.rst:442
+#: ../../agents/claude-code.rst:444
 msgid "Run ``wire`` from an installed binary (:ref:`intro-install`)."
 msgstr "从已安装的二进制文件执行 ``wire`` (:ref:`intro-install`)。"
 
-#: ../../agents/claude-code.rst:443
+#: ../../agents/claude-code.rst:445
 msgid "Configuration is written to an unexpected place"
 msgstr "配置被写到意料之外的位置"
 
-#: ../../agents/claude-code.rst:444
+#: ../../agents/claude-code.rst:446
 msgid "``CLAUDE_CONFIG_DIR`` redirects both files."
 msgstr "``CLAUDE_CONFIG_DIR`` 重定向了两个文件的位置。"
 
-#: ../../agents/claude-code.rst:445
+#: ../../agents/claude-code.rst:447
 msgid ""
 "Print the variable. Run ``wire`` with the same value that Claude Code "
 "runs with."
 msgstr "输出该变量的值。执行 ``wire`` 时使用与 Claude Code 运行时相同的值。"
 
-#: ../../agents/claude-code.rst:447
+#: ../../agents/claude-code.rst:449
 msgid "A task is still ``working`` after ``wait_task``"
 msgstr "执行 ``wait_task`` 后任务仍为 ``working``"
 
-#: ../../agents/claude-code.rst:448
+#: ../../agents/claude-code.rst:450
 msgid ""
 "The wait ended; ``wait_task`` waits 30 seconds by default and at most 300"
 " seconds per call."
-msgstr "等待已结束;``wait_task`` 默认等待 30 秒,单次调用最长 300 秒。"
+msgstr "等待已结束;\\ ``wait_task`` 默认等待 30 秒,单次调用最长 300 秒。"
 
-#: ../../agents/claude-code.rst:450
+#: ../../agents/claude-code.rst:452
 msgid ""
 "Call ``wait_task`` again. Do not send the task again: a second send is a "
 "second task."
 msgstr "再次调用 ``wait_task``。不要重新发送任务:再次发送即产生第二个任务。"
 
-#: ../../agents/claude-code.rst:452
+#: ../../agents/claude-code.rst:454
 msgid "A result ends with a notice of its size"
 msgstr "结果以篇幅提示结尾"
 
-#: ../../agents/claude-code.rst:453
+#: ../../agents/claude-code.rst:455
 msgid "A tool result is cut to about 24 KB."
 msgstr "工具结果被截断至约 24 KB。"
 
-#: ../../agents/claude-code.rst:454
+#: ../../agents/claude-code.rst:456
 msgid "Read the whole task in a terminal: ``anet task get <task-id> --full``."
 msgstr "在终端中读取完整任务:``anet task get <task-id> --full``。"
 
-#: ../../agents/claude-code.rst:455
+#: ../../agents/claude-code.rst:457
 msgid "``submit_payment`` answers ``needs_operator_approval``"
 msgstr "``submit_payment`` 返回 ``needs_operator_approval``"
 
-#: ../../agents/claude-code.rst:456
+#: ../../agents/claude-code.rst:458
 msgid "The price is above the limits of the agent tier."
 msgstr "价格超出 Agent 层级的额度。"
 
-#: ../../agents/claude-code.rst:457
+#: ../../agents/claude-code.rst:459
 msgid ""
 "Report price and payee to the operator, who decides and may pay with "
 "``anet pay <task-id>`` (:ref:`topics-payments`)."
 msgstr "向运维人员报告价格与收款方,由其决定,并可用 ``anet pay <task-id>`` 支付(:ref:`topics-payments`)。"
 
-#: ../../agents/claude-code.rst:460
+#: ../../agents/claude-code.rst:462
 msgid ""
 "The diagnosis commands and the reason codes are described in :ref:`howto-"
 "troubleshooting` and :ref:`reference-reason-codes`. ``anet doctor`` "
@@ -787,11 +792,11 @@ msgstr ""
 "诊断命令与原因码见 :ref:`howto-troubleshooting` 与 :ref:`reference-reason-"
 "codes`。``anet doctor`` 在 ``agents.claude`` 一行报告接入状态。"
 
-#: ../../agents/claude-code.rst:466
+#: ../../agents/claude-code.rst:468
 msgid "Disconnecting"
 msgstr "断开"
 
-#: ../../agents/claude-code.rst:477
+#: ../../agents/claude-code.rst:479
 msgid ""
 "The command removes the entry that ANet wrote and the skill file, and "
 "makes a backup. An entry named ``anet`` that ANet did not write is not "
@@ -800,7 +805,7 @@ msgstr ""
 "该命令移除 ANet 所写的条目与技能文件，并生成备份。名为 ``anet`` 但非 ANet 所写的条目不受影响。未接入的工具报告为 ``not"
 " wired``。"
 
-#: ../../agents/claude-code.rst:481
+#: ../../agents/claude-code.rst:483
 msgid ""
 "To disconnect by hand, run ``claude mcp remove -s user anet``, or delete "
 "the member ``mcpServers.anet`` from ``~/.claude.json``, and delete the "
@@ -857,8 +862,7 @@ msgid ""
 "/anet-mcp.sh``."
 msgstr "通过脚本 ``bin/anet-mcp.sh`` 为所选身份运行 ``anet mcp``。"
 
-#: ../../agents/claude-code.rst:513
-#: ../../agents/claude-code.rst:517
+#: ../../agents/claude-code.rst:513 ../../agents/claude-code.rst:517
 msgid "Skill"
 msgstr "技能"
 
@@ -924,11 +928,20 @@ msgstr ""
 "``connect``；节点一旦应答，启动器即启动 ``anet mcp``，14 个工具在同一会话中可用。之后的会话发现节点已在运行，直接启动 "
 "``anet mcp``。该设计避免了 Claude Code 对服务器启动失败的记忆。"
 
-#: ../../agents/claude-code.rst:542
+#: ../../agents/claude-code.rst:541
+msgid ""
+"The launchers of the plugin are POSIX shell scripts and run on Linux and "
+"macOS only. On Windows, register ``anet`` with ``anet agents wire "
+"claude`` instead."
+msgstr ""
+"插件的启动器是 POSIX shell 脚本，仅能在 Linux 和 macOS 上运行。在 Windows 上，请改用 ``anet "
+"agents wire claude`` 注册 ``anet``\\ 。"
+
+#: ../../agents/claude-code.rst:545
 msgid "Installing the plugin"
 msgstr "安装插件"
 
-#: ../../agents/claude-code.rst:544
+#: ../../agents/claude-code.rst:547
 msgid ""
 "The plugin is distributed in a marketplace catalogue at "
 "``https://agentnetwork.org.cn/plugins/claude-code/marketplace.json``. The"
@@ -940,7 +953,7 @@ msgstr ""
 "code/marketplace.json`` 的市场目录分发。该目录将 ANet 仓库的 ``deploy/plugins/dist"
 "/claude-code`` 目录指定为插件来源，Claude Code 仅获取该目录。"
 
-#: ../../agents/claude-code.rst:555
+#: ../../agents/claude-code.rst:558
 msgid ""
 "``claude plugin details anet@agentnetwork`` lists the skills ``anet``, "
 "``anet-setup`` and ``anet-status`` (the listing counts the command "
@@ -951,11 +964,11 @@ msgid ""
 " are available in sessions that start after the installation."
 msgstr ""
 "``claude plugin details anet@agentnetwork`` 列出技能 ``anet``、``anet-setup`` "
-"和 ``anet-status``（该列表把命令 ``/anet:anet-status`` 也计为技能）以及 MCP 服务器 "
+"和 ``anet-status``\\ （该列表把命令 ``/anet:anet-status`` 也计为技能）以及 MCP 服务器 "
 "``anet``，且无诊断信息。随后 ``claude mcp list`` 将 ``plugin:anet:anet`` "
 "显示为已连接，即使该机器尚未安装 ``anet`` 也是如此。插件的 MCP 服务器随会话启动，因此工具在安装之后开始的会话中可用。"
 
-#: ../../agents/claude-code.rst:563
+#: ../../agents/claude-code.rst:566
 msgid ""
 "To use the plugin directory without a catalogue, for example from a "
 "checkout of the ANet repository, start Claude Code with ``claude "
@@ -964,19 +977,19 @@ msgstr ""
 "若不经目录直接使用插件目录，例如使用 ANet 仓库的检出副本，请以 ``claude --plugin-dir "
 "deploy/plugins/dist/claude-code`` 启动 Claude Code。"
 
-#: ../../agents/claude-code.rst:568
+#: ../../agents/claude-code.rst:571
 msgid "Setting up the node from Claude Code"
 msgstr "在 Claude Code 中设置节点"
 
-#: ../../agents/claude-code.rst:570
+#: ../../agents/claude-code.rst:573
 msgid "If ``anet`` is not installed or not running, ask in a session:"
 msgstr "若 ``anet`` 尚未安装或未运行，请在会话中提出："
 
-#: ../../agents/claude-code.rst:576
+#: ../../agents/claude-code.rst:579
 msgid "The agent follows the skill ``anet:anet-setup``:"
 msgstr "智能体按照技能 ``anet:anet-setup`` 执行："
 
-#: ../../agents/claude-code.rst:578
+#: ../../agents/claude-code.rst:581
 msgid ""
 "It resolves the executable with ``bin/anet-run.sh --resolve``. When "
 "``anet`` is not found, it states what the installer does and runs it only"
@@ -989,7 +1002,7 @@ msgstr ""
 "时，它先说明安装程序的作用，并仅在用户同意后运行。安装程序校验已签名的发布清单，并安装到 "
 "``~/.local/bin``。安装程序在私有临时目录中运行，一次设置运行前后 ``/tmp`` 保持不变。"
 
-#: ../../agents/claude-code.rst:583
+#: ../../agents/claude-code.rst:586
 msgid ""
 "It starts the node with ``anet up``, asks which hub to join and under "
 "which name, runs ``anet hub-register`` and then ``anet doctor``, and "
@@ -998,20 +1011,20 @@ msgstr ""
 "它用 ``anet up`` 启动节点，询问加入哪个 hub 以及使用何种名称，依次运行 ``anet hub-register`` 和 "
 "``anet doctor``，并报告每一项不是 ``ok`` 的检查。"
 
-#: ../../agents/claude-code.rst:586
+#: ../../agents/claude-code.rst:589
 msgid ""
 "It calls the tool ``connect``, which reports that the session is "
 "connected to the node, and ``node_status`` then answers in the same "
 "session."
 msgstr "它调用工具 ``connect``，该工具报告会话已连接到节点，随后 ``node_status`` 在同一会话中即可应答。"
 
-#: ../../agents/claude-code.rst:588
+#: ../../agents/claude-code.rst:591
 msgid ""
 "When ``anetPath`` names a file that is not an executable, the skill "
 "reports the invalid setting and stops. It installs nothing."
 msgstr "``anetPath`` 所指文件不是可执行文件时，技能报告该设置无效并停止，不安装任何内容。"
 
-#: ../../agents/claude-code.rst:591
+#: ../../agents/claude-code.rst:594
 msgid ""
 "The commands that change who may reach the machine or what it may spend "
 "(``anet peers``, ``anet inbound``, ``anet autoreply set``, the spending "
@@ -1021,11 +1034,11 @@ msgstr ""
 "改变谁可以访问本机或本机可以支出多少的命令（``anet peers``、``anet inbound``、``anet autoreply "
 "set``、支出限额和 ``anet pay``）须在终端确认，仍由操作者执行。"
 
-#: ../../agents/claude-code.rst:596
+#: ../../agents/claude-code.rst:599
 msgid "Verifying the plugin"
 msgstr "验证插件"
 
-#: ../../agents/claude-code.rst:598
+#: ../../agents/claude-code.rst:601
 msgid ""
 "In a session, run ``/anet:anet-status``. The agent calls ``node_status`` "
 "and ``get_balance`` and reports the identity, the hub, the inbound policy"
@@ -1036,11 +1049,11 @@ msgstr ""
 "``get_balance``，并报告身份、hub、入站策略和余额。在 Claude Code 的权限规则中，这些工具名为 "
 "``mcp__plugin_anet_anet__<tool>``。"
 
-#: ../../agents/claude-code.rst:602
+#: ../../agents/claude-code.rst:605
 msgid "Ask for a task, for example:"
 msgstr "提出一项任务，例如："
 
-#: ../../agents/claude-code.rst:610
+#: ../../agents/claude-code.rst:613
 msgid ""
 "The agent calls ``list_agents`` and ``send_message``. With the capability"
 " ``text.digest`` of a hub on the same machine, the task ended in the "
@@ -1054,27 +1067,27 @@ msgstr ""
 "``2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824`` "
 "等于该文本的 SHA-256。"
 
-#: ../../agents/claude-code.rst:618
+#: ../../agents/claude-code.rst:621
 msgid "Plugin options"
 msgstr "插件选项"
 
-#: ../../agents/claude-code.rst:620
+#: ../../agents/claude-code.rst:623
 msgid "The plugin has two optional options."
 msgstr "插件有两个可选选项。"
 
-#: ../../agents/claude-code.rst:626
+#: ../../agents/claude-code.rst:629
 msgid "Option"
 msgstr "选项"
 
-#: ../../agents/claude-code.rst:627
+#: ../../agents/claude-code.rst:630
 msgid "Meaning"
 msgstr "含义"
 
-#: ../../agents/claude-code.rst:628
+#: ../../agents/claude-code.rst:631
 msgid "``identity``"
 msgstr "``identity``"
 
-#: ../../agents/claude-code.rst:629
+#: ../../agents/claude-code.rst:632
 msgid ""
 "A named identity (``anet id ls``). Empty selects the default identity in "
 "``~/.anet``. The server then runs ``anet --id <name> mcp``."
@@ -1082,22 +1095,22 @@ msgstr ""
 "命名身份（``anet id ls``）。为空时选择 ``~/.anet`` 中的默认身份。此时服务器运行 ``anet --id <name> "
 "mcp``。"
 
-#: ../../agents/claude-code.rst:631
+#: ../../agents/claude-code.rst:634
 msgid "``anetPath``"
 msgstr "``anetPath``"
 
-#: ../../agents/claude-code.rst:632
+#: ../../agents/claude-code.rst:635
 msgid ""
 "The absolute path of the ``anet`` executable. Empty searches ``PATH`` and"
 " the usual installation directories. A path that is not an executable "
 "file is an error; no other copy is used."
 msgstr "``anet`` 可执行文件的绝对路径。为空时在 ``PATH`` 和常用安装目录中查找。若路径不是可执行文件则视为错误，不会改用其他副本。"
 
-#: ../../agents/claude-code.rst:636
+#: ../../agents/claude-code.rst:639
 msgid "Set them in ``/plugin`` or with the command line:"
 msgstr "在 ``/plugin`` 中设置，或使用命令行设置："
 
-#: ../../agents/claude-code.rst:642
+#: ../../agents/claude-code.rst:645
 msgid ""
 "Claude Code stores the options in the user settings, in the member "
 "``pluginConfigs`` of ``settings.json`` in ``CLAUDE_CONFIG_DIR`` (default "
@@ -1108,17 +1121,17 @@ msgid ""
 "``identity`` set to ``work``, the status command reported that identity, "
 "which has a different AID from the default identity."
 msgstr ""
-"Claude Code 将选项保存在用户设置中，即 ``CLAUDE_CONFIG_DIR``（默认 ``~/.claude``）下 "
+"Claude Code 将选项保存在用户设置中，即 ``CLAUDE_CONFIG_DIR``\\ （默认 ``~/.claude``）下 "
 "``settings.json`` 的 ``pluginConfigs`` 成员，并将其传给 MCP "
 "服务器。技能和命令从该文件读取同样的两个选项，不读取其他任何值。Claude Code 不会从项目设置读取 "
 "``pluginConfigs``。选项变更在新会话启动时对 MCP 服务器生效。将 ``identity`` 设为 ``work`` "
 "后，状态命令报告的即是该身份，其 AID 与默认身份不同。"
 
-#: ../../agents/claude-code.rst:652
+#: ../../agents/claude-code.rst:655
 msgid "Updating and removing the plugin"
 msgstr "更新与移除插件"
 
-#: ../../agents/claude-code.rst:654
+#: ../../agents/claude-code.rst:657
 msgid ""
 "Claude Code caches a plugin by its version, so an update takes effect "
 "when the catalogue names a new version. ``claude plugin update "
@@ -1128,7 +1141,7 @@ msgstr ""
 "Claude Code 按版本缓存插件，因此目录指定新版本后更新才会生效。``claude plugin update "
 "anet@agentnetwork`` 安装该版本。``anet update`` 更新 ANet 本身，与插件无关。"
 
-#: ../../agents/claude-code.rst:659
+#: ../../agents/claude-code.rst:662
 msgid ""
 "``claude plugin uninstall anet@agentnetwork`` removes the plugin, and "
 "``claude plugin marketplace remove agentnetwork`` removes the catalogue. "
@@ -1140,17 +1153,17 @@ msgstr ""
 "marketplace remove agentnetwork`` 移除目录。二者均不改变节点：``~/.anet`` "
 "中的身份和运行中的守护进程保持不变。停止节点和移除 ANet 的方法见 :ref:`intro-install`。"
 
-#: ../../agents/claude-code.rst:665
+#: ../../agents/claude-code.rst:668
 msgid "Not tested for the plugin"
 msgstr "插件未测试项"
 
-#: ../../agents/claude-code.rst:667
+#: ../../agents/claude-code.rst:670
 msgid ""
 "The marketplace over HTTPS and the installation from the published "
 "repository. Only a directory catalogue was installed in the test."
 msgstr "通过 HTTPS 访问市场目录，以及从已发布的仓库安装。测试中仅安装了目录形式的市场目录。"
 
-#: ../../agents/claude-code.rst:669
+#: ../../agents/claude-code.rst:672
 msgid ""
 "The interactive terminal interface: ``/plugin``, the display of the "
 "waiting server in ``/mcp``, and the short form ``/anet-status`` of the "
@@ -1160,48 +1173,48 @@ msgstr ""
 "交互式终端界面：``/plugin``、``/mcp`` 中对等待状态服务器的显示，以及命令的简写形式 ``/anet-"
 "status``。无界面运行未展开简写形式；文档采用带命名空间的 ``/anet:anet-status``。"
 
-#: ../../agents/claude-code.rst:673
+#: ../../agents/claude-code.rst:676
 msgid "The VS Code extension, the JetBrains plugin and the desktop application."
 msgstr "VS Code 扩展、JetBrains 插件和桌面应用。"
 
-#: ../../agents/claude-code.rst:674
+#: ../../agents/claude-code.rst:677
 msgid ""
 "macOS, including the fallback of the script that reads the options "
-"without ``python3``. Windows is not supported by ANet."
-msgstr "macOS，包括脚本在没有 ``python3`` 时读取选项的回退路径。ANet 不支持 Windows。"
+"without ``python3``. The plugin does not run on Windows."
+msgstr "macOS，包括脚本在没有 ``python3`` 时读取选项的后备方式。插件不能在 Windows 上运行。"
 
-#: ../../agents/claude-code.rst:676
+#: ../../agents/claude-code.rst:679
 msgid "Environments in which Claude Code defers the tools of MCP servers."
 msgstr "Claude Code 延迟加载 MCP 服务器工具的环境。"
 
-#: ../../agents/claude-code.rst:677
+#: ../../agents/claude-code.rst:680
 msgid "The listing of the plugin in an official Anthropic directory."
 msgstr "插件在 Anthropic 官方目录中的收录。"
 
-#: ../../agents/claude-code.rst:678
+#: ../../agents/claude-code.rst:681
 msgid ""
 "One state of the setup was not isolated: with a second, named identity, "
 "the node of that identity was found running after the run, and it was not"
 " established which step started it."
 msgstr "设置过程中有一种状态未能单独验证：使用第二个命名身份时，运行结束后发现该身份的节点正在运行，未能确定是哪一步启动了它。"
 
-#: ../../agents/claude-code.rst:683
+#: ../../agents/claude-code.rst:686
 msgid "Troubleshooting the plugin"
 msgstr "插件故障排查"
 
-#: ../../agents/claude-code.rst:689
+#: ../../agents/claude-code.rst:692
 msgid "Symptom"
 msgstr "现象"
 
-#: ../../agents/claude-code.rst:690
+#: ../../agents/claude-code.rst:693
 msgid "Action"
 msgstr "处理"
 
-#: ../../agents/claude-code.rst:691
+#: ../../agents/claude-code.rst:694
 msgid "The session has only the tool ``connect`` and no anet tools."
 msgstr "会话中只有工具 ``connect``，没有 anet 工具。"
 
-#: ../../agents/claude-code.rst:692
+#: ../../agents/claude-code.rst:695
 msgid ""
 "The node does not answer. Run ``anet status`` in a terminal; "
 "``[daemon_not_running]``: run ``anet up``, or ask the agent to run the "
@@ -1210,23 +1223,23 @@ msgstr ""
 "节点没有应答。在终端运行 ``anet status``；若为 ``[daemon_not_running]``，运行 ``anet "
 "up``，或请智能体运行技能 ``anet:anet-setup`` 并让其调用 ``connect``。"
 
-#: ../../agents/claude-code.rst:695
+#: ../../agents/claude-code.rst:698
 msgid "The setup reports an invalid setting ``anetPath``."
 msgstr "设置过程报告 ``anetPath`` 设置无效。"
 
-#: ../../agents/claude-code.rst:696
+#: ../../agents/claude-code.rst:699
 msgid ""
 "Correct the option to the absolute path of an executable ``anet``, or "
 "clear it."
 msgstr "将该选项改为可执行 ``anet`` 的绝对路径，或将其清空。"
 
-#: ../../agents/claude-code.rst:698
+#: ../../agents/claude-code.rst:701
 msgid ""
 "``hub-register`` fails with a message that the clock is more than five "
 "minutes off, although the clocks are equal."
 msgstr "``hub-register`` 失败并提示时钟偏差超过五分钟，而实际时钟一致。"
 
-#: ../../agents/claude-code.rst:700
+#: ../../agents/claude-code.rst:703
 msgid ""
 "The hub did not admit the identity within about five minutes of its "
 "creation and the node keeps its original inception time. This was "
@@ -1240,61 +1253,61 @@ msgstr ""
 "AID 是 hub 和对等节点识别该节点的依据。请 hub 运营者准入它；若延迟依旧，请用 ``anet id new <name>`` 为该 "
 "hub 另建一个具名身份，并请求立即准入。"
 
-#: ../../agents/claude-code.rst:707
+#: ../../agents/claude-code.rst:710
 msgid "Two servers named ``anet`` appear."
 msgstr "出现两个名为 ``anet`` 的服务器。"
 
-#: ../../agents/claude-code.rst:708
+#: ../../agents/claude-code.rst:711
 msgid ""
 "The node is also registered with ``anet agents wire claude``. Run ``anet "
 "agents unwire claude``."
 msgstr "该节点同时通过 ``anet agents wire claude`` 注册。请运行 ``anet agents unwire claude``。"
 
-#: ../../agents/claude-code.rst:710
+#: ../../agents/claude-code.rst:713
 msgid "A refusal ends with a code in brackets."
 msgstr "拒绝信息以方括号中的代码结尾。"
 
-#: ../../agents/claude-code.rst:711
+#: ../../agents/claude-code.rst:714
 msgid "See :doc:`../reference/reason-codes`."
 msgstr "参见 :doc:`../reference/reason-codes`。"
 
-#: ../../agents/claude-code.rst:715
+#: ../../agents/claude-code.rst:718
 msgid "References"
 msgstr "参考"
 
-#: ../../agents/claude-code.rst:717
+#: ../../agents/claude-code.rst:720
 msgid "Claude Code, MCP: `<https://code.claude.com/docs/en/mcp>`_"
 msgstr "Claude Code,MCP:`<https://code.claude.com/docs/en/mcp>`_"
 
-#: ../../agents/claude-code.rst:718
+#: ../../agents/claude-code.rst:721
 msgid "Claude Code, skills: `<https://code.claude.com/docs/en/skills>`_"
 msgstr "Claude Code,技能:`<https://code.claude.com/docs/en/skills>`_"
 
-#: ../../agents/claude-code.rst:719
+#: ../../agents/claude-code.rst:722
 msgid "Claude Code, plugins: `<https://code.claude.com/docs/en/plugins>`_"
 msgstr "Claude Code，插件：`<https://code.claude.com/docs/en/plugins>`_"
 
-#: ../../agents/claude-code.rst:720
+#: ../../agents/claude-code.rst:723
 msgid ""
 "Claude Code, command line reference: `<https://code.claude.com/docs/en"
 "/cli-reference>`_"
 msgstr "Claude Code,命令行参考:`<https://code.claude.com/docs/en/cli-reference>`_"
 
-#: ../../agents/claude-code.rst:722
+#: ../../agents/claude-code.rst:725
 msgid ""
 "Claude Code, the ``.claude`` directory: `<https://code.claude.com/docs/en"
 "/claude-directory>`_"
 msgstr ""
-"Claude Code,``.claude`` 目录:`<https://code.claude.com/docs/en/claude-"
+"Claude Code,\\ ``.claude`` 目录:`<https://code.claude.com/docs/en/claude-"
 "directory>`_"
 
-#: ../../agents/claude-code.rst:724
+#: ../../agents/claude-code.rst:727
 msgid ""
 "Claude Code, environment variables: `<https://code.claude.com/docs/en"
 "/env-vars>`_"
 msgstr "Claude Code,环境变量:`<https://code.claude.com/docs/en/env-vars>`_"
 
-#: ../../agents/claude-code.rst:726
+#: ../../agents/claude-code.rst:729
 msgid ""
 "Claude Code in VS Code: `<https://code.claude.com/docs/en/vs-code>`_, in "
 "JetBrains: `<https://code.claude.com/docs/en/jetbrains>`_, in the desktop"
@@ -1304,7 +1317,7 @@ msgstr ""
 "JetBrains "
 "中:`<https://code.claude.com/docs/en/jetbrains>`_,在桌面应用中:`<https://code.claude.com/docs/en/desktop>`_"
 
-#: ../../agents/claude-code.rst:730
+#: ../../agents/claude-code.rst:733
 msgid ""
 "In this documentation: :ref:`howto-coding-agents`, :ref:`howto-mcp`, :ref"
 ":`reference-mcp-tools`, :ref:`topics-sandbox`, :ref:`topics-payments`, "
@@ -1315,3 +1328,4 @@ msgstr ""
 "tools`、:ref:`topics-sandbox`、:ref:`topics-payments`、:ref:`topics-"
 "delegation`、:ref:`intro-install`、:ref:`intro-tutorial`、:ref:`howto-"
 "troubleshooting`、:ref:`reference-reason-codes`。"
+

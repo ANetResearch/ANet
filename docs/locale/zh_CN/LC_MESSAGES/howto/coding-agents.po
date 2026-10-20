@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ANet 0.3\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-19 15:36+0000\n"
+"POT-Creation-Date: 2026-10-20 07:09+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: zh_CN\n"
@@ -621,18 +621,20 @@ msgstr ""
 
 #: ../../howto/coding-agents.rst:389
 msgid ""
-"On Windows, ``anet`` runs inside WSL2 and the WorkBuddy application runs "
-"on the host. A configuration in which WorkBuddy starts ``wsl.exe -e "
-"<path-to-anet> mcp`` has not been tested, and ``wire`` does not write it."
+"On Windows, ``anet`` and the WorkBuddy application both run natively, and"
+" ``wire`` writes ``%USERPROFILE%\\.workbuddy\\mcp.json`` with the "
+"absolute path of ``anet.exe``. This route has not been tested against the"
+" Windows application."
 msgstr ""
-"在 Windows 上,\\ ``anet`` 运行于 WSL2 内,WorkBuddy 应用运行于宿主系统。由 WorkBuddy 启动 "
-"``wsl.exe -e <path-to-anet> mcp`` 的配置尚未经过测试,\\ ``wire`` 也不写入该配置。"
+"在 Windows 上，\\ ``anet`` 与 WorkBuddy 应用均原生运行，\\ ``wire`` 写入 "
+"``%USERPROFILE%\\.workbuddy\\mcp.json``，其中包含 ``anet.exe`` 的绝对路径。该方式尚未在 "
+"Windows 版应用上测试。"
 
-#: ../../howto/coding-agents.rst:397
+#: ../../howto/coding-agents.rst:398
 msgid "Hermes and remote agents (``--a2a``)"
 msgstr "Hermes 与远程 Agent(``--a2a``)"
 
-#: ../../howto/coding-agents.rst:399
+#: ../../howto/coding-agents.rst:400
 msgid ""
 "Hermes can call a remote agent through its own A2A client. The option is "
 "intended for agents on the network; the Hermes documentation recommends "
@@ -647,7 +649,7 @@ msgstr ""
 "中添加一个 ``a2a_agents`` 条目。每个条目指向节点的本地 A2A 接口(参见 :ref:`howto-local-"
 "a2a`),使调用由节点签名、封闭并中继。Hermes 不会直接联系远程 Agent。"
 
-#: ../../howto/coding-agents.rst:411
+#: ../../howto/coding-agents.rst:412
 msgid ""
 "The ``a2a`` toolset of Hermes is disabled for the command line by "
 "default. Enable it once, otherwise ``a2a_call`` is not visible; ``wire`` "
@@ -656,7 +658,7 @@ msgstr ""
 "Hermes 的 ``a2a`` 工具集在命令行中默认关闭。需启用一次,否则 ``a2a_call`` 不可见;\\ ``wire`` "
 "在写入条目后会提示运维人员:"
 
-#: ../../howto/coding-agents.rst:419
+#: ../../howto/coding-agents.rst:420
 msgid ""
 "Several AIDs are given as a comma-separated list, as repeated ``--a2a`` "
 "options, or as words that follow one ``--a2a``. An AID consists of "
@@ -667,15 +669,15 @@ msgstr ""
 "由小写字母和数字组成,长度为 8 到 128 个字符。\\ ``--a2a`` 要求同一命令中包含 ``hermes``\\ (或 "
 "``--all``)。"
 
-#: ../../howto/coding-agents.rst:424
+#: ../../howto/coding-agents.rst:425
 msgid "The resulting entry has the following form:"
 msgstr "生成的条目形式如下:"
 
-#: ../../howto/coding-agents.rst:438
+#: ../../howto/coding-agents.rst:439
 msgid "Properties of these entries:"
 msgstr "这些条目的特性:"
 
-#: ../../howto/coding-agents.rst:440
+#: ../../howto/coding-agents.rst:441
 msgid ""
 "The entry contains the bearer token of the local A2A interface. The file "
 "is therefore kept at mode ``0600``; ``wire`` narrows a wider mode, and "
@@ -684,7 +686,7 @@ msgstr ""
 "条目中包含本地 A2A 接口的 bearer 令牌。因此文件的权限保持为 ``0600``;\\ ``wire`` 会收窄较宽的权限,\\ "
 "``anet agents`` 会报告权限较宽的文件。"
 
-#: ../../howto/coding-agents.rst:443
+#: ../../howto/coding-agents.rst:444
 msgid ""
 "The address and the token are read from ``a2a_addr.txt`` and "
 "``a2a_token.txt`` in the state directory of the a2a module. The files are"
@@ -694,14 +696,14 @@ msgstr ""
 "地址与令牌读取自 a2a 模块状态目录中的 ``a2a_addr.txt`` 与 ``a2a_token.txt``\\ "
 "。这些文件在守护进程首次提供该接口时创建。若它们不存在,\\ ``wire --a2a`` 会失败,并提示先运行 ``anet up``\\ 。"
 
-#: ../../howto/coding-agents.rst:447
+#: ../../howto/coding-agents.rst:448
 msgid ""
 "``wire`` refuses to write the entry while another process holds the "
 "recorded port, or while the interface is down because of a port conflict."
 " The token would otherwise be handed to the process that holds the port."
 msgstr "当另一个进程占用已记录的端口,或接口因端口冲突而未启动时,\\ ``wire`` 拒绝写入该条目。否则令牌会被交给占用该端口的进程。"
 
-#: ../../howto/coding-agents.rst:450
+#: ../../howto/coding-agents.rst:451
 msgid ""
 "The operating guide for Hermes states that a remote agent listed under "
 "``a2a_agents`` is reachable with ``a2a_call`` and that the same spending "
@@ -710,7 +712,7 @@ msgstr ""
 "面向 Hermes 的操作指南说明:列在 ``a2a_agents`` 下的远程 Agent 可通过 ``a2a_call`` "
 "访问,并且适用相同的支出限额。"
 
-#: ../../howto/coding-agents.rst:454
+#: ../../howto/coding-agents.rst:455
 msgid ""
 "When the port or the token of the interface changes, the existing entries"
 " become invalid. This happens after the file ``a2a_addr.txt`` is removed,"
@@ -721,21 +723,21 @@ msgstr ""
 "接口的端口或令牌改变时,已有的条目随之失效。这发生在文件 ``a2a_addr.txt`` 被删除、紧急密钥轮换以及端口冲突解决之后。此时 "
 "``anet agents`` 会报告某条目的端口或令牌已改变。使用下列命令重写这些条目:"
 
-#: ../../howto/coding-agents.rst:464
+#: ../../howto/coding-agents.rst:465
 msgid "To remove individual entries and leave the MCP entry in place:"
 msgstr "如只移除个别条目而保留 MCP 条目:"
 
-#: ../../howto/coding-agents.rst:470
+#: ../../howto/coding-agents.rst:471
 msgid ""
 "``unwire hermes`` without ``--a2a`` removes the MCP entry, the guide, and"
 " all entries together with their tokens."
 msgstr "不带 ``--a2a`` 的 ``unwire hermes`` 会移除 MCP 条目、指南以及所有条目及其令牌。"
 
-#: ../../howto/coding-agents.rst:475
+#: ../../howto/coding-agents.rst:476
 msgid "Notes"
 msgstr "说明"
 
-#: ../../howto/coding-agents.rst:477
+#: ../../howto/coding-agents.rst:478
 msgid ""
 "**Closed by default.** The operating guide tells the coding agent that a "
 "new node accepts no task from any other agent and spends nothing. The "
@@ -746,7 +748,7 @@ msgstr ""
 "的任务,也不产生任何支出。这两项由运维人员在终端中开启,相关命令会要求确认;参见 :ref:`topics-delegation` 与 :ref"
 ":`topics-payments`\\ 。"
 
-#: ../../howto/coding-agents.rst:481
+#: ../../howto/coding-agents.rst:482
 msgid ""
 "**Tasks from other agents are untrusted input.** The guide instructs the "
 "coding agent not to run commands, read files, send secrets or spend "
@@ -758,7 +760,7 @@ msgstr ""
 "不要因为此类任务的文字要求而运行命令、读取文件、发送机密或产生支出。这条指示只是一种缓解措施,真正起约束作用的是入站策略和 :ref"
 ":`topics-sandbox` 中所述的沙箱。"
 
-#: ../../howto/coding-agents.rst:486
+#: ../../howto/coding-agents.rst:487
 msgid ""
 "**After a restart of the daemon.** A running ``anet mcp`` process finds "
 "the daemon again when the control token has been replaced, and repeats "
@@ -767,7 +769,7 @@ msgstr ""
 "**守护进程重启之后。** 控制令牌被替换后,正在运行的 ``anet mcp`` "
 "进程会重新找到守护进程,并将失败的调用重试一次。会话无需仅因此重启。"
 
-#: ../../howto/coding-agents.rst:489
+#: ../../howto/coding-agents.rst:490
 msgid ""
 "**Builds without MCP.** A binary built with ``-tags no_mcp`` has no MCP "
 "server; ``anet agents`` and ``anet mcp`` then end with a message that "
@@ -776,51 +778,33 @@ msgstr ""
 "**不含 MCP 的构建。** 使用 ``-tags no_mcp`` 构建的二进制文件没有 MCP 服务器;此时 ``anet agents``"
 " 与 ``anet mcp`` 会以指明该构建的消息结束。"
 
-#: ../../howto/coding-agents.rst:492
+#: ../../howto/coding-agents.rst:493
 msgid ""
 "**Reporting.** ``anet doctor`` includes the state of every tool and, for "
 "Hermes, the state of each ``a2a_agents`` entry."
 msgstr "**报告。** ``anet doctor`` 包含每个工具的状态,对 Hermes 还包含每个 ``a2a_agents`` 条目的状态。"
 
-#: ../../howto/coding-agents.rst:496
+#: ../../howto/coding-agents.rst:497
 msgid "See also"
 msgstr "另请参阅"
 
-#: ../../howto/coding-agents.rst:498
+#: ../../howto/coding-agents.rst:499
 msgid ":ref:`howto-mcp`"
 msgstr ":ref:`howto-mcp`"
 
-#: ../../howto/coding-agents.rst:499
+#: ../../howto/coding-agents.rst:500
 msgid ":ref:`howto-local-a2a`"
 msgstr ":ref:`howto-local-a2a`"
 
-#: ../../howto/coding-agents.rst:500
+#: ../../howto/coding-agents.rst:501
 msgid ":ref:`reference-cli`"
 msgstr ":ref:`reference-cli`"
 
-#: ../../howto/coding-agents.rst:501
+#: ../../howto/coding-agents.rst:502
 msgid ":ref:`howto-troubleshooting`"
 msgstr ":ref:`howto-troubleshooting`"
 
-#: ../../howto/coding-agents.rst:502
+#: ../../howto/coding-agents.rst:503
 msgid ":doc:`/agents/index`"
 msgstr ":doc:`/agents/index`"
-
-#~ msgid ""
-#~ "The entry runs the binary directly. "
-#~ "Hermes disables an MCP entry that "
-#~ "starts a shell interpreter, so a "
-#~ "wrapper such as ``sh -c \"anet "
-#~ "mcp\"`` is not used. The timeouts "
-#~ "are ``timeout: 900`` and ``connect_timeout:"
-#~ " 30``. Optional ``a2a_agents`` entries are"
-#~ " described in :ref:`howto-coding-agents-"
-#~ "hermes-a2a`."
-#~ msgstr ""
-#~ "条目直接运行二进制文件。Hermes 会停用启动 shell 解释器的 MCP "
-#~ "条目,因此不使用 ``sh -c \"anet mcp\"`` "
-#~ "这类包装。超时设置为 ``timeout: 900`` 和 "
-#~ "``connect_timeout: 30``\\ 。可选的 ``a2a_agents`` "
-#~ "条目见 :ref:`howto-coding-agents-hermes-"
-#~ "a2a`\\ 。"
 

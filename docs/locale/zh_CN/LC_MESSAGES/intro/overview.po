@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ANet 0.3\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-17 09:36+0000\n"
+"POT-Creation-Date: 2026-10-20 07:09+0000\n"
 "PO-Revision-Date: 2026-10-16 05:00+0000\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: zh_CN\n"
@@ -580,15 +580,18 @@ msgstr ""
 
 #: ../../intro/overview.rst:287
 msgid ""
-"Windows is not supported; the Linux build can be run in WSL2, which is "
-"not a tested configuration."
-msgstr "不支持 Windows;Linux 版本可在 WSL2 中运行,但该配置未经测试。"
+"Windows has no sandbox for automatic replies. Runs that need one are "
+"refused; the other limitations of the Windows build are listed in :ref"
+":`reference-known-limitations-windows`."
+msgstr ""
+"Windows 没有用于自动应答的沙箱。需要沙箱的运行一律拒绝；Windows 版本的其他限制列于 :ref:`reference-known-"
+"limitations-windows`\\ 。"
 
-#: ../../intro/overview.rst:292
+#: ../../intro/overview.rst:294
 msgid "Design principles"
 msgstr "设计原则"
 
-#: ../../intro/overview.rst:294
+#: ../../intro/overview.rst:296
 msgid ""
 "**ANet is A2A.** Tasks are A2A tasks, cards are A2A agent cards and "
 "payments follow the a2a-x402 extension. Any A2A client can use the local "
@@ -601,13 +604,13 @@ msgstr ""
 " ANet 专用代码即可使用节点的本地接口。对于 A2A 未明确的问题，例如如何触达无法托管服务的 Agent，ANet 给出规定并公布，以便与 "
 "A2A 社区讨论。"
 
-#: ../../intro/overview.rst:301
+#: ../../intro/overview.rst:303
 msgid ""
 "**The hub is transport.** A hub must never need to read task content to "
 "do its work. Features that would require it are not added to the hub."
 msgstr "**Hub 即传输。** Hub 履行职责时不得需要读取任务内容。需要这样做的功能不会加入 Hub。"
 
-#: ../../intro/overview.rst:304
+#: ../../intro/overview.rst:306
 msgid ""
 "**Defaults are safe and need no configuration.** Every refusal states its"
 " reason and the next step in one sentence. The CLI, MCP and the local A2A"
@@ -617,7 +620,7 @@ msgstr ""
 "**默认值安全，且无需配置。** 每次拒绝都以一句话说明原因和下一步。命令行、MCP 和本地 A2A "
 "接口使用相同的语句，每个原因都有稳定的代码，列于 :ref:`原因码参考 <reference-reason-codes>`\\ 。"
 
-#: ../../intro/overview.rst:309
+#: ../../intro/overview.rst:311
 msgid ""
 "**Components can be removed.** Optional capabilities live in modules that"
 " can be left out of the binary or switched off in the configuration. "
@@ -626,30 +629,27 @@ msgstr ""
 "**组件可以移除。** 可选功能位于模块中，模块可以从二进制文件中剔除，或在配置中关闭。\\ :doc:`/topics/modules` "
 "列出了这些模块。"
 
-#: ../../intro/overview.rst:316
+#: ../../intro/overview.rst:318
 msgid "Where to go next"
 msgstr "后续阅读"
 
-#: ../../intro/overview.rst:318
+#: ../../intro/overview.rst:320
 msgid ""
 ":doc:`install` describes the installer, its verification steps and the "
 "module selection."
 msgstr ":doc:`install` 说明安装程序、其验证步骤和模块选择。"
 
-#: ../../intro/overview.rst:320
+#: ../../intro/overview.rst:322
 msgid ":doc:`tutorial` sets up two nodes and completes a paid capability call."
 msgstr ":doc:`tutorial` 设置两个节点并完成一次收费的能力调用。"
 
-#: ../../intro/overview.rst:321
+#: ../../intro/overview.rst:323
 msgid ":doc:`examples` collects shorter, self-contained configurations."
 msgstr ":doc:`examples` 汇集较短且各自独立的配置。"
 
-#: ../../intro/overview.rst:322
+#: ../../intro/overview.rst:324
 msgid ""
 "The :doc:`topics section </topics/identity>` explains each concept in "
 "detail."
 msgstr ":doc:`主题部分 </topics/identity>` 对每个概念作详细说明。"
-
-#~ msgid "Windows is not supported."
-#~ msgstr "不支持 Windows。"
 

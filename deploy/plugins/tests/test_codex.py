@@ -210,7 +210,7 @@ class TextTests(unittest.TestCase):
             self.assertIn("anet-status", text, readme)
         self.assertIn("codex plugin marketplace add ANetResearch/ANet", self.texts["README.md"])
         self.assertIn("anet@agentnetwork", self.texts["README_CN.md"])
-        self.assertIn("does not work on Windows", self.texts["README.md"])
+        self.assertIn("on Windows, register anet with `anet agents wire`", self.texts["README.md"])
 
     def test_readme_does_not_promise_a_command(self):
         self.assertNotIn("| Command |", self.texts["README.md"])

@@ -500,6 +500,17 @@ func value(code, variant, name string, lang Language, args Args, now time.Time) 
 		if !present(args, name) {
 			return OfficialHubURL, true
 		}
+	case "command":
+		// identity.recovery_perm: the command that makes the recovery file
+		// private. The caller passes the platform's command (Windows: an
+		// icacls command); without one it is chmod 600 on the path.
+		if !present(args, name) && code == "identity.recovery_perm" {
+			p, ok := value(code, variant, "path", lang, args, now)
+			if !ok {
+				return "", false
+			}
+			return "chmod 600 " + p, true
+		}
 	}
 	if !present(args, name) {
 		return "", false
@@ -849,6 +860,7 @@ var phraseSets = map[string]map[string]phrasePair{
 		"redeem":                  {"兑付", "redeeming"},
 		"egress":                  {"放行出网主机", "allowing network hosts"},
 		"reasoning_preview":       {"开启推理预览", "turning on reasoning previews"},
+		"shell_controller":        {"开放 shell 访问", "opening shell access"},
 	},
 	// ux §1.4 M2: how the key was last rotated (last_rotation.mode).
 	"rotation_how": {
@@ -2342,8 +2354,8 @@ var reasonTable = []Row{
 		Zh: "自定义模型服务需要指定模型；请执行 anet autoreply set --model <名称>。",
 		En: "A custom model service needs a model name; run anet autoreply set --model <name>."},
 	{Code: "platform_unsupported", Class: ClassS, Level: LevelFail,
-		Zh: "本平台没有沙箱（只支持 Linux 与 macOS）；Windows 请在 WSL2 中运行 anet。",
-		En: "There is no sandbox on this platform (only Linux and macOS); on Windows, run anet in WSL2."},
+		Zh: "本平台没有沙箱（只有 Linux 与 macOS 有），需要沙箱的运行一律拒绝。",
+		En: "There is no sandbox on this platform (only Linux and macOS have one), so every run that needs the sandbox is refused."},
 	{Code: "platform_unsupported.pending", Class: ClassS, Level: LevelFail,
 		Zh:       "macOS 沙箱随 v0.3.x 提供，本版本在 macOS 上没有沙箱，未信任对端的任务不会运行；可设 --untrusted off，或在 Linux 上运行 anet。",
 		En:       "The macOS sandbox comes in v0.3.x; this version has no sandbox on macOS, so tasks from untrusted peers will not run; set --untrusted off, or run anet on Linux.",
@@ -2487,6 +2499,9 @@ var reasonTable = []Row{
 	{Code: "preview.confirm_reasoning", Class: ClassT,
 		Zh: "开启推理预览：要预览的请求方也会收到推理内容。",
 		En: "Turn on reasoning previews: requesters who ask for previews also get the reasoning."},
+	{Code: "shell.controller_confirm", Class: ClassT,
+		Zh: "允许 {peer} 通过 shell 模块、以运行本节点的用户身份在本机执行任意命令：它会被加入 allow 名单，并成为 shell 模块唯一接受的调用方。其他对端不会因此获得访问权限。",
+		En: "Let {peer} run any command on this computer through the shell module, as the user that runs this node: it is added to the allow list and becomes the only caller the shell module accepts. No other peer gains access."},
 
 	// ux §1.4 M2: identity prompts and lines.
 	{Code: "identity.prompt.first_join", Class: ClassT,
@@ -2787,9 +2802,9 @@ var reasonTable = []Row{
 		Zh: "恢复口令只在轮换、换 hub、恢复与注销时需要；忘记口令后这些操作都做不了，身份仍可正常收发。恢复文件不在缺省位置时，若你已另存则不需要处理。",
 		En: "The recovery passphrase is needed only to rotate, switch hubs, recover or deactivate; without it those are impossible, but the identity keeps working. If the recovery file is not in the default place and you saved a copy, nothing to do."},
 	{Code: "identity.recovery_perm", Class: ClassS, Level: LevelWarn,
-		Zh:       "恢复文件 {path} 的权限不是 0600；请执行 chmod 600 {path}。",
-		En:       "The recovery file {path} is not mode 0600; run chmod 600 {path}.",
-		NextKind: NextCommand, Next: "chmod 600 {path}"},
+		Zh:       "恢复文件 {path} 可被其他账户访问；请执行 {command}。",
+		En:       "The recovery file {path} is accessible to other accounts; run {command}.",
+		NextKind: NextCommand, Next: "{command}"},
 	{Code: "identity.recovery_leftover", Class: ClassS, Level: LevelWarn,
 		Zh:       "有一份没有完成的新恢复文件 {path}；运行任意 anet identity 命令会自动收尾。",
 		En:       "There is an unfinished new recovery file {path}; any anet identity command finishes it.",
@@ -3240,7 +3255,7 @@ var moduleWhy = map[string]phrasePair{
 
 var moduleFix = map[string]phrasePair{
 	"not_compiled":     {"改装缺省版本（install.sh）", "install the default build (install.sh)"},
-	"not_compiled_add": {"用 install.sh --shell 安装", "install with install.sh --shell"},
+	"not_compiled_add": {"用 install.sh --shell 安装（Windows 上用 install.ps1 -Shell）", "install with install.sh --shell (on Windows, install.ps1 -Shell)"},
 	"without":          {"运行 anet down、anet init --with {m}、anet up", "run anet down, anet init --with {m}, anet up"},
 }
 

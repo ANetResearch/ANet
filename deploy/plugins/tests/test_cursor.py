@@ -236,7 +236,8 @@ class ComponentTests(unittest.TestCase):
 
     def test_readme_states_windows_and_settings(self):
         readme = text_of(self.ctx, "README.md")
-        self.assertIn("does not work on Windows", readme)
+        self.assertIn("anet runs on Linux, macOS and Windows", readme)
+        self.assertIn("on Windows, register anet with `anet agents wire`", readme)
         self.assertIn("ANET_PLUGIN_BIN", readme)
         self.assertIn("cursor-agent --plugin-dir", readme)
         self.assertNotIn("{{", readme)
