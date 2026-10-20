@@ -240,7 +240,10 @@ $r = @{}
 Invoke-AnetTimed -FilePath $self -ArgumentList @('-NoProfile', '-NonInteractive', '-Command', 'Write-Output ''a b''; exit 3') -TimeoutSeconds 60 -Result $r
 Check 'a timed program: its exit status and output' ($r['Code'] -eq 3 -and @($r['Output']) -contains 'a b' -and -not $r['TimedOut']) ('' + $r['Code'] + ' ' + (@($r['Output']) -join '|'))
 $r = @{}
-Invoke-AnetTimed -FilePath $self -ArgumentList @('-NoProfile', '-NonInteractive', '-Command', '[Console]::In.ReadToEnd().Length') -TimeoutSeconds 60 -Result $r
+# .NET Framework writes the byte order mark of the console input encoding
+# when it closes the standard input of a child (Windows PowerShell 5.1 with
+# UTF-8 input); the child then reads that mark and the end of input.
+Invoke-AnetTimed -FilePath $self -ArgumentList @('-NoProfile', '-NonInteractive', '-Command', '([Console]::In.ReadToEnd() -replace ''^(\uFEFF|\u00EF\u00BB\u00BF)'', '''').Length') -TimeoutSeconds 60 -Result $r
 Check 'a timed program reads an empty standard input, not the console' ($r['Code'] -eq 0 -and @($r['Output']) -contains '0') ((@($r['Output'])) -join '|')
 $r = @{}
 Invoke-AnetTimed -FilePath $self -ArgumentList @('-NoProfile', '-NonInteractive', '-Command', 'Start-Sleep -Seconds 60') -TimeoutSeconds 2 -Result $r
@@ -590,9 +593,9 @@ try {
     # unresolvable SID as such.
     $shapes = @(
       @{ Name = '(S,X) for an app container capability'; Grant = '*S-1-15-3-65536-1888954469-739942743-1668119174-2468466756-4239452838-1296943325-355587736-700089176:(S,X)'; Private = $true },
-      @{ Name = '(OI)(CI)M for a local group (CodexSandboxUsers)'; Grant = '*S-1-5-21-1000-2000-3000-1005:(OI)(CI)M'; Private = $false; Why = '*S-1-5-21-1000-2000-3000-1005 (unresolved)*read, write, delete*' },
+      @{ Name = '(OI)(CI)M for a local group (CodexSandboxUsers)'; Sid = 'S-1-5-21-1000-2000-3000-1005'; Propagation = 'None'; Private = $false; Why = '*S-1-5-21-1000-2000-3000-1005 (unresolved)*read, write, delete*' },
       @{ Name = '(OI)(CI)F for an app container capability'; Grant = '*S-1-15-3-2968813833-1-2-3:(OI)(CI)F'; Private = $false; Why = '*full control*' },
-      @{ Name = 'inherit-only (OI)(CI)(IO)M for a local group'; Grant = '*S-1-5-21-1000-2000-3000-1005:(OI)(CI)(IO)M'; Private = $false; Why = '*S-1-5-21-1000-2000-3000-1005*' },
+      @{ Name = 'inherit-only (OI)(CI)(IO)M for a local group'; Sid = 'S-1-5-21-1000-2000-3000-1005'; Propagation = 'InheritOnly'; Private = $false; Why = '*S-1-5-21-1000-2000-3000-1005*' },
       @{ Name = '(OI)(CI)(RX) for Users'; Grant = '*S-1-5-32-545:(OI)(CI)RX'; Private = $false; Why = '*Users*read*' }
     )
     $n = 0
@@ -601,9 +604,28 @@ try {
       $sd = Join-Path $work ('shape' + $n)
       $null = [IO.Directory]::CreateDirectory($sd)
       Set-AnetPrivateAcl -Path $sd
-      $r = @{}
-      Invoke-AnetNative -FilePath $icacls -ArgumentList @($sd, '/grant', $shape.Grant) -Capture -Result $r
-      Check ('icacls grants ' + $shape.Name) ($r['Code'] -eq 0)
+      if ($shape.ContainsKey('Sid')) {
+        # icacls refuses a SID that no account maps to (as on a PC whose
+        # local group is not on this runner); .NET writes it as it is.
+        $ok = $true
+        try {
+          $acl = Get-Acl -LiteralPath $sd
+          $rule = New-Object System.Security.AccessControl.FileSystemAccessRule -ArgumentList (New-Object System.Security.Principal.SecurityIdentifier -ArgumentList $shape.Sid),
+            ([System.Security.AccessControl.FileSystemRights]::Modify),
+            ([System.Security.AccessControl.InheritanceFlags]'ContainerInherit, ObjectInherit'),
+            ([System.Security.AccessControl.PropagationFlags]$shape.Propagation),
+            ([System.Security.AccessControl.AccessControlType]::Allow)
+          $acl.AddAccessRule($rule)
+          Set-Acl -LiteralPath $sd -AclObject $acl
+        } catch {
+          $ok = $false
+        }
+        Check ('an access rule grants ' + $shape.Name) $ok
+      } else {
+        $r = @{}
+        Invoke-AnetNative -FilePath $icacls -ArgumentList @($sd, '/grant', $shape.Grant) -Capture -Result $r
+        Check ('icacls grants ' + $shape.Name) ($r['Code'] -eq 0)
+      }
       $why = Get-AnetPrivacyProblem -Path $sd
       if ($shape.Private) {
         Check ('private with ' + $shape.Name) ($null -eq $why) ([string]$why)
