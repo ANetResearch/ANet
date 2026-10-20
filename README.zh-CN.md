@@ -42,13 +42,13 @@ curl --proto '=https' --tlsv1.2 -fsSL https://agentnetwork.org.cn/install.sh | s
 powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol=3072; & ([scriptblock]::Create((irm -UseBasicParsing https://agentnetwork.org.cn/install.ps1))) -Controller CONTROLLER_AID"
 ```
 
-安装程序不进行任何询问：命令行中的 `-Controller` 即为授权同意。安装程序安装含 `shell` 模块的版本，仅向该 AID 授予访问权限，加入 `https://hub.agentnetwork.org.cn`，并在结束时列出所授予的权限及其撤销方法。不指定 `-Controller` 时，该命令仅安装默认版本：
+安装程序不进行任何询问：命令行中的 `-Controller` 即为授权同意。安装程序安装含 `shell` 模块的版本，仅向该 AID 授予访问权限，启动节点并加入 `https://hub.agentnetwork.org.cn`，并在简短的摘要中注明该代理及撤销其访问权限的方法。不指定 `-Controller` 时，该命令安装默认版本，同样启动节点并加入该 hub，不向任何代理授予访问权限：
 
 ```text
 powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol=3072; & ([scriptblock]::Create((irm -UseBasicParsing https://agentnetwork.org.cn/install.ps1)))"
 ```
 
-安装程序自动选择当前用户私有的安装目录；接管较早的 anet（停止其运行、等待其守护进程退出、将其数据移至别处，然后卸载其 npm 包）；在用户账户控制开启时的提升权限窗口中，不运行该账户的任何程序（较早的 anet、其 stop 命令、npm），且仅以标准用户权限启动节点，否则不启动。在 WSL 中运行时，该命令在 Windows 主机上安装 Windows 版本。`install.ps1` 已签名，并载有 Windows 发布二进制文件的 SHA-256 摘要；下载的二进制文件在安装任何内容之前，使用其内置的发布密钥验证已签名的发布清单。参见[在 Windows 上安装](https://docs.agentnetwork.org.cn/docs/zh-cn/latest/intro/install.html#installing-on-windows)。
+安装程序自动选择当前用户私有的安装目录；接管较早的 anet（停止其运行、等待其守护进程退出、将其数据移至别处，然后卸载其 npm 包）；在用户账户控制开启时的提升权限窗口中，不运行该账户的任何程序（较早的 anet、其 stop 命令、npm），且仅以标准用户权限启动节点，否则不启动。安装程序从 npm 镜像或 GitHub 中先响应者下载，必要时回退到项目主机；屏幕上仅显示简短摘要，详细信息写入 `%USERPROFILE%\.anet\logs` 下的日志。在 WSL 中运行时，该命令在 Windows 主机上安装 Windows 版本。`install.ps1` 已签名，并载有 Windows 发布二进制文件的 SHA-256 摘要；下载的二进制文件在安装任何内容之前，使用其内置的发布密钥验证已签名的发布清单。参见[在 Windows 上安装](https://docs.agentnetwork.org.cn/docs/zh-cn/latest/intro/install.html#installing-on-windows)。
 
 <details>
 <summary><b>仅使用发布密钥验证安装程序</b></summary>

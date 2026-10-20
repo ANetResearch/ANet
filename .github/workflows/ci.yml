@@ -421,8 +421,12 @@ jobs:
   # (npm 1.1.15) and its data are planted, and the first run must take them
   # over. After each run, test-install-e2e.ps1 checks the grant in
   # config.json and peers.allow, the Run value, the PATH, the private
-  # install directory and anet version. No console input is available to
-  # the runs: one that asked a question would fail or hang.
+  # install directory and anet version, and what the run printed: the short
+  # summary (with the takeover in one line on the first run, none after),
+  # whose last line names the log of the run, which must exist in the logs
+  # directory of the data directory, be private and hold the details. No
+  # console input is available to the runs: one that asked a question would
+  # fail or hang.
   windows-install:
     needs: windows-dist
     runs-on: windows-latest
@@ -459,28 +463,32 @@ jobs:
         run: deploy\release\test-install-e2e.ps1 -Plant -LegacyExe C:\anet-ci\dist-legacy\anet.exe
       - name: the published command in cmd.exe, taking over from the earlier anet
         shell: cmd
-        run: powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol=3072; & ([scriptblock]::Create((irm -UseBasicParsing http://127.0.0.1:8719/install.ps1))) -Controller bafyreie6k7xot2qpitfcoseuevnuq7zcztdpdgx4coe3p2jlqjjl65hqu4 -Base C:\anet-ci\dist -NoJoin"
-      - name: what the run in cmd.exe installed and took over
+        run: |
+          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol=3072; & ([scriptblock]::Create((irm -UseBasicParsing http://127.0.0.1:8719/install.ps1))) -Controller bafyreie6k7xot2qpitfcoseuevnuq7zcztdpdgx4coe3p2jlqjjl65hqu4 -Base C:\anet-ci\dist -NoJoin" > C:\anet-ci\out-cmd.txt
+          set rc=%ERRORLEVEL%
+          type C:\anet-ci\out-cmd.txt
+          exit /b %rc%
+      - name: what the run in cmd.exe installed, took over and printed
         shell: pwsh
-        run: deploy\release\test-install-e2e.ps1 -Verify -Takeover -Aid $env:CI_AID
+        run: deploy\release\test-install-e2e.ps1 -Verify -Takeover -Aid $env:CI_AID -Output C:\anet-ci\out-cmd.txt
       - name: the published command in Windows PowerShell 5.1
         shell: powershell
-        run: powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol=3072; & ([scriptblock]::Create((irm -UseBasicParsing http://127.0.0.1:8719/install.ps1))) -Controller bafyreie6k7xot2qpitfcoseuevnuq7zcztdpdgx4coe3p2jlqjjl65hqu4 -Base C:\anet-ci\dist -NoJoin"
-      - name: what the run in Windows PowerShell 5.1 installed
+        run: powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol=3072; & ([scriptblock]::Create((irm -UseBasicParsing http://127.0.0.1:8719/install.ps1))) -Controller bafyreie6k7xot2qpitfcoseuevnuq7zcztdpdgx4coe3p2jlqjjl65hqu4 -Base C:\anet-ci\dist -NoJoin" | Tee-Object -FilePath C:\anet-ci\out-ps51.txt
+      - name: what the run in Windows PowerShell 5.1 installed and printed
         shell: pwsh
-        run: deploy\release\test-install-e2e.ps1 -Verify -Aid $env:CI_AID
+        run: deploy\release\test-install-e2e.ps1 -Verify -Aid $env:CI_AID -Output C:\anet-ci\out-ps51.txt
       - name: the published command in PowerShell 7
         shell: pwsh
-        run: powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol=3072; & ([scriptblock]::Create((irm -UseBasicParsing http://127.0.0.1:8719/install.ps1))) -Controller bafyreie6k7xot2qpitfcoseuevnuq7zcztdpdgx4coe3p2jlqjjl65hqu4 -Base C:\anet-ci\dist -NoJoin"
-      - name: what the run in PowerShell 7 installed
+        run: powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol=3072; & ([scriptblock]::Create((irm -UseBasicParsing http://127.0.0.1:8719/install.ps1))) -Controller bafyreie6k7xot2qpitfcoseuevnuq7zcztdpdgx4coe3p2jlqjjl65hqu4 -Base C:\anet-ci\dist -NoJoin" | Tee-Object -FilePath C:\anet-ci\out-ps7.txt
+      - name: what the run in PowerShell 7 installed and printed
         shell: pwsh
-        run: deploy\release\test-install-e2e.ps1 -Verify -Aid $env:CI_AID
+        run: deploy\release\test-install-e2e.ps1 -Verify -Aid $env:CI_AID -Output C:\anet-ci\out-ps7.txt
       - name: the published command in Git Bash
         shell: bash
-        run: powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol=3072; & ([scriptblock]::Create((irm -UseBasicParsing http://127.0.0.1:8719/install.ps1))) -Controller bafyreie6k7xot2qpitfcoseuevnuq7zcztdpdgx4coe3p2jlqjjl65hqu4 -Base C:\anet-ci\dist -NoJoin"
-      - name: what the run in Git Bash installed
+        run: powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol=3072; & ([scriptblock]::Create((irm -UseBasicParsing http://127.0.0.1:8719/install.ps1))) -Controller bafyreie6k7xot2qpitfcoseuevnuq7zcztdpdgx4coe3p2jlqjjl65hqu4 -Base C:\anet-ci\dist -NoJoin" | tee /c/anet-ci/out-bash.txt
+      - name: what the run in Git Bash installed and printed
         shell: pwsh
-        run: deploy\release\test-install-e2e.ps1 -Verify -Aid $env:CI_AID
+        run: deploy\release\test-install-e2e.ps1 -Verify -Aid $env:CI_AID -Output C:\anet-ci\out-bash.txt
       - name: stop the node and the local server
         if: always()
         shell: pwsh
