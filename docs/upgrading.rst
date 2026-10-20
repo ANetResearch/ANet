@@ -311,9 +311,14 @@ The installer prints a few lines and a summary, and writes the details to
 ``Upgraded from anet <version>`` is in that log, no longer in the output. A script that
 searched the output for it reads the log, or the line ``Replaced <release>`` of the summary.
 
+``install.sh`` exits with status 3 when ``anet`` is installed but the node did not start or
+the join failed; the installed binary is kept. A script that treated any non-zero status as
+"nothing was installed" distinguishes 3 from 1.
+
 In a terminal, the installer may ask for the password of ``sudo`` once, to remove an earlier
 release that only the superuser can remove, or to create the command link
-``/usr/local/bin/anet`` (see :ref:`intro-install-sudo`). Without a terminal, nothing is asked,
+``/usr/local/bin/anet`` when no directory on the search path is writable without a password
+(see :ref:`intro-install-sudo`). Without a terminal, nothing is asked,
 as before.
 
 The download sources change for ``install.sh`` and ``anet update`` alike (see

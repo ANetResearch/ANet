@@ -10,8 +10,8 @@ Release notes
 
 .. _news-0.3.6:
 
-ANet 0.3.6 (draft)
-------------------
+ANet 0.3.6
+----------
 
 ANet 0.3.6 is a patch release. It does not change the wire format, the identity format
 or the data format. It consists of ``anet`` 0.3.6; ANetCore v0.16.1, ANetHub 0.3.3 and
@@ -62,15 +62,21 @@ Linux and macOS installation
   ``0600``), which the last line names. A failure prints ``Error:``, whether anything was
   changed, and the log. With ``ANET_LANG=zh``, the lines are Chinese. See
   :ref:`intro-install-output`.
+* The exit status is 3 when ``anet`` is installed but the node did not start or the join
+  failed. A join that the hub has accepted but not yet confirmed is shown as
+  ``(registering; it completes on its own)`` and is not a failure. A download that stalls is
+  abandoned for the next source.
 * In a terminal, ``sudo`` asks for the password at most once, after one line that gives the
   reason, when an earlier release can be removed only by the superuser, when a system unit of
   AgentNetwork 1.x is to be disabled, or when the command link ``/usr/local/bin/anet`` needs
   the superuser. Declined, the installation continues, and a ``Note`` line gives the command.
   Without a terminal, ``sudo`` is used only as ``sudo -n``. ``--system`` is unchanged. See
   :ref:`intro-install-sudo`.
-* When ``~/.local/bin`` is not on the search path of the shell that runs the installer and
-  ``/usr/local/bin`` is, the installer creates the link ``/usr/local/bin/anet`` to the new
-  binary in a terminal, so that ``anet`` runs at once. The binary stays in ``~/.local/bin``,
+* When ``~/.local/bin`` is not on the search path of the shell that runs the installer, the
+  installer creates a command link ``anet`` to the new binary in a terminal, so that ``anet``
+  runs at once. The link goes into ``~/bin``, ``/opt/homebrew/bin`` or ``/usr/local/bin``,
+  the first that is on the search path and writable without a password; otherwise into
+  ``/usr/local/bin`` with ``sudo``. The binary stays in ``~/.local/bin``,
   so ``anet update`` needs no administrator rights. See :ref:`intro-install-path`.
 * A daemon of AgentNetwork 1.x that still holds the data directory although its binary is
   gone is stopped by the installer: through the shutdown interface of 1.x on
@@ -82,6 +88,13 @@ Linux and macOS installation
   disabled with ``systemctl --user disable --now anet-daemon``, or for a system unit with
   ``sudo -n systemctl disable --now anet-daemon``. Unit files are not deleted.
 
+Command line
+~~~~~~~~~~~~
+
+* ``anet`` without arguments prints a short guide: the version, the state of the node, its
+  AID and hub, the next step when one is due, and the common commands. ``anet help --all``
+  lists every command.
+
 Download sources
 ~~~~~~~~~~~~~~~~
 
@@ -91,7 +104,8 @@ Download sources
   npm registry, jsDelivr, ``agentnetwork.org.cn`` and ``hub.agentnetwork.org.cn``. unpkg and
   the per-file route of npmmirror are no longer used. See :ref:`intro-install-hosts`.
 * A source whose release is older than the installer, or than the installed ``anet``, is
-  passed over while another source serves the current release.
+  passed over while another source serves the current release. A source that serves the
+  installed version no longer hides a newer release from ``anet update``.
 * Redirects are followed by the installer itself, over ``https://`` only and to the hosts of
   the source.
 * ``--base URL`` and ``ANET_INSTALL_BASE`` replace every source, for ``anet update`` too;
@@ -109,6 +123,9 @@ Continuous integration
 * A test runs ``install.sh`` end to end, piped to ``sh`` in a temporary home directory,
   against a release signed for the test and served by local stand-ins for the download
   sources; it contacts no hub.
+* On Windows, ``test-install-http.ps1`` downloads a published release through the real
+  GitHub and npmmirror routes with the functions of ``install.ps1`` and checks it against
+  ``checksums.txt``, in Windows PowerShell 5.1 and PowerShell 7.
 
 
 .. _news-0.3.5:

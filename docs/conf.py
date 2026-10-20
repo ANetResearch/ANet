@@ -4,7 +4,7 @@ import os
 project = "ANet"
 author = "Agent Network"
 copyright = "Agent Network"
-release = "0.3.5"
+release = "0.3.6"
 version = "0.3"
 
 # English is the source language; translations are selected with SPHINX_LANGUAGE

@@ -1,8 +1,8 @@
-# ANet 0.3.6 发布说明（草稿）
+# ANet 0.3.6 发布说明
 
 [English](RELEASE-NOTES-0.3.6.md)
 
-草稿：尚未发布。发布日期：待定。
+发布日期：2026-10-20。
 
 | 组件 | 版本 | 仓库 |
 |---|---|---|
@@ -52,21 +52,26 @@
 
   标准错误为终端时，下载以一行进度显示（进度条、已接收与预期的兆字节数、速度、剩余时间），约每秒刷新五次。进度条为红色；设置 `NO_COLOR` 时不使用颜色，非 UTF-8 区域设置下进度条以 ASCII 字符绘制。没有终端时，以一行 `Downloaded ...` 代替。接管较早版本时增加 `Replacing <版本>` 与 `Replaced <版本>; its data is kept in <目录>` 两行。每个留给用户的步骤为一行 `Note:`，附确切命令。使用 `--no-join` 时，hub 一行为 `Hub   not joined (--no-join)`；使用 `--no-start` 时，摘要为 `anet 0.3.6 is installed.` 与 `Run 'anet up' to get started.`。
 - 其余内容，包括尝试过的下载源、每项检查、接管的每个步骤、已修改的 shell 配置文件，以及 `anet init` 与 `anet hub-register` 的输出，均写入 `<数据目录>/logs/install-<UTC 时间>.log`。数据目录为 `ANET_DATA_DIR`，未设置时为 `ANET_HOME`，再未设置时为 `~/.anet`；`logs` 目录的权限为 `0700`，日志文件为 `0600`。输出的最后一行给出日志路径。`ANET_LANG` 以 `zh` 开头时，各行以中文输出。
+- `anet` 已安装，且节点正在运行并已加入、等待准入或仍在注册中（`Hub   <hub> (registering; it completes on its own)`）时，退出状态为 0；`anet` 已安装但节点未能启动或加入失败时，退出状态为 3，摘要给出重复该步骤的命令。其他失败的退出状态为 1，已安装的版本保持不变。下载速度在 30 秒内低于 1 KB/s 时，放弃该下载源并改用下一个。安装程序结束时关闭其开启的 `sudo` 会话。
 - 失败时依次输出 `Error:` 及原因与处理方法、`Nothing was installed or changed.`（接管过程中则为已完成的步骤），以及附日志路径的 `Details:`。
 - 在终端中，安装程序最多询问一次 `sudo` 密码，适用于以下情形：较早的版本（AgentNetwork 1.x、anet 0.1 或 0.2）位于只有超级用户才能删除的位置，例如属于 `root` 的 `/usr/local/bin/anet`，或位于属于 `root` 的前缀下的 1.x npm 包；需要停用 AgentNetwork 1.x 的系统单元；或下文所述的命令链接需要超级用户权限。安装程序先输出一行说明原因，例如 `Removing AgentNetwork 1.1.5 from /usr/local/bin requires administrator rights; macOS will ask for your password once.`，然后运行 `sudo -v`；`sudo` 从终端读取密码，从不从脚本的输入读取。此后需要超级用户权限的步骤在该会话内以 `sudo -n` 运行。`sudo` 被拒绝或失败时，安装继续进行，摘要中以一行 `Note` 给出相应命令。没有终端时（如编程代理的工具调用或 CI 作业），不进行任何询问，`sudo` 只以 `sudo -n` 的形式使用。`--system` 保持不变，只使用 `sudo -n`。
-- 二进制文件保留在用户可替换的 `~/.local/bin` 中，因此 `anet update` 无需管理员权限。当 `~/.local/bin` 不在运行安装程序的 shell 的搜索路径中、`/usr/local/bin` 在其中且有终端可用时，安装程序创建命令链接 `/usr/local/bin/anet`，指向 `~/.local/bin/anet`（`/usr/local/bin` 属于 `root` 时，在同一会话内使用 `sudo`；该位置的较早版本被替换），使 `anet` 在该终端中立即可用。没有终端时，最后一行提示在新终端中运行 `anet`，或在当前终端中先执行 `export PATH="$HOME/.local/bin:$PATH"`。除非指定 `--no-modify-path`，shell 配置文件中的标记段落仍照常写入。
+- 二进制文件保留在用户可替换的 `~/.local/bin` 中，因此 `anet update` 无需管理员权限。当 `~/.local/bin` 不在运行安装程序的 shell 的搜索路径中且有终端可用时，安装程序创建指向 `~/.local/bin/anet` 的命令链接 `anet`，使 `anet` 在该终端中立即可用。链接放在 `~/bin`、`/opt/homebrew/bin` 与 `/usr/local/bin` 中第一个位于搜索路径且当前用户可写的目录，无需密码；仅当这些目录均不满足时，才在同一会话内以 `sudo` 创建链接 `/usr/local/bin/anet`。链接位置上的较早版本被替换。没有终端时，最后一行提示在新终端中运行 `anet`，或在当前终端中先执行 `export PATH="$HOME/.local/bin:$PATH"`。除非指定 `--no-modify-path`，shell 配置文件中的标记段落仍照常写入。
 - 若 AgentNetwork 1.x 的守护进程在其二进制文件已不存在时仍占用数据目录（例如二进制文件被手动删除，或守护进程由 MCP 客户端启动），安装程序会自行停止它：先通过 1.x 在 `127.0.0.1:3998` 上的关闭接口，使用数据目录中的 API 令牌，该令牌通过私有的 `curl` 配置文件传递，从不出现在命令行中；若守护进程仍在运行，则仅在根据其可执行文件确认该进程为 AgentNetwork 1.x 之后，向 `daemon.pid` 所指进程发送 `SIGTERM`。随后数据照常移至别处；若目录中同时含有 0.3 身份，则仅移出 1.x 条目。本版本以 0.3 身份运行的守护进程绝不会被当作较早版本，也绝不会收到信号。手动执行 `mv` 的提示已移除；只有无法停止的 1.x 守护进程才会留下一行 `Note`。
 - 名为 `anet-daemon`、其 `ExecStart` 运行 AgentNetwork 1.x 二进制文件的 systemd 单元（即 1.x 提示其用户安装、带有 `Restart=always` 的单元），在停止守护进程之前被停用：用户单元使用 `systemctl --user disable --now anet-daemon`，系统单元在 `sudo` 会话内使用 `sudo -n systemctl disable --now anet-daemon`，否则以一行 `Note` 给出命令。单元文件不被删除。AgentNetwork 1.x 的 npm 包本身不注册任何服务或 launchd 代理。
+
+### 命令行
+- 不带参数的 `anet` 输出一份简短指引：版本、节点状态、AID 与 hub、需要时的下一步操作（例如 `anet identity protect`），以及常用命令（`find`、`delegate`、`inbox`、`peers`、`agents`、`console`、`status`、`doctor`）。`anet help --all` 列出全部命令。
 
 ### 下载源与 `anet update`
 - `install.sh` 与 `anet update` 使用相同的下载源与相同的顺序。npmmirror（`registry.npmmirror.com`；npm 包 `@agentnetwork/<anet|anet-shell>-<linux|darwin>-<x64|arm64>`，以注册表的 tarball 下载，其 `package/dl/` 目录含 `release.json`、`release.json.sig` 与该版本的 `.gz`）与 GitHub（`github.com/ANetResearch/ANet/releases/latest/download/<文件>`；仅重定向至 `github.com` 与 `*.githubusercontent.com`）同时探测，时限 3 秒，按响应速度从快到慢尝试；无法连接的下载源被跳过。其后依次为 `registry.npmjs.org`（同一 tarball）、jsDelivr（`cdn.jsdelivr.net/npm/<包>@latest/dl/<文件>`），最后为项目主机 `agentnetwork.org.cn/dl` 与 `hub.agentnetwork.org.cn/dl`。不再使用 unpkg 路径与 npmmirror 的逐文件路径。
 - `--base URL` 与 `ANET_INSTALL_BASE` 取代全部下载源，对 `anet update` 同样适用：`ANET_INSTALL_BASE` 现在取代下载源，而不再是最先尝试的下载源。
-- 信任机制不变：由已签名的 `release.json`（发布密钥）以及 `.gz` 与二进制文件的 SHA-256 摘要决定。未提供发布的下载源（HTTP 错误、超时、HTML 页面、文件缺失、重定向至其不使用的主机、tarball 格式错误）被跳过；所提供的发布未通过验证的下载源使安装或更新终止。所提供的发布早于安装程序自身版本或已安装的 `anet` 的下载源视为滞后的镜像，只要另有下载源提供当前发布，即被跳过。
+- 信任机制不变：由已签名的 `release.json`（发布密钥）以及 `.gz` 与二进制文件的 SHA-256 摘要决定。未提供发布的下载源（HTTP 错误、超时、HTML 页面、文件缺失、重定向至其不使用的主机、tarball 格式错误）被跳过；所提供的发布未通过验证的下载源使安装或更新终止。所提供的发布早于安装程序自身版本或已安装的 `anet` 的下载源视为滞后的镜像，只要另有下载源提供当前发布，即被跳过。对 `anet update` 而言，提供已安装版本的下载源不再掩盖后续下载源上的更新版本。
 - 重定向由安装程序自行跟随，最多五次，仅限 `https://`，且仅限该下载源的主机。
 - `anet update` 以有界大小读取 npm tarball，仅使用 `package/dl/` 下的普通文件，拒绝绝对路径或含 `..` 的条目名称，并在包元数据提供 sha512 完整性值时进行核对。其输出给出所用下载源，例如 `source    npmmirror (https://registry.npmmirror.com/@agentnetwork/anet-darwin-arm64)`。
 
 ### 持续集成
 - 作业 `unix-upgrade` 在 macOS 与 Ubuntu 上，针对一个守护进程正在运行的 AgentNetwork 1.1.15 真实安装，以 `--no-join` 运行当前提交的 `install.sh`。它检查输出不超过 12 行，含下载行、接管行、摘要，最后一行给出日志；标准错误无任何输出；日志文件权限为 `0600`，所在目录为 `0700`，并记录各项检查与接管；第二次运行不再报告接管。
+- 在 Windows 上，`test-install-http.ps1` 使用 `install.ps1` 的函数，经由真实的 GitHub 重定向与 npmmirror tarball 下载一个已发布的版本，在 Windows PowerShell 5.1 与 PowerShell 7 中分别运行，并与 `checksums.txt` 核对。
 - 一项测试在临时主目录中以管道方式将完整的 `install.sh` 交给 `sh` 运行，所用发布以测试生成的密钥签名，由通过 TLS 提供服务的本地替身充当各下载源。该测试不连接任何 hub。
 
 ## 已知限制
