@@ -217,3 +217,43 @@ func TestCheckPrivateReasons(t *testing.T) {
 		t.Errorf("notPrivate: %v", err)
 	}
 }
+
+// The field shapes of the Windows install (v0.3.5): fsperm stays strict for them. install.ps1 ignores an
+// allow entry that grants another account no more than SYNCHRONIZE, FILE_TRAVERSE and
+// FILE_READ_ATTRIBUTES when it judges a directory it may install into (the profile directory carries
+// such an entry for an app container capability). fsperm judges the files and directories anet itself
+// creates with a protected access control list, where no such entry appears, and it judges files too,
+// where FILE_EXECUTE (the same bit as FILE_TRAVERSE) lets the holder map the file as an image; an
+// entry of this kind therefore still makes a path not private here, and MkdirAllPrivate replaces the
+// access control list of such a directory of this user. Modify and full control for another account
+// are writes in both places.
+func TestScanACLInstallFieldShapes(t *testing.T) {
+	user := testSID(t, "S-1-5-21-1-2-3-1001")
+	trusted := func(sid []byte) bool { return bytes.Equal(sid, user) }
+	capability := testSID(t, "S-1-15-3-65536-1888954469-739942743-1668119174-2468466756")
+	sandboxUsers := testSID(t, "S-1-5-21-1-2-3-1005")
+	appContainer := testSID(t, "S-1-15-3-2968813833-1-2-3")
+	const (
+		syncTraverse = 0x00100000 | 0x20 // (S,X)
+		modify       = 0x001301BF        // (M)
+		full         = 0x001F01FF        // (F)
+	)
+	for _, c := range []struct {
+		name        string
+		ace         []byte
+		read, write bool
+	}{
+		{"(S,X) for a capability", testACE(aceAllowed, 0, le32(syncTraverse), capability), true, false},
+		{"(M) for CodexSandboxUsers", testACE(aceAllowed, 0x3, le32(modify), sandboxUsers), true, true},
+		{"(F) for an app container", testACE(aceAllowed, 0x3, le32(full), appContainer), true, true},
+		{"inherit-only (M)", testACE(aceAllowed, 0x3|0x8, le32(modify), sandboxUsers), true, true},
+	} {
+		a, err := scanACL(testACL(testACE(aceAllowed, 0x3, le32(full), user), c.ace), trusted)
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		if a.othersRead != c.read || a.othersWrite != c.write {
+			t.Errorf("%s: read %v write %v, want %v %v", c.name, a.othersRead, a.othersWrite, c.read, c.write)
+		}
+	}
+}

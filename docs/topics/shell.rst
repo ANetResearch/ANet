@@ -173,7 +173,8 @@ Windows
 
 The module runs on Windows with the same access control: the caller must be on
 ``peers.allow`` and on the list of the module, and ``allow_local`` stays off. The installer
-parameter ``-Controller`` writes such a configuration for exactly one AID (see
+parameter ``-Controller`` writes such a configuration for exactly one AID, without a
+confirmation: the parameter on the command line is the consent (see
 :ref:`intro-install-windows-controller`).
 
 *Interpreters.* The key ``shell`` accepts the following values. Any other value is a
@@ -219,7 +220,9 @@ on Linux and macOS, but ends when the daemon ends.
 *Working directory.* The default working directory is the profile directory of the user.
 
 *Privileges.* Commands run as the user that runs the node. The node runs as the logged-on
-user and never as a Windows service, and the module uses no elevation mechanism.
+user and never as a Windows service, and the module uses no elevation mechanism. When the
+installer runs in an elevated window, it starts the node with standard user rights if Windows
+provides them, and states otherwise (see :ref:`intro-install-windows`).
 
 A configuration for Windows:
 

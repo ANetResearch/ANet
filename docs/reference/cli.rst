@@ -192,6 +192,17 @@ one name from it. Both are refused with ``daemon_running`` while the daemon is
 running. A module whose configuration keys exist already is refused with
 ``without_configured`` and exit status 2. See :doc:`../topics/modules`.
 
+``anet init --shell-controller <AID>`` makes the AID the only caller of the
+``shell`` module (``modules.shell`` with ``allow`` set to the AID and
+``allow_arbitrary`` set to ``true``) and adds it to ``peers.allow``. It requires a
+binary with the ``shell`` module and is refused with ``daemon_running`` while the
+daemon is running. Without further options, the grant is confirmed once on the
+terminal, and a process without a terminal is refused with ``tty_required``. With
+``--yes``, the command line is the confirmation: the same configuration is written
+and nothing is asked. ``--yes`` is accepted only together with
+``--shell-controller``. The Windows installer passes it for ``-Controller`` (see
+:ref:`intro-install-windows-controller`).
+
 ``anet up``, ``anet daemon``, ``anet stop``
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 

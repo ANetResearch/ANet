@@ -36,13 +36,19 @@ curl --proto '=https' --tlsv1.2 -fsSL https://agentnetwork.org.cn/install.sh | s
 
 ### Windows
 
-支持 Windows 10 1809 或更高版本以及 Windows Server 2019 或更高版本，架构为 `amd64` 和 `arm64`。ANet 在 Windows 上原生运行，无需 WSL2。请在未提升权限的 PowerShell 窗口中运行：
+支持 Windows 10 1809 或更高版本以及 Windows Server 2019 或更高版本，架构为 `amd64` 和 `arm64`。ANet 在 Windows 上原生运行，无需 WSL2。安装只需一行命令，该命令在 `cmd.exe`、Windows PowerShell、PowerShell 7、WSL 中的 shell 与 Git Bash 中完全相同，在提升权限与未提升权限的窗口中均可运行。请将 `CONTROLLER_AID` 替换为将控制本机的代理的 AID：
 
-```powershell
-[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor 3072; & ([scriptblock]::Create((Invoke-RestMethod -UseBasicParsing -Uri 'https://agentnetwork.org.cn/install.ps1'))) -Controller '<controller AID>'
+```text
+powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol=3072; & ([scriptblock]::Create((irm -UseBasicParsing https://agentnetwork.org.cn/install.ps1))) -Controller CONTROLLER_AID"
 ```
 
-指定 `-Controller` 时，安装程序安装含 `shell` 模块的版本，在控制台确认一次后仅向该 AID 授予访问权限，并加入 `https://hub.agentnetwork.org.cn`。不指定 `-Controller` 时，同一行命令仅安装默认版本。`install.ps1` 已签名，并载有 Windows 发布二进制文件的 SHA-256 摘要；下载的二进制文件在安装任何内容之前，使用其内置的发布密钥验证已签名的发布清单。参见[在 Windows 上安装](https://docs.agentnetwork.org.cn/docs/zh-cn/latest/intro/install.html#installing-on-windows)。
+安装程序不进行任何询问：命令行中的 `-Controller` 即为授权同意。安装程序安装含 `shell` 模块的版本，仅向该 AID 授予访问权限，加入 `https://hub.agentnetwork.org.cn`，并在结束时列出所授予的权限及其撤销方法。不指定 `-Controller` 时，该命令仅安装默认版本：
+
+```text
+powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol=3072; & ([scriptblock]::Create((irm -UseBasicParsing https://agentnetwork.org.cn/install.ps1)))"
+```
+
+安装程序自动选择当前用户私有的安装目录；接管较早的 anet（停止其运行、卸载其 npm 包并将其数据移至别处）；在提升权限的窗口中，若 Windows 提供标准用户令牌，则以标准用户权限启动节点。在 WSL 中运行时，该命令在 Windows 主机上安装 Windows 版本。`install.ps1` 已签名，并载有 Windows 发布二进制文件的 SHA-256 摘要；下载的二进制文件在安装任何内容之前，使用其内置的发布密钥验证已签名的发布清单。参见[在 Windows 上安装](https://docs.agentnetwork.org.cn/docs/zh-cn/latest/intro/install.html#installing-on-windows)。
 
 <details>
 <summary><b>仅使用发布密钥验证安装程序</b></summary>
@@ -62,7 +68,7 @@ ssh-keygen -Y verify -f allowed_signers -I anet-release@agentnetwork.org.cn -n a
 Invoke-WebRequest -UseBasicParsing https://agentnetwork.org.cn/install.ps1 -OutFile install.ps1
 Invoke-WebRequest -UseBasicParsing https://agentnetwork.org.cn/install.ps1.sig -OutFile install.ps1.sig
 [IO.File]::WriteAllText((Join-Path $PWD.ProviderPath 'allowed_signers'), 'anet-release@agentnetwork.org.cn namespaces="anet-release@agentnetwork.org.cn,anet-official@agentnetwork.org.cn" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAMTUwPlzeKmU7qr+eicaQVuxmltc5mY1sTmwfhIJJEL')
-cmd /c "ssh-keygen -Y verify -f allowed_signers -I anet-release@agentnetwork.org.cn -n anet-release@agentnetwork.org.cn -s install.ps1.sig < install.ps1"; if ($LASTEXITCODE -ne 0) { throw 'install.ps1 did not verify' }; & ([scriptblock]::Create((Get-Content -Raw .\install.ps1))) -Controller '<controller AID>'
+cmd /c "ssh-keygen -Y verify -f allowed_signers -I anet-release@agentnetwork.org.cn -n anet-release@agentnetwork.org.cn -s install.ps1.sig < install.ps1"; if ($LASTEXITCODE -ne 0) { throw 'install.ps1 did not verify' }; & ([scriptblock]::Create((Get-Content -Raw .\install.ps1))) -Controller CONTROLLER_AID
 ```
 
 本机的 OpenSSH 版本低于 8.1 时，请将 `install.ps1`、`install.ps1.sig` 与 `allowed_signers` 复制到装有 OpenSSH 8.1 或更高版本的机器上执行检查；该命令在 `cmd.exe` 与 POSIX shell 中相同。仅在检查输出 `Good "anet-release@agentnetwork.org.cn" signature` 之后运行脚本。

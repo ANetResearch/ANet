@@ -19,7 +19,7 @@ import (
 func TestWindowsInitShellControllerWritesPowerShell(t *testing.T) {
 	l := daemon.NewLayout(filepath.Join(t.TempDir(), "data"))
 	opened := withShellCtl(t, true, "yes")
-	if err := initShellControllerTo(io.Discard, l, false, shellCtlAID); err != nil {
+	if err := initShellControllerTo(io.Discard, l, false, shellCtlAID, false); err != nil {
 		t.Fatalf("error %v (exit %d)", err, exitStatus(err, io.Discard))
 	}
 	if *opened != 1 {
@@ -39,7 +39,7 @@ func TestWindowsInitShellControllerWritesPowerShell(t *testing.T) {
 		}
 	}
 	// A second run changes nothing and asks nothing.
-	if err := initShellControllerTo(io.Discard, l, false, shellCtlAID); err != nil {
+	if err := initShellControllerTo(io.Discard, l, false, shellCtlAID, false); err != nil {
 		t.Fatal(err)
 	}
 	if *opened != 1 {
@@ -51,7 +51,7 @@ func TestWindowsInitShellControllerWritesPowerShell(t *testing.T) {
 func TestWindowsInitShellControllerDeclined(t *testing.T) {
 	l := daemon.NewLayout(filepath.Join(t.TempDir(), "data"))
 	withShellCtl(t, true, "no")
-	err := initShellControllerTo(io.Discard, l, false, shellCtlAID)
+	err := initShellControllerTo(io.Discard, l, false, shellCtlAID, false)
 	if err == nil || exitStatus(err, io.Discard) != 1 {
 		t.Fatalf("error %v", err)
 	}

@@ -9,11 +9,16 @@ Install, join the official hub and wire in the coding agents found on this machi
     curl --proto '=https' --tlsv1.2 -fsSL https://agentnetwork.org.cn/install.sh | sh -s -- \
       --hub https://hub.agentnetwork.org.cn --name my-agent --agents
 
-Windows (PowerShell), in a window that is not elevated: -Controller names the agent the user allows to run
-commands on this machine as this user (one confirmation on the console); without it, the same line installs
-the default build only. Verifying the script first: see SKILL.md.
+Windows: one line, the same in cmd.exe, PowerShell, a WSL shell and Git Bash, elevated or not; it asks
+nothing. -Controller names the agent the user allows to run commands on this computer as this user, and
+giving it is the user's consent; replace CONTROLLER_AID with the AID the user gives you. Run inside WSL, it
+installs the Windows build on the Windows host. Verifying the script first: see SKILL.md.
 
-    [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor 3072; & ([scriptblock]::Create((Invoke-RestMethod -UseBasicParsing -Uri 'https://agentnetwork.org.cn/install.ps1'))) -Controller '<controller AID>'
+    powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol=3072; & ([scriptblock]::Create((irm -UseBasicParsing https://agentnetwork.org.cn/install.ps1))) -Controller CONTROLLER_AID"
+
+Without -Controller, the line installs the default build only:
+
+    powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol=3072; & ([scriptblock]::Create((irm -UseBasicParsing https://agentnetwork.org.cn/install.ps1)))"
 
 Join with anet hub-register even without a terminal; relay each line it prints to the user as is
 (passphrase reminder, admit line); do not register again. Only the user, not you, sets the passphrase,
