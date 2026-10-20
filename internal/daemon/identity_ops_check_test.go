@@ -180,9 +180,19 @@ func TestAQuarantineAnswerPushesTheLongerKEL(t *testing.T) {
 		t.Fatalf("rotation: %d %v", code, out)
 	}
 	waitIdentity(t, d, IdentityOK)
+	// The rotation reaches the witness in the background; a push of it that lands after the backup's
+	// record is set below would replace that record with the full KEL, and every check would then
+	// find the hub up to date. So the record is set only once the witness holds the rotation.
+	waitUntil(t, "the witness holds the rotation", func() bool {
+		return len(d.self.WitnessesToPush()) == 0
+	})
 	full := d.self.Accepted()
+	if len(full) < 3 {
+		t.Fatalf("the KEL after the rotation has %d events, want at least 3", len(full))
+	}
 	setHubRecord(t, fh, d.AID(), full[:2]) // the backup's
 	fh.mu.Lock()
+	delete(fh.kelPushes, d.AID())
 	fh.noticeErr = noticeErrQuarantine
 	fh.mu.Unlock()
 	// The quarantined hub still answers the poll it can verify (its old
@@ -196,24 +206,30 @@ func TestAQuarantineAnswerPushesTheLongerKEL(t *testing.T) {
 	})
 	// A check that starts between the wait above and the notice (a trigger the rotation left behind)
 	// drops the notice in the same way, so the notice is given again while no push has arrived, as
-	// the hub's next answer would give it.
+	// the hub's next answer would give it. The wait allows 30 s for a loaded CI runner.
 	var noted time.Time
-	waitUntil(t, "the longer KEL was pushed", func() bool {
+	for deadline := time.Now().Add(30 * time.Second); ; time.Sleep(10 * time.Millisecond) {
 		fh.mu.Lock()
 		pushed := fh.kelPushes[d.AID()] > 0
 		fh.mu.Unlock()
 		if pushed {
-			return true
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("timed out waiting for the longer KEL to be pushed")
 		}
 		d.idOps.mu.Lock()
 		checking := d.idOps.checking
 		d.idOps.mu.Unlock()
 		if !checking && time.Since(noted) > 500*time.Millisecond {
+			// A re-registration that the rotation set going also carries the full KEL and replaces
+			// the backup's record (which ends a real quarantine as well); the record is put back so
+			// that the check finds the witness behind.
 			noted = time.Now()
+			setHubRecord(t, fh, d.AID(), full[:2])
 			d.noteHubNotice("", noticeErrQuarantine)
 		}
-		return false
-	})
+	}
 	fh.mu.Lock()
 	held, _ := identity.UnmarshalKEL(fh.agents[d.AID()].kel)
 	fh.mu.Unlock()
