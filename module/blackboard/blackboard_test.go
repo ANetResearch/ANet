@@ -2,9 +2,11 @@ package blackboard_test
 
 import (
 	"errors"
+	"math"
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/ANetResearch/ANetCore/identity"
 	"github.com/ANetResearch/ANetCore/identity/identitytest"
@@ -304,5 +306,54 @@ func TestBodyCIDSigned(t *testing.T) {
 	bb := blackboard.New("n")
 	if _, err := bb.Add(u1, res, msgTime); err == nil {
 		t.Fatal("tampered BodyCID must fail verify")
+	}
+}
+
+// A member that replays its contributions after a task concluded re-adds units the board already
+// holds: that is a re-add like any other, (false, nil), and Merge goes on with the rest of the batch.
+// A unit that is new to the concluded task is still refused.
+func TestReAddAfterConclude(t *testing.T) {
+	a, _ := identitytest.Hub()
+	res := kelOf(a)
+	bb := blackboard.New("node-a")
+	held := mkUnit(t, a, "claim", hlc(1000, 0, "a"), []byte("c1"))
+	if _, err := bb.Add(held, res, msgTime); err != nil {
+		t.Fatal(err)
+	}
+	if err := bb.Conclude("task1"); err != nil {
+		t.Fatal(err)
+	}
+	if added, err := bb.Add(held, res, msgTime); added || err != nil {
+		t.Fatalf("re-add after conclude = (%v, %v), want (false, nil)", added, err)
+	}
+	g := &blackboard.CogUnit{Scope: "org", Type: "claim", Stamp: hlc(2000, 0, "a"), Body: []byte("global")}
+	if err := g.Sign(a); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := bb.Merge([]*blackboard.CogUnit{held, g}, res, msgTime); n != 1 || err != nil {
+		t.Fatalf("replayed batch = (%d, %v), want (1, nil)", n, err)
+	}
+	fresh := mkUnit(t, a, "claim", hlc(1001, 0, "a"), []byte("c2"))
+	if _, err := bb.Add(fresh, res, msgTime); !errors.Is(err, blackboard.ErrTaskNotActive) {
+		t.Fatalf("new unit after conclude = %v, want ErrTaskNotActive", err)
+	}
+}
+
+// The 16-bit logical counter carries into the wall clock instead of wrapping to 0, so a stamp still
+// follows the one before it at the counter's limit.
+func TestClockLogicalCarry(t *testing.T) {
+	far := time.Now().Add(24 * time.Hour).UnixMilli()
+	c := blackboard.NewClock("node-a")
+	remote := hlc(far, math.MaxUint16, "b")
+	if got := c.Merge(remote); !remote.Less(got) {
+		t.Fatalf("Merge(%+v) = %+v, not after the remote stamp", remote, got)
+	}
+	prev := c.Now()
+	for i := 0; i < 70000; i++ {
+		next := c.Now()
+		if !prev.Less(next) {
+			t.Fatalf("Now() #%d = %+v, not after %+v", i, next, prev)
+		}
+		prev = next
 	}
 }

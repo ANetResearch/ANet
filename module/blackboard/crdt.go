@@ -8,6 +8,7 @@
 package blackboard
 
 import (
+	"math"
 	"sync"
 	"time"
 )
@@ -59,8 +60,7 @@ func (c *Clock) Now() HLC {
 	if now > c.last.Wall {
 		c.last = HLC{Wall: now, Logical: 0, NodeID: c.nodeID}
 	} else {
-		c.last.Logical++
-		c.last.NodeID = c.nodeID
+		c.last = next(c.last.Wall, uint32(c.last.Logical)+1, c.nodeID)
 	}
 	return c.last
 }
@@ -76,16 +76,25 @@ func (c *Clock) Merge(remote HLC) HLC {
 	if remote.Wall > maxWall {
 		maxWall = remote.Wall
 	}
-	logical := uint16(0)
+	logical := uint32(0)
 	if maxWall == c.last.Wall && maxWall == remote.Wall {
-		logical = max16(c.last.Logical, remote.Logical) + 1
+		logical = uint32(max16(c.last.Logical, remote.Logical)) + 1
 	} else if maxWall == c.last.Wall {
-		logical = c.last.Logical + 1
+		logical = uint32(c.last.Logical) + 1
 	} else if maxWall == remote.Wall {
-		logical = remote.Logical + 1
+		logical = uint32(remote.Logical) + 1
 	}
-	c.last = HLC{Wall: maxWall, Logical: logical, NodeID: c.nodeID}
+	c.last = next(maxWall, logical, c.nodeID)
 	return c.last
+}
+
+// next is the stamp (wall, logical) with a logical counter that no longer fits 16 bits carried into
+// the wall clock: wrapping it to 0 would make the stamp smaller than the one it must follow.
+func next(wall int64, logical uint32, nodeID string) HLC {
+	if logical > math.MaxUint16 {
+		wall, logical = wall+1, 0
+	}
+	return HLC{Wall: wall, Logical: uint16(logical), NodeID: nodeID}
 }
 
 func max16(a, b uint16) uint16 {
