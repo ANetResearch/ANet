@@ -201,6 +201,36 @@ After the upgrade
   to be kept, for example exported evidence.
 
 
+.. _upgrading-034:
+
+Upgrading to 0.3.4
+------------------
+
+Version 0.3.4 is an in-place upgrade of 0.3.x. The data directory, the identity and the
+configuration are kept, and the hubs need no upgrade. Update the node and restart its
+daemons:
+
+.. code-block:: console
+
+   $ anet update
+   $ anet stop --all && anet up --all
+
+One check changes on Linux and macOS. ``anet doctor`` reports the recovery file under
+``identity.recovery`` only when another account can read it. A recovery file with mode
+``0400`` was reported before 0.3.4 and is now reported as in place. The sentence of
+``identity.recovery_perm`` names the command of the platform that makes the file private; the
+code is unchanged.
+
+From 0.3.4, ``anet update`` also tries the npm packages of the build after the project hosts
+(see :ref:`intro-install-hosts`). The checks are the same for every host. An installation from
+npm is updated with npm instead (see :ref:`intro-install-npm`).
+
+Windows is supported natively from 0.3.4. On Windows, ``anet`` is installed with the
+PowerShell script ``install.ps1``, as described in :ref:`intro-install-windows`. A node that
+runs inside WSL2 is a Linux node with its own data directory and identity; the Windows build
+does not read that directory.
+
+
 .. _upgrading-033:
 
 Upgrading to 0.3.3

@@ -8,7 +8,7 @@ on:
 
 # The Go jobs build exactly what go.mod names: the published ANetCore v0.16.1.
 #
-# Jobs that build the hub check ANetHub out at its release tag, v0.3.1, the
+# Jobs that build the hub check ANetHub out at its release tag, v0.3.3, the
 # hub of hub wire 3 that is released with this version. A hub of another
 # wire and a daemon refuse each other, so the pin moves with a change of wire
 # and with a hub release the suite ships together. The hub checkout builds
@@ -593,7 +593,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: ANetResearch/ANetHub
-          ref: v0.3.1   # pinned; see the note at the top
+          ref: v0.3.3   # pinned; see the note at the top
           path: .hub
       - uses: actions/setup-go@v5
         with:
@@ -626,7 +626,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: ANetResearch/ANetHub
-          ref: v0.3.1   # pinned; see the note at the top
+          ref: v0.3.3   # pinned; see the note at the top
           path: .hub
       - uses: actions/setup-go@v5
         with:
@@ -652,7 +652,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: ANetResearch/ANetHub
-          ref: v0.3.1   # pinned; see the note at the top
+          ref: v0.3.3   # pinned; see the note at the top
           path: .hub
       - uses: actions/setup-go@v5
         with:
@@ -686,7 +686,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: ANetResearch/ANetHub
-          ref: v0.3.1   # pinned; see the note at the top
+          ref: v0.3.3   # pinned; see the note at the top
           path: .hub
       - uses: actions/setup-go@v5
         with:

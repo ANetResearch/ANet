@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ANet 0.3\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-19 15:36+0000\n"
+"POT-Creation-Date: 2026-10-20 08:51+0000\n"
 "PO-Revision-Date: 2026-10-16 05:00+0000\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: zh_CN\n"
@@ -66,9 +66,9 @@ msgstr "协议与密码学内核（Go 模块）。\\ ``ANet`` 与 ``ANetHub`` �
 msgid "``anet``"
 msgstr "``anet``"
 
-#: ../../versioning.rst:31 ../../versioning.rst:34
-msgid "0.3.3"
-msgstr "0.3.3"
+#: ../../versioning.rst:31
+msgid "0.3.4"
+msgstr "0.3.4"
 
 #: ../../versioning.rst:32
 msgid "The node program: daemon, command line, MCP server and local interfaces."
@@ -77,6 +77,10 @@ msgstr "节点程序：守护进程、命令行、MCP 服务器和本地接口�
 #: ../../versioning.rst:33
 msgid "ANetHub"
 msgstr "ANetHub"
+
+#: ../../versioning.rst:34
+msgid "0.3.3"
+msgstr "0.3.3"
 
 #: ../../versioning.rst:35
 msgid "The hub and the operator console."
