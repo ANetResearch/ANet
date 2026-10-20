@@ -19,6 +19,7 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -132,13 +133,40 @@ func (r *shRelease) tarball() []byte {
 	return b.Bytes()
 }
 
+// hitCount counts the requests by path; the installer probes sources in
+// parallel, so the handler runs concurrently.
+type hitCount struct {
+	mu sync.Mutex
+	m  map[string]int
+}
+
+func newHitCount() *hitCount { return &hitCount{m: map[string]int{}} }
+
+func (h *hitCount) add(path string) {
+	h.mu.Lock()
+	h.m[path]++
+	h.mu.Unlock()
+}
+
+func (h *hitCount) get(path string) int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.m[path]
+}
+
+func (h *hitCount) String() string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return fmt.Sprint(h.m)
+}
+
 // serve: /npm/<pkg>/latest and the tarball (an npm registry), and
 // /files/<file> (a source of kind files). hits counts the requests.
-func (r *shRelease) server(hits map[string]int) *httptest.Server {
+func (r *shRelease) server(hits *hitCount) *httptest.Server {
 	tgz := r.tarball()
 	base := r.pkg[strings.LastIndex(r.pkg, "/")+1:]
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, q *http.Request) {
-		hits[q.URL.Path]++
+		hits.add(q.URL.Path)
 		switch q.URL.Path {
 		case "/npm/" + r.pkg + "/latest":
 			fmt.Fprintf(w, `{"name":%q,"version":%q,"dist":{"tarball":"https://elsewhere.invalid/x.tgz"}}`, r.pkg, r.version)
@@ -308,7 +336,7 @@ func installedVersion(t *testing.T) string {
 func TestInstallShGoldenFresh(t *testing.T) {
 	ver := installedVersion(t)
 	r := newSHRelease(t, ver)
-	hits := map[string]int{}
+	hits := newHitCount()
 	srv := r.server(hits)
 	e := e2eEnv(t, srv, false)
 	script := e2eScript(t, r, e2eSources(srv, false), e.root, freePort(t))
@@ -336,8 +364,8 @@ func TestInstallShGoldenFresh(t *testing.T) {
 	mustContain(t, "calls", res.calls, "anet init\n", "anet up\n", "anet hub-register https://hub.agentnetwork.org.cn --name ")
 	// The tarball came from the npm source; the files source was not asked
 	// for the .gz.
-	if hits["/cdn/pkg.tgz"] != 1 || hits["/files/"+r.asset+".gz"] != 0 {
-		t.Errorf("requests: %v", hits)
+	if hits.get("/cdn/pkg.tgz") != 1 || hits.get("/files/"+r.asset+".gz") != 0 {
+		t.Errorf("requests: %v", hits.String())
 	}
 	if b, err := os.ReadFile(filepath.Join(e.home, ".local", "bin", "anet")); err != nil || !bytes.Equal(b, r.bin) {
 		t.Errorf("installed binary: %v", err)
@@ -374,7 +402,7 @@ func TestInstallShGoldenTakeover(t *testing.T) {
 	}
 	ver := installedVersion(t)
 	r := newSHRelease(t, ver)
-	hits := map[string]int{}
+	hits := newHitCount()
 	srv := r.server(hits)
 	e := e2eEnv(t, srv, false)
 	e.fakeSudo()
@@ -439,7 +467,7 @@ func TestInstallShBadSignatureEndsInstall(t *testing.T) {
 	r := newSHRelease(t, ver)
 	good := r.manifest
 	r.sig = signSSHSIG(r.priv, []byte("something else"), Namespace)
-	hits := map[string]int{}
+	hits := newHitCount()
 	srv := r.server(hits)
 	e := e2eEnv(t, srv, false)
 	script := e2eScript(t, r, e2eSources(srv, false), e.root, freePort(t))
@@ -450,8 +478,8 @@ func TestInstallShBadSignatureEndsInstall(t *testing.T) {
 	}
 	mustContain(t, "stderr", res.stderr, "Error: release.json is not signed by the anet release key",
 		"Nothing was installed or changed.\nDetails: ~/.anet/logs/install-")
-	if hits["/files/release.json"] != 0 {
-		t.Errorf("the next source was asked after a bad signature: %v", hits)
+	if hits.get("/files/release.json") != 0 {
+		t.Errorf("the next source was asked after a bad signature: %v", hits.String())
 	}
 	if _, err := os.Stat(filepath.Join(e.home, ".local", "bin", "anet")); err == nil {
 		t.Error("installed after a bad signature")
@@ -470,9 +498,9 @@ func TestInstallShSourceFallback(t *testing.T) {
 	old := newSHRelease(t, "0.1.0")
 	old.pub, old.priv = r.pub, r.priv
 	old.sig = signSSHSIG(r.priv, old.manifest, Namespace)
-	hits := map[string]int{}
+	hits := newHitCount()
 	srv := r.server(hits)
-	oldHits := map[string]int{}
+	oldHits := newHitCount()
 	oldSrv := old.server(oldHits)
 	e := e2eEnv(t, srv, false)
 	// Both test servers have certificates of the same test CA.
@@ -505,7 +533,7 @@ files|agentnetwork.org.cn|` + srv.URL + `/files|` + host + `"`
 func TestInstallShGoldenPendingZh(t *testing.T) {
 	ver := installedVersion(t)
 	r := newSHRelease(t, ver)
-	srv := r.server(map[string]int{})
+	srv := r.server(newHitCount())
 	e := e2eEnv(t, srv, false)
 	e.env["ANET_LANG"] = "zh_CN.UTF-8"
 	e.env["FAKE_HUB"] = "pending"
@@ -719,7 +747,7 @@ func TestInstallShRealBinary(t *testing.T) {
 	}
 	r.manifest = bytes.Replace(r.manifest, []byte(`"modules": ["cas", "mcp", "x402"]`), []byte(`"modules": [`+strings.Join(quoted, ", ")+`]`), 1)
 	r.sig = signSSHSIG(r.priv, r.manifest, Namespace)
-	srv := r.server(map[string]int{})
+	srv := r.server(newHitCount())
 	e := e2eEnv(t, srv, false)
 	script := e2eScript(t, r, e2eSources(srv, true), e.root, freePort(t))
 	if v := installedVersion(t); v != ver {
