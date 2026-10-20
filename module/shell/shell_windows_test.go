@@ -326,3 +326,58 @@ func TestWindowsDefaultDirIsTheHomeDirectory(t *testing.T) {
 		t.Fatalf("got %v %q, want %s", err, eff.Evidence.ObservedState, home)
 	}
 }
+
+// Windows starts a batch file through cmd.exe, which reads its arguments again with its own rules, so an
+// argument that carries a character cmd.exe interprets is refused before anything runs, whatever the
+// interpreter is: a single-quoted PowerShell string does not protect it.
+func TestWindowsArgumentsCannotReachCmd(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "deploy.cmd")
+	if err := os.WriteFile(script, []byte("@echo %1\r\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := Config{AllowLocal: true, Commands: map[string]Command{"deploy": {Run: "& " + psQuote(script), Args: true}}}
+	_, h := started(t, cfg)
+	// A plain argument reaches the batch file.
+	eff, err := invoke(t, h, runPrefix+"deploy", "", map[string]any{"argv": []any{"prod"}})
+	if err != nil || eff.Status != effect.OK || strings.TrimSpace(eff.Evidence.ObservedState) != "prod" {
+		t.Fatalf("a plain argument: %v %+v", err, eff)
+	}
+	ran := len(h.events(EvCommandRun))
+	marker := filepath.Join(dir, "marker")
+	for _, arg := range []string{
+		"x&echo INJECTED> " + marker,
+		`a" & echo INJECTED> ` + marker + ` & "b`,
+		"%COMSPEC%", "!PATH!", "a^b", "a|b", "a<b", "a>b", "(a)",
+	} {
+		_, err := invoke(t, h, runPrefix+"deploy", "", map[string]any{"argv": []any{"ok", arg}})
+		if err == nil || !strings.Contains(err.Error(), "cannot be passed safely on Windows") {
+			t.Errorf("argument %q: %v", arg, err)
+		}
+	}
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatal("an injected command ran")
+	}
+	if n := len(h.events(EvCommandRun)); n != ran {
+		t.Fatalf("%d refused argument lists ran", n-ran)
+	}
+}
+
+// The refusal holds for every interpreter family that takes arguments, and cmd.exe takes none.
+func TestWindowsEveryFamilyRefusesCmdCharacters(t *testing.T) {
+	for _, f := range []int{familyPowerShell, familyPosix} {
+		ip := interp{path: `C:\x\shell.exe`, family: f}
+		for _, c := range []string{`"`, "%", "!", "^", "&", "|", "<", ">", "(", ")", "\r", "\n"} {
+			if _, err := ip.quote([]any{"a", "b" + c + "c"}); err == nil || !strings.Contains(err.Error(), "argv[1]") {
+				t.Errorf("family %d, character %q: %v", f, c, err)
+			}
+		}
+		got, err := ip.quote([]any{"a b", "c-d_e.f", `C:\x\y`, "it's"})
+		if err != nil || got == "" {
+			t.Errorf("family %d: plain arguments: %q %v", f, got, err)
+		}
+	}
+	if _, err := (interp{family: familyCmd}).quote([]any{"plain"}); err == nil || !strings.Contains(err.Error(), "cmd.exe") {
+		t.Errorf("cmd.exe: %v", err)
+	}
+}

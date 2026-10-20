@@ -204,6 +204,14 @@ argument is enclosed in single quotes, and the single quote characters inside it
 typographic ones, are doubled. ``cmd`` does not accept arguments; a command with ``args: true``
 is refused with that interpreter.
 
+*Characters refused in arguments.* Windows runs a batch file (``.bat`` or ``.cmd``, including the
+launchers that npm installs) through ``cmd.exe``, which interprets its arguments again with its
+own rules. Quoting by the interpreter therefore does not protect an argument that reaches a batch
+file. With every interpreter, an argument that contains one of the characters
+``" % ! ^ & | < > ( )``, a carriage return or a line feed is refused, and the command does not
+run. Commands whose arguments need these characters are to be declared without ``args``, with
+the complete command line in ``run``.
+
 *Process trees.* Each command runs in a Job object. On a timeout or a cancellation the whole
 process tree is terminated. A process that a command leaves running survives the command, as
 on Linux and macOS, but ends when the daemon ends.

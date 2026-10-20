@@ -101,19 +101,60 @@ func encodePowerShell(s string) string {
 	return base64.StdEncoding.EncodeToString(b)
 }
 
-// quote renders caller-supplied arguments for the command line. For PowerShell each argument is one
-// single-quoted string: every character PowerShell reads as a single quote (', U+2018, U+2019, U+201A,
-// U+201B) is doubled, which is how a single-quoted string carries it, and control characters other than
-// TAB are refused. A POSIX shell takes quoteArgv. cmd.exe has no quoting that holds for every argument,
-// so arguments are refused there.
+// quote renders caller-supplied arguments for the command line. cmd.exe has no quoting that holds for
+// every argument, so arguments are refused there. For every other family an argument that contains a
+// character cmd.exe interprets is refused first (refuseCmdCharacters): the operator's command may start
+// a batch file or a .cmd shim, which Windows runs through cmd.exe whatever the interpreter is. For
+// PowerShell each remaining argument is one single-quoted string: every character PowerShell reads as a
+// single quote (', U+2018, U+2019, U+201A, U+201B) is doubled, which is how a single-quoted string
+// carries it, and control characters other than TAB are refused. A POSIX shell takes quoteArgv.
 func (i interp) quote(argv any) (string, error) {
-	switch i.family {
-	case familyPowerShell:
-		return quotePowerShell(argv)
-	case familyCmd:
+	if i.family == familyCmd {
 		return "", fmt.Errorf("arguments cannot be passed safely to cmd.exe; use powershell, or a command without args")
 	}
+	if err := refuseCmdCharacters(argv); err != nil {
+		return "", err
+	}
+	if i.family == familyPowerShell {
+		return quotePowerShell(argv)
+	}
 	return quoteArgv(argv)
+}
+
+// cmdCharacters are the characters cmd.exe interprets in a command line, including in the arguments of
+// a batch file it runs: the double quote, which ends quoting; % and !, which expand variables; ^, the
+// escape character; & and |, which separate commands; < and >, which redirect; and the parentheses,
+// which group commands. CR and LF end the command.
+const cmdCharacters = "\"%!^&|<>()\r\n"
+
+// refuseCmdCharacters refuses a caller argument that contains one of cmdCharacters. No quoting by the
+// interpreter protects such an argument when the operator's command is a batch file: PowerShell and the
+// POSIX shells pass the value to the program, and Windows starts a batch file through cmd.exe, which
+// reads the value again with its own rules. A value that is not a list of strings is left to the
+// family's own quoting, which reports it.
+func refuseCmdCharacters(argv any) error {
+	raw, ok := argv.([]any)
+	if !ok {
+		return nil
+	}
+	for i, x := range raw {
+		s, ok := x.(string)
+		if !ok {
+			return nil
+		}
+		k := strings.IndexAny(s, cmdCharacters)
+		if k < 0 {
+			continue
+		}
+		if s[k] == '\r' || s[k] == '\n' {
+			return fmt.Errorf("argv[%d] contains a control character (a line break), which cannot be passed "+
+				"safely on Windows (a batch file or cmd.exe would interpret it)", i)
+		}
+		return fmt.Errorf("argv[%d] contains the character %c, which cannot be passed safely on Windows "+
+			"(a batch file or cmd.exe would interpret it); the characters \" %% ! ^ & | < > ( ) are refused "+
+			"in arguments", i, s[k])
+	}
+	return nil
 }
 
 // quotePowerShell is quote for the PowerShell family.
