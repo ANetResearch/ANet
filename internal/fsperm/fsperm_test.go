@@ -245,6 +245,36 @@ func TestReplaceFile(t *testing.T) {
 	}
 }
 
+// OpenReplaceable is os.OpenFile on unix: the handle keeps the file a rename replaced.
+func TestOpenReplaceable(t *testing.T) {
+	root := t.TempDir()
+	tmp, dst := filepath.Join(root, "tmp"), filepath.Join(root, "dst")
+	if err := os.WriteFile(dst, []byte("old"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(tmp, []byte("new"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f, err := OpenReplaceable(dst, os.O_RDWR)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if err := ReplaceFile(tmp, dst); err != nil {
+		t.Fatal(err)
+	}
+	b := make([]byte, 3)
+	if _, err := f.ReadAt(b, 0); err != nil || string(b) != "old" {
+		t.Errorf("the handle reads %q, %v", b, err)
+	}
+	if b, _ := os.ReadFile(dst); string(b) != "new" {
+		t.Errorf("dst = %q", b)
+	}
+	if _, err := OpenReplaceable(filepath.Join(root, "missing"), os.O_RDONLY); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("a missing file: %v", err)
+	}
+}
+
 func TestCurrentUser(t *testing.T) {
 	if got, want := CurrentUser(), fmt.Sprintf("uid %d", os.Getuid()); got != want {
 		t.Errorf("CurrentUser() = %q, want %q", got, want)
