@@ -36,7 +36,7 @@ type Self struct {
 	Variant string   // version.Variant: "default", "shell", or "" for a source build
 	GOOS    string   // runtime.GOOS
 	GOARCH  string   // runtime.GOARCH
-	Modules []string // module.Compiled(), sorted
+	Modules []string // the modules compiled into the binary, sorted
 }
 
 // Verified is what VerifyStaged vouches for, printed by `anet update
