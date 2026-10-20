@@ -20,10 +20,9 @@ import (
 	"time"
 )
 
-// DefaultBases are the hosts a release is fetched from, in the order
-// install.sh tries them. Each serves the release under DLPath. Which one
-// answers does not matter to what is accepted: every file is checked
-// against the signed manifest.
+// DefaultBases are the project's own hosts. Each serves the release under
+// DLPath; Sources tries them last. Which one answers does not matter to
+// what is accepted: every file is checked against the signed manifest.
 var DefaultBases = []string{"https://agentnetwork.org.cn", "https://hub.agentnetwork.org.cn"}
 
 // DLPath is where a base serves release.json, its signature and the assets.
@@ -36,8 +35,12 @@ var ErrReplaceIncomplete = errors.New("the binary was not replaced and is no lon
 
 // Updater finds, verifies and installs a release over one binary.
 type Updater struct {
-	Bases   []string     // https only; see DefaultBases
-	Client  *http.Client // nil: a client that follows redirects to https only
+	// Sources are tried in order (see Check). When there are none, each of
+	// Bases is a source (BaseSource), and DefaultBases when Bases is empty
+	// too.
+	Sources []Source
+	Bases   []string     // https only
+	Client  *http.Client // nil: a default client; redirects are followed to https only, and to hosts the source allows
 	Trust   Trust
 	Now     func() time.Time
 	Current string // the running version
@@ -52,7 +55,11 @@ type Updater struct {
 
 // Found is a verified release that Apply can install.
 type Found struct {
+	// Base is where the release was found: Source.Location, without
+	// DLPath where it ends in it. For a source made by BaseSource it is
+	// the base.
 	Base      string
+	Source    Source
 	Manifest  *Manifest
 	Signer    string // fingerprint of the key that signed the manifest
 	AssetName string
@@ -62,55 +69,181 @@ type Found struct {
 	// Raw and Sig are release.json and its signature as verified, for the
 	// record SaveInstalled keeps beside the installed binary.
 	Raw, Sig []byte
+	// gz is the asset's .gz as unpacked from an npm tarball, which Apply
+	// installs without downloading it again.
+	gz []byte
 }
 
 // Check fetches and verifies the manifest. It returns a Found whether the
 // release is newer, the same or older than Current; Found.Cmp says which,
 // and Apply refuses an older one.
 //
-// Bases are tried in order, but only to find one that SERVES a manifest —
-// a 404, or an HTML page where a manifest should be, moves on to the next.
-// A manifest that is served and then fails verification stops the search:
-// a mirror serving a bad signature is something to report, not route
-// around.
+// Sources are tried in order, but only to find one that SERVES a release —
+// an HTTP error, an HTML page where a manifest should be, a redirect to a
+// host the source may not use, or a malformed tarball moves on to the
+// next. A release that is served and then fails verification stops the
+// search: a mirror serving a bad signature is something to report, not
+// route around.
+//
+// A verified release older than Current is a mirror that lags behind: the
+// next source is tried. When no source serves Current or a newer release,
+// the first lagging one is returned, and Apply refuses it. The version in
+// an npm package's metadata is compared with Current before its tarball
+// is downloaded, so a lagging package is downloaded only when it is that
+// fallback.
 func (u *Updater) Check(ctx context.Context) (*Found, error) {
-	bases := u.Bases
-	if len(bases) == 0 {
-		bases = DefaultBases
+	srcs, err := u.sources()
+	if err != nil {
+		return nil, err
+	}
+	type lagged struct {
+		src   Source
+		meta  *npmMeta // an npm source not downloaded yet
+		found *Found   // a source whose release is verified
 	}
 	var tried []string
-	for _, b := range bases {
-		base, err := normalizeBase(b)
-		if err != nil {
+	var lagging []lagged
+	var ns *notServingError
+	for _, s := range srcs {
+		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		raw, err := u.get(ctx, base+DLPath+"/release.json", MaxManifestBytes)
-		if err == nil && !bytes.HasPrefix(bytes.TrimSpace(raw), []byte("{")) {
-			err = errors.New("not a manifest")
-		}
-		var sig []byte
-		if err == nil {
-			sig, err = u.get(ctx, base+DLPath+"/release.json.sig", MaxSigBytes)
-			if err == nil && !bytes.HasPrefix(bytes.TrimSpace(sig), []byte(sshsigBegin)) {
-				err = errors.New("not a signature")
+		var meta *npmMeta
+		if s.Kind == SourceNPM {
+			m, err := u.npmLatest(ctx, s)
+			if err != nil {
+				tried = append(tried, s.Name+": "+err.Error())
+				continue
 			}
+			if c, err := CompareVersions(m.Version, u.Current); err == nil && c < 0 {
+				lagging = append(lagging, lagged{src: s, meta: m})
+				tried = append(tried, s.Name+": "+m.Version+" is older than "+u.Current)
+				continue
+			}
+			meta = m
 		}
-		if err != nil {
-			tried = append(tried, base+": "+err.Error())
+		f, err := u.checkSource(ctx, s, meta)
+		switch {
+		case errors.As(err, &ns):
+			tried = append(tried, s.Name+": "+err.Error())
+			continue
+		case err != nil:
+			return nil, err
+		case f.Cmp < 0:
+			lagging = append(lagging, lagged{src: s, found: f})
+			tried = append(tried, s.Name+": "+f.Manifest.Version+" is older than "+u.Current)
 			continue
 		}
-		return u.verify(base, raw, sig)
+		return f, nil
+	}
+	for _, l := range lagging {
+		if l.found != nil {
+			return l.found, nil
+		}
+		f, err := u.checkSource(ctx, l.src, l.meta)
+		if errors.As(err, &ns) {
+			tried = append(tried, l.src.Name+": "+err.Error())
+			continue
+		}
+		return f, err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 	return nil, fmt.Errorf("no release manifest found (%s)", strings.Join(tried, "; "))
 }
 
-func (u *Updater) verify(base string, raw, sig []byte) (*Found, error) {
+// sources are the sources Check tries: Sources, or else Bases, or else
+// DefaultBases.
+func (u *Updater) sources() ([]Source, error) {
+	if len(u.Sources) > 0 {
+		return u.Sources, nil
+	}
+	bases := u.Bases
+	if len(bases) == 0 {
+		bases = DefaultBases
+	}
+	srcs := make([]Source, 0, len(bases))
+	for _, b := range bases {
+		s, err := BaseSource(b)
+		if err != nil {
+			return nil, err
+		}
+		srcs = append(srcs, s)
+	}
+	return srcs, nil
+}
+
+// checkSource fetches and verifies the release s serves. An error that
+// means s serves no release is a *notServingError; any other is a
+// verification failure. meta is the package metadata of an npm source
+// when Check has already read it.
+func (u *Updater) checkSource(ctx context.Context, s Source, meta *npmMeta) (*Found, error) {
+	var raw, sig []byte
+	var files map[string][]byte
+	var where string
+	switch s.Kind {
+	case SourceFiles:
+		where = s.URL + "/release.json"
+		var err error
+		raw, err = u.get(ctx, s.Allow, where, MaxManifestBytes)
+		if err == nil {
+			sig, err = u.get(ctx, s.Allow, s.URL+"/release.json.sig", MaxSigBytes)
+		}
+		if err != nil {
+			return nil, notServing(err)
+		}
+	case SourceNPM:
+		if meta == nil {
+			m, err := u.npmLatest(ctx, s)
+			if err != nil {
+				return nil, notServing(err)
+			}
+			meta = m
+		}
+		tarURL := s.tarballURL(meta.Version)
+		var err error
+		files, err = u.npmFiles(ctx, s, tarURL, meta.Dist.Integrity)
+		if err != nil {
+			return nil, notServing(fmt.Errorf("%s: %w", tarURL, err))
+		}
+		raw, sig = files["release.json"], files["release.json.sig"]
+		if raw == nil || sig == nil {
+			return nil, notServing(fmt.Errorf("%s: no package/dl/release.json and release.json.sig", tarURL))
+		}
+		where = tarURL + ": package/dl/release.json"
+	default:
+		return nil, fmt.Errorf("source %s: unknown kind %q", s.Name, s.Kind)
+	}
+	if !bytes.HasPrefix(bytes.TrimSpace(raw), []byte("{")) {
+		return nil, notServing(fmt.Errorf("%s: not a manifest", where))
+	}
+	if !bytes.HasPrefix(bytes.TrimSpace(sig), []byte(sshsigBegin)) {
+		return nil, notServing(fmt.Errorf("%s.sig: not a signature", where))
+	}
+	f, err := u.verify(where, raw, sig)
+	if err != nil {
+		return nil, err
+	}
+	f.Source, f.Base = s, s.base()
+	if s.Kind == SourceNPM {
+		gz, ok := files[f.AssetName+".gz"]
+		if !ok {
+			return nil, notServing(fmt.Errorf("%s: no package/dl/%s.gz", s.tarballURL(meta.Version), f.AssetName))
+		}
+		f.gz = gz
+	}
+	return f, nil
+}
+
+// verify checks the manifest at where (named in errors) and its signature.
+func (u *Updater) verify(where string, raw, sig []byte) (*Found, error) {
 	m, s, err := VerifyManifest(raw, sig, u.Trust)
 	if err != nil {
-		return nil, fmt.Errorf("%s%s/release.json: %w", base, DLPath, err)
+		return nil, fmt.Errorf("%s: %w", where, err)
 	}
 	if err := m.CheckFresh(u.now()); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s: %w", where, err)
 	}
 	name, a, err := m.AssetFor(u.Variant, u.GOOS, u.GOARCH)
 	if err != nil {
@@ -121,14 +254,14 @@ func (u *Updater) verify(base string, raw, sig []byte) (*Found, error) {
 		return nil, fmt.Errorf("comparing with the installed version: %w", err)
 	}
 	return &Found{
-		Base: base, Manifest: m, Signer: Fingerprint(s.PublicKey),
+		Manifest: m, Signer: Fingerprint(s.PublicKey),
 		AssetName: name, Asset: a, Modules: m.Variants[u.Variant].Modules, Cmp: cmp,
 		Raw: raw, Sig: sig,
 	}, nil
 }
 
-// Apply downloads f's asset, checks it against the manifest, and replaces
-// u.Exe with it.
+// Apply downloads f's asset (an npm source's was unpacked by Check), checks
+// it against the manifest, and replaces u.Exe with it.
 //
 // The replacement is a rename of a fully written, fully checked file in
 // the same directory, so the old binary is either untouched or replaced
@@ -142,9 +275,15 @@ func (u *Updater) Apply(ctx context.Context, f *Found) (err error) {
 	if f.Cmp < 0 {
 		return fmt.Errorf("%w: %s < %s", ErrDowngrade, f.Manifest.Version, u.Current)
 	}
-	gz, err := u.get(ctx, f.Base+DLPath+"/"+f.AssetName+".gz", f.Asset.GzSize)
-	if err != nil {
-		return fmt.Errorf("download %s.gz: %w", f.AssetName, err)
+	gz := f.gz
+	switch {
+	case f.Source.Kind == SourceNPM && gz == nil:
+		return fmt.Errorf("%s.gz: not unpacked from the package", f.AssetName)
+	case f.Source.Kind != SourceNPM:
+		gz, err = u.get(ctx, f.Source.Allow, f.Source.URL+"/"+f.AssetName+".gz", f.Asset.GzSize)
+		if err != nil {
+			return fmt.Errorf("download %s.gz: %w", f.AssetName, err)
+		}
 	}
 	if int64(len(gz)) != f.Asset.GzSize {
 		return fmt.Errorf("%s.gz: %d bytes, the manifest says %d", f.AssetName, len(gz), f.Asset.GzSize)
@@ -272,7 +411,9 @@ func (u *Updater) now() time.Time {
 	return time.Now()
 }
 
-func (u *Updater) client() *http.Client {
+// client is u.Client, following redirects to https URLs on the hosts allow
+// admits (see Source.Allow) only.
+func (u *Updater) client(allow []string) *http.Client {
 	c := http.Client{Timeout: 10 * time.Minute}
 	if u.Client != nil {
 		c = *u.Client
@@ -280,6 +421,9 @@ func (u *Updater) client() *http.Client {
 	c.CheckRedirect = func(req *http.Request, via []*http.Request) error {
 		if req.URL.Scheme != "https" {
 			return fmt.Errorf("refusing a redirect to %s: releases are fetched over https only", req.URL.Redacted())
+		}
+		if !hostAllowed(req.URL, allow) {
+			return fmt.Errorf("refusing a redirect to the host %s: not a host this source may use", req.URL.Host)
 		}
 		if len(via) >= 5 {
 			return errors.New("too many redirects")
@@ -289,22 +433,37 @@ func (u *Updater) client() *http.Client {
 	return &c
 }
 
-// get fetches a URL, reading at most limit bytes; more is an error, not a
-// truncation, because nothing fetched here is valid at any other length.
-func (u *Updater) get(ctx context.Context, rawURL string, limit int64) ([]byte, error) {
+// open requests a URL on a host allow admits and returns the response of
+// status 200; the caller closes its body.
+func (u *Updater) open(ctx context.Context, allow []string, rawURL string) (*http.Response, error) {
+	if err := checkURL(rawURL, allow); err != nil {
+		return nil, err
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Cache-Control", "no-cache")
-	resp, err := u.client().Do(req)
+	resp, err := u.client(allow).Do(req)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		resp.Body.Close()
+		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+	return resp, nil
+}
+
+// get fetches a URL on a host allow admits, reading at most limit bytes;
+// more is an error, not a truncation, because nothing fetched here is
+// valid at any other length.
+func (u *Updater) get(ctx context.Context, allow []string, rawURL string, limit int64) ([]byte, error) {
+	resp, err := u.open(ctx, allow, rawURL)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
-	}
 	b, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
 	if err != nil {
 		return nil, err

@@ -11,8 +11,18 @@
 #   … | sh -s -- --system          → /usr/local/bin (sudo)
 #   … | sh -s -- --prefix DIR
 #   … | sh -s -- --agents          also wire anet into the coding agents found here
-#   … | sh -s -- --hub https://hub.agentnetwork.org.cn --name my-box
-#                                  also start the node and join a hub
+#   … | sh -s -- --no-join         start the node, but do not join a hub
+#   … | sh -s -- --no-start        install only
+#
+# By default the node is started and joins https://hub.agentnetwork.org.cn
+# (anet hub-register --passphrase-later: nothing is asked; the recovery
+# passphrase is set later with `anet identity protect`).
+#
+# Output: one short line per phase, a download progress line on a terminal,
+# and a summary of a few lines. Everything else (each download, each check,
+# each step of a takeover, what anet init printed) is written to
+# <data dir>/logs/install-<UTC time>.log, readable by this user only, and the
+# last line names it.
 #
 # Already installed? Run `anet update` instead: it checks the same signed
 # manifest with the release key built into the binary, and needs nothing
@@ -22,8 +32,8 @@
 # clawnet.cc, anet 0.1 or 0.2) is taken over without a question: its daemon
 # is stopped, its command removed or replaced, its data directory renamed
 # aside (never deleted), and PATH set so that a new terminal runs the new
-# anet. See "EARLIER INSTALLATIONS" below. The installer never waits for
-# input; sudo is only used as `sudo -n`.
+# anet. See "EARLIER INSTALLATIONS" below. The installer never reads its
+# input; sudo asks for a password at most once, and only on a terminal.
 #
 # WHAT IS CHECKED, and every check stops the install with the installed
 # version untouched:
@@ -55,10 +65,9 @@
 #   --system        Install to /usr/local/bin (uses sudo -n if needed).
 #   --user          Install to $HOME/.local/bin (default).
 #   --prefix DIR    Install into DIR (overrides the above).
-#   --base URL      Download base, https only (or set ANET_INSTALL_BASE).
-#                   Without it, the project's hosts are tried first and then
-#                   the npm package of the build on npmmirror, jsDelivr and
-#                   unpkg (see mirror_bases); every host is checked the same way.
+#   --base URL      Download base, https only (or set ANET_INSTALL_BASE): the
+#                   release is read from URL/dl/ and nowhere else. Without it,
+#                   see "DOWNLOAD SOURCES" below.
 #   --shell         Install the variant that can run operator-approved commands
 #                   on this machine. See "--shell" below before using it.
 #   --without LIST  Turn these modules off in config.json (a comma-separated
@@ -67,17 +76,36 @@
 #   --agents        After installing, wire anet into the coding agents found on
 #                   this machine (`anet agents wire --all`). --agents=claude,codex
 #                   wires only those.
-#   --hub URL       Start the node and join this hub (anet hub-register), as the
-#                   last step. Its lines are printed as they are: on a hub that
-#                   admits by AID, the last one is the `anet-hub admit <AID>` line
-#                   to send to the hub's operator, and joining finishes on its own
-#                   once they run it. Without a terminal (an agent running this),
-#                   joining works too; the recovery passphrase is set later with
-#                   `anet identity protect`.
+#   --hub URL       The hub to join (default https://hub.agentnetwork.org.cn).
+#                   On a hub that admits by AID, the summary names the
+#                   `anet-hub admit <AID>` command for the hub's operator, and
+#                   joining finishes on its own once they run it. A node that
+#                   has already joined a hub keeps it unless --hub names another.
 #   --name NAME     The name to join under (default: this machine's hostname).
+#   --no-join       Start the node, but do not join a hub.
+#   --no-start      Do not start the node (and so do not join a hub either).
 #   --no-modify-path  Do not add the install directory to the shell profiles;
 #                   the command for them is printed instead.
 #   --help          Show this help.
+#
+# DOWNLOAD SOURCES. Where the bytes come from does not decide what is
+# accepted (see WHAT IS CHECKED); it decides how fast and whether they
+# arrive. npmmirror and GitHub are asked first, at the same time, with a
+# 3-second limit, and those that answer are tried fastest first; then the
+# npm registry, jsDelivr, and last the project's own hosts:
+#   npmmirror   registry.npmmirror.com: the npm package of this build,
+#               @agentnetwork/<anet|anet-shell>-<os>-<cpu>, as a tarball whose
+#               package/dl/ holds release.json, its signature and the .gz
+#   GitHub      github.com/ANetResearch/ANet/releases/latest/download/<file>,
+#               redirected to *.githubusercontent.com only
+#   npmjs       registry.npmjs.org: the same tarball as from npmmirror
+#   jsDelivr    cdn.jsdelivr.net/npm/<package>@latest/dl/<file>
+#   agentnetwork.org.cn, hub.agentnetwork.org.cn    /dl/<file>
+# A source that does not serve (an HTTP error, a time-out, an HTML page, a
+# missing file, a redirect to a host it does not use) is passed over; a
+# source that serves something that fails a check ends the install. A
+# source whose release is older than this installer is passed over too (a
+# lagging mirror), unless no source has a newer one.
 #
 # --shell installs a DIFFERENT BINARY, not a setting.
 #
@@ -120,7 +148,8 @@ release_key_fingerprint() {
 
 usage() {
   cat <<'EOF'
-anet installer — verifies the signed release manifest, then installs.
+anet installer: verifies the signed release manifest, installs anet, starts
+the node and joins https://hub.agentnetwork.org.cn.
 
   curl --proto '=https' --tlsv1.2 -fsSL https://agentnetwork.org.cn/install.sh | sh
   … | sh -s -- [flags]
@@ -132,8 +161,10 @@ anet installer — verifies the signed release manifest, then installs.
   --shell           the variant that can run operator-approved commands
   --without LIST    turn these modules off (comma-separated), e.g. autoreply
   --agents[=LIST]   wire anet into coding agents found here (all, or LIST)
-  --hub URL         start the node and join this hub
+  --hub URL         the hub to join (default https://hub.agentnetwork.org.cn)
   --name NAME       name to join under (default: hostname)
+  --no-join         start the node without joining a hub
+  --no-start        do not start the node
   --no-modify-path  leave the shell profiles alone (PATH is set by you)
 
 Already installed? Use `anet update`. An earlier release (AgentNetwork 1.x,
@@ -143,28 +174,201 @@ https://github.com/ANetResearch/ANet
 EOF
 }
 
-say()  { printf '%s\n' "$*"; }
-warn() { printf 'Warning: %s\n' "$*" >&2; }
-# die: the error, and then either that nothing was changed or, once an
-# earlier release has been taken over (stopped, removed, moved), what was
-# done, since that stays done.
+# --- output ------------------------------------------------------------------
+# What the user sees: one short line per phase (show), a progress line while
+# a download runs on a terminal, and the summary. Everything else goes to the
+# log (say, warn, and the output of the programs run), which finish_log
+# keeps as <data dir>/logs/install-<UTC>.log. Without a log (the functions
+# run alone, as the tests do), say and warn print as they always did.
+say()  { if [ -n "${LOG:-}" ]; then printf '%s\n' "$*" >> "$LOG"; else printf '%s\n' "$*"; fi; }
+show() { printf '%s\n' "$*"; if [ -n "${LOG:-}" ]; then printf '%s\n' "$*" >> "$LOG"; fi; }
+warn() { if [ -n "${LOG:-}" ]; then printf 'Warning: %s\n' "$*" >> "$LOG"; else printf 'Warning: %s\n' "$*" >&2; fi; }
+# logto: where the output of a program run for the log goes.
+logto() { printf '%s' "${LOG:-/dev/stdout}"; }
+
+# m EN ZH: the text in the language anet would choose (Chinese when
+# ANET_LANG begins with zh, English otherwise).
+m() {
+  case "$(printf '%s' "${ANET_LANG:-}" | tr '[:upper:]' '[:lower:]')" in
+    zh*) printf '%s' "$2" ;;
+    *)   printf '%s' "$1" ;;
+  esac
+}
+
+# tilde PATH: PATH with $HOME written as ~, for the lines a person reads.
+tilde() {
+  case "$1" in
+    "$HOME") printf '~' ;;
+    "$HOME"/*) printf '~/%s' "${1#"$HOME"/}" ;;
+    *) printf '%s' "$1" ;;
+  esac
+}
+
+# style_init: colours for stderr on a terminal (red for the progress bar and
+# for errors, dim gray for the rest of the bar), none with NO_COLOR or when
+# stderr is not a terminal; the bar is drawn with U+2501 in a UTF-8 locale
+# and with ASCII otherwise.
+style_init() {
+  C_RED=""; C_DIM=""; C_OFF=""
+  if [ -z "${NO_COLOR:-}" ] && [ -t 2 ] && [ "${TERM:-dumb}" != dumb ]; then
+    C_RED=$(printf '\033[31m'); C_DIM=$(printf '\033[90m'); C_OFF=$(printf '\033[0m')
+  fi
+  case "${LC_ALL:-${LC_CTYPE:-${LANG:-}}}" in
+    *[Uu][Tt][Ff]-8*|*[Uu][Tt][Ff]8*) BAR_ON='━'; BAR_OFF='━' ;;
+    *) BAR_ON='#'; BAR_OFF='-' ;;
+  esac
+}
+
+# die: the error, then either that nothing was changed or, once an earlier
+# release has been taken over (stopped, removed, moved), what was done,
+# since that stays done; then the log.
 die() {
-  printf 'Error: %s\n' "$*" >&2
+  [ -z "${LOG:-}" ] || printf 'Error: %s\n' "$*" >> "$LOG"
+  printf '%s%s%s %s\n' "${C_RED:-}" "$(m 'Error:' '错误：')" "${C_OFF:-}" "$*" >&2
   if [ -n "${TMP:-}" ] && grep -Eq '^(stopped|removed|replaced|moved)[|]' "$TMP/notes" 2>/dev/null; then
-    printf 'The new binary was not installed. Already done:\n' >&2
+    printf '%s\n' "$(m 'The new binary was not installed. Already done:' '新的二进制未安装。已完成的步骤：')" >&2
     grep -E '^(stopped|removed|replaced|moved|manual)[|]' "$TMP/notes" | sed 's/^[a-z]*|/  - /' >&2
   else
-    printf 'Nothing was installed or changed.\n' >&2
+    printf '%s\n' "$(m 'Nothing was installed or changed.' '未安装或更改任何内容。')" >&2
   fi
+  if finish_log; then printf '%s\n' "$(m "Details: $(tilde "$LOGFILE")" "详情：$(tilde "$LOGFILE")")" >&2; fi
   exit 1
 }
 
-# fetch URL OUT [MAXBYTES] — https only, and never follow a redirect off
-# https. MAXBYTES bounds what is read before anything has been verified:
+# finish_log: the log of this run, kept as <data dir>/logs/install-<UTC>.log
+# (directory 0700, file 0600); from here on the log is written there. The
+# data directory is the one the new anet uses (ANET_DATA_DIR, else
+# ANET_HOME, else ~/.anet). Fails when there is no log or it cannot be kept.
+finish_log() {
+  [ -n "${LOG:-}" ] && [ -f "$LOG" ] || return 1
+  [ -z "${LOGFILE:-}" ] || return 0
+  _ld=${ANET_DATA_DIR:-${ANET_HOME:-$HOME/.anet}}
+  _ld="${_ld%/}/logs"
+  ( umask 077 && mkdir -p "$_ld" ) 2>/dev/null || return 1
+  chmod 700 "$_ld" 2>/dev/null || true
+  _lf="$_ld/install-${INSTALL_TS}.log"
+  rm -f "$_lf" 2>/dev/null || true
+  ( umask 077 && cat "$LOG" > "$_lf" ) 2>/dev/null || return 1
+  chmod 600 "$_lf" 2>/dev/null || true
+  LOG=$_lf; LOGFILE=$_lf
+}
+
+# url_host URL: the host (and port) of an https URL, in lower case.
+url_host() {
+  _uh=${1#https://}; _uh=${_uh%%/*}; _uh=${_uh%%\?*}; _uh=${_uh%%#*}
+  printf '%s' "$_uh" | tr '[:upper:]' '[:lower:]'
+}
+
+# allow_url URL: URL is https and its host is one FETCH_ALLOW names (host
+# patterns separated by spaces: an exact host, *.suffix, or * for any host).
+allow_url() {
+  case "$1" in https://*) ;; *) return 1 ;; esac
+  _ah=$(url_host "$1")
+  case "$_ah" in ''|*@*|*[!a-z0-9.:-]*) return 1 ;; esac
+  set -f
+  for _ap in ${FETCH_ALLOW:-}; do
+    # shellcheck disable=SC2254 # _ap is a pattern
+    case "$_ah" in $_ap) set +f; return 0 ;; esac
+  done
+  set +f
+  return 1
+}
+
+# fetch URL OUT [MAXBYTES] — https only. curl does not follow redirects
+# here: fetch does, at most 5, and only to an https URL on a host the
+# current source uses (FETCH_ALLOW); a redirect anywhere else is "not
+# serving". MAXBYTES bounds what is read before anything has been verified:
 # the manifest and its signature are small, and anything bigger is not them.
+# FETCH_HDR, when set, receives the response headers (for a progress line).
 fetch() {
-  curl --proto '=https' --proto-redir '=https' --tlsv1.2 -fsSL --connect-timeout 15 \
-    ${3:+--max-filesize "$3"} -H 'Cache-Control: no-cache' -o "$2" "$1"
+  _feu=$1; _fen=0
+  while :; do
+    if ! allow_url "$_feu"; then
+      printf 'curl: (0) not fetched from %s: a host this source does not use\n' "$(url_host "$_feu")" >&2
+      return 1
+    fi
+    _few=$(curl --proto '=https' --tlsv1.2 -sS --connect-timeout "${FETCH_CONNECT:-15}" \
+      ${FETCH_MAXTIME:+--max-time "$FETCH_MAXTIME"} ${3:+--max-filesize "$3"} ${FETCH_HDR:+-D "$FETCH_HDR"} \
+      -H 'Cache-Control: no-cache' -o "$2" -w '%{http_code} %{redirect_url}' "$_feu") || return 1
+    _fec=${_few%% *}; _fer=${_few#* }
+    case "$_fec" in
+      2[0-9][0-9]) return 0 ;;
+      301|302|303|307|308) ;;
+      *) printf 'curl: (22) The requested URL returned error: %s\n' "$_fec" >&2; return 1 ;;
+    esac
+    if [ -z "$_fer" ] || [ "$_fen" -ge 5 ]; then
+      printf 'curl: (47) a redirect that was not followed\n' >&2; return 1
+    fi
+    _feu=$_fer; _fen=$((_fen + 1))
+  done
+}
+
+# bar DONE TOTAL ELAPSED_DS SPEED FINAL: the progress line, redrawn in place
+# on stderr: bar, megabytes, speed, and the time left (or, FINAL, the time
+# it took).
+bar() {
+  awk -v d="$1" -v t="$2" -v e="$3" -v s="$4" -v f="$5" -v on="$BAR_ON" -v off="$BAR_OFF" \
+      -v cr="$C_RED" -v cd="$C_DIM" -v co="$C_OFF" '
+    function rate(b) { if (b >= 1048576) return sprintf("%.1f MB/s", b / 1048576); return sprintf("%.0f kB/s", b / 1024) }
+    function clock(x) { x = int(x + 0.5); return sprintf("%d:%02d", int(x / 60), x % 60) }
+    BEGIN {
+      w = 32; fr = (t > 0) ? d / t : 0; if (fr > 1) fr = 1
+      n = (f == 1) ? w : int(fr * w)
+      done = ""; for (i = 0; i < n; i++) done = done on
+      rest = ""; for (; i < w; i++) rest = rest off
+      if (f == 1) {
+        secs = e / 10; avg = (secs > 0) ? d / secs : d
+        line = sprintf("%s%s%s  %.1f MB  %s  %s", cr, done, co, d / 1048576, rate(avg), clock(secs))
+      } else {
+        size = (t > 0) ? sprintf("%.1f/%.1f MB", d / 1048576, t / 1048576) : sprintf("%.1f MB", d / 1048576)
+        eta = (s > 0 && t > d) ? clock((t - d) / s) : "-:--"
+        line = sprintf("%s%s%s%s%s  %s  %s  eta %s", cr, done, cd, rest, co, size, rate(s), eta)
+      }
+      printf "\r  %s\033[K", line
+    }' >&2
+}
+
+# download URL OUT MAXBYTES TOTAL: fetch, with a progress line on stderr
+# when stderr is a terminal (TOTAL: the size when known, else the
+# Content-Length the host sends), redrawn about five times a second; the
+# last state stays. What curl says goes to the log. Sets DL_BYTES and
+# DL_SECS.
+download() {
+  _dt0=$(date +%s)
+  if [ ! -t 2 ]; then
+    fetch "$1" "$2" "$3" 2>>"$(logto)" || return 1
+    DL_BYTES=$(wc -c < "$2" | tr -d ' '); DL_SECS=$(( $(date +%s) - _dt0 ))
+    return 0
+  fi
+  : > "$2"; : > "$2.hdr"
+  FETCH_HDR="$2.hdr" fetch "$1" "$2" "$3" 2>>"$(logto)" &
+  _dpid=$!
+  _dk=0; _del=0; _dprev=0; _dprevel=0; _dspeed=0
+  while kill -0 "$_dpid" 2>/dev/null; do
+    sleep 0.2 2>/dev/null || sleep 1
+    _dk=$((_dk + 1)); _del=$((_del + 2))
+    _dreal=$(( ($(date +%s) - _dt0) * 10 ))
+    [ "$_dreal" -le $((_del + 10)) ] || _del=$_dreal
+    _dn=$(wc -c < "$2" 2>/dev/null | tr -d ' '); _dn=${_dn:-0}
+    _dt=$4
+    [ -n "$_dt" ] || _dt=$(sed -n 's/^[Cc][Oo][Nn][Tt][Ee][Nn][Tt]-[Ll][Ee][Nn][Gg][Tt][Hh]:[[:space:]]*\([0-9][0-9]*\).*/\1/p' "$2.hdr" 2>/dev/null | tail -n 1)
+    if [ $((_dk % 5)) = 0 ] && [ "$_del" -gt "$_dprevel" ]; then
+      _dspeed=$(( (_dn - _dprev) * 10 / (_del - _dprevel) )); _dprev=$_dn; _dprevel=$_del
+    elif [ "$_dk" -lt 5 ] && [ "$_del" -gt 0 ]; then
+      _dspeed=$(( _dn * 10 / _del ))
+    fi
+    bar "$_dn" "${_dt:-0}" "$_del" "$_dspeed" 0
+  done
+  _drc=0; wait "$_dpid" || _drc=$?
+  rm -f "$2.hdr"
+  DL_BYTES=$(wc -c < "$2" 2>/dev/null | tr -d ' '); DL_SECS=$(( $(date +%s) - _dt0 ))
+  if [ "$_drc" = 0 ]; then
+    [ "$_del" -gt 0 ] || _del=$(( DL_SECS * 10 ))
+    [ "$_del" -gt 0 ] || _del=1
+    bar "$DL_BYTES" "$DL_BYTES" "$_del" 0 1
+  fi
+  printf '\n' >&2
+  return "$_drc"
 }
 
 sha256() {
@@ -178,9 +382,9 @@ sha256() {
 verify_sig() {
   if ! out=$(ssh-keygen -Y verify -f "$TMP/allowed_signers" -I "$IDENTITY" -n "$NAMESPACE" \
       -s "$2" < "$1" 2>&1); then
-    printf '%s\n' "$out" | sed 's/^/    /' >&2
+    printf '%s\n' "$out" | sed 's/^/    /' >> "$(logto)"
     die "$(basename "$1") is not signed by the anet release key ($(release_key_fingerprint)).
-  Either the download host is serving something the release key did not sign,
+  Either ${SRC_NAME:-the download source} is serving something the release key did not sign,
   or this ssh-keygen is older than OpenSSH 8.1 ($(ssh -V 2>&1 | head -1))."
   fi
 }
@@ -264,6 +468,7 @@ add_without() {
 parse_args() {
   PREFIX=""; USER_MODE=1; BASE_OVERRIDE=""; HUB=""; NODE_NAME=""
   VARIANT="default"; ASSET_PREFIX="anet"; AGENTS=""; WITHOUT=""; MODIFY_PATH=1
+  START=1; JOIN=1; HUB_EXPLICIT=0
   while [ $# -gt 0 ]; do
     case "$1" in
       --system)     USER_MODE=0 ;;
@@ -272,8 +477,10 @@ parse_args() {
       --prefix=*)   PREFIX="${1#--prefix=}" ;;
       --base)       [ $# -ge 2 ] || die "--base needs a URL"; BASE_OVERRIDE="$2"; shift ;;
       --base=*)     BASE_OVERRIDE="${1#--base=}" ;;
-      --hub)        [ $# -ge 2 ] || die "--hub needs a URL"; HUB="$2"; shift ;;
-      --hub=*)      HUB="${1#--hub=}" ;;
+      --hub)        [ $# -ge 2 ] || die "--hub needs a URL"; HUB="$2"; HUB_EXPLICIT=1; shift ;;
+      --hub=*)      HUB="${1#--hub=}"; HUB_EXPLICIT=1 ;;
+      --no-join)    JOIN=0 ;;
+      --no-start)   START=0; JOIN=0 ;;
       --name)       [ $# -ge 2 ] || die "--name needs a value"; NODE_NAME="$2"; shift ;;
       --name=*)     NODE_NAME="${1#--name=}" ;;
       --token|--token=*) removed_flag --token ;;
@@ -294,14 +501,15 @@ parse_args() {
     *,shell,*) [ "$VARIANT" != shell ] || die "--shell installs the shell module and --without shell turns it off; use one of them" ;;
   esac
 
-  BASES="${ANET_INSTALL_BASE:-} https://agentnetwork.org.cn https://hub.agentnetwork.org.cn"
-  [ -n "$BASE_OVERRIDE" ] && BASES="$BASE_OVERRIDE"
-  for b in $BASES; do
-    case "$b" in
-      https://*) ;;
-      *) die "download base $b is not https:// — this installer fetches over https only" ;;
-    esac
-  done
+  [ -n "$HUB" ] || HUB=https://hub.agentnetwork.org.cn
+  [ "$START" = 1 ] || JOIN=0
+  # An explicit download base replaces every source (see DOWNLOAD SOURCES).
+  [ -n "$BASE_OVERRIDE" ] || BASE_OVERRIDE="${ANET_INSTALL_BASE:-}"
+  BASE_OVERRIDE="${BASE_OVERRIDE%/}"
+  case "$BASE_OVERRIDE" in
+    ''|https://*) ;;
+    *) die "download base $BASE_OVERRIDE is not https:// — this installer fetches over https only" ;;
+  esac
 
   if [ -z "$PREFIX" ]; then
     if [ "$USER_MODE" = 1 ]; then PREFIX="$HOME/.local/bin"; else PREFIX="/usr/local/bin"; fi
@@ -325,21 +533,9 @@ detect_platform() {
   esac
   PLAT="${OS_TAG}-${ARCH_TAG}"
   ASSET="${ASSET_PREFIX}-${PLAT}"
-  mirror_bases
-}
-
-# mirror_bases: after the project's own hosts, the npm package of this
-# build, @agentnetwork/<asset prefix>-<os>-<cpu>, whose directory dl/ holds
-# release.json, its signature and the .gz exactly as /dl/ does. Content
-# delivery networks for npm serve those files by path; npmmirror does so
-# only for packages admitted to its file access list and answers 403 until
-# then. The order is that of release.MirrorBases in `anet update`. An
-# explicit --base is used alone.
-mirror_bases() {
-  [ -z "$BASE_OVERRIDE" ] || return 0
+  # The npm package of this build (internal/release.NPMPackage).
   case "$ARCH_TAG" in amd64) _cpu=x64 ;; *) _cpu="$ARCH_TAG" ;; esac
-  _pkg="@agentnetwork/${ASSET_PREFIX}-${OS_TAG}-${_cpu}"
-  BASES="$BASES https://registry.npmmirror.com/${_pkg}/latest/files https://cdn.jsdelivr.net/npm/${_pkg}@latest https://unpkg.com/${_pkg}@latest"
+  PKG="@agentnetwork/${ASSET_PREFIX}-${OS_TAG}-${_cpu}"
 }
 
 check_tools() {
@@ -356,30 +552,214 @@ check_tools() {
   fi
 }
 
-# fetch_manifest: the first base that serves something shaped like a
-# manifest and a signature wins; everything it serves is then checked, and
-# a failed check ends the install rather than moving on to the next base.
-# (A host that answers every path with an HTML page is "not serving", not
-# "serving a bad signature".)
-fetch_manifest() {
-  BASE=""
-  for b in $BASES; do
-    b="${b%/}"
-    say "→ release manifest: ${b}/dl/release.json"
-    if fetch "$b/dl/release.json" "$TMP/release.json" 1048576 2>"$TMP/curl.err" \
-       && fetch "$b/dl/release.json.sig" "$TMP/release.json.sig" 16384 2>"$TMP/curl.err" \
-       && head -c 1 "$TMP/release.json" | grep -q '{' \
-       && head -1 "$TMP/release.json.sig" | grep -q '^-----BEGIN SSH SIGNATURE-----$'; then
-      BASE="$b"; break
+# installer_version: the release this installer belongs to (internal/version.V;
+# a test keeps the two equal). A source whose release is older is a lagging
+# mirror and is passed over while another source has this one or newer.
+installer_version() { echo '0.3.5'; }
+
+# source_defaults: where a release can come from, one source per line,
+# kind|name|URL|hosts it may use (see DOWNLOAD SOURCES). PROBED are asked at
+# the same time and ordered by how fast they answer; REST follow in order.
+# internal/release.Sources lists the same sources (a test holds the two
+# equal). kind npm: URL is a registry, and the release is the tarball of the
+# npm package PKG; kind files: the files are at URL/<file>.
+source_defaults() {
+  PROBED="npm|npmmirror|https://registry.npmmirror.com|registry.npmmirror.com cdn.npmmirror.com
+files|GitHub|https://github.com/ANetResearch/ANet/releases/latest/download|github.com *.githubusercontent.com"
+  REST="npm|npmjs|https://registry.npmjs.org|registry.npmjs.org
+files|jsDelivr|https://cdn.jsdelivr.net/npm/$PKG@latest/dl|cdn.jsdelivr.net
+files|agentnetwork.org.cn|https://agentnetwork.org.cn/dl|agentnetwork.org.cn
+files|hub.agentnetwork.org.cn|https://hub.agentnetwork.org.cn/dl|hub.agentnetwork.org.cn"
+  PROBE_TIMEOUT=3
+}
+
+# probe_one URL HOSTS: the seconds URL took to answer (2xx, or a redirect,
+# which is not followed), or nothing when it did not answer in time.
+probe_one() {
+  FETCH_ALLOW=$2
+  allow_url "$1" || return 0
+  _po=$(curl --proto '=https' --tlsv1.2 -s -o /dev/null --connect-timeout "$PROBE_TIMEOUT" --max-time "$PROBE_TIMEOUT" \
+    -H 'Cache-Control: no-cache' -w '%{http_code} %{time_total}' "$1" 2>/dev/null) || return 0
+  case "${_po%% *}" in 2[0-9][0-9]|30[12378]) printf '%s\n' "${_po#* }" ;; esac
+}
+
+# order_sources: $TMP/sources, the sources to try in order. An explicit
+# --base (or ANET_INSTALL_BASE) is the only source; otherwise the probed
+# sources that answered, fastest first, and then the rest. The probes run
+# at the same time, each bounded by PROBE_TIMEOUT seconds.
+order_sources() {
+  if [ -n "$BASE_OVERRIDE" ]; then
+    printf 'files|%s|%s/dl|*\n' "$BASE_OVERRIDE" "$BASE_OVERRIDE" > "$TMP/sources"
+    return 0
+  fi
+  source_defaults
+  printf '%s\n' "$PROBED" > "$TMP/probed"
+  : > "$TMP/sources"; : > "$TMP/fast"
+  _oi=0; _opids=""
+  while IFS='|' read -r _ok _on _ou _oa <&3; do
+    [ -n "$_ok" ] || continue
+    _oi=$((_oi + 1))
+    case "$_ok" in npm) _op="$_ou/$PKG/latest" ;; *) _op="$_ou/release.json" ;; esac
+    ( probe_one "$_op" "$_oa" > "$TMP/probe.$_oi" 2>/dev/null || true ) &
+    _opids="$_opids $!"
+  done 3< "$TMP/probed"
+  # shellcheck disable=SC2086 # a list of PIDs
+  wait $_opids 2>/dev/null || true
+  _oi=0
+  while IFS= read -r _ol <&3; do
+    [ -n "$_ol" ] || continue
+    _oi=$((_oi + 1))
+    _ot=$(head -n 1 "$TMP/probe.$_oi" 2>/dev/null | tr ',' '.')
+    if [ -n "$_ot" ]; then
+      say "source ${_ol#*|}: answered in ${_ot} s"
+      printf '%s %s\n' "$_ot" "$_ol" >> "$TMP/fast"
+    else
+      say "source ${_ol#*|}: no answer within ${PROBE_TIMEOUT} s; not used"
     fi
-    err="$(head -1 "$TMP/curl.err" 2>/dev/null | sed 's/^curl: ([0-9]*) //')"
-    say "  (not served here${err:+: $err}; trying next…)"
-    : > "$TMP/curl.err"
+  done 3< "$TMP/probed"
+  sort -n "$TMP/fast" | sed 's/^[^ ]* //' >> "$TMP/sources"
+  printf '%s\n' "$REST" >> "$TMP/sources"
+}
+
+# npm_release DIR URL NAME FORCE: the release in the npm package PKG of the
+# registry URL: its latest version from URL/PKG/latest, then the tarball
+# URL/PKG/-/<name>-<version>.tgz (built here, not taken from the metadata),
+# of which only package/dl/release.json, its signature and the .gz of this
+# build are extracted, each a regular file of bounded size. Returns 1 when
+# the registry does not serve them, and 2 when its version is older than
+# MINVER (unless FORCE).
+npm_release() {
+  fetch "$2/$PKG/latest" "$1/meta.json" 1048576 2>>"$(logto)" || return 1
+  _nv=$(tr ',{}' '\n\n\n' < "$1/meta.json" | sed -n 's/^[[:space:]]*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)"[[:space:]]*$/\1/p' | head -n 1)
+  semver_ok "$_nv" || { say "  $3: no version in $2/$PKG/latest"; return 1; }
+  if [ "$4" != 1 ] && [ "$(vercmp "$_nv" "$MINVER")" = -1 ]; then
+    say "  $3: anet $_nv, older than $MINVER; passed over"
+    return 2
+  fi
+  _nt="$2/$PKG/-/${PKG##*/}-$_nv.tgz"
+  say "  $3: anet $_nv, $_nt"
+  download_phase "$_nv" "$3"
+  download "$_nt" "$1/pkg.tgz" 268435456 "" || { say "  $3: the tarball was not served"; return 1; }
+  download_done "$_nv" "$3"
+  command -v tar >/dev/null 2>&1 || { say "  no tar here to read the npm package"; return 1; }
+  mkdir -p "$1/x"
+  # Only these three names are extracted; tar refuses names with "..". Each
+  # file is bounded (ulimit -f, in blocks) while it is written.
+  if ! ( ulimit -f 1048576 2>/dev/null || true
+         tar -xzf "$1/pkg.tgz" -C "$1/x" package/dl/release.json package/dl/release.json.sig "package/dl/$ASSET.gz" ) 2>>"$(logto)"; then
+    say "  $3: the tarball does not hold the release files"
+    return 1
+  fi
+  for _nf in release.json release.json.sig "$ASSET.gz"; do
+    if [ -L "$1/x/package/dl/$_nf" ] || [ ! -f "$1/x/package/dl/$_nf" ]; then
+      say "  $3: package/dl/$_nf is not a regular file"
+      return 1
+    fi
+    mv -f "$1/x/package/dl/$_nf" "$1/$_nf"
   done
-  [ -n "$BASE" ] || die "no download base served a release manifest (tried: $BASES)"
-  MF="$TMP/release.json"
-  verify_sig "$MF" "$TMP/release.json.sig"
+  rm -rf "$1/x" "$1/pkg.tgz"
+  [ "$(wc -c < "$1/release.json" | tr -d ' ')" -le 1048576 ] && [ "$(wc -c < "$1/release.json.sig" | tr -d ' ')" -le 16384 ] \
+    || { say "  $3: release.json or its signature is too large"; return 1; }
+}
+
+# try_source N KIND NAME URL HOSTS FORCE: fetch and verify the manifest of one
+# source into $TMP/src.N. 0: a release of at least MINVER (or any, with
+# FORCE), verified; 1: the source does not serve one; 2: it serves an older
+# one (a lagging mirror). A manifest that is served and fails a check ends
+# the install.
+try_source() {
+  _sd="$TMP/src.$1"; rm -rf "$_sd"; mkdir -p "$_sd"
+  FETCH_ALLOW=$5
+  say "source $3 ($4)"
+  if [ "$2" = npm ]; then
+    _src=0; npm_release "$_sd" "$4" "$3" "$6" || _src=$?
+    [ "$_src" = 0 ] || return "$_src"
+  else
+    if ! fetch "$4/release.json" "$_sd/release.json" 1048576 2>>"$(logto)" \
+       || ! fetch "$4/release.json.sig" "$_sd/release.json.sig" 16384 2>>"$(logto)"; then
+      say "  $3: not served"
+      return 1
+    fi
+  fi
+  if ! head -c 1 "$_sd/release.json" | grep -q '{' \
+     || ! head -n 1 "$_sd/release.json.sig" | grep -q '^-----BEGIN SSH SIGNATURE-----$'; then
+    say "  $3: not a release manifest and signature (an HTML page?)"
+    return 1
+  fi
+  SRC_KIND=$2; SRC_NAME=$3; SRC_URL=$4; SRC_ALLOW=$5; SRC_DIR=$_sd
+  MF="$_sd/release.json"
+  verify_sig "$MF" "$_sd/release.json.sig"
   say "  signature ok  (release key $(release_key_fingerprint))"
+  read_manifest
+  if [ "$6" != 1 ] && [ "$(vercmp "$VERSION" "$MINVER")" = -1 ]; then
+    say "  $3: release $VERSION, older than $MINVER; passed over"
+    return 2
+  fi
+  return 0
+}
+
+# select_release: the first source, in the order of order_sources, that
+# serves a verified release of at least MINVER (this installer's version,
+# or that of the anet already installed when newer); when none does, the
+# first that serves an older one. Its manifest and signature are copied to
+# $TMP for record_release.
+select_release() {
+  min_version
+  order_sources
+  _si=0; _stale=""; _sr=1
+  while IFS= read -r _sl <&4; do
+    [ -n "$_sl" ] || continue
+    _si=$((_si + 1))
+    IFS='|' read -r _sk _sn _su _sa <<EOF
+$_sl
+EOF
+    _sr=0; try_source "$_si" "$_sk" "$_sn" "$_su" "$_sa" 0 || _sr=$?
+    case "$_sr" in
+      0) break ;;
+      2) [ -n "$_stale" ] || _stale="$_si|$_sl" ;;
+    esac
+  done 4< "$TMP/sources"
+  if [ "$_sr" != 0 ]; then
+    [ -n "$_stale" ] || die "$(m "no download source served a release (tried: $(cut -d'|' -f2 "$TMP/sources" | tr '\n' ' ' | sed 's/ $//')).
+  Check this machine's connection to the internet, or name a source with --base URL." "没有下载源提供发布（已尝试：$(cut -d'|' -f2 "$TMP/sources" | tr '\n' ' ' | sed 's/ $//')）。
+  请检查本机的网络连接，或用 --base URL 指定下载源。")"
+    IFS='|' read -r _si _sk _sn _su _sa <<EOF
+$_stale
+EOF
+    say "no source serves $MINVER or newer; using $_sn"
+    try_source "$_si" "$_sk" "$_sn" "$_su" "$_sa" 1 || die "$_sn no longer serves the release it served a moment ago"
+  fi
+  cp "$SRC_DIR/release.json" "$TMP/release.json"
+  cp "$SRC_DIR/release.json.sig" "$TMP/release.json.sig"
+  say "using $SRC_NAME: anet $VERSION"
+}
+
+# min_version: MINVER, the oldest release worth taking from a source.
+min_version() {
+  MINVER=$(installer_version)
+  if [ -e "$DEST" ] || [ -L "$DEST" ]; then
+    classify_anet "$DEST"
+    case "$CL_KIND" in
+      npm-current|bin-current)
+        if [ -n "$CL_VER" ] && [ "$(vercmp "$CL_VER" "$MINVER")" = 1 ]; then MINVER=$CL_VER; fi ;;
+    esac
+  fi
+}
+
+# download_phase VERSION SOURCE / download_done VERSION SOURCE: the phase line
+# of the download. On a terminal it comes before the progress line; when
+# not, one line is printed when the download is done.
+download_phase() {
+  [ -t 2 ] || return 0
+  show "$(m "Downloading anet $1 for $PLAT from $2" "正在下载 anet $1（$PLAT，来源：$2）")"
+}
+download_done() {
+  _mb=$(awk -v b="${DL_BYTES:-0}" 'BEGIN { printf "%.1f", b / 1048576 }')
+  if [ -t 2 ]; then
+    say "downloaded ${_mb} MB in ${DL_SECS:-0} s"
+  else
+    show "$(m "Downloaded anet $1 for $PLAT from $2 (${_mb} MB in ${DL_SECS:-0} s)" "已下载 anet $1（$PLAT，来源：$2，${_mb} MB，用时 ${DL_SECS:-0} 秒）")"
+  fi
 }
 
 read_manifest() {
@@ -389,6 +769,8 @@ read_manifest() {
   COMMIT="$(mf_top commit)"
   EXPIRES="$(mf_top expires_at)"
   NEXT_FP="$(mf_top next_key_fingerprint optional)"
+  # (mf_top dies in a subshell here; an empty field is caught below.)
+  [ -n "$COMMIT" ] || die "release.json: field commit is missing or repeated"
   printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$' \
     || die "release.json: version '$VERSION' is not x.y.z"
   printf '%s' "$EXPIRES" | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$' \
@@ -398,8 +780,8 @@ read_manifest() {
   NOW="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   awk -v now="$NOW" -v until="$EXPIRES" 'BEGIN { exit !(now < until) }' \
     || die "the release manifest expired at $EXPIRES (it is now $NOW here).
-  If this machine's clock is right, $BASE is serving a stale release;
-  --base URL tries another download host (every host is checked the same way)."
+  If this machine's clock is right, ${SRC_NAME:-the download source} is serving a stale release;
+  --base URL names another download source (every source is checked the same way)."
 
   VLINE="$(mf_block_line variants "$VARIANT")" || die "release.json has no '$VARIANT' variant"
   MODS="$(printf '%s' "$VLINE" | sed -n 's/.*"modules": \[\([^]]*\)\].*/\1/p' | tr -d '" ')"
@@ -443,11 +825,12 @@ apply_without() {
       printf 'The new binary was not installed. Already done:\n' >&2
       grep -E '^(stopped|removed|replaced|moved|manual)[|]' "$TMP/notes" | sed 's/^[a-z]*|/  - /' >&2
     else
-      printf 'Nothing was installed or changed.\n' >&2
+      printf '%s\n' "$(m 'Nothing was installed or changed.' '未安装或更改任何内容。')" >&2
     fi
+    if finish_log; then printf '%s\n' "$(m "Details: $(tilde "$LOGFILE")" "详情：$(tilde "$LOGFILE")")" >&2; fi
     exit "$_rc"
   fi
-  printf '%s\n' "$out" | sed 's/^/  /'
+  printf '%s\n' "$out" | sed 's/^/  /' >> "$(logto)"
 }
 
 # check_downgrade: the anet already at DEST, if any, must not be newer.
@@ -485,8 +868,8 @@ check_downgrade() {
   [ -n "$INSTALLED" ] || return 0
   case "$(vercmp "$VERSION" "$INSTALLED")" in
     -1) die "$DEST is anet $INSTALLED, newer than the release on offer ($VERSION).
-  Refusing to downgrade. If $BASE is a stale mirror, --base URL tries another
-  download host; if you meant to downgrade, remove $DEST first." ;;
+  Refusing to downgrade. If ${SRC_NAME:-the download source} is a stale mirror, --base URL
+  names another download source; to downgrade, remove $DEST first." ;;
     0)  say "  $DEST is already $INSTALLED; reinstalling the same version" ;;
     *)  say "  upgrading $DEST: $INSTALLED → $VERSION" ;;
   esac
@@ -494,14 +877,22 @@ check_downgrade() {
 
 fetch_asset() {
   if [ "$VARIANT" = shell ]; then
-    say "→ ${ASSET}.gz (shell variant: CAN run operator-approved commands on this machine)"
-  else
-    say "→ ${ASSET}.gz"
+    say "${ASSET}.gz (shell variant: CAN run operator-approved commands on this machine)"
   fi
-  fetch "$BASE/dl/${ASSET}.gz" "$TMP/${ASSET}.gz" "$GZ_SIZE" || die "could not download $BASE/dl/${ASSET}.gz"
+  if [ "$SRC_KIND" = npm ]; then
+    # Extracted from the npm package with the manifest (npm_release).
+    mv -f "$SRC_DIR/${ASSET}.gz" "$TMP/${ASSET}.gz"
+  else
+    FETCH_ALLOW=$SRC_ALLOW
+    say "${SRC_URL}/${ASSET}.gz"
+    download_phase "$VERSION" "$SRC_NAME"
+    download "$SRC_URL/${ASSET}.gz" "$TMP/${ASSET}.gz" "$GZ_SIZE" "$GZ_SIZE" \
+      || die "$(m "could not download ${ASSET}.gz from $SRC_NAME ($SRC_URL); run the installer again, or name another source with --base URL" "无法从 $SRC_NAME 下载 ${ASSET}.gz（$SRC_URL）；请重新运行安装程序，或用 --base URL 指定其他下载源")"
+    download_done "$VERSION" "$SRC_NAME"
+  fi
   # The compressed file first: nothing unverified reaches gunzip.
   got="$(sha256 "$TMP/${ASSET}.gz")"
-  [ "$got" = "$GZ_SHA" ] || die "sha256 mismatch for ${ASSET}.gz
+  [ "$got" = "$GZ_SHA" ] || die "sha256 mismatch for ${ASSET}.gz from $SRC_NAME
     want $GZ_SHA
     got  $got"
   gunzip -c "$TMP/${ASSET}.gz" > "$TMP/$ASSET" || die "could not decompress ${ASSET}.gz"
@@ -560,6 +951,10 @@ install_binary() {
   # aside before `anet init` writes anything (apply_without), and the npm
   # package goes before its command link could be confused with ours.
   survey_anets
+  survey_units
+  takeover_phase
+  root_session
+  stop_autostart
   stop_legacy
   move_legacy_data
   if [ "$DATA_HELD" = 1 ] && [ -n "$WITHOUT" ]; then
@@ -585,14 +980,12 @@ install_binary() {
     fi
   fi
   replace_legacy_bins
+  command_link
   note_others
   setup_path
   say ""
-  say "✓ Installed anet $VERSION → $DEST"
+  say "Installed anet $VERSION → $DEST"
   upgrade_report
-  if [ -n "$INSTALLED" ]; then
-    say "  Daemons already running keep the old binary until restarted: anet stop --all && anet up --all"
-  fi
 }
 
 # record_release: keep the manifest this install was checked against, and
@@ -613,8 +1006,11 @@ record_release() {
 # EARLIER INSTALLATIONS. Before the new binary takes the name `anet`, every
 # other `anet` this user can reach is found and classified (survey_anets,
 # classify_anet), and the installer takes over from those of an earlier
-# release without asking anything. sudo is only ever `sudo -n`: a password
-# prompt is never shown, and what needs one is printed as a command instead.
+# release without asking anything. sudo asks for a password at most once,
+# and only on a terminal (root_session): when an earlier release sits where
+# only root can remove it, or when the command link of step 6 needs root.
+# Without a terminal (an agent, CI), sudo is only ever `sudo -n`, and what
+# needs root is printed as a command instead.
 #
 # Earlier releases ("legacy"):
 #   AgentNetwork 1.x  the npm package @agentnetwork/anet 1.x (a Node.js shim
@@ -632,19 +1028,31 @@ record_release() {
 # An anet of 0.3 or later, and the npm launcher of 0.3 or later, are left in
 # place, and reported.
 #
-# What is done, in this order, each step reported in "Upgraded from":
+# What is done, in this order, each step reported in the log:
+#   0. a systemd unit anet-daemon that runs a 1.x binary is disabled (1.x
+#      registers no service itself, but prints such a unit for its users to
+#      install; no release of 1.x ships a launchd agent);
 #   1. the legacy daemon is stopped with the legacy binary's own command
 #      (`anet stop` for 1.x, `anet stop --all` for 0.x), with a time limit;
 #   2. a data directory of an earlier release is renamed aside, never
-#      deleted, and only when no legacy daemon still holds it (datadir_kind);
+#      deleted. A 1.x daemon that still holds it (one whose binary is gone)
+#      is stopped through its own shutdown API with the token in that
+#      directory, or else with SIGTERM to the PID in its daemon.pid once the
+#      process is known to be AgentNetwork 1.x (stop_v1_daemon). From a
+#      directory that also holds a current identity, only the 1.x entries
+#      move (datadir_kind "mixed");
 #   3. the npm package of 1.x is removed with npm itself;
 #   4. a legacy binary elsewhere is replaced by a symbolic link to the new
 #      binary in a directory this user can write, and removed in one that
-#      only root can (a root-owned name must not lead to a file the user can
-#      change);
+#      only root can;
 #   5. the shell profiles get a marked block that puts the install directory
 #      first on PATH (unless --no-modify-path), and a fresh login shell is
-#      asked which `anet` it runs.
+#      asked which `anet` it runs;
+#   6. when the install directory is not on the PATH of the shell that runs
+#      the installer and a terminal is there, the command link
+#      /usr/local/bin/anet → the new binary, so that `anet` runs at once
+#      (command_link). The binary itself stays where this user can replace
+#      it (`anet update`).
 # ---------------------------------------------------------------------------
 
 # note CATEGORY TEXT — one line of the "Upgraded from" report.
@@ -676,6 +1084,218 @@ run_timeout() {
 
 # can_sudo: whether sudo works without a password, asked without a prompt.
 can_sudo() { command -v sudo >/dev/null 2>&1 && sudo -n true </dev/null >/dev/null 2>&1; }
+
+# tty_ok: whether a terminal can be opened (sudo reads a password from it,
+# never from this script's input, which is the script itself under curl | sh).
+tty_ok() { ( exec <"$TTY_DEV" ) 2>/dev/null; }
+
+# legacy_label_of FAM VERSION: how an earlier release is named to the user.
+legacy_label_of() {
+  if [ "$1" = v0 ]; then printf 'anet %s' "${2:-0.x}"; else printf 'AgentNetwork %s' "${2:-1.x}"; fi
+}
+
+# takeover_phase: the phase line when an earlier release is taken over.
+takeover_phase() {
+  _tl=$(awk -F'|' '($1=="npm-legacy"||$1=="bin-legacy") { l = ($2 == "v0") ? "anet " (($3 != "") ? $3 : "0.x") : "AgentNetwork " (($3 != "") ? $3 : "1.x"); if (!seen[l]++) o = o ((o != "") ? ", " : "") l } END { print o }' "$TMP/anets")
+  [ -n "$_tl" ] || return 0
+  TAKEOVER_LABEL=$_tl
+  show "$(m "Replacing $_tl" "正在替换 $_tl")"
+}
+
+# want_link: whether to make the command link LINK_DIR/anet → DEST (step 6):
+# installed for this user, the install directory not on PATH, LINK_DIR on
+# it, and LINK_DIR/anet absent, already that link, or an earlier release
+# (which the link then replaces). Sets LINK_NEEDS_ROOT.
+want_link() {
+  LINK_NEEDS_ROOT=0
+  [ "$USER_MODE" = 1 ] && [ "$MODIFY_PATH" = 1 ] && [ "$(id -u)" != 0 ] || return 1
+  case ":$PATH:" in *":$PREFIX:"*) return 1 ;; esac
+  case ":$PATH:" in *":$LINK_DIR:"*) ;; *) return 1 ;; esac
+  [ -d "$LINK_DIR" ] || return 1
+  _lk="$LINK_DIR/anet"
+  if [ -e "$_lk" ] || [ -L "$_lk" ]; then
+    is_dest "$_lk" && return 1
+    classify_anet "$_lk"
+    case "$CL_KIND" in npm-legacy|bin-legacy) ;; *) return 1 ;; esac
+  fi
+  [ -w "$LINK_DIR" ] || LINK_NEEDS_ROOT=1
+  return 0
+}
+
+# root_session: when something only root can do is due — an earlier release
+# in a directory this user cannot write, or the command link there — and a
+# terminal is there, one line says why, and sudo asks for the password once
+# (sudo -v; it reads the terminal itself). The steps then run with sudo -n
+# within that session. Declined or failed: nothing is asked again, and
+# each step leaves its command in a Note. --system keeps sudo -n alone.
+root_session() {
+  LINK_WANTED=0
+  if tty_ok && want_link; then LINK_WANTED=1; fi
+  [ -z "$SUDO" ] && [ "$(id -u)" != 0 ] || return 0
+  _rw=""; _rl=""
+  while IFS='|' read -r _k _f _v _p _t _pk _nm _np _sb _sn _dst; do
+    case "$_k" in
+      npm-legacy)
+        if ! { [ -w "$(dirname "$_pk")" ] && { [ -z "$_np" ] || [ -w "$_np/bin" ]; }; }; then
+          _rl=$(legacy_label_of "$_f" "$_v"); _rw=${_np:-$(dirname "$_pk")}
+        fi ;;
+      bin-legacy)
+        if [ "$_dst" != 1 ] && [ ! -w "$(dirname "$_p")" ]; then
+          _rl=$(legacy_label_of "$_f" "$_v"); _rw=$(dirname "$_p")
+        fi ;;
+    esac
+  done < "$TMP/anets"
+  [ -n "$_rl" ] || [ "$LINK_WANTED$LINK_NEEDS_ROOT" = 11 ] || [ -s "$TMP/units.root" ] || return 0
+  if can_sudo; then say "sudo: a session is open already"; return 0; fi
+  tty_ok || { say "no terminal: sudo is not asked for a password"; return 0; }
+  command -v sudo >/dev/null 2>&1 || return 0
+  if [ "$OS_TAG" = darwin ]; then _who=$(m "macOS will ask for your password once." "macOS 将询问一次密码。")
+  else _who=$(m "sudo will ask for your password once." "sudo 将询问一次密码。"); fi
+  if [ -n "$_rl" ]; then
+    show "$(m "Removing $_rl from $_rw requires administrator rights; $_who" "从 $_rw 移除 $_rl 需要管理员权限；$_who")"
+  elif [ "$LINK_WANTED" = 1 ]; then
+    show "$(m "Making anet available in this terminal requires a link in $LINK_DIR and administrator rights; $_who" "为使 anet 在当前终端立即可用，需要在 $LINK_DIR 中建立链接，这需要管理员权限；$_who")"
+  else
+    show "$(m "Disabling the service of AgentNetwork 1.x requires administrator rights; $_who" "停用 AgentNetwork 1.x 的服务需要管理员权限；$_who")"
+  fi
+  if sudo -v <"$TTY_DEV"; then
+    say "sudo: session opened"
+  else
+    say "sudo: no session (declined or failed); the steps that need root are left as commands"
+  fi
+}
+
+# survey_units: systemd units named anet-daemon (the name of the unit 1.x
+# prints for its users to install) whose ExecStart runs a 1.x binary:
+# $TMP/units.user and $TMP/units.root, one unit file per line. UNIT_DIRS
+# are the system directories; the user's is under XDG_CONFIG_HOME.
+survey_units() {
+  : > "$TMP/units.user"; : > "$TMP/units.root"
+  [ "$OS_TAG" = linux ] || return 0
+  for _uf in "${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/anet-daemon.service" $UNIT_DIRS; do
+    case "$_uf" in */anet-daemon.service) ;; *) _uf="$_uf/anet-daemon.service" ;; esac
+    [ -f "$_uf" ] || continue
+    _ux=$(sed -n 's/^[[:space:]]*ExecStart=[-@+!]*\([^ ]*\).*/\1/p' "$_uf" | head -n 1)
+    case "$_ux" in /*) ;; *) continue ;; esac
+    classify_anet "$_ux"
+    [ "$CL_FAM" = v1 ] || continue
+    case "$_uf" in
+      "${XDG_CONFIG_HOME:-$HOME/.config}"/*) printf '%s\n' "$_uf" >> "$TMP/units.user" ;;
+      *) printf '%s\n' "$_uf" >> "$TMP/units.root" ;;
+    esac
+  done
+}
+
+# stop_autostart: such a unit is disabled and stopped before the daemon is,
+# so that systemd does not start it again (its unit has Restart=always). The
+# unit file is left in place.
+stop_autostart() {
+  [ -s "$TMP/units.user" ] || [ -s "$TMP/units.root" ] || return 0
+  command -v systemctl >/dev/null 2>&1 || return 0
+  while IFS= read -r _uf; do
+    if run_timeout 30 systemctl --user disable --now anet-daemon.service </dev/null >>"$(logto)" 2>&1; then
+      note stopped "the systemd user unit anet-daemon ($_uf), disabled"
+    else
+      note manual "$(m "the systemd user unit anet-daemon starts AgentNetwork 1.x; disable it with: systemctl --user disable --now anet-daemon" "systemd 用户单元 anet-daemon 会启动 AgentNetwork 1.x；请用以下命令停用：systemctl --user disable --now anet-daemon")"
+    fi
+  done < "$TMP/units.user"
+  while IFS= read -r _uf; do
+    if can_sudo && run_timeout 30 sudo -n systemctl disable --now anet-daemon.service </dev/null >>"$(logto)" 2>&1; then
+      note stopped "the systemd unit anet-daemon ($_uf), disabled (sudo -n)"
+    else
+      note manual "$(m "the systemd unit anet-daemon starts AgentNetwork 1.x; disable it with: sudo systemctl disable --now anet-daemon" "systemd 单元 anet-daemon 会启动 AgentNetwork 1.x；请用以下命令停用：sudo systemctl disable --now anet-daemon")"
+    fi
+  done < "$TMP/units.root"
+}
+
+# is_v1_process PID: whether the process is AgentNetwork 1.x, by its
+# executable: /proc/PID/exe on Linux (readable for this user's processes,
+# also when the file has been deleted), else the path ps reports (macOS
+# reports the full path of the executable), which must carry the module
+# path of 1.x. Anything that cannot be told is not 1.x.
+is_v1_process() {
+  if [ -r "/proc/$1/exe" ]; then
+    LC_ALL=C grep -q 'ChatChatTech/AgentNetwork' "/proc/$1/exe" 2>/dev/null
+    return
+  fi
+  _ve=$(ps -p "$1" -o comm= 2>/dev/null | head -n 1)
+  case "$_ve" in /*) ;; *) return 1 ;; esac
+  [ -f "$_ve" ] && LC_ALL=C grep -q 'ChatChatTech/AgentNetwork' "$_ve" 2>/dev/null
+}
+
+# v1_pid DIR: the PID in DIR/daemon.pid when that process is running and is
+# AgentNetwork 1.x; nothing otherwise.
+v1_pid() {
+  [ -f "$1/daemon.pid" ] || return 0
+  _vp=$(head -c 32 "$1/daemon.pid" | tr -cd '0-9')
+  [ -n "$_vp" ] && [ "$_vp" -gt 1 ] 2>/dev/null || return 0
+  kill -0 "$_vp" 2>/dev/null || return 0
+  if is_v1_process "$_vp"; then printf '%s' "$_vp"; fi
+}
+
+# stop_v1_daemon DIR: stop the 1.x daemon that holds DIR when its binary is
+# not there to stop it (it was deleted, or an MCP client started it): first
+# as 1.x's `anet stop` does, POST /api/shutdown on V1_API with the token
+# from DIR (api_token, or anet/api_token), passed in a curl config file and
+# never on a command line; then, if it still runs, SIGTERM to the PID in
+# DIR/daemon.pid, only when that process is AgentNetwork 1.x
+# (is_v1_process). Each is followed by a bounded wait.
+stop_v1_daemon() {
+  _vt=""
+  for _tf in "$1/api_token" "$1/anet/api_token"; do
+    if [ -f "$_tf" ]; then _vt=$(head -c 512 "$_tf" | tr -cd 'A-Za-z0-9._~+/=-'); break; fi
+  done
+  if [ -n "$_vt" ] && answers "$V1_API"; then
+    say "stopping the AgentNetwork 1.x daemon at $V1_API (POST /api/shutdown)"
+    ( umask 077 && printf 'header = "Authorization: Bearer %s"\n' "$_vt" > "$TMP/v1.cfg" )
+    curl -s -g --noproxy '*' -K "$TMP/v1.cfg" -X POST --max-time 5 -o /dev/null "http://$V1_API/api/shutdown" </dev/null 2>/dev/null || true
+    rm -f "$TMP/v1.cfg"
+    if wait_free "$1" 10; then note stopped "the AgentNetwork 1.x daemon at $V1_API (its shutdown API)"; return 0; fi
+  fi
+  _vp=$(v1_pid "$1")
+  if [ -n "$_vp" ]; then
+    say "sending SIGTERM to the AgentNetwork 1.x daemon (PID $_vp, $(ps -p "$_vp" -o comm= 2>/dev/null | head -n 1))"
+    kill -TERM "$_vp" 2>/dev/null || true
+    if wait_free "$1" 10; then note stopped "the AgentNetwork 1.x daemon (PID $_vp, SIGTERM)"; return 0; fi
+  fi
+  return 1
+}
+
+# wait_free DIR SECS: wait at most SECS seconds for no 1.x daemon to hold DIR.
+wait_free() {
+  _wf=0
+  while data_busy "$1" "$DATA_KIND"; do
+    [ "$_wf" -lt "$2" ] || return 1
+    sleep 1; _wf=$((_wf + 1))
+  done
+  return 0
+}
+
+# command_link: step 6, LINK_DIR/anet → DEST (see want_link), with sudo -n
+# when LINK_DIR is root's (within root_session). An earlier release there
+# has been removed by replace_legacy_bins, or is replaced here.
+command_link() {
+  LINKED=0
+  [ "$LINK_WANTED" = 1 ] || return 0
+  _lk="$LINK_DIR/anet"; _lt="$_lk.anet-new.$$"
+  if is_dest "$_lk"; then LINKED=1; return 0; fi
+  if [ -e "$_lk" ] || [ -L "$_lk" ]; then
+    classify_anet "$_lk"
+    case "$CL_KIND" in npm-legacy|bin-legacy) ;; *) return 0 ;; esac
+  fi
+  if [ -w "$LINK_DIR" ]; then
+    if ln -s "$DEST" "$_lt" 2>/dev/null && mv -f "$_lt" "$_lk"; then LINKED=1; fi
+    rm -f "$_lt" 2>/dev/null || true
+  elif can_sudo; then
+    if sudo -n ln -s "$DEST" "$_lt" </dev/null 2>/dev/null && sudo -n mv -f "$_lt" "$_lk" </dev/null 2>/dev/null; then LINKED=1; fi
+    sudo -n rm -f "$_lt" </dev/null 2>/dev/null || true
+  fi
+  if [ "$LINKED" = 1 ]; then
+    note linked "$_lk → $DEST, so that \`anet\` runs in the terminal that ran the installer"
+  else
+    say "no command link in $LINK_DIR (no administrator rights)"
+  fi
+}
 
 # clean_text: untrusted program output made printable — control characters
 # (escape sequences included) and empty lines removed, at most 6 lines of
@@ -851,7 +1471,7 @@ stop_legacy() {
     else
       run_timeout 60 "$_sb" $_verb </dev/null >"$TMP/stop.out" 2>&1 || _rc=$?
     fi
-    clean_text < "$TMP/stop.out" | sed 's/^/    /'
+    clean_text < "$TMP/stop.out" | sed 's/^/    /' >> "$(logto)"
     if [ "$_rc" = 0 ]; then
       note stopped "the daemon of $_label ($_cmd)"
       _st_done="$_st_done $_f"
@@ -893,7 +1513,10 @@ legacy_defaults() {
   BASE_PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
   PATH_BEGIN='# >>> anet installer: PATH >>>'
   PATH_END='# <<< anet installer: PATH <<<'
-  DATA_KIND=""; DATA_HELD=0; LEGACY_LEFT=0; PATH_CHECK=""; PATH_NOW=""
+  DATA_KIND=""; DATA_HELD=0; LEGACY_LEFT=0; PATH_CHECK=""; PATH_NOW=""; MOVED_TO=""; PATH_CHECK_BAD=""
+  LINK_DIR=/usr/local/bin; LINK_WANTED=0; LINK_NEEDS_ROOT=0; LINKED=0; TAKEOVER_LABEL=""; MOVED_LABEL=""
+  UNIT_DIRS="/etc/systemd/system /lib/systemd/system /usr/lib/systemd/system"
+  TTY_DEV=/dev/tty
 }
 
 # datadir_kind DIR: none, current, older, newer, invalid, v1 or mixed — the
@@ -936,15 +1559,14 @@ answers() {
 
 # data_busy DIR KIND: whether a legacy daemon may still hold DIR. AgentNetwork
 # 1.x writes its PID to daemon.pid and serves 127.0.0.1:3998 (V1_API); anet
-# 0.2 serves the control_addr of its config.json. Any doubt counts as busy.
+# 0.2 serves the control_addr of its config.json. The PID counts only when
+# that process is AgentNetwork 1.x (is_v1_process): a daemon of this release
+# running on the current identity of a mixed directory does not hold the
+# 1.x entries in it.
 data_busy() {
   case "$2" in
     v1|mixed)
-      if [ -f "$1/daemon.pid" ]; then
-        _pid=$(head -c 32 "$1/daemon.pid" | tr -cd '0-9')
-        if [ -n "$_pid" ] && ps -p "$_pid" -o comm= 2>/dev/null | grep -q anet; then return 0; fi
-      fi
-      answers "$V1_API" ;;
+      [ -n "$(v1_pid "$1")" ] || answers "$V1_API" ;;
     older)
       _ca=$(json_str "$1/config.json" control_addr)
       [ -n "$_ca" ] && answers "$_ca" ;;
@@ -979,7 +1601,7 @@ move_legacy_data() {
     *) return 0 ;;
   esac
   if [ "$DATA_KIND" = older ]; then _lab=$(legacy_label v0); else _lab=$(legacy_label v1); fi
-  _ts=$(date -u +%Y%m%dT%H%M%SZ)
+  _ts=${INSTALL_TS:-$(date -u +%Y%m%dT%H%M%SZ)}
   _to="${DATA_DIR}-legacy-${_lab}-${_ts}"
   [ ! -e "$_to" ] || _to="${_to}-$$"
   # A daemon that stop_legacy asked to stop may exit after its stop command
@@ -991,9 +1613,18 @@ move_legacy_data() {
       sleep 1; _dw=$((_dw + 1))
     done
   fi
+  # A 1.x daemon whose binary is gone (or that something else started)
+  # still holds it: stopped here (stop_v1_daemon).
+  if data_busy "$DATA_DIR" "$DATA_KIND" && [ "$DATA_KIND" != older ]; then
+    stop_v1_daemon "$DATA_DIR" || true
+  fi
   if data_busy "$DATA_DIR" "$DATA_KIND"; then
     DATA_HELD=1
-    note manual "$DATA_DIR holds data of an earlier release that a running daemon may still use, so it was not moved. Stop that daemon, then: mv '$DATA_DIR' '$_to' && anet init"
+    if [ "$DATA_KIND" = older ]; then
+      note manual "$(m "$DATA_DIR is in use by a running daemon of anet 0.2, so it was not moved; stop it (anet stop --all) and run the installer again." "$DATA_DIR 正被运行中的 anet 0.2 守护进程使用，因此未移动；请先停止它（anet stop --all），再重新运行安装程序。")"
+    else
+      note manual "$(m "$DATA_DIR is in use by a daemon of AgentNetwork 1.x that could not be stopped, so it was not moved; stop that daemon and run the installer again." "$DATA_DIR 正被无法停止的 AgentNetwork 1.x 守护进程使用，因此未移动；请停止该守护进程后重新运行安装程序。")"
+    fi
     return 0
   fi
   say "→ moving the data of the earlier release aside: $DATA_DIR → $_to"
@@ -1004,6 +1635,7 @@ move_legacy_data() {
         mv "$DATA_DIR/$_e" "$_to/" || note manual "could not move $DATA_DIR/$_e to $_to"
       fi
     done
+    MOVED_TO=$_to; MOVED_LABEL="AgentNetwork $_lab"
     note moved "the AgentNetwork $_lab files of $DATA_DIR → $_to; the anet 0.3 identity in $DATA_DIR stays where it is. Moved: $(describe_legacy "$_to")."
   else
     if ! mv "$DATA_DIR" "$_to"; then
@@ -1011,6 +1643,8 @@ move_legacy_data() {
       note manual "could not rename $DATA_DIR; run: mv '$DATA_DIR' '$_to' && anet init"
       return 0
     fi
+    MOVED_TO=$_to
+    if [ "$DATA_KIND" = older ]; then MOVED_LABEL="anet $_lab"; else MOVED_LABEL="AgentNetwork $_lab"; fi
     note moved "$DATA_DIR → $_to ($(describe_legacy "$_to")). Nothing was deleted; the new anet starts with a new identity."
   fi
 }
@@ -1045,7 +1679,7 @@ remove_npm_legacy() {
         _show="sudo $_show"
         : > "$TMP/npm.out"
       fi
-      clean_text < "$TMP/npm.out" | sed 's/^/    /'
+      clean_text < "$TMP/npm.out" | sed 's/^/    /' >> "$(logto)"
     fi
     if [ "$_ok" = 1 ] && [ ! -e "$_pk" ]; then
       if [ "$_k" = npm-current ]; then
@@ -1094,10 +1728,10 @@ replace_legacy_bins() {
       elif sudo -n rm -f "$_p" </dev/null 2>/dev/null; then
         note removed "$_p ($_label) (sudo -n)"; continue
       fi
-      note manual "could not remove $_p ($_label); run: sudo rm '$_p'"
+      note manual "$(m "$_p ($_label, owned by root) is no longer used; remove it with: sudo rm $_p" "$_p（$_label，属于 root）已不再使用；请用以下命令删除：sudo rm $_p")"
       LEGACY_LEFT=1
     else
-      note manual "$_p is $_label and needs root to remove; run: sudo rm '$_p'"
+      note manual "$(m "$_p ($_label, owned by root) is no longer used; remove it with: sudo rm $_p" "$_p（$_label，属于 root）已不再使用；请用以下命令删除：sudo rm $_p")"
       LEGACY_LEFT=1
     fi
   done < "$TMP/anets"
@@ -1259,15 +1893,16 @@ setup_path() {
     _check="New terminals: $_sh did not say which anet it runs ($_sh -lic 'command -v anet'); check with: command -v anet"
   fi
   PATH_CHECK=$_check
+  if [ "$MODIFY_PATH" = 1 ] && [ -n "$_fresh" ] && ! is_dest "$_fresh"; then PATH_CHECK_BAD=$_check; fi
   # This terminal: its PATH cannot be changed from here, and its shell may
   # have remembered the path of a command that is now gone; assigning PATH
   # makes bash and zsh forget those.
   _cur=$(command -v anet 2>/dev/null || true)
   if ! is_dest "$_cur" || grep -Eq '^(removed|replaced)[|]' "$TMP/notes"; then
     if [ "$_sh" = fish ]; then
-      PATH_NOW="set -gx PATH \"$PREFIX\" \$PATH"
+      PATH_NOW="set -gx PATH \"$(path_expr)\" \$PATH"
     else
-      PATH_NOW="export PATH=\"$PREFIX:\$PATH\""
+      PATH_NOW="export PATH=\"$(path_expr):\$PATH\""
     fi
   fi
 }
@@ -1298,100 +1933,190 @@ upgrade_report() {
   else
     return 0
   fi
-  for _cat in stopped removed replaced moved kept path manual; do
+  for _cat in stopped removed replaced moved linked kept path manual; do
     case "$_cat" in
-      stopped) _h="Stopped:" ;; removed) _h="Removed:" ;; replaced) _h="Replaced:" ;;
+      stopped) _h="Stopped:" ;; removed) _h="Removed:" ;; replaced) _h="Replaced:" ;; linked) _h="Linked:" ;;
       moved) _h="Moved aside:" ;; kept) _h="Left in place:" ;; path) _h="PATH:" ;;
       manual) _h="Needs a command from you:" ;;
     esac
     grep "^$_cat|" "$TMP/notes" 2>/dev/null | sed "s/^$_cat|//" > "$TMP/notes.cat" || true
     [ -s "$TMP/notes.cat" ] || continue
     say "  $_h"
-    sed 's/^/    - /' "$TMP/notes.cat"
+    sed 's/^/    - /' "$TMP/notes.cat" >> "$(logto)"
   done
 }
 
-# From here on the binary is installed; a step that fails is reported and
-# the rest still run, because each prints how to do it by hand.
+# From here on the binary is installed; a step that fails is noted (a Note
+# line of the summary says what to run) and the rest still run.
 run_init() {
-  say ""
   if [ "$DATA_HELD" = 1 ]; then
-    say "→ skipping anet init: $DATA_DIR still holds data of an earlier release (see above)"
+    say "skipping anet init: $DATA_DIR still holds data of an earlier release"
     return 0
   fi
   if has_cmd init; then
-    say "→ anet init (explicit safe defaults: inbound closed, no public capabilities, spending limits 0)"
-    "$DEST" init || warn "anet init did not complete; run it by hand: anet init"
+    say "anet init (explicit safe defaults: inbound closed, no public capabilities, spending limits 0)"
+    if ! "$DEST" init </dev/null >>"$(logto)" 2>&1; then
+      INIT_FAILED=1
+      note manual "$(m "anet init did not complete (see the log); run it: anet init" "anet init 未完成（见日志）；请运行：anet init")"
+    fi
   else
-    say "→ skipping anet init: anet $VERSION has no \`anet init\` command yet"
+    say "skipping anet init: anet $VERSION has no \`anet init\` command yet"
   fi
-}
-
-join_hub() {
-  [ -n "$HUB" ] || return 0
-  [ -n "$NODE_NAME" ] || NODE_NAME="$(hostname 2>/dev/null || echo anet-node)"
-  say ""
-  say "→ Starting the node…"
-  if ! "$DEST" up >/dev/null 2>&1; then
-    warn "the node did not start. Start it by hand with: anet up"
-    return 1
-  fi
-  # `up` returns once the control port is listening, but registration
-  # needs the daemon to have finished opening its ledger.
-  i=0; while [ $i -lt 20 ]; do
-    "$DEST" status >/dev/null 2>&1 && break
-    i=$((i+1)); sleep 1
-  done
-  say "→ anet hub-register ${HUB} --name ${NODE_NAME}"
-  # Its lines as they are, and nothing after them: they say what happened
-  # and what to do, the admit line last when the hub has to admit this AID
-  # (LEC §4.10). Its exit status is the installer's.
-  "$DEST" hub-register "$HUB" --name "$NODE_NAME"
 }
 
 wire_agents() {
   [ -n "$AGENTS" ] || return 0
-  say ""
   if has_cmd "agents wire"; then
-    say "→ anet agents wire $AGENTS"
+    say "anet agents wire $AGENTS"
     # shellcheck disable=SC2086 # AGENTS is a list of tool names
-    "$DEST" agents wire $AGENTS || warn "anet agents wire did not complete; run it by hand: anet agents wire $AGENTS"
+    "$DEST" agents wire $AGENTS </dev/null >>"$(logto)" 2>&1 \
+      || note manual "$(m "anet agents wire did not complete (see the log); run it: anet agents wire $AGENTS" "anet agents wire 未完成（见日志）；请运行：anet agents wire $AGENTS")"
   else
-    say "→ skipping --agents: anet $VERSION has no \`anet agents wire\` command yet;"
-    say "  \`anet install --agent <tool>\` writes the older persona text instead"
+    say "skipping --agents: anet $VERSION has no \`anet agents wire\` command yet"
   fi
 }
 
-report() {
-  say ""
-  if has_cmd doctor; then
-    "$DEST" doctor || true
-  else
-    "$DEST" version || true
+# status_json FILE: the node's `anet status --json` into FILE; fails when no
+# node answers, or when the node that answers is not that of the data
+# directory of this install.
+status_json() {
+  run_timeout 15 "$DEST" status --json </dev/null >"$1" 2>>"$(logto)" || return 1
+  _sdd=$(json_field "$1" data_dir)
+  if [ -n "$_sdd" ] && [ -n "${DATA_DIR:-}" ] && [ "${_sdd%/}" != "$DATA_DIR" ]; then
+    say "the node that answers serves $_sdd, not $DATA_DIR"
+    return 1
   fi
-  if [ -z "$HUB" ]; then
-    cat <<'EOF'
+}
 
-Next:
-  anet up                      # start your node in the background (survives this shell)
-  anet hub-register https://hub.agentnetwork.org.cn --name <you>
-EOF
-  else
-    printf '\nNext:\n'
+# json_field FILE KEY: a string value of KEY in the status answer.
+json_field() {
+  tr ',{}' '\n\n\n' < "$1" | sed -n "s/^[[:space:]]*\"$2\"[[:space:]]*:[[:space:]]*\"\\([^\"]*\\)\"[[:space:]]*\$/\\1/p" | head -n 1
+}
+
+# start_node: start the node (restart it when a node of an earlier binary
+# was running), wait until it answers, read its AID, and join the hub
+# (anet hub-register --passphrase-later, which asks nothing): NODE is
+# started, restarted, failed, skipped or held; HUB_STATE is joined,
+# pending, failed, kept, off or "".
+start_node() {
+  NODE=skipped; AID=""; HUB_STATE=""; HUB_SHOWN=$HUB; ADMIT=""; WAS_RUNNING=0
+  if status_json "$TMP/status.json"; then WAS_RUNNING=1; fi
+  if [ "$START" = 0 ]; then
+    if [ "$WAS_RUNNING" = 1 ] && [ -n "$INSTALLED" ] && [ "$INSTALLED" != "$VERSION" ]; then
+      note manual "$(m "the running node keeps anet $INSTALLED until it is restarted: anet stop --all && anet up --all" "运行中的节点在重启前仍使用 anet $INSTALLED：anet stop --all && anet up --all")"
+    fi
+    return 0
   fi
-  cat <<'EOF'
-  anet status                  # your identity (AID), data dir, console URL
-  anet doctor                  # check again later: signature, hub, what this node lets in
-  anet update                  # later: update in place, checked against the release key
+  if [ "$DATA_HELD" = 1 ] || [ "${INIT_FAILED:-0}" = 1 ]; then NODE=held; return 0; fi
+  if ! has_cmd up; then return 0; fi
+  if [ "$JOIN" = 1 ]; then
+    show "$(m "Starting the node and joining $HUB" "正在启动节点并加入 $HUB")"
+  else
+    show "$(m "Starting the node" "正在启动节点")"
+  fi
+  if [ "$WAS_RUNNING" = 1 ]; then
+    say "a node is running; restarting it with anet $VERSION"
+    run_timeout 60 "$DEST" stop </dev/null >>"$(logto)" 2>&1 || true
+    _sw=0
+    while [ "$_sw" -lt 15 ] && status_json "$TMP/status.json"; do sleep 1; _sw=$((_sw + 1)); done
+  fi
+  if ! run_timeout 60 "$DEST" up </dev/null >>"$(logto)" 2>&1; then
+    NODE=failed
+    note manual "$(m "the node did not start (see the log); start it with: anet up" "节点未能启动（见日志）；请用以下命令启动：anet up")"
+    return 0
+  fi
+  # `up` returns once the control port listens; the node answers status
+  # once it has opened its ledger. Bounded: 30 seconds.
+  _sw=0
+  until status_json "$TMP/status.json"; do
+    _sw=$((_sw + 1))
+    if [ "$_sw" -ge 30 ]; then
+      NODE=failed
+      note manual "$(m "the node did not answer within 30 seconds (see the log); check it with: anet status" "节点在 30 秒内未响应（见日志）；请用以下命令检查：anet status")"
+      return 0
+    fi
+    sleep 1
+  done
+  if [ "$WAS_RUNNING" = 1 ]; then NODE=restarted; else NODE=started; fi
+  AID=$(json_field "$TMP/status.json" aid)
+  printf '%s' "$AID" | grep -Eq '^[a-z0-9]{16,128}$' || AID=""
+  say "node: AID ${AID:-unknown}"
+  [ "$JOIN" = 1 ] || { HUB_STATE=off; return 0; }
+  _hn=$(json_field "$TMP/status.json" hub_url)
+  # A node that has joined a hub keeps it, unless --hub names another one.
+  if [ -n "$_hn" ] && { [ "$HUB_EXPLICIT" = 0 ] || [ "${_hn%/}" = "${HUB%/}" ]; }; then
+    HUB_STATE=kept; HUB_SHOWN=$_hn
+    say "the node has a hub already: $_hn"
+    return 0
+  fi
+  [ -n "$NODE_NAME" ] || NODE_NAME="$(hostname 2>/dev/null || echo anet-node)"
+  say "anet hub-register $HUB --name $NODE_NAME --passphrase-later"
+  _hr=0
+  run_timeout 120 "$DEST" hub-register "$HUB" --name "$NODE_NAME" --passphrase-later </dev/null >"$TMP/hub.out" 2>&1 || _hr=$?
+  cat "$TMP/hub.out" >> "$(logto)"
+  ADMIT=$(LC_ALL=C grep -o 'anet-hub admit [a-z0-9]*' "$TMP/hub.out" | head -n 1 || true)
+  if [ -n "$ADMIT" ]; then
+    HUB_STATE=pending
+  elif [ "$_hr" = 0 ]; then
+    HUB_STATE=joined
+  else
+    HUB_STATE=failed
+    note manual "$(m "joining $HUB did not complete (see the log); try again with: anet hub-register $HUB --passphrase-later" "加入 $HUB 未完成（见日志）；请用以下命令重试：anet hub-register $HUB --passphrase-later")"
+  fi
+}
 
-Use it from your coding agent:
-  anet agents wire --all       # or one tool: anet agents wire claude|codex|cursor|opencode|hermes|workbuddy
-then restart the agent and ask it: "use anet to list the agents on the network
-(list_agents) and show me what each one offers". From the shell: anet find
+# summary: the final block. The header and the node, then a line for a
+# takeover and a Note for each thing left to the user (only when there is
+# one), and last how to start and where the log is.
+summary() {
+  show ""
+  case "$NODE" in
+    started|restarted) show "$(m "anet $VERSION is installed and running." "anet $VERSION 已安装并在运行。")" ;;
+    failed) show "$(m "anet $VERSION is installed; the node did not start." "anet $VERSION 已安装；节点未能启动。")" ;;
+    held) show "$(m "anet $VERSION is installed; the node was not started." "anet $VERSION 已安装；节点未启动。")" ;;
+    *) show "$(m "anet $VERSION is installed." "anet $VERSION 已安装。")" ;;
+  esac
+  if [ -n "$AID" ]; then show "  AID   $AID"; fi
+  case "$HUB_STATE" in
+    joined)  show "  Hub   $HUB_SHOWN $(m "(joined)" "（已加入）")" ;;
+    kept)    show "  Hub   $HUB_SHOWN" ;;
+    pending) show "  Hub   $HUB_SHOWN $(m "(awaiting admission; its operator runs: $ADMIT)" "（等待准入；由其运营者运行：$ADMIT）")" ;;
+    failed)  show "  Hub   $HUB_SHOWN $(m "(not joined)" "（未加入）")" ;;
+    off)     show "  Hub   $(m "not joined (--no-join)" "未加入（--no-join）")" ;;
+  esac
+  if grep -Eq '^(stopped|removed|replaced|moved)[|]' "$TMP/notes"; then
+    _tk=${TAKEOVER_LABEL:-${MOVED_LABEL:-}}
+    if [ -n "$_tk" ] && [ -n "$MOVED_TO" ]; then
+      show "$(m "Replaced $_tk; its data is kept in $(tilde "$MOVED_TO")" "已替换 $_tk；其数据保留在 $(tilde "$MOVED_TO")")"
+    elif [ -n "$_tk" ]; then
+      show "$(m "Replaced $_tk." "已替换 $_tk。")"
+    fi
+  fi
+  grep '^manual|' "$TMP/notes" 2>/dev/null | sed 's/^manual|//' | while IFS= read -r _nl; do
+    show "$(m "Note: $_nl" "注意：$_nl")"
+  done
+  if [ -n "$PATH_CHECK_BAD" ]; then show "$(m "Note: $PATH_CHECK_BAD" "注意：$PATH_CHECK_BAD")"; fi
+  finish_log || true
+  _det=""
+  if [ -n "${LOGFILE:-}" ]; then _det="  $(m "Details: $(tilde "$LOGFILE")" "详情：$(tilde "$LOGFILE")")"; fi
+  case "$NODE" in
+    started|restarted) _run="anet" ;;
+    *) _run="anet up" ;;
+  esac
+  if command_now; then
+    show "$(m "Run '$_run' to get started." "运行 '$_run' 开始使用。")$_det"
+  elif [ "$MODIFY_PATH" = 1 ] && [ -z "$PATH_CHECK_BAD" ]; then
+    show "$(m "Run '$_run' in a new terminal, or in this one after: $PATH_NOW" "在新终端中运行 '$_run'，或在当前终端先执行：$PATH_NOW")$_det"
+  else
+    show "$(m "Put $(tilde "$PREFIX") on PATH, then run '$_run': $PATH_NOW" "请把 $(tilde "$PREFIX") 加入 PATH，然后运行 '$_run'：$PATH_NOW")$_det"
+  fi
+}
 
-Out of the box this node accepts no delegations and runs nothing for anyone;
-`anet peers allow <aid>` is how you let a specific peer in.
-EOF
+# command_now: whether `anet` in the shell that ran the installer is the
+# new binary (its PATH leads to it, or the command link does).
+command_now() {
+  [ -z "$PATH_NOW" ] && return 0
+  [ "$LINKED" = 1 ] && is_dest "$(command -v anet 2>/dev/null || true)"
 }
 
 # cleanup: on any exit, the download dir, and a staged binary that was
@@ -1405,7 +2130,9 @@ main() {
   set -eu
   IDENTITY="anet-release@agentnetwork.org.cn"
   NAMESPACE="anet-release@agentnetwork.org.cn"
-  STAGED=""; SUDO=""
+  STAGED=""; SUDO=""; LOG=""; LOGFILE=""; INIT_FAILED=0; PATH_CHECK_BAD=""
+  INSTALL_TS=$(date -u +%Y%m%dT%H%M%SZ)
+  style_init
   parse_args "$@"
   detect_platform
   check_tools
@@ -1413,13 +2140,14 @@ main() {
   TMP="$(mktemp -d)"
   trap cleanup EXIT
   trap 'exit 130' INT TERM HUP
+  LOG="$TMP/install.log"
+  : > "$LOG"; chmod 600 "$LOG"
+  say "anet installer $(installer_version), $INSTALL_TS: $PLAT → $DEST (sh: ${SHELL:-?}, $(uname -sr 2>/dev/null || true))"
   release_allowed_signers > "$TMP/allowed_signers"
   legacy_defaults
   : > "$TMP/notes"; : > "$TMP/anets"
 
-  say "→ Installing anet for ${PLAT} → ${DEST}"
-  fetch_manifest
-  read_manifest
+  select_release
   check_downgrade
   fetch_asset
   # Signature, expiry, downgrade and both sha256 have passed; only now is
@@ -1428,10 +2156,8 @@ main() {
   install_binary
   run_init
   wire_agents
-  report
-  # Last, so that what the hub said — the admit line, when there is one —
-  # is the last thing printed.
-  join_hub
+  start_node
+  summary
 }
 
 main "$@"

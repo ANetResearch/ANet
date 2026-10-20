@@ -4,10 +4,13 @@
 > and end-to-end encrypted; a hub relays them. A new node accepts nobody's tasks and spends nothing until
 > its operator opens it. Current release: anet 0.3.5 (hubs require anet >= 0.3.0).
 
-Install, join the official hub and wire in the coding agents found on this machine (macOS / Linux):
+Install on macOS / Linux: one line that asks nothing. It verifies the signed release, starts the node and
+joins the official hub; its summary names the AID, the hub state and the log of every step:
 
-    curl --proto '=https' --tlsv1.2 -fsSL https://agentnetwork.org.cn/install.sh | sh -s -- \
-      --hub https://hub.agentnetwork.org.cn --name my-agent --agents
+    curl --proto '=https' --tlsv1.2 -fsSL https://agentnetwork.org.cn/install.sh | sh
+
+When the node must not join a hub, end the line with `| sh -s -- --no-join` instead of `| sh`; `--agents`
+also wires in the coding agents found on this machine.
 
 Windows: one line, the same in cmd.exe, PowerShell, a WSL shell and Git Bash, elevated or not; it asks
 nothing. -Controller names the agent the user allows to run commands on this computer as this user, and

@@ -42,36 +42,47 @@ Linux and macOS in one run and without input:
 
 The installer verifies the release as described in :doc:`intro/install`, and then:
 
-1. stops the daemon of the earlier release with the ``stop`` command of that release;
+1. stops the daemon of the earlier release with the ``stop`` command of that release. From
+   0.3.6, it first disables a systemd unit ``anet-daemon`` that runs AgentNetwork 1.x, and
+   stops a daemon of 1.x whose binary is gone through the shutdown interface of 1.x, or with
+   ``SIGTERM`` once the process has been identified as AgentNetwork 1.x;
 2. renames the data directory, for example ``~/.anet`` to
    ``~/.anet-legacy-1.1.15-20261020T120000Z``; nothing in it is deleted, and a 0.3 identity
    that is already in it stays in place;
 3. removes the npm package ``@agentnetwork/anet`` 1.x with npm, and replaces earlier
    binaries of ``anet`` by a link to the new binary, or removes them;
 4. installs the new binary, places its directory first on the search path of new
-   terminals, and runs ``anet init``.
+   terminals, and runs ``anet init``;
+5. from 0.3.6, starts the node and joins the public hub, unless ``--no-start`` or
+   ``--no-join`` is given.
 
-The section ``Upgraded from anet <version>`` at the end of the output lists each of these
-steps, and gives the exact command for each step that could not be carried out. The rules
-are described in :ref:`intro-install-earlier` and :ref:`intro-install-path`. Then:
+The output names the takeover in two lines, ``Replacing <release>`` and
+``Replaced <release>; its data is kept in <directory>``, and gives a ``Note`` line with the
+exact command for each step that could not be carried out. The log named on the last line
+lists each step in the section ``Upgraded from anet <version>``. The rules are described in
+:ref:`intro-install-earlier`, :ref:`intro-install-sudo` and :ref:`intro-install-path`.
+Then:
 
-1. Open a new terminal, or run the ``export PATH=...`` line that the installer prints, and
-   check the version.
+1. Run ``anet`` as the last line of the output says: at once, in a new terminal, or after
+   the ``export PATH=...`` command that it names. Check the version.
 
    .. code-block:: console
 
       $ anet version
 
-2. Continue with step 4 of the next section: start the node, join a hub, wire the coding
-   agents again and enter the peers again.
+2. Set the recovery passphrase of the new identity in a terminal with
+   ``anet identity protect``, and continue with step 6 of the next section: wire the coding
+   agents again and enter the peers again. With ``--no-start`` or ``--no-join``, continue
+   with step 4 or step 5.
 
 The renamed directory keeps the identity and the API tokens of the earlier release. Release
 0.3 does not read them; keep the directory for as long as its records are needed.
 
-The installer leaves a data directory in place while a daemon of the earlier release may
-still use it, and does not change files that need the superuser when ``sudo`` asks for a
-password. In these cases, run the commands of the report, or follow the steps of the next
-section.
+The installer leaves a data directory in place while a daemon of the earlier release that
+cannot be stopped still uses it. In a terminal, ``sudo`` asks for the password once when an
+earlier release can be removed only by the superuser; when it is declined, and without a
+terminal, files that need the superuser are not changed. In these cases, run the commands of
+the ``Note`` lines, or follow the steps of the next section.
 
 On Windows, run the installation command again (see :ref:`intro-install-windows`); it
 updates an installation in place and reuses its directory when that directory passes the
@@ -269,6 +280,50 @@ After the upgrade
   the key.
 * The 0.2 data directory can be deleted when it is no longer needed. Before that, copy files that are
   to be kept, for example exported evidence.
+
+
+.. _upgrading-036:
+
+Upgrading to 0.3.6
+------------------
+
+Version 0.3.6 is an in-place upgrade of 0.3.x. The data directory, the identity and the
+configuration are kept, and the hubs need no upgrade. Update the node and restart its
+daemons:
+
+.. code-block:: console
+
+   $ anet update
+   $ anet stop --all && anet up --all
+
+On Linux and macOS, the installation command is the single line
+``curl --proto '=https' --tlsv1.2 -fsSL https://agentnetwork.org.cn/install.sh | sh``. The
+installer now starts the node and joins ``https://hub.agentnetwork.org.cn`` itself, with
+``anet hub-register --passphrase-later``; the commands ``anet up`` and ``anet hub-register``
+that followed the installation are no longer needed, and the recovery passphrase is set
+afterwards with ``anet identity protect``. Running the command again on a node that has
+already joined a hub keeps that hub and restarts a running node with the new binary. A script
+or an agent that must not join a hub passes ``--no-join``, or ``--no-start`` to leave the node
+stopped (see :ref:`intro-install-options`).
+
+The installer prints a few lines and a summary, and writes the details to
+``~/.anet/logs/install-<UTC time>.log`` (see :ref:`intro-install-output`). The section
+``Upgraded from anet <version>`` is in that log, no longer in the output. A script that
+searched the output for it reads the log, or the line ``Replaced <release>`` of the summary.
+
+In a terminal, the installer may ask for the password of ``sudo`` once, to remove an earlier
+release that only the superuser can remove, or to create the command link
+``/usr/local/bin/anet`` (see :ref:`intro-install-sudo`). Without a terminal, nothing is asked,
+as before.
+
+The download sources change for ``install.sh`` and ``anet update`` alike (see
+:ref:`intro-install-hosts`). npmmirror, as the tarball of the npm package, and GitHub
+Releases are asked first, followed by the npm registry, jsDelivr and the project hosts. The
+files of npm packages are no longer requested from unpkg or by path from npmmirror. The
+variable ``ANET_INSTALL_BASE`` now replaces every source of ``anet update``, as ``--base``
+does, instead of being tried before the default sources. The checks are unchanged.
+
+.. Windows: the paragraph on install.ps1 is added by the Windows installer change.
 
 
 .. _upgrading-035:

@@ -104,7 +104,7 @@ The {variant} build of [anet](https://github.com/ANetResearch/ANet) {version} fo
 This package is not run directly. The directory `dl/` holds `release.json`, `release.json.sig` and `{asset}.gz` exactly as the download hosts of the project serve them under `/dl/`:
 
 * The npm package `@agentnetwork/anet` depends on the default builds and runs the binary after it has verified the signature of `release.json` and the SHA-256 of the archive and of the binary.
-* `install.sh`, `install.ps1` and `anet update` use the copies of `dl/` that content delivery networks for npm serve as download hosts when the project's own hosts cannot be reached. Every file is checked against the signed manifest, as from any other host.
+* `install.sh` and `anet update` read this package from the npm registries (npmmirror first when it answers fastest, then registry.npmjs.org) as a tarball, and its `dl/` through jsDelivr; `install.ps1` reads `dl/` as well. Every file is checked against the signed manifest, as from any other source.
 
 Installation: {docs}
 """

@@ -10,7 +10,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
+	"sync"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -25,7 +28,8 @@ var legacyFuncs = []string{"say", "warn", "die", "vercmp", "note", "run_timeout"
 	"survey_add", "legacy_label", "stop_legacy", "identity_file_age", "legacy_defaults", "datadir_kind", "answers",
 	"data_busy", "describe_legacy", "move_legacy_data", "remove_npm_legacy", "replace_legacy_bins", "note_others",
 	"path_expr", "path_block", "write_block", "profile_files", "exec_detached", "fresh_anet", "is_dest",
-	"setup_path", "upgrade_report"}
+	"setup_path", "upgrade_report", "is_v1_process", "v1_pid", "stop_v1_daemon", "wait_free", "legacy_label_of",
+	"tty_ok", "want_link", "root_session", "survey_units", "stop_autostart", "command_link", "takeover_phase"}
 
 // legacyEnv is one temporary machine: a HOME, a directory for stand-ins,
 // and the environment the script runs with.
@@ -164,6 +168,9 @@ PREFIX="$HOME/.local/bin"; DEST="$PREFIX/anet"; SUDO=""; MODIFY_PATH=${TEST_MODI
 		env = append(env, k+"="+v)
 	}
 	cmd.Env = env
+	// No controlling terminal, as under an agent or in CI: sudo is never
+	// asked for a password (tty_ok fails), whatever terminal runs the tests.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	out, err := cmd.CombinedOutput()
 	code := 0
 	if ee, ok := err.(*exec.ExitError); ok {
@@ -367,11 +374,13 @@ replace_legacy_bins; echo "LEGACY_LEFT=$LEGACY_LEFT"; upgrade_report`)
 		}
 	}
 	mustContain(t, "report", out, "LEGACY_LEFT=1", "Needs a command from you:",
-		v1+" is AgentNetwork 1.1.15 and needs root to remove; run: sudo rm '"+v1+"'",
+		v1+" (AgentNetwork 1.1.15, owned by root) is no longer used; remove it with: sudo rm "+v1,
 		"remove them with: sudo npm uninstall -g --prefix "+prefix+" @agentnetwork/anet")
 }
 
-// Every sudo in install.sh is sudo -n (owner rule: no prompt, ever).
+// Every sudo in install.sh is sudo -n, except the one password prompt of
+// root_session, which is only made on a terminal (owner decision of
+// 2026-10-20: at most once, and never without a terminal).
 func TestInstallShSudoIsNonInteractive(t *testing.T) {
 	script := repoFile(t, "deploy/release/install.sh")
 	re := regexp.MustCompile(`(^|[^-\w])sudo( +[^ ]+)?`)
@@ -384,6 +393,10 @@ func TestInstallShSudoIsNonInteractive(t *testing.T) {
 			arg := strings.TrimSpace(m[2])
 			switch {
 			case strings.HasPrefix(arg, "-n"), arg == ">/dev/null":
+			case arg == "-v" && strings.Contains(code, `sudo -v <"$TTY_DEV"`) && strings.Contains(code, "if "):
+				// root_session: the one password prompt, on a terminal (TestInstallShRootSession)
+			case strings.Contains(code, `_who=$(m "`):
+				// the line that says sudo will ask
 			case regexp.MustCompile(`apt-get install|dnf install|apk add`).MatchString(code):
 				// the message that names the package with ssh-keygen
 			case strings.Contains(code, "command -v sudo"):
@@ -509,49 +522,134 @@ func merge(a, b map[string]string) map[string]string {
 	return m
 }
 
-// A 1.x directory a running daemon may still hold is not moved: its
-// daemon.pid names a live process called anet, or 1.x's address answers.
-// The report gives the command.
-func TestInstallShKeepsBusyLegacyData(t *testing.T) {
+// A 1.x directory a running 1.x daemon still holds: the installer stops
+// that daemon itself (spec E), through its shutdown API with the token of
+// the directory, or with SIGTERM to the PID of daemon.pid once that process
+// is known to be AgentNetwork 1.x; a process that is not (a daemon of this
+// release on the current identity of a mixed directory) neither holds the
+// directory nor is signalled. Only a 1.x daemon that cannot be stopped
+// keeps the directory where it is, and no manual mv is asked for.
+func TestInstallShStopsLingeringV1Daemon(t *testing.T) {
 	sleep, err := exec.LookPath("sleep")
 	if err != nil {
 		t.Skip("no sleep")
 	}
-	t.Run("daemon.pid", func(t *testing.T) {
-		e := newLegacyEnv(t)
-		dir := filepath.Join(e.home, ".anet")
-		e.write(filepath.Join(dir, "api_token"), "t", 0o600)
-		// A process named anet that this test starts and ends by its PID.
-		b, err := os.ReadFile(sleep)
-		if err != nil {
-			t.Skip(err)
+	sleepBin, err := os.ReadFile(sleep)
+	if err != nil {
+		t.Skip(err)
+	}
+	// start runs a copy of sleep named anet, with the 1.x module path
+	// appended when v1; the test ends it by its PID.
+	start := func(t *testing.T, e *legacyEnv, v1 bool) *exec.Cmd {
+		body := append([]byte{}, sleepBin...)
+		if v1 {
+			body = append(body, []byte("\x00"+markerV1+"\x00")...)
 		}
-		fake := e.write(filepath.Join(e.root, "proc", "anet"), string(b), 0o755)
+		fake := e.write(filepath.Join(e.root, "proc", "anet"), string(body), 0o755)
 		p := exec.Command(fake, "60")
 		if err := p.Start(); err != nil {
 			t.Skip(err)
 		}
-		t.Cleanup(func() { _ = p.Process.Kill(); _ = p.Wait() })
+		done := make(chan struct{})
+		go func() { _ = p.Wait(); close(done) }()
+		t.Cleanup(func() { _ = p.Process.Kill(); <-done })
+		return p
+	}
+	alive := func(p *exec.Cmd) bool { return p.Process.Signal(syscall.Signal(0)) == nil }
+
+	t.Run("SIGTERM to a verified 1.x PID", func(t *testing.T) {
+		if runtime.GOOS != "linux" {
+			t.Skip("the appended module path is read through /proc")
+		}
+		e := newLegacyEnv(t)
+		dir := filepath.Join(e.home, ".anet")
+		e.write(filepath.Join(dir, "api_token"), "t", 0o600)
+		p := start(t, e, true)
 		e.write(filepath.Join(dir, "daemon.pid"), fmt.Sprint(p.Process.Pid), 0o600)
-		out, code := e.run(`move_legacy_data; echo "HELD=$DATA_HELD"; upgrade_report`)
+		out, code := e.run(`move_legacy_data; echo "HELD=$DATA_HELD"; cat "$TMP/notes"`)
 		if code != 0 {
 			t.Fatalf("exit %d:\n%s", code, out)
 		}
-		if moved, _ := filepath.Glob(dir + "-legacy-*"); len(moved) != 0 {
-			t.Fatalf("moved while held: %v", moved)
+		mustContain(t, "output", out, "HELD=0", "stopped|the AgentNetwork 1.x daemon (PID "+fmt.Sprint(p.Process.Pid)+", SIGTERM)")
+		if moved, _ := filepath.Glob(dir + "-legacy-*"); len(moved) != 1 {
+			t.Fatalf("not moved: %v\n%s", moved, out)
 		}
-		mustContain(t, "report", out, "HELD=1", "that a running daemon may still use, so it was not moved",
-			"then: mv '"+dir+"' '"+dir+"-legacy-1.x-")
 	})
-	t.Run("1.x address answers", func(t *testing.T) {
+	t.Run("a process that is not 1.x", func(t *testing.T) {
+		e := newLegacyEnv(t)
+		dir := filepath.Join(e.home, ".anet")
+		e.write(filepath.Join(dir, "api_token"), "t", 0o600)
+		e.write(filepath.Join(dir, "identity.kel"), string(append([]byte{0xa1, 0x00, 0x6f}, "anet.identity/2"...)), 0o600)
+		p := start(t, e, false)
+		e.write(filepath.Join(dir, "daemon.pid"), fmt.Sprint(p.Process.Pid), 0o600)
+		out, code := e.run(`move_legacy_data; echo "KIND=$DATA_KIND HELD=$DATA_HELD"; cat "$TMP/notes"`)
+		if code != 0 {
+			t.Fatalf("exit %d:\n%s", code, out)
+		}
+		mustContain(t, "output", out, "KIND=mixed HELD=0", "moved|the AgentNetwork 1.x files of "+dir)
+		mustNotContain(t, "output", out, "manual|", "mv '")
+		if !alive(p) {
+			t.Error("a process that is not AgentNetwork 1.x was signalled")
+		}
+		if _, err := os.Stat(filepath.Join(dir, "identity.kel")); err != nil {
+			t.Errorf("the current identity left the directory: %v", err)
+		}
+	})
+	t.Run("the shutdown API with the token", func(t *testing.T) {
+		var mu sync.Mutex
+		var auth, method, path string
+		stopped := false
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			mu.Lock()
+			defer mu.Unlock()
+			if stopped {
+				// A stopped daemon answers nothing: the connection is dropped.
+				if hj, ok := w.(http.Hijacker); ok {
+					if c, _, err := hj.Hijack(); err == nil {
+						c.Close()
+					}
+				}
+				return
+			}
+			if r.URL.Path == "/api/shutdown" {
+				auth, method, path = r.Header.Get("Authorization"), r.Method, r.URL.Path
+				stopped = true
+			}
+		}))
+		defer srv.Close()
+		e := newLegacyEnv(t)
+		dir := filepath.Join(e.home, ".anet")
+		e.write(filepath.Join(dir, "anet", "api_token"), "tok-123\n", 0o600)
+		e.env["TEST_V1_API"] = strings.TrimPrefix(srv.URL, "http://")
+		out, code := e.run(`move_legacy_data; echo "HELD=$DATA_HELD"; cat "$TMP/notes"`)
+		if code != 0 {
+			t.Fatalf("exit %d:\n%s", code, out)
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		if method != "POST" || path != "/api/shutdown" || auth != "Bearer tok-123" {
+			t.Errorf("shutdown request %s %s %q", method, path, auth)
+		}
+		mustContain(t, "output", out, "HELD=0", "stopped|the AgentNetwork 1.x daemon at")
+		mustNotContain(t, "output", out, "tok-123")
+		if moved, _ := filepath.Glob(dir + "-legacy-*"); len(moved) != 1 {
+			t.Fatalf("not moved: %v", moved)
+		}
+	})
+	t.Run("a 1.x daemon that cannot be stopped", func(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 		defer srv.Close()
 		e := newLegacyEnv(t)
 		dir := filepath.Join(e.home, ".anet")
 		e.write(filepath.Join(dir, "anet", "identity.json"), "{}", 0o600)
 		e.env["TEST_V1_API"] = strings.TrimPrefix(srv.URL, "http://")
-		out, _ := e.run(`move_legacy_data; echo "HELD=$DATA_HELD"`)
-		mustContain(t, "output", out, "HELD=1")
+		start := time.Now()
+		out, _ := e.run(`move_legacy_data; echo "HELD=$DATA_HELD"; cat "$TMP/notes"`)
+		if d := time.Since(start); d > 40*time.Second {
+			t.Errorf("took %v", d)
+		}
+		mustContain(t, "output", out, "HELD=1", "is in use by a daemon of AgentNetwork 1.x that could not be stopped")
+		mustNotContain(t, "output", out, "mv '")
 		if _, err := os.Stat(dir); err != nil {
 			t.Fatal(err)
 		}
@@ -658,7 +756,7 @@ before=$(fresh_anet); echo "BEFORE=$before"; setup_path; echo "CHECK=$PATH_CHECK
 				mustContain(t, "output", out, "BEFORE="+old+"\n")
 			}
 			mustContain(t, "output", out, "CHECK=New terminals: `anet` is "+dest+" ("+filepath.Base(sh)+" -lic 'command -v anet').",
-				`NOW=export PATH="`+filepath.Join(e.home, ".local", "bin")+`:$PATH"`)
+				`NOW=export PATH="$HOME/.local/bin:$PATH"`)
 		})
 	}
 }

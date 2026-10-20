@@ -8,6 +8,88 @@ Release notes
    :depth: 2
 
 
+.. _news-0.3.6:
+
+ANet 0.3.6 (draft)
+------------------
+
+ANet 0.3.6 is a patch release. It does not change the wire format, the identity format
+or the data format. It consists of ``anet`` 0.3.6; ANetCore v0.16.1, ANetHub 0.3.3 and
+ANetLink v0.2.0 are unchanged. A 0.3.5 node and a 0.3.6 node work together, and the
+hubs need no upgrade. See :ref:`upgrading-036`.
+
+.. Windows installation: the entry for install.ps1 is added by the Windows installer change.
+
+Linux and macOS installation
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+* The installation is the single line
+  ``curl --proto '=https' --tlsv1.2 -fsSL https://agentnetwork.org.cn/install.sh | sh``. By
+  default the installer verifies and installs ``anet`` in ``~/.local/bin``, takes over
+  earlier releases, runs ``anet init``, starts the node (``anet up``, with a wait of at most
+  30 seconds until it answers; a running node is restarted with the new binary), and joins
+  ``https://hub.agentnetwork.org.cn`` with ``anet hub-register --passphrase-later``, which
+  asks nothing. A node that has already joined a hub keeps it unless ``--hub`` names another.
+  See :ref:`intro-install-script`.
+* New options: ``--no-join`` starts the node without joining a hub, and ``--no-start``
+  neither starts nor joins. ``--hub`` and ``--name`` now select the hub and the name of the
+  default join.
+* The output is one short line per phase (download, takeover, start), a progress line while
+  the download runs on a terminal, and a summary with the AID, the hub state and a ``Note``
+  line for each step left to the user. ``NO_COLOR`` removes the colour of the progress line.
+  Everything else is written to ``<data directory>/logs/install-<UTC time>.log`` (mode
+  ``0600``), which the last line names. A failure prints ``Error:``, whether anything was
+  changed, and the log. With ``ANET_LANG=zh``, the lines are Chinese. See
+  :ref:`intro-install-output`.
+* In a terminal, ``sudo`` asks for the password at most once, after one line that gives the
+  reason, when an earlier release can be removed only by the superuser, when a system unit of
+  AgentNetwork 1.x is to be disabled, or when the command link ``/usr/local/bin/anet`` needs
+  the superuser. Declined, the installation continues, and a ``Note`` line gives the command.
+  Without a terminal, ``sudo`` is used only as ``sudo -n``. ``--system`` is unchanged. See
+  :ref:`intro-install-sudo`.
+* When ``~/.local/bin`` is not on the search path of the shell that runs the installer and
+  ``/usr/local/bin`` is, the installer creates the link ``/usr/local/bin/anet`` to the new
+  binary in a terminal, so that ``anet`` runs at once. The binary stays in ``~/.local/bin``,
+  so ``anet update`` needs no administrator rights. See :ref:`intro-install-path`.
+* A daemon of AgentNetwork 1.x that still holds the data directory although its binary is
+  gone is stopped by the installer: through the shutdown interface of 1.x on
+  ``127.0.0.1:3998``, with the API token passed in a private ``curl`` configuration file, and
+  otherwise with ``SIGTERM`` to the process of ``daemon.pid`` once its executable has been
+  identified as AgentNetwork 1.x. The manual ``mv`` step is no longer required. A daemon of
+  this release is never signalled.
+* A systemd unit ``anet-daemon`` whose ``ExecStart`` runs a binary of AgentNetwork 1.x is
+  disabled with ``systemctl --user disable --now anet-daemon``, or for a system unit with
+  ``sudo -n systemctl disable --now anet-daemon``. Unit files are not deleted.
+
+Download sources
+~~~~~~~~~~~~~~~~
+
+* ``install.sh`` and ``anet update`` use the same sources in the same order. npmmirror, which
+  serves the tarball of the npm package ``@agentnetwork/anet-<os>-<cpu>``, and GitHub Releases
+  are asked at the same time with a limit of three seconds and tried fastest first; then the
+  npm registry, jsDelivr, ``agentnetwork.org.cn`` and ``hub.agentnetwork.org.cn``. unpkg and
+  the per-file route of npmmirror are no longer used. See :ref:`intro-install-hosts`.
+* A source whose release is older than the installer, or than the installed ``anet``, is
+  passed over while another source serves the current release.
+* Redirects are followed by the installer itself, over ``https://`` only and to the hosts of
+  the source.
+* ``--base URL`` and ``ANET_INSTALL_BASE`` replace every source, for ``anet update`` too;
+  ``ANET_INSTALL_BASE`` is no longer tried before the default sources.
+* ``anet update`` reads an npm tarball with bounded sizes, uses only regular files under
+  ``package/dl/``, refuses entry names that are absolute or contain ``..``, and checks the
+  sha512 ``integrity`` of the package metadata when present. Its output names the source.
+
+Continuous integration
+~~~~~~~~~~~~~~~~~~~~~~
+
+* The job ``unix-upgrade`` runs ``install.sh`` with ``--no-join`` over a real installation of
+  AgentNetwork 1.1.15, and checks the length of the output, the summary, the takeover lines,
+  and the mode and content of the log.
+* A test runs ``install.sh`` end to end, piped to ``sh`` in a temporary home directory,
+  against a release signed for the test and served by local stand-ins for the download
+  sources; it contacts no hub.
+
+
 .. _news-0.3.5:
 
 ANet 0.3.5

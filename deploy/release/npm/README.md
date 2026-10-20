@@ -4,7 +4,7 @@
 
 | Package | Contents | Used by |
 | --- | --- | --- |
-| `@agentnetwork/anet-<os>-<cpu>`, `@agentnetwork/anet-shell-<os>-<cpu>` | `dl/release.json`, `dl/release.json.sig`, `dl/<asset>.gz` | `install.sh`, `install.ps1` and `anet update`, which read `dl/` through npmmirror, jsDelivr and unpkg after the project hosts (`mirror_bases` in `install.sh`, `Get-AnetBases` in `install.ps1`, `release.MirrorBases`); the launcher |
+| `@agentnetwork/anet-<os>-<cpu>`, `@agentnetwork/anet-shell-<os>-<cpu>` | `dl/release.json`, `dl/release.json.sig`, `dl/<asset>.gz` | `install.sh` and `anet update`, which read the package tarball from npmmirror and registry.npmjs.org and `dl/` through jsDelivr (`source_defaults` in `install.sh`, `release.Sources`); `install.ps1` (`Get-AnetBases`); the launcher |
 | `@agentnetwork/anet` | `bin/anet` (the launcher, `anet.js`), `allowed_signers`, `install.sh`, `install.sh.sig`, `install.ps1`, `install.ps1.sig` | `npm install --global @agentnetwork/anet` |
 
 `<os>` and `<cpu>` are the npm names of the operating system and the architecture: `linux`, `darwin` or `win32`, and `x64` or `arm64`. The archive in `dl/` keeps the asset name of the release (`anet-windows-amd64.gz` in `@agentnetwork/anet-win32-x64`). On Windows the launcher writes `anet.exe` to `%LOCALAPPDATA%\anet\npm\<version>\`. The launcher verifies the signature of `release.json` with the key in `allowed_signers` (a copy of `internal/release/allowed_signers`) and the SHA-256 of the archive and of the binary before it runs anything; see the comment at the top of `anet.js` and `docs/intro/install.rst`.
