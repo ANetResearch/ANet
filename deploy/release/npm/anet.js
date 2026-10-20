@@ -275,11 +275,17 @@ function prepare() {
 }
 
 function main() {
-  const exe = prepare()
-  const args = process.argv.slice(2)
-  if (typeof process.execve === "function") {
+  run(prepare(), process.argv.slice(2))
+}
+
+// run runs the checked binary exe with args and ends this process with its
+// status.
+function run(exe, args) {
+  if (process.platform !== "win32" && typeof process.execve === "function") {
     // Replace this process, so that a long-running command (anet mcp, anet
-    // up --foreground) is not a child of Node.
+    // up --foreground) is not a child of Node. Node 22.15 and later define
+    // process.execve on Windows too, where it throws
+    // ERR_FEATURE_UNAVAILABLE_ON_PLATFORM, so it is not used there.
     process.execve(exe, [exe, ...args], process.env)
   }
   // Windows has no execve: the binary runs as a child, and its status is
@@ -303,4 +309,4 @@ function main() {
 
 if (require.main === module) main()
 
-module.exports = { allowedKeys, verifySignature, fingerprint, parseSignature, target, asideRe }
+module.exports = { allowedKeys, verifySignature, fingerprint, parseSignature, target, asideRe, run }

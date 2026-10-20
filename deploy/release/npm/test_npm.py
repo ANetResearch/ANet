@@ -215,5 +215,46 @@ class NpmPackages(unittest.TestCase):
             self.assertIn("install.ps1.sig does not verify", r.stderr)
 
 
+# The launcher's run(): on win32 it never calls process.execve, which Node
+# 22.15 and later define on every platform and which throws on Windows, and
+# runs the binary with spawnSync; elsewhere it replaces the process.
+RUN_PROBE = r"""
+const cp = require("node:child_process")
+const calls = []
+cp.spawnSync = (exe, args, opts) => { calls.push(["spawnSync", exe, args, opts.stdio]); return { status: 7, signal: null } }
+Object.defineProperty(process, "platform", { value: process.argv[2] })
+process.execve = (exe, argv) => {
+  calls.push(["execve", exe, argv])
+  if (process.platform === "win32") {
+    const e = new Error("process.execve is not available on win32")
+    e.code = "ERR_FEATURE_UNAVAILABLE_ON_PLATFORM"
+    throw e
+  }
+  process.stdout.write(JSON.stringify({ calls }) + "\n")
+  process.reallyExit(0)
+}
+process.exit = (code) => { process.stdout.write(JSON.stringify({ calls, code }) + "\n"); process.reallyExit(0) }
+require(process.argv[1]).run("C:\\anet\\anet.exe", ["version", "--json"])
+"""
+
+
+@unittest.skipUnless(shutil.which("node"), "needs node")
+class LauncherRun(unittest.TestCase):
+    def probe(self, platform_name):
+        r = run(["node", "-e", RUN_PROBE, str(HERE / "anet.js"), platform_name])
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return json.loads(r.stdout)
+
+    def test_windows_does_not_call_execve(self):
+        got = self.probe("win32")
+        self.assertEqual(got["calls"], [["spawnSync", "C:\\anet\\anet.exe", ["version", "--json"], "inherit"]])
+        self.assertEqual(got["code"], 7)
+
+    def test_unix_replaces_the_process(self):
+        for p in ("linux", "darwin"):
+            got = self.probe(p)
+            self.assertEqual(got["calls"], [["execve", "C:\\anet\\anet.exe", ["C:\\anet\\anet.exe", "version", "--json"]]], p)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
