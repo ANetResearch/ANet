@@ -870,6 +870,7 @@ function Get-AnetSources {
 # where .NET has one (PowerShell 7) and $TimeoutSeconds for the answer.
 function New-AnetHttpClient {
   param([int]$TimeoutSeconds, [switch]$Redirects)
+  if ($null -eq ('System.Net.Http.HttpClient' -as [type])) { Add-Type -AssemblyName System.Net.Http }
   $socketsHandler = 'System.Net.Http.SocketsHttpHandler' -as [type]
   if ($null -ne $socketsHandler) {
     $handler = New-Object System.Net.Http.SocketsHttpHandler

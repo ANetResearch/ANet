@@ -14,6 +14,11 @@ $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $env:ANET_INSTALL_PS1_TEST = '1'
 . ([scriptblock]::Create([IO.File]::ReadAllText((Join-Path $here 'install.ps1'))))
 
+if ($PSVersionTable.PSEdition -ne 'Core') {
+  # As Install-Anet does in Windows PowerShell 5.1.
+  [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor 3072
+}
+
 $failed = 0
 function Check {
   param([string]$Name, [bool]$Ok, [string]$Detail = '')
