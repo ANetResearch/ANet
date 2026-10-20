@@ -65,6 +65,12 @@ $errors = $null
 [void][System.Management.Automation.Language.Parser]::ParseInput($template, [ref]$tokens, [ref]$errors)
 Check 'install.ps1 parses' (@($errors).Count -eq 0) ((@($errors) | ForEach-Object { $_.Message }) -join '; ')
 Check 'install.ps1 has one pins line' (([regex]::Matches($template, [regex]::Escape($nullLine))).Count -eq 1)
+# -Without changes config.json with the installed binary, after the
+# replacement: a failure before it leaves the machine unchanged.
+$replaceAt = $template.IndexOf('$aside = Install-AnetStaged -Staged $S.Staged -Exe $S.Exe')
+$withoutAt = $template.IndexOf('Invoke-AnetNative -FilePath $S.Exe -ArgumentList @(''init'', ''--without'', $list)')
+Check 'init --without runs with the installed binary, after the replacement' ($replaceAt -gt 0 -and $withoutAt -gt $replaceAt) ('' + $replaceAt + ' ' + $withoutAt)
+Check 'the staged binary runs nothing but the verification' (-not $template.Contains('-FilePath $S.Staged -ArgumentList @(''init'''))
 
 # --- the template refuses to run ---------------------------------------------
 
@@ -147,6 +153,11 @@ Check '-Without shell on the default build is accepted' (($o.Without -join ',') 
 foreach ($bad in @('anet', '.\anet', '\anet', 'C:', 'C:anet', 'C:\', 'C:\a*b', '\\server\share\anet')) {
   Check ('-Prefix ' + $bad + ' is refused') (Refuses { Get-AnetOptions -Given @{ Prefix = $bad } } '-Prefix')
 }
+foreach ($bad in @('C:\Users\me\a;b', 'C:\Users\me\%TEMP%\anet', 'C:\x%y')) {
+  Check ('-Prefix ' + $bad + ' is refused (; and % corrupt PATH)') (Refuses { Get-AnetOptions -Given @{ Prefix = $bad } } 'contains ; or %')
+}
+Check 'the default prefix is not checked as one given with -Prefix' (-not (Get-AnetOptions -Given @{}).PrefixGiven)
+Check 'the staged binary is anet.new.exe (PowerShell runs only names in PATHEXT)' ((Split-Path -Leaf (Get-AnetStagedPath -Dir $here)) -ceq 'anet.new.exe')
 if (Test-IsWindows) {
   $o = Get-AnetOptions -Given @{ Prefix = 'C:\Users\x\anet\' }
   Check '-Prefix is normalized' ($o.Prefix -eq 'C:\Users\x\anet') $o.Prefix
@@ -257,9 +268,10 @@ try {
     Check 'an existing directory Everyone can change is refused' (Refuses { Initialize-AnetDirectory -Dir $exposed 6>$null } 'is not private to this user')
 
     $exe = Join-Path $fresh 'anet.exe'
+    $staged = Get-AnetStagedPath -Dir $fresh
     [IO.File]::WriteAllText($exe, 'old')
-    Write-AnetStaged -Path ($exe + '.new') -Bytes ([Text.Encoding]::ASCII.GetBytes('new'))
-    $aside = Install-AnetStaged -Staged ($exe + '.new') -Exe $exe
+    Write-AnetStaged -Path $staged -Bytes ([Text.Encoding]::ASCII.GetBytes('new'))
+    $aside = Install-AnetStaged -Staged $staged -Exe $exe
     Check 'the staged binary takes the name of anet.exe' ([IO.File]::ReadAllText($exe) -eq 'new')
     Check 'the previous binary is kept aside' ($aside -match '\\anet\.exe\.old-[0-9]+$' -and [IO.File]::ReadAllText($aside) -eq 'old') $aside
     [IO.File]::WriteAllText(($exe + '.old-1'), 'stale')
@@ -268,9 +280,42 @@ try {
     Check 'older aside files are removed, the newest and look-alikes kept' (-not (Test-Path -LiteralPath ($exe + '.old-1')) -and (Test-Path -LiteralPath $aside) -and (Test-Path -LiteralPath ($exe + '.old-x')))
     $target = Join-Path $work 'target'
     [IO.File]::WriteAllText($target, 'x')
-    New-Item -ItemType Junction -Path ($exe + '.new') -Value $d | Out-Null
-    Check 'a staged path that is a junction is refused' (Refuses { Write-AnetStaged -Path ($exe + '.new') -Bytes ([byte[]](1, 2)) } 'reparse point')
-    Check 'the junction is left alone' ((Test-Path -LiteralPath ($exe + '.new')) -and (Test-Path -LiteralPath $d))
+    New-Item -ItemType Junction -Path $staged -Value $d | Out-Null
+    Check 'a staged path that is a junction is refused' (Refuses { Write-AnetStaged -Path $staged -Bytes ([byte[]](1, 2)) } 'reparse point')
+    Check 'the junction is left alone' ((Test-Path -LiteralPath $staged) -and (Test-Path -LiteralPath $d))
+
+    # The staged binary must start as a program: PowerShell hands a file
+    # whose extension is not in PATHEXT to ShellExecute as a document, which
+    # captures nothing. A system program under the staged name runs and
+    # its output is captured.
+    $probeDir = Join-Path $work 'probe'
+    $null = [IO.Directory]::CreateDirectory($probeDir)
+    $probe = Get-AnetStagedPath -Dir $probeDir
+    [IO.File]::Copy((Join-Path ([Environment]::SystemDirectory) 'whoami.exe'), $probe)
+    $r = @{}
+    Invoke-AnetNative -FilePath $probe -Capture -Result $r
+    $lines = @($r['Output'] | Where-Object { ([string]$_).Trim() -ne '' })
+    Check 'a program under the staged name runs, and its output is captured' ($r['Code'] -eq 0 -and $lines.Count -eq 1) ('exit ' + $r['Code'] + ', ' + $lines.Count + ' lines')
+
+    # -Prefix: no directory above it may let another account move it away.
+    $anc = Join-Path $work 'ancestor'
+    $mine = Join-Path $anc 'me'
+    $null = [IO.Directory]::CreateDirectory($mine)
+    Set-AnetPrivateAcl -Path $mine
+    $why = Get-AnetAncestorProblem -Dir (Join-Path $mine 'anet')
+    Check 'ancestors that grant no one else a moving right pass' ($null -eq $why -or -not ([string]$why).StartsWith($work)) ([string]$why)
+    $r = @{}
+    Invoke-AnetNative -FilePath $icacls -ArgumentList @($anc, '/grant', '*S-1-1-0:(D)') -Capture -Result $r
+    Check 'icacls grants Everyone DELETE on a test directory' ($r['Code'] -eq 0)
+    $why = Get-AnetAncestorProblem -Dir (Join-Path $mine 'anet')
+    Check 'an ancestor that Everyone may delete is reported' ($why -like ('*' + $anc + '*S-1-1-0*')) ([string]$why)
+    Check 'a -Prefix below it is refused' (Refuses { Initialize-AnetDirectory -Dir (Join-Path $mine 'anet') -CheckAncestors 6>$null } 'is not private to this user')
+    Check 'nothing was created below it' (-not (Test-Path -LiteralPath (Join-Path $mine 'anet')))
+    $r = @{}
+    Invoke-AnetNative -FilePath $icacls -ArgumentList @($anc, '/remove:g', '*S-1-1-0') -Capture -Result $r
+    Invoke-AnetNative -FilePath $icacls -ArgumentList @($anc, '/grant', '*S-1-1-0:(OI)(CI)(IO)(D)') -Capture -Result $r
+    $why = Get-AnetAncestorProblem -Dir (Join-Path $mine 'anet')
+    Check 'a rule for the children only (inherit-only) does not count' ($null -eq $why -or -not ([string]$why).StartsWith($work)) ([string]$why)
   } else {
     Write-Host 'skip  the access control list and replacement checks need Windows'
   }

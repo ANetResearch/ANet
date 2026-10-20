@@ -21,6 +21,9 @@
 #                    -Controller: https://hub.agentnetwork.org.cn).
 #   -Name NAME       The name to join under (default: the computer name).
 #   -Prefix DIR      Install into DIR (default %LOCALAPPDATA%\Programs\anet).
+#                    No directory above DIR may let another account rename
+#                    it or change its access control list; DIR must not
+#                    contain ; or %.
 #   -Without LIST    Turn these modules off in config.json.
 #   -Base URL|DIR    Download base, https only, or a local copy of a release
 #                    directory; replaces the list of download hosts.
@@ -200,7 +203,7 @@ function Get-AnetOptions {
   param([Parameter(Mandatory = $true)][hashtable]$Given)
   $o = @{
     Controller = ''; Variant = 'default'; AssetPrefix = 'anet'; Hub = ''; Join = $false; Name = '';
-    Prefix = ''; Without = @(); Base = ''; NoAutostart = [bool]$Given['NoAutostart'];
+    Prefix = ''; PrefixGiven = $false; Without = @(); Base = ''; NoAutostart = [bool]$Given['NoAutostart'];
     NoPath = [bool]$Given['NoPath']; Elevated = [bool]$Given['Elevated']
   }
   $controller = [string]$Given['Controller']
@@ -250,7 +253,11 @@ function Get-AnetOptions {
     if (-not ($p -match '^[A-Za-z]:[\\/]') -or $p -match '[\*\?"<>\|]' -or $p -match '^[A-Za-z]:[\\/]+$') {
       throw (New-AnetFailure ('-Prefix ' + $p + ' is not an absolute path on a drive (such as C:\Users\me\anet)'))
     }
+    if ($p -match '[;%]') {
+      throw (New-AnetFailure ('-Prefix ' + $p + ' contains ; or %, which the PATH variable cannot carry in a directory name; choose another directory'))
+    }
     $o.Prefix = [IO.Path]::GetFullPath($p).TrimEnd('\')
+    $o.PrefixGiven = $true
     if ($o.Prefix.Length -le 2) {
       throw (New-AnetFailure ('-Prefix ' + $p + ' is the root of a drive; give a directory'))
     }
@@ -484,6 +491,50 @@ function Get-AnetPrivacyProblem {
   return $null
 }
 
+# Get-AnetAncestorProblem says why a directory above $Dir lets another
+# account move the install directory away, or returns $null when none does.
+# Renaming a directory takes DELETE on it or FILE_DELETE_CHILD on its
+# parent, and WRITE_DAC or WRITE_OWNER (or GENERIC_ALL) lets an account
+# grant itself either; an account that owns a directory can change its
+# access control list. Every existing directory above $Dir, up to the root
+# of the drive, must be owned by this user, SYSTEM, Administrators or
+# TrustedInstaller, and grant none of these rights to any other account.
+# Rules that apply only to the children of a directory (inherit-only) do not
+# apply to the directory itself and are not counted.
+function Get-AnetAncestorProblem {
+  param([Parameter(Mandatory = $true)][string]$Dir)
+  $user = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+  $trusted = @($user, 'S-1-5-18', 'S-1-5-32-544', 'S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464')
+  # DELETE, FILE_DELETE_CHILD, WRITE_DAC, WRITE_OWNER, GENERIC_ALL.
+  $moving = 0x10000 -bor 0x40 -bor 0x40000 -bor 0x80000 -bor 0x10000000
+  $ancestor = Split-Path -Parent $Dir
+  while (-not [string]::IsNullOrEmpty($ancestor)) {
+    if (Test-Path -LiteralPath $ancestor) {
+      try {
+        $acl = Get-Acl -LiteralPath $ancestor -ErrorAction Stop
+        $owner = $acl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value
+        $rules = @($acl.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier]))
+      } catch {
+        return $ancestor + ': its access control list cannot be read: ' + $_.Exception.Message
+      }
+      if ($trusted -notcontains $owner) { return $ancestor + ': it is owned by ' + $owner }
+      foreach ($r in $rules) {
+        if ($r.AccessControlType -ne [System.Security.AccessControl.AccessControlType]::Allow) { continue }
+        if (($r.PropagationFlags -band [System.Security.AccessControl.PropagationFlags]::InheritOnly) -ne 0) { continue }
+        $sid = $r.IdentityReference.Value
+        if ($trusted -contains $sid -or $sid -eq 'S-1-3-0' -or $sid -eq 'S-1-3-4') { continue }
+        if (([long][int]$r.FileSystemRights -band $moving) -ne 0) {
+          return $ancestor + ': ' + $sid + ' may rename it or change its access control list'
+        }
+      }
+    }
+    $next = Split-Path -Parent $ancestor
+    if ($next -eq $ancestor) { break }
+    $ancestor = $next
+  }
+  return $null
+}
+
 # Set-AnetPrivateAcl replaces the access control list of a directory this
 # script created: no inherited rules, full control for this user, SYSTEM and
 # Administrators, inherited by everything created inside.
@@ -503,10 +554,19 @@ function Set-AnetPrivateAcl {
 # Initialize-AnetDirectory makes sure the install directory exists and is
 # private to this user. A missing directory is created only below an
 # existing directory that is private to this user; the new directory then
-# gets its own access control list, and must be empty.
+# gets its own access control list, and must be empty. With
+# -CheckAncestors (a directory given with -Prefix), no directory above it
+# may let another account move it away (Get-AnetAncestorProblem).
 function Initialize-AnetDirectory {
-  param([Parameter(Mandatory = $true)][string]$Dir)
+  param([Parameter(Mandatory = $true)][string]$Dir, [switch]$CheckAncestors)
   $refusal = $Dir + ' is not private to this user; choose -Prefix inside your profile'
+  if ($CheckAncestors) {
+    $why = Get-AnetAncestorProblem -Dir $Dir
+    if ($null -ne $why) {
+      Write-AnetLine ('   ' + $why)
+      throw (New-AnetFailure $refusal)
+    }
+  }
   if (Test-Path -LiteralPath $Dir) {
     $why = Get-AnetPrivacyProblem -Path $Dir
     if ($null -ne $why) {
@@ -579,8 +639,18 @@ function Test-AnetReparsePoint {
   return (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)
 }
 
-# Write-AnetStaged writes the checked binary to <dir>\anet.exe.new, a file
-# that did not exist before.
+# Get-AnetStagedPath is where the checked binary is staged before it takes
+# the name anet.exe: <dir>\anet.new.exe. The name ends in .exe because
+# PowerShell runs only a file whose extension is in PATHEXT as a program;
+# any other file it hands to ShellExecute as a document, which would not
+# run the binary (and might open it in another program).
+function Get-AnetStagedPath {
+  param([Parameter(Mandatory = $true)][string]$Dir)
+  return (Join-Path $Dir 'anet.new.exe')
+}
+
+# Write-AnetStaged writes the checked binary to the staged path, a file that
+# did not exist before.
 function Write-AnetStaged {
   param([string]$Path, [byte[]]$Bytes)
   if (Test-Path -LiteralPath $Path) {
@@ -835,10 +905,10 @@ function Install-Anet {
     [IO.File]::WriteAllBytes((Join-Path $S.Tmp 'release.json.sig'), $rel.Signature)
 
     # 5. Install directory.
-    Initialize-AnetDirectory -Dir $o.Prefix
+    Initialize-AnetDirectory -Dir $o.Prefix -CheckAncestors:$o.PrefixGiven
 
     # 6. Stage and verify.
-    $S.Staged = $S.Exe + '.new'
+    $S.Staged = Get-AnetStagedPath -Dir $o.Prefix
     Write-AnetStaged -Path $S.Staged -Bytes $rel.Binary
     $installed = Get-AnetInstalledVersion -Exe $S.Exe
     $mods = Confirm-AnetStaged -Staged $S.Staged -TmpDir $S.Tmp -Installed $installed -Variant $o.Variant -Asset $asset
@@ -846,19 +916,12 @@ function Install-Anet {
       Write-AnetLine ('   ' + $S.Exe + ': ' + $installed + ' -> ' + $AnetRelease['Version'])
     }
 
-    # 7. -Without.
-    if (@($o.Without).Count -gt 0) {
-      foreach ($m in $o.Without) {
-        if ($m -ne 'shell' -and @($mods) -notcontains $m) {
-          throw (New-AnetFailure ('-Without ' + $m + ': the ' + $o.Variant + ' build has no module of that name (its modules: ' + (@($mods) -join ',') + ')'))
-        }
-      }
-      $list = $o.Without -join ','
-      Write-AnetLine ('-> anet init --without ' + $list)
-      $r = @{}
-      Invoke-AnetNative -FilePath $S.Staged -ArgumentList @('init', '--without', $list) -Result $r
-      if ($r['Code'] -ne 0) {
-        throw (New-AnetFailure ('anet init --without ' + $list + ' refused (exit status ' + $r['Code'] + '); its reason is above') $r['Code'])
+    # 7. -Without: the names are checked against the verified module set
+    # here, and config.json is changed only after the binary is installed
+    # (step 8), so that a failure before then leaves the machine unchanged.
+    foreach ($m in @($o.Without)) {
+      if ($m -ne 'shell' -and @($mods) -notcontains $m) {
+        throw (New-AnetFailure ('-Without ' + $m + ': the ' + $o.Variant + ' build has no module of that name (its modules: ' + (@($mods) -join ',') + ')'))
       }
     }
 
@@ -872,6 +935,17 @@ function Install-Anet {
     Write-AnetLine ('OK Installed anet ' + $AnetRelease['Version'] + ' -> ' + $S.Exe)
     if ($aside -ne '') {
       Write-AnetLine ('   The previous binary is ' + $aside + ' until it is no longer in use; a node still running it keeps it until restarted.')
+    }
+    if (@($o.Without).Count -gt 0) {
+      $list = $o.Without -join ','
+      Write-AnetLine ('-> anet init --without ' + $list)
+      $r = @{}
+      Invoke-AnetNative -FilePath $S.Exe -ArgumentList @('init', '--without', $list) -Result $r
+      if ($r['Code'] -ne 0) {
+        Write-AnetInstalledFailure -State $S -Message ('anet init --without ' + $list + ' refused (exit status ' + $r['Code'] + '); its reason is above') -Next ('anet init --without ' + $list)
+        $global:LASTEXITCODE = $r['Code']
+        return
+      }
     }
 
     # 9. PATH.

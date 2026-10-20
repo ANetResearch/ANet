@@ -278,10 +278,14 @@ Installer parameters
      - The name to register under. The default is the computer name.
    * - ``-Prefix <directory>``
      - Install to this absolute directory. The default is
-       ``%LOCALAPPDATA%\Programs\anet``.
+       ``%LOCALAPPDATA%\Programs\anet``. The directory must be private to the
+       user, and no directory above it may grant another account the right to
+       rename it or to change its access control list. A directory name that
+       contains ``;`` or ``%`` is refused.
    * - ``-Without <modules>``
      - Switch off the listed modules in the configuration, as
-       ``install.sh --without`` does (see :ref:`intro-install-modules`).
+       ``install.sh --without`` does (see :ref:`intro-install-modules`). The
+       configuration is changed after the binary is installed.
    * - ``-Base <URL or directory>``
      - Download from this ``https://`` address, or read a release from this
        local directory, instead of the default hosts. Every check is the same.
