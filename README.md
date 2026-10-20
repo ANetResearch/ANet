@@ -61,8 +61,8 @@ powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "[Net
 ```
 
 The installer chooses a private per-user install directory, takes over from an earlier anet (it stops it, waits for
-its daemon to exit, moves its data aside and then removes its npm package), and in an elevated window runs nothing
-that is already on the computer and starts the node only with standard user rights, or not at all, while User
+its daemon to exit, moves its data aside and then removes its npm package), and in an elevated window runs no program
+of the account (an earlier anet, its stop command, npm) and starts the node only with standard user rights, or not at all, while User
 Account Control is on. Run inside WSL, the line installs the Windows build on the Windows host. `install.ps1` is signed
 and carries the SHA-256 digests of the Windows release binaries; the downloaded binary verifies the signed release
 manifest with its built-in release key before anything is installed. See

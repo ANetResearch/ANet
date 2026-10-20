@@ -485,8 +485,10 @@ try {
   Check 'a data directory of anet 0.2 is renamed aside as a whole' (-not $m.Held -and -not (Test-Path -LiteralPath $root) -and $aside.Count -eq 1 -and $aside[0].Name -like '.anet-legacy-0.2-*') $m.Line
   $cmd = Get-AnetMoveCommand -Root 'C:\Users\me\.anet' -Aside 'C:\Users\me\.anet-legacy-1.x-20260101T000000Z' -Kind 'v1'
   Check 'the move command for a 1.x directory renames it' ($cmd -ceq 'Rename-Item -LiteralPath ''C:\Users\me\.anet'' -NewName ''.anet-legacy-1.x-20260101T000000Z''') $cmd
+  $cmd = Get-AnetMoveCommand -Root 'C:\Users\O''Brien\.anet' -Aside 'C:\Users\O''Brien\.anet-legacy-1.x-20260101T000000Z' -Kind 'v1'
+  Check 'the move command quotes an apostrophe in the profile path' ($cmd -ceq 'Rename-Item -LiteralPath ''C:\Users\O''''Brien\.anet'' -NewName ''.anet-legacy-1.x-20260101T000000Z''') $cmd
   $cmd = Get-AnetMoveCommand -Root 'C:\Users\me\.anet' -Aside 'C:\Users\me\.anet-legacy-1.x-20260101T000000Z' -Kind 'mixed'
-  Check 'the move command for a mixed directory moves the 1.x entries' ($cmd -like 'New-Item -ItemType Directory -Path ''C:\Users\me\.anet-legacy-1.x-20260101T000000Z''; foreach ($n in ''anet'', ''anet.db'', *''daemon.pid'') { if (Test-Path -LiteralPath (Join-Path ''C:\Users\me\.anet'' $n)) { Move-Item -LiteralPath (Join-Path ''C:\Users\me\.anet'' $n) -Destination ''C:\Users\me\.anet-legacy-1.x-20260101T000000Z'' } }') $cmd
+  Check 'the move command for a mixed directory moves the 1.x entries' ($cmd -like 'New-Item -ItemType Directory -Force -Path ''C:\Users\me\.anet-legacy-1.x-20260101T000000Z''; foreach ($n in ''anet'', ''anet.db'', *''daemon.pid'') { if (Test-Path -LiteralPath (Join-Path ''C:\Users\me\.anet'' $n)) { Move-Item -LiteralPath (Join-Path ''C:\Users\me\.anet'' $n) -Destination ''C:\Users\me\.anet-legacy-1.x-20260101T000000Z'' } }') $cmd
 
   # The takeover with nothing found to stop, as install.sh: a data directory
   # of an earlier anet that no daemon holds is moved (whole for 1.x, the 1.x

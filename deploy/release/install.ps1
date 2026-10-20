@@ -866,21 +866,6 @@ function Write-AnetStaged {
   }
 }
 
-# Get-AnetInstalledVersion is the version the anet.exe at $Exe reports, or ''.
-function Get-AnetInstalledVersion {
-  param([string]$Exe)
-  if (-not (Test-Path -LiteralPath $Exe -PathType Leaf)) { return '' }
-  $r = @{}
-  Invoke-AnetNative -FilePath $Exe -ArgumentList @('version') -Capture -Result $r
-  $lines = @($r['Output'])
-  if ($r['Code'] -eq 0 -and $lines.Count -gt 0 -and ([string]$lines[0]) -cmatch '^anet (\S+) ') {
-    $v = $Matches[1]
-    if ($v -cmatch '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$') { return $v }
-  }
-  Write-AnetLine ('Warning: cannot read the version of the existing ' + $Exe + '; it will be replaced')
-  return ''
-}
-
 # Confirm-AnetStaged runs the staged binary's own verification of the
 # release (anet update --verify-dir) and checks what it reports.
 function Confirm-AnetStaged {
@@ -1229,14 +1214,15 @@ function Get-AnetRunValueExe {
 
 # Test-AnetDedicatedDir: the directory holds nothing but the files of an
 # anet installation (anet.exe, its release record and signature, binaries
-# moved aside by an update, a staged binary), or nothing at all. Only such a
+# moved aside by an update, a staged binary, the temporary file of an
+# interrupted anet update), or nothing at all. Only such a
 # directory is taken over as the install directory or taken off the PATH:
 # one that holds other programs is someone else's.
 function Test-AnetDedicatedDir {
   param([string]$Dir)
   foreach ($f in @(Get-ChildItem -LiteralPath $Dir -Force -ErrorAction SilentlyContinue)) {
     if ($f.PSIsContainer) { return $false }
-    if (-not ($f.Name -match '^(anet\.exe|anet\.exe\.release\.json(\.sig)?|anet\.exe\.old-[0-9]+|anet\.new\.exe)$')) { return $false }
+    if (-not ($f.Name -match '^(anet\.exe|anet\.exe\.release\.json(\.sig)?|anet\.exe\.old-[0-9]+|anet\.new\.exe|\.anet-update-[0-9A-Za-z]+\.exe)$')) { return $false }
   }
   return $true
 }
@@ -1566,11 +1552,20 @@ function Get-AnetLegacyAside {
 # Move-AnetLegacyData does, for the report when the installer could not.
 function Get-AnetMoveCommand {
   param([string]$Root, [string]$Aside, [string]$Kind)
+  $r = ConvertTo-AnetPSLiteral $Root
+  $a = ConvertTo-AnetPSLiteral $Aside
   if ($Kind -eq 'mixed') {
-    $names = @($AnetV1Entries | ForEach-Object { '''' + $_ + '''' }) -join ', '
-    return ('New-Item -ItemType Directory -Path ''' + $Aside + '''; foreach ($n in ' + $names + ') { if (Test-Path -LiteralPath (Join-Path ''' + $Root + ''' $n)) { Move-Item -LiteralPath (Join-Path ''' + $Root + ''' $n) -Destination ''' + $Aside + ''' } }')
+    $names = @($AnetV1Entries | ForEach-Object { ConvertTo-AnetPSLiteral $_ }) -join ', '
+    return ('New-Item -ItemType Directory -Force -Path ' + $a + '; foreach ($n in ' + $names + ') { if (Test-Path -LiteralPath (Join-Path ' + $r + ' $n)) { Move-Item -LiteralPath (Join-Path ' + $r + ' $n) -Destination ' + $a + ' } }')
   }
-  return ('Rename-Item -LiteralPath ''' + $Root + ''' -NewName ''' + (Split-Path -Leaf $Aside) + '''')
+  return ('Rename-Item -LiteralPath ' + $r + ' -NewName ' + (ConvertTo-AnetPSLiteral (Split-Path -Leaf $Aside)))
+}
+
+# ConvertTo-AnetPSLiteral is $Text as a single-quoted PowerShell literal,
+# with an apostrophe in it doubled (a profile path such as C:\Users\O'Brien).
+function ConvertTo-AnetPSLiteral {
+  param([string]$Text)
+  return ('''' + $Text.Replace('''', '''''') + '''')
 }
 
 # Move-AnetLegacyData moves the data of an earlier anet out of the data
@@ -1898,13 +1893,16 @@ function Get-AnetElevation {
 }
 
 # Remove-AnetStaleTasks deletes the one-time start tasks of earlier runs of
-# this installer that were ended before they could delete them (named
-# AgentNetwork start <id>), except one that is running.
+# this installer for this account ($Account) that were ended before they
+# could delete them (named AgentNetwork start <id>), except one that is
+# running. The tasks of other accounts are theirs.
 function Remove-AnetStaleTasks {
-  param($Folder)
+  param($Folder, [string]$Account)
   try {
     foreach ($t in @($Folder.GetTasks(1))) {
-      if (([string]$t.Name) -like 'AgentNetwork start *' -and [int]$t.State -ne 4) {
+      $owner = ''
+      try { $owner = [string]$t.Definition.Principal.UserId } catch { }
+      if (([string]$t.Name) -like 'AgentNetwork start *' -and [int]$t.State -ne 4 -and $owner -ieq $Account) {
         try { $Folder.DeleteTask([string]$t.Name, 0) } catch { }
       }
     }
@@ -1929,7 +1927,7 @@ function Start-AnetStandardUser {
   } catch {
     return 'the Task Scheduler is not available: ' + $_.Exception.Message
   }
-  Remove-AnetStaleTasks -Folder $folder
+  Remove-AnetStaleTasks -Folder $folder -Account $Account
   $registered = $false
   try {
     $def = $svc.NewTask(0)

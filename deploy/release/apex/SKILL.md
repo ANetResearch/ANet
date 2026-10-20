@@ -70,7 +70,7 @@ powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "[Net
 
 The installer chooses the install directory itself and reports each directory it skipped, with the reason.
 In an elevated window it installs for the current account; while User Account Control is on, it runs
-nothing that is already on the computer from that window, starts the node only with standard user rights
+no program of the account from that window (an earlier anet, its stop command, npm), starts the node only with standard user rights
 through a one-time Task Scheduler task, and when that fails leaves the node to start at the next logon and
 ends with exit status 3 and the commands to run in a normal window. An elevated window of another account
 than the one logged on is refused. It stops an earlier anet (the 1.x npm package, recognized by the module

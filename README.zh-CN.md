@@ -48,7 +48,7 @@ powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "[Net
 powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol=3072; & ([scriptblock]::Create((irm -UseBasicParsing https://agentnetwork.org.cn/install.ps1)))"
 ```
 
-安装程序自动选择当前用户私有的安装目录；接管较早的 anet（停止其运行、等待其守护进程退出、将其数据移至别处，然后卸载其 npm 包）；在用户账户控制开启时的提升权限窗口中，不运行计算机上已有的任何程序，且仅以标准用户权限启动节点，否则不启动。在 WSL 中运行时，该命令在 Windows 主机上安装 Windows 版本。`install.ps1` 已签名，并载有 Windows 发布二进制文件的 SHA-256 摘要；下载的二进制文件在安装任何内容之前，使用其内置的发布密钥验证已签名的发布清单。参见[在 Windows 上安装](https://docs.agentnetwork.org.cn/docs/zh-cn/latest/intro/install.html#installing-on-windows)。
+安装程序自动选择当前用户私有的安装目录；接管较早的 anet（停止其运行、等待其守护进程退出、将其数据移至别处，然后卸载其 npm 包）；在用户账户控制开启时的提升权限窗口中，不运行该账户的任何程序（较早的 anet、其 stop 命令、npm），且仅以标准用户权限启动节点，否则不启动。在 WSL 中运行时，该命令在 Windows 主机上安装 Windows 版本。`install.ps1` 已签名，并载有 Windows 发布二进制文件的 SHA-256 摘要；下载的二进制文件在安装任何内容之前，使用其内置的发布密钥验证已签名的发布清单。参见[在 Windows 上安装](https://docs.agentnetwork.org.cn/docs/zh-cn/latest/intro/install.html#installing-on-windows)。
 
 <details>
 <summary><b>仅使用发布密钥验证安装程序</b></summary>

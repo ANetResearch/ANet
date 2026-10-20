@@ -33,7 +33,7 @@ Windows installation
 * The exit status of ``powershell.exe`` is the result of the installation.
 * An elevated window is no longer refused, and ``-Elevated`` has no effect. ANet is installed
   for the current account. While Windows provides a standard user token (User Account Control
-  on), nothing already on the computer is run from the elevated window, and the node is
+  on), no program of the account is run from the elevated window, and the node is
   started only with standard user rights, through a one-time Task Scheduler task; when that
   fails, the node starts at the next logon instead, and the installation ends with exit
   status 3 and the commands to run in a normal window. An elevated window of another account

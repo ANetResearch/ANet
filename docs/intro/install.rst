@@ -484,11 +484,13 @@ compatibility and has no effect.
 
 While Windows has a standard user token for the account, that is, while User
 Account Control is on, the elevated window has more rights than the programs
-of the account normally run with, and the installer does not run anything
-that is already on the computer from it: an earlier ``anet.exe`` found on the
+of the account normally run with, and the installer does not run the
+programs of the account from it: an earlier ``anet.exe`` found on the
 ``PATH`` is classified by its contents without being run, its ``stop``
 command and ``npm`` are not run, and the commands are printed instead, to be
-run in a normal window of the account.
+run in a normal window of the account. PowerShell itself still loads its
+modules from the account's ``Documents`` folder before the script runs;
+this is one more reason to run the command in a normal window.
 
 The node is never started with the elevated token in that case. The installer
 registers a one-time task in the Task Scheduler for the current user, with the
