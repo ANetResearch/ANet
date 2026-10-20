@@ -251,6 +251,15 @@ func TestDoctorRecoveryFile(t *testing.T) {
 	if h := identityFindings(t, l, env)["identity.recovery"].Hint; h != "chmod 600 "+path {
 		t.Errorf("readable: hint %q, want chmod 600 %s", h, path)
 	}
+	// A file narrowed further than 0600 is private too, and is not reported.
+	if err := os.Chmod(path, 0o400); err != nil {
+		t.Fatal(err)
+	}
+	checkFinding(t, "read-only for its owner", identityFindings(t, l, env), "identity.recovery", stOK, "identity.status.recovery",
+		a2ashape.Args{"path": filepath.Join("~", ".anet-recovery", filepath.Base(path))})
+	if err := os.Chmod(path, 0o600); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(path+".new", []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}

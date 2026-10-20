@@ -161,7 +161,7 @@ func identityRecoveryCheck(say func(id, status, key string, args a2ashape.Args),
 	switch {
 	case !fs.Present:
 		say("identity.recovery", stInfo, "identity.recovery_note", nil)
-	case fs.Mode != "0600":
+	case !fs.Private:
 		say("identity.recovery", stWarn, "identity.recovery_perm", a2ashape.Args{"path": path, "command": privateFileHint(path)})
 	default:
 		say("identity.recovery", stOK, "identity.status.recovery", a2ashape.Args{"path": tildeHome(env.home, path)})

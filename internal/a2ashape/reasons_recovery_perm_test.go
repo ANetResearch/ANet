@@ -7,8 +7,10 @@ import (
 
 // identity.recovery_perm names the command that makes the recovery file
 // private. The caller passes the platform's command in {command} (Windows: an
-// icacls command); without one it is chmod 600 on the path, so the sentence
-// and the next step on Linux and macOS are what they were.
+// icacls command); without one it is chmod 600 on the path, so the next step
+// on Linux and macOS is what it was. doctor reports the file only when it is
+// not private to its owner (a 0400 file is private), which is what the
+// sentence says.
 func TestRecoveryPermNamesThePlatformCommand(t *testing.T) {
 	path := "/srv/u/.anet-recovery/x.anetrec"
 	for _, lang := range []Language{English, Chinese} {
