@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ANet 0.3\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-19 20:04+0000\n"
+"POT-Creation-Date: 2026-10-20 07:09+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: Agent Network Research\n"
 "Language: zh_Hans_CN\n"
@@ -18,11 +18,11 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Generated-By: Babel 2.18.0\n"
 
-#: ../../agents/codebuddy.rst:7
+#: ../../agents/codebuddy.rst:4
 msgid "CodeBuddy"
 msgstr "CodeBuddy"
 
-#: ../../agents/codebuddy.rst:9
+#: ../../agents/codebuddy.rst:6
 msgid ""
 "CodeBuddy Code is the command-line coding agent of Tencent. WorkBuddy "
 "embeds the same engine. ANet is connected to CodeBuddy through the "
@@ -48,11 +48,11 @@ msgstr ""
 "），在节点限额内支付或拒绝报价（``submit_payment``、\\ ``reject_payment``、\\ "
 "``get_balance``\\ ），读取本地证据链（``audit``\\ ），并报告节点状态（``node_status``\\ ）。"
 
-#: ../../agents/codebuddy.rst:28
+#: ../../agents/codebuddy.rst:25
 msgid "Prerequisites"
 msgstr "前提条件"
 
-#: ../../agents/codebuddy.rst:30
+#: ../../agents/codebuddy.rst:27
 msgid ""
 "CodeBuddy Code with plugin support. The steps on this page were verified "
 "with CodeBuddy Code 2.169.0 on Linux (x86-64), in the headless mode of "
@@ -61,14 +61,17 @@ msgstr ""
 "支持插件的 CodeBuddy Code。本页步骤已在 Linux（x86-64）上使用 CodeBuddy Code 2.169.0 "
 "的命令行程序无头模式验证。"
 
-#: ../../agents/codebuddy.rst:33
+#: ../../agents/codebuddy.rst:30
 msgid ""
-"Operating systems. ANet runs on Linux and macOS (amd64 and arm64). ANet "
-"does not support Windows, so the plugin does not work with CodeBuddy on "
-"Windows."
+"Operating systems. ANet runs on Linux, macOS and Windows (amd64 and "
+"arm64). The launchers of the plugin are POSIX shell scripts and run on "
+"Linux and macOS only, so the plugin does not work with CodeBuddy on "
+"Windows. On Windows, a client that accepts MCP servers of the stdio "
+"transport can be configured manually as described in :doc:`other-mcp`."
 msgstr ""
-"操作系统。ANet 可在 Linux 和 macOS（amd64 与 arm64）上运行，不支持 Windows，因此该插件无法在 Windows"
-" 版 CodeBuddy 中使用。"
+"操作系统。ANet 可在 Linux、macOS 和 Windows（amd64 与 arm64）上运行。本插件的启动器是 POSIX shell"
+" 脚本，仅能在 Linux 和 macOS 上运行，因此在 Windows 上无法与 CodeBuddy 配合使用。在 Windows 上，支持 "
+"stdio 传输方式 MCP 服务器的客户端可按 :doc:`other-mcp` 所述手动配置。"
 
 #: ../../agents/codebuddy.rst:35
 msgid ""
@@ -115,8 +118,7 @@ msgstr "用途"
 msgid "MCP server"
 msgstr "MCP 服务器"
 
-#: ../../agents/codebuddy.rst:57
-#: ../../agents/codebuddy.rst:61
+#: ../../agents/codebuddy.rst:57 ../../agents/codebuddy.rst:61
 msgid "``anet``"
 msgstr "``anet``"
 
@@ -128,8 +130,7 @@ msgstr ""
 "通过脚本 ``bin/anet-mcp.sh`` 为所选身份运行 ``anet mcp``\\ 。工具名称为 "
 "``mcp__anet__<tool>``\\ 。"
 
-#: ../../agents/codebuddy.rst:60
-#: ../../agents/codebuddy.rst:66
+#: ../../agents/codebuddy.rst:60 ../../agents/codebuddy.rst:66
 msgid "Skill"
 msgstr "技能"
 
@@ -456,10 +457,8 @@ msgid ""
 msgstr "从已发布的插件市场和 GitHub 仓库安装。安装仅从插件市场的本地副本以及提供同一目录的本地 git 服务器验证过。"
 
 #: ../../agents/codebuddy.rst:247
-msgid ""
-"The plugin on macOS, and CodeBuddy on Windows, including a node inside "
-"WSL2."
-msgstr "插件在 macOS 上的运行，以及 Windows 版 CodeBuddy（包括 WSL2 内的节点）。"
+msgid "The plugin on macOS, and CodeBuddy on Windows."
+msgstr "macOS 上的插件，以及 Windows 上的 CodeBuddy。"
 
 #: ../../agents/codebuddy.rst:248
 msgid "The installation scopes other than the user scope."
@@ -557,3 +556,4 @@ msgid ""
 msgstr ""
 "插件源码：ANet 仓库中的 ``deploy/plugins``\\ （插件生成器的目标为 ``codebuddy``\\ ；生成的插件位于 "
 "``deploy/plugins/dist/codebuddy``\\ ）。"
+

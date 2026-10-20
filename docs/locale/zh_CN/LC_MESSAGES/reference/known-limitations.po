@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ANet 0.3\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-16 14:35+0000\n"
+"POT-Creation-Date: 2026-10-20 07:09+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: zh_CN\n"
@@ -443,19 +443,19 @@ msgstr "沙箱"
 
 #: ../../reference/known-limitations.rst:212
 msgid ""
-"The sandbox runs on Linux and, with Seatbelt, on macOS; on Windows use "
-"WSL2. The supported Linux hosts are Debian 12 (bubblewrap 0.8) and Ubuntu"
-" 24.04 with the AppArmor profile that ``anet doctor --apparmor-profile`` "
-"prints. On macOS, a host on which the self-check fails turns away "
-"sandboxed turns with ``sandbox_unavailable``; version 0.3.0 has no macOS "
-"sandbox. See :doc:`../topics/sandbox` and :ref"
-":`reference-security`."
+"The sandbox runs on Linux and, with Seatbelt, on macOS. Windows has no "
+"sandbox (see :ref:`reference-known-limitations-windows`). The supported "
+"Linux hosts are Debian 12 (bubblewrap 0.8) and Ubuntu 24.04 with the "
+"AppArmor profile that ``anet doctor --apparmor-profile`` prints. On "
+"macOS, a host on which the self-check fails turns away sandboxed turns "
+"with ``sandbox_unavailable``; version 0.3.0 has no macOS sandbox. See "
+":doc:`../topics/sandbox` and :ref:`reference-security`."
 msgstr ""
-"沙箱在 Linux 上运行，在 macOS 上通过 Seatbelt 运行；Windows 上请使用 WSL2。支持的 Linux 主机为 "
-"Debian 12（bubblewrap 0.8）和装有 ``anet doctor --apparmor-profile`` 所打印的 "
-"AppArmor profile 的 Ubuntu 24.04。在 macOS 上，自检失败的主机会以 "
-"``sandbox_unavailable`` 拒绝需要沙箱的回合；0.3.0 版没有 macOS 沙箱。参见 :doc:`../topics/sandbox` 与 :ref"
-":`reference-security`。"
+"沙箱在 Linux 上运行，在 macOS 上通过 Seatbelt 运行。Windows 没有沙箱（参见 :ref:`reference-"
+"known-limitations-windows`）。支持的 Linux 主机为 Debian 12（bubblewrap 0.8）和装有 "
+"``anet doctor --apparmor-profile`` 所打印的 AppArmor profile 的 Ubuntu 24.04。在"
+" macOS 上，自检失败的主机会以 ``sandbox_unavailable`` 拒绝需要沙箱的回合；0.3.0 版没有 macOS "
+"沙箱。参见 :doc:`../topics/sandbox` 与 :ref:`reference-security`\\ 。"
 
 #: ../../reference/known-limitations.rst:219
 msgid "Clocks"
@@ -517,23 +517,125 @@ msgid ""
 "needs a route on the loopback interface of the hub."
 msgstr "hub 的控制台尚不显示已分叉对端的密钥历史和对端的线路版本不一致情况。计数器已存在；该视图还需要 hub 回环接口上的一个路由。"
 
-#: ../../reference/known-limitations.rst:247
+#: ../../reference/known-limitations.rst:249
+msgid "Windows"
+msgstr "Windows"
+
+#: ../../reference/known-limitations.rst:251
+msgid ""
+"The Windows build differs from the Linux and macOS builds in the "
+"following points."
+msgstr "Windows 版本在以下各点与 Linux 和 macOS 版本不同。"
+
+#: ../../reference/known-limitations.rst:254
+msgid "No sandbox"
+msgstr "没有沙箱"
+
+#: ../../reference/known-limitations.rst:255
+msgid ""
+"Runs that need the sandbox are refused: the runs for peers that are not "
+"trusted (``auto_reply.untrusted`` set to ``sandbox``), and every run when"
+" ``auto_reply.trusted`` is ``sandbox``. See :doc:`../topics/sandbox`."
+msgstr ""
+"需要沙箱的运行一律拒绝：未受信任对端的运行（\\ ``auto_reply.untrusted`` 设为 ``sandbox``），以及 "
+"``auto_reply.trusted`` 为 ``sandbox`` 时的所有运行。参见 :doc:`../topics/sandbox`\\"
+" 。"
+
+#: ../../reference/known-limitations.rst:260
+msgid "Local backends"
+msgstr "本地后端"
+
+#: ../../reference/known-limitations.rst:261
+msgid ""
+"Backends on a Unix socket are refused, because the node cannot read the "
+"peer credentials of the socket (``peercred``). TCP backends on the same "
+"host are refused, because the node has no socket table that names the "
+"user of a listening process. Backends on another host over HTTPS work. "
+"The p2p peer process and the ANetLink sockets are refused for the same "
+"reason."
+msgstr ""
+"Unix 套接字上的后端会被拒绝，因为节点无法读取套接字的对端凭据（\\ ``peercred``）。同一主机上的 TCP "
+"后端会被拒绝，因为节点没有能指明监听进程所属用户的套接字表。通过 HTTPS 访问的其他主机上的后端可以使用。p2p 对端进程与 ANetLink"
+" 套接字出于同样原因会被拒绝。"
+
+#: ../../reference/known-limitations.rst:268
+msgid "The node does not run while the user is logged off"
+msgstr "用户注销期间节点不运行"
+
+#: ../../reference/known-limitations.rst:269
+msgid ""
+"The daemon runs as the logged-on user. It stops at logoff and starts "
+"again at logon through the ``Run`` value (see :ref:`intro-install-"
+"windows`)."
+msgstr ""
+"守护进程以已登录用户的身份运行。它在注销时停止，登录时通过 ``Run`` 值再次启动（参见 :ref:`intro-install-"
+"windows`）。"
+
+#: ../../reference/known-limitations.rst:272
+msgid "Processes left running by a shell command"
+msgstr "shell 命令遗留的进程"
+
+#: ../../reference/known-limitations.rst:273
+msgid ""
+"A process that a shell command leaves running survives the command, as on"
+" Linux and macOS, but ends when the daemon ends."
+msgstr "shell 命令遗留运行的进程在该命令结束后继续存在（与 Linux 和 macOS 相同），但会随守护进程结束而结束。"
+
+#: ../../reference/known-limitations.rst:276
+msgid "Agent launchers ending in ``.cmd`` or ``.bat``"
+msgstr "以 ``.cmd`` 或 ``.bat`` 结尾的 Agent 启动器"
+
+#: ../../reference/known-limitations.rst:277
+msgid ""
+"Such a launcher cannot receive arguments that Go cannot escape for "
+"``cmd.exe``. Configure the underlying ``.exe`` or the Node.js entry point"
+" instead."
+msgstr "此类启动器无法接收 Go 无法为 ``cmd.exe`` 转义的参数。请改为配置其底层的 ``.exe`` 或 Node.js 入口。"
+
+#: ../../reference/known-limitations.rst:281
+msgid "Plugin launchers"
+msgstr "插件启动器"
+
+#: ../../reference/known-limitations.rst:282
+msgid ""
+"The launchers of the plugins are POSIX shell scripts and do not run on "
+"Windows. Register the node with ``anet agents wire`` instead (see "
+":doc:`../agents/index`)."
+msgstr ""
+"插件的启动器是 POSIX shell 脚本，不能在 Windows 上运行。请改用 ``anet agents wire`` 注册节点（参见 "
+":doc:`../agents/index`）。"
+
+#: ../../reference/known-limitations.rst:286
+msgid "No Authenticode signature"
+msgstr "没有 Authenticode 签名"
+
+#: ../../reference/known-limitations.rst:287
+msgid ""
+"The release binaries carry no Authenticode signature. Smart App Control "
+"in enforcement mode, or an endpoint policy, may block them. The integrity"
+" of ``anet`` rests on the release key (see :ref:`intro-install-windows`)."
+msgstr ""
+"发布的二进制文件不带 Authenticode 签名。处于强制模式的智能应用控制（Smart App "
+"Control）或终端策略可能会阻止它们。``anet`` 本身的完整性依靠发布密钥保证（参见 :ref:`intro-install-"
+"windows`）。"
+
+#: ../../reference/known-limitations.rst:293
 msgid "What is not part of 0.3.0"
 msgstr "0.3.0 不包含的内容"
 
-#: ../../reference/known-limitations.rst:249
+#: ../../reference/known-limitations.rst:295
 msgid ""
 "Anonymous first-contact tokens, sending through Tor or oblivious HTTP, "
 "direct delivery between hubs, and several witnesses for one identity."
 msgstr "匿名首次联系令牌、经由 Tor 或不经意 HTTP 发送、hub 之间的直接投递，以及一个身份对应多个见证方。"
 
-#: ../../reference/known-limitations.rst:251
+#: ../../reference/known-limitations.rst:297
 msgid ""
 "Chunked transfer of large attachments. A sealed envelope is at most 96 "
 "MiB by default."
 msgstr "大型附件的分块传输。密封信封默认最大为 96 MiB。"
 
-#: ../../reference/known-limitations.rst:253
+#: ../../reference/known-limitations.rst:299
 msgid ""
 "A build tag for the console. The console is turned off with ``without``; "
 "see :doc:`../topics/modules`."

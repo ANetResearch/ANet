@@ -21,7 +21,7 @@ from babel.messages.pofile import read_po, write_po
 LOCALE = pathlib.Path(__file__).resolve().parent.parent / "locale" / "zh_CN" / "LC_MESSAGES"
 
 SPAN = re.compile(
-    r"(:[A-Za-z][\w:.+-]*:`[^`]+`)|(``[^`]+?``)|(`[^`]+`_{1,2})|(\*\*[^*]+?\*\*)"
+    r"(:[A-Za-z][\w:.+-]*:`[^`]+`)|(``(?:[^`]|`(?!`))+?``)|(`[^`]+`_{1,2})|(\*\*[^*]+?\*\*)"
     r"|((?<![*A-Za-z0-9_])\*[^*\s][^*]*?\*(?![*A-Za-z0-9_]))|(`[^`]+`)",
     re.S,
 )

@@ -5,7 +5,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ANet 0.3\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-19 20:04+0000\n"
+"POT-Creation-Date: 2026-10-20 07:09+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: Agent Network Research\n"
 "Language: zh_CN\n"
@@ -16,11 +16,11 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Generated-By: Babel 2.18.0\n"
 
-#: ../../agents/trae.rst:7
+#: ../../agents/trae.rst:4
 msgid "Trae"
 msgstr "Trae"
 
-#: ../../agents/trae.rst:9
+#: ../../agents/trae.rst:6
 msgid ""
 "Trae is the AI integrated development environment of ByteDance, and Trae "
 "CN is its edition for China. Trae has no plugin package format that a "
@@ -48,17 +48,17 @@ msgstr ""
 "``reject_payment``\\ 、\\ ``get_balance``\\ ），读取本地证据链（\\ ``audit``\\ "
 "），并报告节点状态（\\ ``node_status``\\ ）。"
 
-#: ../../agents/trae.rst:23
+#: ../../agents/trae.rst:20
 msgid ""
 "The bundle is the only supported route for Trae: ``anet agents wire`` "
 "does not register Trae."
 msgstr "该安装包是 Trae 唯一受支持的接入方式：``anet agents wire`` 不会登记 Trae。"
 
-#: ../../agents/trae.rst:31
+#: ../../agents/trae.rst:28
 msgid "Prerequisites"
 msgstr "前提条件"
 
-#: ../../agents/trae.rst:33
+#: ../../agents/trae.rst:30
 msgid ""
 "Trae or Trae CN with support for MCP servers, skills and commands. The "
 "Trae documentation states no minimum version, and the steps on this page "
@@ -67,13 +67,18 @@ msgstr ""
 "支持 MCP 服务器、技能和命令的 Trae 或 Trae CN。Trae 文档未给出最低版本，且本页所述步骤尚未在该应用中运行（参见 "
 "`未经测试`_\\ ）。"
 
-#: ../../agents/trae.rst:36
+#: ../../agents/trae.rst:33
 msgid ""
-"Operating systems. ANet runs on Linux and macOS (amd64 and arm64). ANet "
-"does not support Windows, so the bundle does not work on Windows."
+"Operating systems. ANet runs on Linux, macOS and Windows (amd64 and "
+"arm64). The launchers of the bundle and its ``install.sh`` are POSIX "
+"shell scripts and run on Linux and macOS only, so the bundle does not "
+"work on Windows. On Windows, a client that accepts MCP servers of the "
+"stdio transport can be configured manually as described in :doc:`other-"
+"mcp`."
 msgstr ""
-"操作系统。ANet 可在 Linux 和 macOS（amd64 与 arm64）上运行，不支持 Windows，因此该安装包不能在 "
-"Windows 上使用。"
+"操作系统。ANet 可在 Linux、macOS 和 Windows（amd64 与 arm64）上运行。插件包的启动器及其 "
+"``install.sh`` 是 POSIX shell 脚本，仅能在 Linux 和 macOS 上运行，因此插件包在 Windows "
+"上无法使用。在 Windows 上，支持 stdio 传输方式 MCP 服务器的客户端可按 :doc:`other-mcp` 所述手动配置。"
 
 #: ../../agents/trae.rst:38
 msgid "The bundle, from one of two sources:"
@@ -118,8 +123,7 @@ msgstr "组件"
 msgid "Name"
 msgstr "名称"
 
-#: ../../agents/trae.rst:62
-#: ../../agents/trae.rst:126
+#: ../../agents/trae.rst:62 ../../agents/trae.rst:126
 msgid "Purpose"
 msgstr "用途"
 
@@ -127,8 +131,7 @@ msgstr "用途"
 msgid "MCP server"
 msgstr "MCP 服务器"
 
-#: ../../agents/trae.rst:64
-#: ../../agents/trae.rst:68
+#: ../../agents/trae.rst:64 ../../agents/trae.rst:68
 msgid "``anet``"
 msgstr "``anet``"
 
@@ -140,8 +143,7 @@ msgstr ""
 "通过脚本 ``anet/bin/anet-mcp.sh`` 为所选身份运行 ``anet mcp``\\ ，Trae 以 ``/bin/sh "
 "<script>`` 的方式启动该脚本。"
 
-#: ../../agents/trae.rst:67
-#: ../../agents/trae.rst:73
+#: ../../agents/trae.rst:67 ../../agents/trae.rst:73
 msgid "Skill"
 msgstr "技能"
 
@@ -605,8 +607,8 @@ msgid "macOS. ``install.sh`` was run on Linux with ``dash``, ``bash`` and ``sh``
 msgstr "macOS。\\ ``install.sh`` 仅在 Linux 上以 ``dash``\\ 、\\ ``bash`` 和 ``sh`` 运行过。"
 
 #: ../../agents/trae.rst:339
-msgid "Windows, which ANet does not support."
-msgstr "Windows，ANet 不支持该系统。"
+msgid "Windows."
+msgstr "Windows。"
 
 #: ../../agents/trae.rst:343
 msgid "Troubleshooting"
@@ -757,3 +759,4 @@ msgid ""
 msgstr ""
 "本安装包的源代码：ANet 代码仓库中的 ``deploy/plugins``\\ （插件生成器的目标 ``trae``\\ ；生成的安装包位于 "
 "``deploy/plugins/dist/trae``\\ ）。"
+

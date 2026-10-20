@@ -16,7 +16,7 @@ msgstr ""
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"Generated-By: Babel 2.10.3\n"
+"Generated-By: Babel 2.18.0\n"
 
 #: ../../topics/modules.rst:5
 msgid "Modules"
@@ -76,8 +76,7 @@ msgstr "缺失的模块以封闭方式失败：不启动，不注册任何内容
 msgid "The modules"
 msgstr "模块列表"
 
-#: ../../topics/modules.rst:44
-#: ../../topics/modules.rst:308
+#: ../../topics/modules.rst:44 ../../topics/modules.rst:308
 msgid "Module"
 msgstr "模块"
 
@@ -93,8 +92,7 @@ msgstr "构建标签"
 msgid "Configuration"
 msgstr "配置"
 
-#: ../../topics/modules.rst:48
-#: ../../topics/modules.rst:310
+#: ../../topics/modules.rst:48 ../../topics/modules.rst:310
 msgid "``a2a``"
 msgstr "``a2a``"
 
@@ -104,8 +102,7 @@ msgid ""
 "protected by a token, with a proxy card for each remote agent."
 msgstr "本地 A2A 接口：在回环端口上提供 JSON-RPC 与 HTTP+JSON，由令牌保护，并为每个远端 Agent 提供代理卡片。"
 
-#: ../../topics/modules.rst:51
-#: ../../topics/modules.rst:442
+#: ../../topics/modules.rst:51 ../../topics/modules.rst:442
 msgid "``no_a2a``"
 msgstr "``no_a2a``"
 
@@ -113,8 +110,7 @@ msgstr "``no_a2a``"
 msgid "``modules.a2a``"
 msgstr "``modules.a2a``"
 
-#: ../../topics/modules.rst:53
-#: ../../topics/modules.rst:313
+#: ../../topics/modules.rst:53 ../../topics/modules.rst:313
 msgid "``anetlink``"
 msgstr "``anetlink``"
 
@@ -122,8 +118,7 @@ msgstr "``anetlink``"
 msgid "A client for device capabilities served by ANetLink."
 msgstr "ANetLink 所提供设备能力的客户端。"
 
-#: ../../topics/modules.rst:55
-#: ../../topics/modules.rst:466
+#: ../../topics/modules.rst:55 ../../topics/modules.rst:466
 msgid "``no_anetlink``"
 msgstr "``no_anetlink``"
 
@@ -131,8 +126,7 @@ msgstr "``no_anetlink``"
 msgid "``modules.anetlink``"
 msgstr "``modules.anetlink``"
 
-#: ../../topics/modules.rst:57
-#: ../../topics/modules.rst:315
+#: ../../topics/modules.rst:57 ../../topics/modules.rst:315
 msgid "``autoreply``"
 msgstr "``autoreply``"
 
@@ -145,8 +139,7 @@ msgstr ""
 "自动回复：循环、\\ ``openai`` 与 ``exec`` 后端、Agent 注册表、沙箱、网络控制和运行预算。参见 "
 ":doc:`delegation` 与 :doc:`sandbox`\\ 。"
 
-#: ../../topics/modules.rst:61
-#: ../../topics/modules.rst:439
+#: ../../topics/modules.rst:61 ../../topics/modules.rst:439
 msgid "``no_autoreply``"
 msgstr "``no_autoreply``"
 
@@ -162,8 +155,7 @@ msgstr "``blackboard``"
 msgid "A shared blackboard for cooperating agents."
 msgstr "供协作 Agent 使用的共享黑板。"
 
-#: ../../topics/modules.rst:65
-#: ../../topics/modules.rst:460
+#: ../../topics/modules.rst:65 ../../topics/modules.rst:460
 msgid "``no_blackboard``"
 msgstr "``no_blackboard``"
 
@@ -181,8 +173,7 @@ msgid ""
 "``cas.stat``."
 msgstr "内容寻址存储：``cas.put``\\ 、\\ ``cas.get``\\ 、\\ ``cas.has`` 与 ``cas.stat``\\ 。"
 
-#: ../../topics/modules.rst:70
-#: ../../topics/modules.rst:457
+#: ../../topics/modules.rst:70 ../../topics/modules.rst:457
 msgid "``no_cas``"
 msgstr "``no_cas``"
 
@@ -190,8 +181,7 @@ msgstr "``no_cas``"
 msgid "``modules.cas``"
 msgstr "``modules.cas``"
 
-#: ../../topics/modules.rst:72
-#: ../../topics/modules.rst:327
+#: ../../topics/modules.rst:72 ../../topics/modules.rst:327
 msgid "``console``"
 msgstr "``console``"
 
@@ -205,13 +195,11 @@ msgstr "本地 Web 控制台，通过 ``anet console`` 打开。它是唯一不�
 msgid "none (planned for a 0.3 patch release)"
 msgstr "无（计划在 0.3 的补丁版本中提供）"
 
-#: ../../topics/modules.rst:76
-#: ../../topics/modules.rst:81
+#: ../../topics/modules.rst:76 ../../topics/modules.rst:81
 msgid "none"
 msgstr "无"
 
-#: ../../topics/modules.rst:77
-#: ../../topics/modules.rst:329
+#: ../../topics/modules.rst:77 ../../topics/modules.rst:329
 msgid "``mcp``"
 msgstr "``mcp``"
 
@@ -223,8 +211,7 @@ msgstr ""
 "面向编码 Agent 的 MCP 服务器 ``anet mcp``，以及将其接入编码 Agent 的命令 ``anet agents``\\ "
 "。参见 :doc:`/howto/mcp`\\ 。"
 
-#: ../../topics/modules.rst:80
-#: ../../topics/modules.rst:436
+#: ../../topics/modules.rst:80 ../../topics/modules.rst:436
 msgid "``no_mcp``"
 msgstr "``no_mcp``"
 
@@ -236,8 +223,7 @@ msgstr "``org``"
 msgid "Verification of organisation membership credentials."
 msgstr "组织成员资格凭证的验证。"
 
-#: ../../topics/modules.rst:84
-#: ../../topics/modules.rst:463
+#: ../../topics/modules.rst:84 ../../topics/modules.rst:463
 msgid "``no_org``"
 msgstr "``no_org``"
 
@@ -245,10 +231,8 @@ msgstr "``no_org``"
 msgid "``modules.org``"
 msgstr "``modules.org``"
 
-#: ../../topics/modules.rst:86
-#: ../../topics/modules.rst:332
-#: ../../topics/modules.rst:407
-#: ../../topics/modules.rst:485
+#: ../../topics/modules.rst:86 ../../topics/modules.rst:332
+#: ../../topics/modules.rst:407 ../../topics/modules.rst:485
 msgid "``p2p``"
 msgstr "``p2p``"
 
@@ -256,8 +240,7 @@ msgstr "``p2p``"
 msgid "Direct delivery between nodes, as an addition to the hub."
 msgstr "节点之间的直接投递，作为 Hub 之外的补充。"
 
-#: ../../topics/modules.rst:88
-#: ../../topics/modules.rst:448
+#: ../../topics/modules.rst:88 ../../topics/modules.rst:448
 msgid "``no_p2p``"
 msgstr "``no_p2p``"
 
@@ -265,8 +248,7 @@ msgstr "``no_p2p``"
 msgid "``modules.p2p``"
 msgstr "``modules.p2p``"
 
-#: ../../topics/modules.rst:90
-#: ../../topics/modules.rst:334
+#: ../../topics/modules.rst:90 ../../topics/modules.rst:334
 msgid "``preview``"
 msgstr "``preview``"
 
@@ -274,8 +256,7 @@ msgstr "``preview``"
 msgid "Preview streaming. See :doc:`preview`."
 msgstr "预览流。参见 :doc:`preview`\\ 。"
 
-#: ../../topics/modules.rst:92
-#: ../../topics/modules.rst:451
+#: ../../topics/modules.rst:92 ../../topics/modules.rst:451
 msgid "``no_preview``"
 msgstr "``no_preview``"
 
@@ -283,8 +264,7 @@ msgstr "``no_preview``"
 msgid "top-level ``stream_preview``"
 msgstr "顶层 ``stream_preview``"
 
-#: ../../topics/modules.rst:94
-#: ../../topics/modules.rst:342
+#: ../../topics/modules.rst:94 ../../topics/modules.rst:342
 msgid "``service``"
 msgstr "``service``"
 
@@ -294,8 +274,7 @@ msgid ""
 ":doc:`capabilities`."
 msgstr "由本机程序提供服务的能力。参见 :doc:`capabilities`\\ 。"
 
-#: ../../topics/modules.rst:97
-#: ../../topics/modules.rst:454
+#: ../../topics/modules.rst:97 ../../topics/modules.rst:454
 msgid "``no_service``"
 msgstr "``no_service``"
 
@@ -303,8 +282,7 @@ msgstr "``no_service``"
 msgid "``modules.service``"
 msgstr "``modules.service``"
 
-#: ../../topics/modules.rst:99
-#: ../../topics/modules.rst:346
+#: ../../topics/modules.rst:99 ../../topics/modules.rst:346
 msgid "``shell``"
 msgstr "``shell``"
 
@@ -322,8 +300,7 @@ msgstr "``shell``\\ （附加式）"
 msgid "``modules.shell``"
 msgstr "``modules.shell``"
 
-#: ../../topics/modules.rst:104
-#: ../../topics/modules.rst:348
+#: ../../topics/modules.rst:104 ../../topics/modules.rst:348
 msgid "``x402``"
 msgstr "``x402``"
 
@@ -334,8 +311,7 @@ msgid ""
 ":doc:`payments`."
 msgstr "付款：签名、结算、回执、报价、记账，以及对 hub 发放链和余额证明的核对。参见 :doc:`payments`\\ 。"
 
-#: ../../topics/modules.rst:107
-#: ../../topics/modules.rst:445
+#: ../../topics/modules.rst:107 ../../topics/modules.rst:445
 msgid "``no_x402``"
 msgstr "``no_x402``"
 
@@ -634,8 +610,7 @@ msgid ""
 "channel."
 msgstr "功能不会回退到较弱的路径。需要沙箱的一轮对话不会直接运行，预览也不会经由其他通道发送。"
 
-#: ../../topics/modules.rst:291
-#: ../../topics/modules.rst:357
+#: ../../topics/modules.rst:291 ../../topics/modules.rst:357
 msgid "Examples of the sentences:"
 msgstr "说明语句示例："
 
@@ -734,15 +709,16 @@ msgid ""
 "reports the balance as ``module_absent``. A quote that is received waits "
 "in ``input-required`` with the sentence ``module_absent.payment`` and the"
 " reason ``anet.reason = module_absent`` (a sentence variant never changes"
-" the reason). The proxy card declares ``a2a-x402`` only while the node can pay. The doctor "
-"item ``payments.unchargeable`` reports a priced capability that the node "
-"could not charge for."
+" the reason). The proxy card declares ``a2a-x402`` only while the node "
+"can pay. The doctor item ``payments.unchargeable`` reports a priced "
+"capability that the node could not charge for."
 msgstr ""
 "``anet pay``、``anet redeem``、``anet reconcile``、``anet audit-hub`` "
 "及其背后的路由以 ``module_absent`` 应答。``anet balance`` 将余额报告为 "
 "``module_absent``。收到的报价停在 ``input-required``，附句子 "
-"``module_absent.payment``，原因码 ``anet.reason`` 为 ``module_absent``（句子变体不改变原因码）。代理卡片只在节点能够付款时才声明 ``a2a-x402``。诊断项 "
-"``payments.unchargeable`` 报告节点无法收费的标价能力。"
+"``module_absent.payment``，原因码 ``anet.reason`` 为 ``module_absent``\\ "
+"（句子变体不改变原因码）。代理卡片只在节点能够付款时才声明 ``a2a-x402``。诊断项 ``payments.unchargeable`` "
+"报告节点无法收费的标价能力。"
 
 #: ../../topics/modules.rst:367
 msgid ""
@@ -785,8 +761,7 @@ msgstr "用途"
 msgid "Modules in the binary"
 msgstr "二进制中的模块"
 
-#: ../../topics/modules.rst:390
-#: ../../topics/modules.rst:494
+#: ../../topics/modules.rst:390 ../../topics/modules.rst:494
 msgid "``min``"
 msgstr "``min``"
 
@@ -801,8 +776,7 @@ msgstr "参与网络：向 hub 注册、查找 agent、委派任务、验证回�
 msgid "kernel only"
 msgstr "仅内核"
 
-#: ../../topics/modules.rst:395
-#: ../../topics/modules.rst:491
+#: ../../topics/modules.rst:395 ../../topics/modules.rst:491
 msgid "``standard``"
 msgstr "``standard``"
 
@@ -817,8 +791,7 @@ msgstr "在 ``min`` 的基础上增加本机 A2A 接口，并把本地服务发�
 msgid "``a2a``, ``service``"
 msgstr "``a2a``, ``service``"
 
-#: ../../topics/modules.rst:400
-#: ../../topics/modules.rst:488
+#: ../../topics/modules.rst:400 ../../topics/modules.rst:488
 msgid "``paid``"
 msgstr "``paid``"
 
@@ -832,8 +805,7 @@ msgstr "在 ``standard`` 的基础上增加付款：价格、报价、结算、�
 msgid "``a2a``, ``service``, ``x402``"
 msgstr "``a2a``, ``service``, ``x402``"
 
-#: ../../topics/modules.rst:404
-#: ../../topics/modules.rst:482
+#: ../../topics/modules.rst:404 ../../topics/modules.rst:482
 msgid "``agent``"
 msgstr "``agent``"
 
@@ -923,8 +895,7 @@ msgstr "48 %"
 msgid "692"
 msgstr "692"
 
-#: ../../topics/modules.rst:441
-#: ../../topics/modules.rst:444
+#: ../../topics/modules.rst:441 ../../topics/modules.rst:444
 msgid "17 %"
 msgstr "17 %"
 
@@ -948,17 +919,13 @@ msgstr "72"
 msgid "2 %"
 msgstr "2 %"
 
-#: ../../topics/modules.rst:452
-#: ../../topics/modules.rst:458
+#: ../../topics/modules.rst:452 ../../topics/modules.rst:458
 msgid "56"
 msgstr "56"
 
-#: ../../topics/modules.rst:453
-#: ../../topics/modules.rst:456
-#: ../../topics/modules.rst:459
-#: ../../topics/modules.rst:462
-#: ../../topics/modules.rst:465
-#: ../../topics/modules.rst:468
+#: ../../topics/modules.rst:453 ../../topics/modules.rst:456
+#: ../../topics/modules.rst:459 ../../topics/modules.rst:462
+#: ../../topics/modules.rst:465 ../../topics/modules.rst:468
 msgid "1 %"
 msgstr "1 %"
 
@@ -966,8 +933,7 @@ msgstr "1 %"
 msgid "60"
 msgstr "60"
 
-#: ../../topics/modules.rst:461
-#: ../../topics/modules.rst:464
+#: ../../topics/modules.rst:461 ../../topics/modules.rst:464
 msgid "40"
 msgstr "40"
 

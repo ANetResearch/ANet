@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ANet 0.3\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-16 14:35+0000\n"
+"POT-Creation-Date: 2026-10-20 07:09+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: zh_CN\n"
@@ -40,12 +40,12 @@ msgid ""
 "The module is the only one that turns a request from the network into a "
 "command on the host. It is therefore *additive*: it is not part of the "
 "default build, and it is included only in the build with the tag "
-"``shell`` (``install.sh --shell``, or ``./build.sh --with shell``). See "
-":doc:`modules`."
+"``shell`` (``install.sh --shell``, ``install.ps1 -Shell`` on Windows, or "
+"``./build.sh --with shell``). See :doc:`modules`."
 msgstr ""
-"该模块是唯一把网络请求变成宿主机命令的模块，因此它是\\ *加法*\\ 模块：不属于默认构建，只包含在带有标签 ``shell`` "
-"的构建中（``install.sh --shell`` 或 ``./build.sh --with shell``）。参见 "
-":doc:`modules`。"
+"该模块是唯一将来自网络的请求变为主机上命令的模块。因此它是\\ *附加的*\\ ：不属于默认构建，仅包含在带 ``shell`` "
+"标签的构建中（\\ ``install.sh --shell``\\ 、Windows 上的 ``install.ps1 -Shell``\\ "
+"，或 ``./build.sh --with shell``）。参见 :doc:`modules`\\ 。"
 
 #: ../../topics/shell.rst:23
 msgid "Three separate decisions"
@@ -226,33 +226,36 @@ msgid "``shell``"
 msgstr "``shell``"
 
 #: ../../topics/shell.rst:104
-msgid "The interpreter. The default is ``/bin/sh``."
-msgstr "解释器。默认为 ``/bin/sh``。"
+msgid ""
+"The interpreter. The default is ``/bin/sh``, and ``powershell`` on "
+"Windows (see :ref:`topics-shell-windows`)."
+msgstr ""
+"解释器。默认为 ``/bin/sh``\\ ，Windows 上为 ``powershell``\\ （参见 :ref:`topics-"
+"shell-windows`）。"
 
-#: ../../topics/shell.rst:106
+#: ../../topics/shell.rst:107
 msgid ""
 "The node writes a warning to standard error at the start when no caller "
 "is allowed, and when ``allow_arbitrary`` is on."
 msgstr "启动时，若没有任何调用方被允许，或 ``allow_arbitrary`` 已开启，节点会向标准错误写出警告。"
 
-#: ../../topics/shell.rst:111
+#: ../../topics/shell.rst:112
 msgid "Capabilities"
 msgstr "能力"
 
-#: ../../topics/shell.rst:117
+#: ../../topics/shell.rst:118
 msgid "Capability"
 msgstr "能力"
 
-#: ../../topics/shell.rst:118
-#: ../../topics/shell.rst:146
+#: ../../topics/shell.rst:119 ../../topics/shell.rst:147
 msgid "Behavior"
 msgstr "行为"
 
-#: ../../topics/shell.rst:119
+#: ../../topics/shell.rst:120
 msgid "``shell.list``"
 msgstr "``shell.list``"
 
-#: ../../topics/shell.rst:120
+#: ../../topics/shell.rst:121
 msgid ""
 "Reports the commands that the node defines and the number of callers on "
 "the list. A remote caller receives only the number, not the AIDs, so that"
@@ -262,26 +265,26 @@ msgstr ""
 "报告节点定义了哪些命令，以及名单上的调用方数量。远程调用方只得到数量而不是 "
 "AID，使被接受的调用方无从得知节点还信任哪些其他机器。本机调用得到完整名单。"
 
-#: ../../topics/shell.rst:123
+#: ../../topics/shell.rst:124
 msgid "``shell.run@<name>``"
 msgstr "``shell.run@<name>``"
 
-#: ../../topics/shell.rst:124
+#: ../../topics/shell.rst:125
 msgid "Runs one defined command."
 msgstr "运行一条已定义的命令。"
 
-#: ../../topics/shell.rst:125
+#: ../../topics/shell.rst:126
 msgid "``shell.exec``"
 msgstr "``shell.exec``"
 
-#: ../../topics/shell.rst:126
+#: ../../topics/shell.rst:127
 msgid ""
 "Runs the command that the caller sends. It exists only while "
 "``allow_arbitrary`` is ``true``; otherwise it is neither on the "
 "capability card nor available by name."
 msgstr "运行调用方发来的命令。仅当 ``allow_arbitrary`` 为 ``true`` 时存在；否则既不在能力卡上，也不能按名调用。"
 
-#: ../../topics/shell.rst:129
+#: ../../topics/shell.rst:130
 msgid ""
 "The names of the commands become capability identifiers such as "
 "``shell.run@restart-app``, and a node announces the capabilities that it "
@@ -293,11 +296,11 @@ msgstr ""
 "命令的名称会成为能力标识，如 ``shell.run@restart-app``，而节点会通告它实际应答的能力。因此，任何能浏览 hub "
 "目录的人都能看到这台机器提供哪些命令，名单仍然保护着这些命令。不希望其存在被人知道的命令，名称应不携带任何信息。"
 
-#: ../../topics/shell.rst:136
+#: ../../topics/shell.rst:137
 msgid "Revoking access"
 msgstr "收回权限"
 
-#: ../../topics/shell.rst:138
+#: ../../topics/shell.rst:139
 msgid ""
 "The file named by ``allow_file`` is read again before every call and is "
 "not cached. Deleting a line, or the whole file, takes effect with the "
@@ -310,7 +313,7 @@ msgstr ""
 "所指的文件在每次调用前都会重新读取，不做缓存。删除一行或整个文件，在下一次调用时即生效，无需重启。文件不存在等同于名单为空，即拒绝所有人；它既不是错误，也不是对所有人放行。内联列表"
 " ``allow`` 只在重新加载配置时改变，因此生产节点应使用 ``allow_file``。"
 
-#: ../../topics/shell.rst:148
+#: ../../topics/shell.rst:149
 msgid ""
 "*No privilege escalation.* A command runs as the user of the daemon. A "
 "command that needs root requires a daemon that runs as root, which is a "
@@ -320,7 +323,7 @@ msgstr ""
 "*不提权。*\\ 命令以守护进程所属用户的身份运行。需要 root 的命令要求守护进程以 root 运行，这是安装时的决定，体现在 unit "
 "文件中。模块既不调用 ``sudo``，也不调用 ``setuid``。"
 
-#: ../../topics/shell.rst:151
+#: ../../topics/shell.rst:152
 msgid ""
 "*Arguments do not become commands.* With ``args: true``, each argument of"
 " the caller is quoted and appended. The command line belongs to the "
@@ -329,19 +332,19 @@ msgstr ""
 "*参数不会变成命令。*\\ 在 ``args: true`` "
 "时，调用方的每个参数都会加引号后追加。命令行属于运营人员，参数属于网络，两者不会混在一起。"
 
-#: ../../topics/shell.rst:154
+#: ../../topics/shell.rst:155
 msgid ""
 "*The time limit ends the process group.* Ending only the shell would "
 "leave the processes that it started on the machine."
 msgstr "*时间限制会结束整个进程组。*\\ 只结束 shell，会让它启动的进程留在机器上。"
 
-#: ../../topics/shell.rst:156
+#: ../../topics/shell.rst:157
 msgid ""
 "*The output is bounded.* A longer output is cut, and the output states "
 "the cut."
 msgstr "*输出有上限。*\\ 过长的输出会被截断，并在输出中注明截断。"
 
-#: ../../topics/shell.rst:157
+#: ../../topics/shell.rst:158
 msgid ""
 "*The effect status is accurate.* Exit status 0 is ``OK``. Any other "
 "status is ``FAILED`` with the exit status and the standard error. A "
@@ -351,7 +354,7 @@ msgstr ""
 "*效果状态准确。*\\ 退出状态 0 为 ``OK``。其他状态为 ``FAILED``，并附带退出状态和标准错误。超过时间限制而被终止的命令为 "
 "``FAILED``，消息中注明其被终止。"
 
-#: ../../topics/shell.rst:160
+#: ../../topics/shell.rst:161
 msgid ""
 "*Every run is on the evidence chain.* The event ``anet.shell.command`` "
 "records the caller, the command, the exit status and the duration. A "
@@ -361,10 +364,130 @@ msgstr ""
 "*每次运行都进入证据链。*\\ 事件 ``anet.shell.command`` 记录调用方、命令、退出状态和耗时。被拒绝的调用记为 "
 "``anet.shell.refused``，并带有调用方的 AID。输出本身不在链上。"
 
-#: ../../topics/shell.rst:164
+#: ../../topics/shell.rst:165
 msgid ""
 "The line that a ``run`` contains is not restricted. The operator who "
 "writes it is trusted, and the trust boundary lies between what the "
 "operator wrote and what the network sent."
 msgstr "``run`` 中的命令行不受限制。写下它的运营人员是被信任的，信任边界在运营人员所写的内容与网络发来的内容之间。"
+
+#: ../../topics/shell.rst:172
+msgid "Windows"
+msgstr "Windows"
+
+#: ../../topics/shell.rst:174
+msgid ""
+"The module runs on Windows with the same access control: the caller must "
+"be on ``peers.allow`` and on the list of the module, and ``allow_local`` "
+"stays off. The installer parameter ``-Controller`` writes such a "
+"configuration for exactly one AID (see :ref:`intro-install-windows-"
+"controller`)."
+msgstr ""
+"该模块在 Windows 上以相同的访问控制运行：调用方必须同时位于 ``peers.allow`` 和模块的名单中，且 "
+"``allow_local`` 保持关闭。安装程序参数 ``-Controller`` 为恰好一个 AID 写入此类配置（参见 :ref"
+":`intro-install-windows-controller`）。"
+
+#: ../../topics/shell.rst:179
+msgid ""
+"*Interpreters.* The key ``shell`` accepts the following values. Any other"
+" value is a configuration error."
+msgstr "*解释器。* 键 ``shell`` 接受以下值。其他任何值都属于配置错误。"
+
+#: ../../topics/shell.rst:186
+msgid "Value"
+msgstr "值"
+
+#: ../../topics/shell.rst:187
+msgid "Interpreter"
+msgstr "解释器"
+
+#: ../../topics/shell.rst:188
+msgid "``powershell`` (the default)"
+msgstr "``powershell``\\ （默认）"
+
+#: ../../topics/shell.rst:189
+msgid ""
+"``%SystemRoot%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe``. The "
+"path is fixed and never looked up on ``PATH``."
+msgstr ""
+"``%SystemRoot%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe``。该路径固定，从不在"
+" ``PATH`` 中查找。"
+
+#: ../../topics/shell.rst:191
+msgid "``pwsh``"
+msgstr "``pwsh``"
+
+#: ../../topics/shell.rst:192
+msgid "PowerShell 7 (``pwsh.exe``)."
+msgstr "PowerShell 7（\\ ``pwsh.exe``）。"
+
+#: ../../topics/shell.rst:193
+msgid "``cmd``"
+msgstr "``cmd``"
+
+#: ../../topics/shell.rst:194
+msgid "``cmd.exe``."
+msgstr "``cmd.exe``\\ 。"
+
+#: ../../topics/shell.rst:195
+msgid "An absolute path"
+msgstr "绝对路径"
+
+#: ../../topics/shell.rst:196
+msgid ""
+"A path to ``powershell.exe``, ``pwsh.exe``, ``cmd.exe``, ``sh.exe`` or "
+"``bash.exe``."
+msgstr ""
+"指向 ``powershell.exe``\\ 、\\ ``pwsh.exe``\\ 、\\ ``cmd.exe``\\ 、\\ "
+"``sh.exe`` 或 ``bash.exe`` 的路径。"
+
+#: ../../topics/shell.rst:198
+msgid ""
+"*Invocation.* PowerShell receives the command as ``-EncodedCommand``, "
+"with ``-NoProfile``, ``-NonInteractive`` and ``-ExecutionPolicy Bypass``,"
+" and writes its output as UTF-8. A command that would exceed the length "
+"limit of a Windows command line is refused."
+msgstr ""
+"*调用方式。* PowerShell 以 ``-EncodedCommand`` 接收命令，并带有 ``-NoProfile``\\ 、\\ "
+"``-NonInteractive`` 和 ``-ExecutionPolicy Bypass``\\ ，以 UTF-8 输出。超出 "
+"Windows 命令行长度限制的命令会被拒绝。"
+
+#: ../../topics/shell.rst:202
+msgid ""
+"*Arguments.* The arguments of a command with ``args: true`` are quoted "
+"for PowerShell: each argument is enclosed in single quotes, and the "
+"single quote characters inside it, including the typographic ones, are "
+"doubled. ``cmd`` does not accept arguments; a command with ``args: true``"
+" is refused with that interpreter."
+msgstr ""
+"*参数。* ``args: true`` 的命令的参数按 PowerShell "
+"规则加引号：每个参数用单引号括起，参数内的单引号字符（包括印刷体引号）均写两次。\\ ``cmd`` 不接受参数；使用该解释器时，``args: "
+"true`` 的命令会被拒绝。"
+
+#: ../../topics/shell.rst:207
+msgid ""
+"*Process trees.* Each command runs in a Job object. On a timeout or a "
+"cancellation the whole process tree is terminated. A process that a "
+"command leaves running survives the command, as on Linux and macOS, but "
+"ends when the daemon ends."
+msgstr ""
+"*进程树。* 每条命令都在 Job 对象中运行。超时或取消时，整个进程树都会被终止。命令遗留运行的进程在该命令结束后继续存在（与 Linux 和 "
+"macOS 相同），但会随守护进程结束而结束。"
+
+#: ../../topics/shell.rst:211
+msgid ""
+"*Working directory.* The default working directory is the profile "
+"directory of the user."
+msgstr "*工作目录。* 默认工作目录为用户的配置文件目录。"
+
+#: ../../topics/shell.rst:213
+msgid ""
+"*Privileges.* Commands run as the user that runs the node. The node runs "
+"as the logged-on user and never as a Windows service, and the module uses"
+" no elevation mechanism."
+msgstr "*权限。* 命令以运行节点的用户身份运行。节点以已登录用户的身份运行，从不作为 Windows 服务运行，且该模块不使用任何提权机制。"
+
+#: ../../topics/shell.rst:216
+msgid "A configuration for Windows:"
+msgstr "Windows 配置示例："
 
