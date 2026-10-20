@@ -10,7 +10,8 @@ package main
 // table's M group (ux §1.4), then confirm.yes. Only "yes" goes on; any other
 // answer is confirm.declined and exit status 1, with nothing changed.
 //
-// The confirmation is read from /dev/tty, not stdin, and a process without a
+// The confirmation is read from /dev/tty (on Windows, the console:
+// tty_windows.go), not stdin, and a process without a
 // controlling terminal is refused before anything else happens, with
 // tty_required naming the command to run in a terminal. An agent that
 // drives this CLI through a tool call has no terminal and cannot grant on
@@ -43,8 +44,7 @@ var errNoTTY = errors.New("")
 // confirm.declined has been said on stderr: exit status 1 (ux UX-C4).
 var errDeclined = errors.New("")
 
-// openTTY opens the controlling terminal. Tests replace it.
-var openTTY = func() (io.ReadWriteCloser, error) { return os.OpenFile("/dev/tty", os.O_RDWR, 0) }
+// openTTY opens the controlling terminal (tty_unix.go, tty_windows.go). Tests replace it.
 
 // ttyStderr is where tty_required and confirm.declined are said; tests
 // replace it.
@@ -118,6 +118,10 @@ func printable(s string, max int) string {
 	return b.String()
 }
 
+// consoleInput is a terminal whose input is a separate handle (a Windows console: CONIN$ for input,
+// CONOUT$ for output), so echo can be turned off on the right one.
+type consoleInput interface{ inputFd() uintptr }
+
 // ttySession is the terminal a command with prompts talks to: one open /dev/tty, read through one
 // buffer, so that several questions in a row do not lose the typed-ahead input between them.
 type ttySession struct {
@@ -157,6 +161,12 @@ func (t *ttySession) line(prompt string) (string, error) {
 func readPassphrase(t *ttySession, prompt string) ([]byte, error) {
 	if _, err := fmt.Fprint(t.rw, prompt+" "); err != nil {
 		return nil, err
+	}
+	// A Windows console (tty_windows.go) reads the passphrase from its input handle.
+	if c, ok := t.rw.(consoleInput); ok {
+		p, err := term.ReadPassword(int(c.inputFd()))
+		fmt.Fprintln(t.rw)
+		return p, err
 	}
 	if f, ok := t.rw.(*os.File); ok && term.IsTerminal(int(f.Fd())) {
 		p, err := term.ReadPassword(int(f.Fd()))
