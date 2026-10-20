@@ -17,7 +17,7 @@
 
 ## 升级
 
-0.3.5 为补丁版本，未更改线路格式、身份格式与数据格式。0.3.4 节点与 0.3.5 节点可协同工作，hub 无需升级。使用 `anet update` 更新节点并重启其守护进程。在 Windows 上，再次运行安装命令同样会更新安装；若原安装目录通过检查，则继续使用该目录。安装程序不再为 `-Controller` 请求确认：依赖该确认作为第二步的脚本或文档，现在会在命令运行时即授予访问权限。
+0.3.5 为补丁版本，未更改线路格式、身份格式与数据格式。0.3.4 节点与 0.3.5 节点可协同工作，hub 无需升级。使用 `anet update` 更新节点并重启其守护进程。在 Windows 上，再次运行安装命令同样会更新安装；若原安装目录通过检查，则继续使用该目录。安装程序不再为 `-Controller` 请求确认：依赖该确认作为第二步的脚本或文档，现在会在命令运行时即授予访问权限。在 Linux 与 macOS 上，再次运行 `install.sh` 命令会在同一次运行中替换 AgentNetwork 1.x、anet 0.1 与 anet 0.2，参见文档中的《升级》。
 
 ## 变更
 
@@ -38,13 +38,18 @@
 - 安装目录置于用户 `PATH` 的首位。安装程序以新窗口所得的 `PATH` 启动一个新的 `powershell.exe`，确认实际运行的 `anet`；若计算机 `PATH` 中存在较早的 `anet`，则予以报告。
 - 新参数 `-NoJoin` 启动节点但不注册到 hub。
 
+### Linux 与 macOS 安装
+- `install.sh` 在同一次运行中替换早期版本，不要求任何输入：AgentNetwork 1.x（npm 包 `@agentnetwork/anet` 1.x）、anet 0.1 与 anet 0.2。安装脚本用早期版本自身的 `stop` 命令停止其守护进程；用 npm 删除 npm 包 `@agentnetwork/anet` 1.x；将早期的 `anet` 二进制文件替换为指向新二进制文件的链接，在只有超级用户可写的目录中则予以删除。早期的数据目录改名为 `~/.anet-legacy-<版本>-<UTC 时间>`，不删除任何内容，其中已有的 0.3 身份保留原处。0.3 及更高版本的 `anet` 与 npm 启动器保持不变。
+- 安装脚本在 shell 配置文件（zsh、bash、fish、sh）中加入一段带标记的内容，把安装目录放在搜索路径最前，用新的登录 shell 确认 `anet` 即新的二进制文件，并打印适用于当前终端的命令。`--no-modify-path` 不修改配置文件。
+- `sudo` 只以 `sudo -n` 的形式使用。需要密码的步骤不会执行，报告给出确切的命令。`install.sh --system` 不再询问密码，请先运行 `sudo -v`。
+- 输出末尾的 `Upgraded from anet <version>` 一节列出每一步。
+- 守护进程也拒绝在没有 0.3 身份的 AgentNetwork 1.x 数据目录中启动，报告 `identity_v02`，其提示语句同时指明两种早期版本。
+
 ### 命令行
 - `anet init --shell-controller <AID> --yes` 无需确认即写入控制方授权，命令行即为确认。不带 `--yes` 时，与以往相同，在终端上确认授权；没有终端的进程以 `tty_required` 拒绝。`--yes` 仅可与 `--shell-controller` 一起使用。
 
 ### 持续集成
 - 作业 `windows-install` 在 `windows-latest` 上以发布的命令，分别从 `cmd.exe`、Windows PowerShell 5.1、PowerShell 7 与 Git Bash 端到端运行 `install.ps1`。它安装由作业 `windows-dist` 构建、并以本次运行生成的密钥签名的当前提交的发布版本，接管预先放置的 1.1.15 npm 包安装，并检查授权、`Run` 值、`PATH`、私有安装目录与 `anet version`。不连接任何 hub。
-
-除 `anet init --yes` 外，Linux 与 macOS 上的行为不变。
 
 ## 已知限制
 

@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ANet 0.3\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-20 12:36+0000\n"
+"POT-Creation-Date: 2026-10-20 13:04+0000\n"
 "PO-Revision-Date: 2026-10-16 05:00+0000\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: zh_CN\n"
@@ -18,11 +18,11 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Generated-By: Babel 2.18.0\n"
 
-#: ../../upgrading.rst:4
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:4
 msgid "Upgrading to 0.3"
 msgstr "升级到 0.3"
 
-#: ../../upgrading.rst:6
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:6
 msgid ""
 "Version 0.3 is not an in-place upgrade of 0.2, nor of AgentNetwork 1.x, "
 "the earlier project that published the npm package ``@agentnetwork/anet``"
@@ -38,45 +38,45 @@ msgstr ""
 "需重新安装，并以新的身份和空数据启动。自 0.3.5 起，节点的升级步骤由安装脚本完成（参见 :ref:`upgrading-"
 "installer`）。本页列出节点、Hub 运维者和客户端各自的步骤，以及行为发生变化的事项。"
 
-#: ../../upgrading.rst:20
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:20
 msgid "What does not carry over"
 msgstr "不会延续的内容"
 
-#: ../../upgrading.rst:22
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:22
 msgid ""
 "Identities. A 0.2 AID, and the DID of AgentNetwork 1.x, are not valid in "
 "0.3. A new identity is created and registered."
 msgstr "身份。0.2 的 AID 和 AgentNetwork 1.x 的 DID 在 0.3 中均无效，需创建并注册新身份。"
 
-#: ../../upgrading.rst:24
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:24
 msgid ""
 "Allow lists, trust lists and deny lists refer to AIDs, and have to be "
 "entered again with the new AIDs of the peers."
 msgstr "允许列表、信任列表和拒绝列表引用的是 AID，需使用对端的新 AID 重新录入。"
 
-#: ../../upgrading.rst:26
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:26
 msgid ""
 "Reviews, the reputation of an AID and entries on the list of official "
 "agents."
 msgstr "评价、AID 的声誉，以及官方 Agent 名单中的条目。"
 
-#: ../../upgrading.rst:27
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:27
 msgid ""
 "The credit balance and the ledger of a 0.2 hub. A 0.3 hub starts a new "
 "ledger."
 msgstr "0.2 Hub 的额度余额和账本。0.3 Hub 从新的账本开始。"
 
-#: ../../upgrading.rst:28
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:28
 msgid ""
 "The task history and the evidence chain of the 0.2 data directory stay in"
 " that directory; the 0.3 programs do not read them."
 msgstr "0.2 数据目录中的任务历史和证据链保留在该目录中，0.3 程序不会读取。"
 
-#: ../../upgrading.rst:34
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:34
 msgid "Upgrade a node with the installer"
 msgstr "使用安装脚本升级节点"
 
-#: ../../upgrading.rst:36
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:36
 msgid ""
 "From 0.3.5, ``install.sh`` upgrades a node of AgentNetwork 1.x, anet 0.1 "
 "or anet 0.2 on Linux and macOS in one run and without input:"
@@ -84,19 +84,19 @@ msgstr ""
 "自 0.3.5 起，``install.sh`` 在 Linux 和 macOS 上一次运行即可升级 AgentNetwork 1.x、anet "
 "0.1 或 anet 0.2 的节点，无需任何输入："
 
-#: ../../upgrading.rst:43
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:43
 msgid ""
 "The installer verifies the release as described in :doc:`intro/install`, "
 "and then:"
 msgstr "安装脚本按 :doc:`intro/install` 所述校验发布版本，然后："
 
-#: ../../upgrading.rst:45
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:45
 msgid ""
 "stops the daemon of the earlier release with the ``stop`` command of that"
 " release;"
 msgstr "用早期版本自身的 ``stop`` 命令停止其守护进程；"
 
-#: ../../upgrading.rst:46
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:46
 msgid ""
 "renames the data directory, for example ``~/.anet`` to ``~/.anet-"
 "legacy-1.1.15-20261020T120000Z``; nothing in it is deleted, and a 0.3 "
@@ -105,7 +105,7 @@ msgstr ""
 "将数据目录改名，例如将 ``~/.anet`` 改为 ``~/.anet-"
 "legacy-1.1.15-20261020T120000Z``；其中的内容不会被删除，已在其中的 0.3 身份保留原处；"
 
-#: ../../upgrading.rst:49
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:49
 msgid ""
 "removes the npm package ``@agentnetwork/anet`` 1.x with npm, and replaces"
 " earlier binaries of ``anet`` by a link to the new binary, or removes "
@@ -114,13 +114,13 @@ msgstr ""
 "用 npm 删除 npm 包 ``@agentnetwork/anet`` 1.x，并将早期的 ``anet`` "
 "二进制文件替换为指向新二进制文件的链接，或将其删除；"
 
-#: ../../upgrading.rst:51
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:51
 msgid ""
 "installs the new binary, places its directory first on the search path of"
 " new terminals, and runs ``anet init``."
 msgstr "安装新的二进制文件，将其目录放在新终端搜索路径的最前，并运行 ``anet init``。"
 
-#: ../../upgrading.rst:54
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:54
 msgid ""
 "The section ``Upgraded from anet <version>`` at the end of the output "
 "lists each of these steps, and gives the exact command for each step that"
@@ -130,64 +130,83 @@ msgstr ""
 "输出末尾的 ``Upgraded from anet <version>`` 一节列出上述每一步，并为未能完成的步骤给出确切的命令。规则见 "
 ":ref:`intro-install-earlier` 和 :ref:`intro-install-path`。之后："
 
-#: ../../upgrading.rst:58
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:58
 msgid ""
 "Open a new terminal, or run the ``export PATH=...`` line that the "
 "installer prints, and check the version."
 msgstr "打开新的终端，或运行安装脚本打印的 ``export PATH=...`` 一行，然后检查版本。"
 
-#: ../../upgrading.rst:65
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:65
 msgid ""
 "Continue with step 4 of the next section: start the node, join a hub, "
 "wire the coding agents again and enter the peers again."
 msgstr "从下一节的第 4 步继续：启动节点、加入 hub、重新接入编码代理并重新录入对端。"
 
-#: ../../upgrading.rst:68
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:68
 msgid ""
 "The renamed directory keeps the identity and the API tokens of the "
 "earlier release. Release 0.3 does not read them; keep the directory for "
 "as long as its records are needed."
 msgstr "改名后的目录保存早期版本的身份和 API 令牌。0.3 版不读取它们；在仍需要其中记录期间请保留该目录。"
 
-#: ../../upgrading.rst:71
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:71
 msgid ""
 "The installer leaves a data directory in place while a daemon of the "
 "earlier release may still use it, and does not change files that need the"
 " superuser when ``sudo`` asks for a password. In these cases, run the "
-"commands of the report, or follow the steps of the next section. On "
-"Windows, see :ref:`intro-install-windows`."
+"commands of the report, or follow the steps of the next section."
 msgstr ""
-"早期版本的守护进程可能仍在使用数据目录时，安装脚本将其保留原处；``sudo`` "
-"需要密码时，安装脚本不修改需要超级用户权限的文件。在这些情况下，请运行报告中的命令，或按下一节的步骤操作。Windows 参见 :ref"
-":`intro-install-windows`。"
+"当早期版本的守护进程可能仍在使用数据目录时，安装脚本保留该目录不动；当 ``sudo`` "
+"要求输入密码时，安装脚本不修改需要超级用户权限的文件。遇到这些情况，请运行报告中的命令，或按照下一节的步骤操作。"
 
-#: ../../upgrading.rst:77
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:76
+msgid ""
+"On Windows, run the installation command again (see :ref:`intro-install-"
+"windows`); it updates an installation in place and reuses its directory "
+"when that directory passes the checks. The installer takes over from an "
+"earlier ANet without asking: an ANet of the 1.x npm package, 0.1 or 0.2 "
+"on the ``PATH`` or in the global npm prefix is stopped with its own "
+"``stop`` command, its npm package is removed with ``npm uninstall -g "
+"@agentnetwork/anet``, and its data in ``%USERPROFILE%\\.anet`` is renamed"
+" to ``%USERPROFILE%\\.anet-legacy-<version>-<UTC time>``. When that "
+"directory already holds an identity of 0.3 or later, only the entries of "
+"the earlier release are moved. Nothing is deleted. An installation of 0.3"
+" or later in another directory is taken off the user's ``PATH``."
+msgstr ""
+"在 Windows 上，再次运行安装命令（参见 :ref:`intro-install-"
+"windows`）；该命令就地更新安装，若原目录通过检查则继续使用该目录。安装程序不经询问即接管较早的 ANet：位于 ``PATH`` 或全局 "
+"npm 前缀中的 1.x npm 包、0.1 或 0.2 版本的 ANet 以其自身的 ``stop`` 命令停止，其 npm 包通过 ``npm"
+" uninstall -g @agentnetwork/anet`` 卸载，其位于 ``%USERPROFILE%\\.anet`` "
+"的数据被重命名为 ``%USERPROFILE%\\.anet-legacy-<版本>-<UTC 时间>``。若该目录中已有 0.3 "
+"或更高版本的身份，则仅移出较早版本的条目。不删除任何内容。位于其他目录的 0.3 或更高版本的安装会从用户的 ``PATH`` 中移除。"
+
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:88
 msgid "Upgrade a node by hand"
 msgstr "手动升级节点"
 
-#: ../../upgrading.rst:79
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:90
 msgid ""
 "These steps apply when the installer cannot complete the upgrade, and to "
 "installations that the installer does not manage."
 msgstr "安装脚本无法完成升级时，以及安装脚本不管理的安装，采用以下步骤。"
 
-#: ../../upgrading.rst:82
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:93
 msgid "Stop the daemon of the earlier release."
 msgstr "停止早期版本的守护进程。"
 
-#: ../../upgrading.rst:88
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:99
 msgid ""
 "AgentNetwork 1.x stops with ``anet stop``. Remove its npm package "
 "afterwards:"
 msgstr "AgentNetwork 1.x 用 ``anet stop`` 停止，随后删除其 npm 包："
 
-#: ../../upgrading.rst:95
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:106
 msgid ""
 "Move the data directory aside. A 0.3 daemon refuses to start on it and "
 "says ``identity_v02``; nothing in it is deleted by the refusal."
 msgstr "将数据目录移至别处。0.3 守护进程拒绝在其上启动并提示 ``identity_v02``，该拒绝不会删除其中任何内容。"
 
-#: ../../upgrading.rst:102
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:113
 msgid ""
 "Install 0.3. The installer verifies the signed release manifest before it"
 " installs (see :doc:`intro/install`). ``anet update`` from 0.2 also "
@@ -196,17 +215,17 @@ msgstr ""
 "安装 0.3。安装程序在安装前验证已签名的发布清单（参见 :doc:`intro/install`）。从 0.2 执行 ``anet "
 "update`` 也会在验证清单后替换二进制文件。"
 
-#: ../../upgrading.rst:111
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:122
 msgid "Start the node and write the safe defaults."
 msgstr "启动节点并写入安全的默认值。"
 
-#: ../../upgrading.rst:118
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:129
 msgid ""
 "Join a hub. The command asks for a recovery passphrase on the terminal "
 "and writes the recovery file. Keep a copy of the file in a second place."
 msgstr "加入 Hub。该命令在终端上请求输入恢复口令并写入恢复文件。请将该文件另存一份于其他位置。"
 
-#: ../../upgrading.rst:125
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:136
 msgid ""
 "On a hub that admits by AID, the command prints an ``anet-hub admit`` "
 "line. Send it to the operator of the hub; the node completes the "
@@ -215,28 +234,28 @@ msgstr ""
 "在按 AID 准入的 Hub 上，该命令会输出一行 ``anet-hub admit``\\ 。请将其发送给 Hub "
 "的运维者，准入之后节点会自行完成注册。"
 
-#: ../../upgrading.rst:128
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:139
 msgid ""
 "Wire the coding agents again. The local A2A token is replaced, and the "
 "MCP tools changed."
 msgstr "重新配置编程 Agent。本地 A2A 令牌已被替换，MCP 工具也有变化。"
 
-#: ../../upgrading.rst:134
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:145
 msgid "Enter the peers again and check the result."
 msgstr "重新录入对端并检查结果。"
 
-#: ../../upgrading.rst:141
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:152
 msgid ""
 "Remove the keys of the next section from ``config.json`` before step 4, "
 "if the file was copied from 0.2. The daemon does not start while one of "
 "them is present."
 msgstr "如果 ``config.json`` 是从 0.2 复制而来，请在第 4 步之前移除下一节所列的键。其中任何一个存在时，守护进程都不会启动。"
 
-#: ../../upgrading.rst:146
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:157
 msgid "Configuration and commands that changed"
 msgstr "已变更的配置与命令"
 
-#: ../../upgrading.rst:148
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:159
 msgid ""
 "The daemon refuses to start with a removed key (``config_key_removed``), "
 "and a removed command or option is refused with ``cli_removed`` and the "
@@ -248,119 +267,119 @@ msgstr ""
 "拒绝并给出替代方式。完整的对照表见 :ref:`reference-config-removed` 以及 :doc:`reference/cli`"
 " 中关于已移除命令的一节。最常见的变更如下。"
 
-#: ../../upgrading.rst:157
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:168
 msgid "In 0.2"
 msgstr "0.2 中"
 
-#: ../../upgrading.rst:158
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:169
 msgid "In 0.3"
 msgstr "0.3 中"
 
-#: ../../upgrading.rst:159
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:170
 msgid "``anet hub-register <url> --token ...``"
 msgstr "``anet hub-register <url> --token ...``"
 
-#: ../../upgrading.rst:160
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:171
 msgid "``anet hub-register <url>``; the operator admits the AID."
 msgstr "``anet hub-register <url>``；由运维者准入该 AID。"
 
-#: ../../upgrading.rst:161
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:172
 msgid "``anet profile set --pricing``, ``payments.publish_prices``"
 msgstr "``anet profile set --pricing``\\ 、\\ ``payments.publish_prices``"
 
-#: ../../upgrading.rst:162
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:173
 msgid "Prices are signed in the extended card; ``anet card <aid>`` shows them."
 msgstr "价格在扩展卡片中签名，``anet card <aid>`` 可显示价格。"
 
-#: ../../upgrading.rst:163
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:174
 msgid "``anet delegate ... --pay``, ``anet x402-authorize``"
 msgstr "``anet delegate ... --pay``\\ 、\\ ``anet x402-authorize``"
 
-#: ../../upgrading.rst:164
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:175
 msgid ""
 "A quote within the limits is paid automatically; otherwise ``anet pay "
 "<task>``."
 msgstr "限额内的报价自动支付，否则使用 ``anet pay <task>``\\ 。"
 
-#: ../../upgrading.rst:165
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:176
 msgid "``accept_delegations``, ``anet accept``"
 msgstr "``accept_delegations``\\ 、\\ ``anet accept``"
 
-#: ../../upgrading.rst:166
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:177
 msgid "``anet inbound policy closed|approve|open``."
 msgstr "``anet inbound policy closed|approve|open``\\ 。"
 
-#: ../../upgrading.rst:167
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:178
 msgid "``anet evidence``"
 msgstr "``anet evidence``"
 
-#: ../../upgrading.rst:168
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:179
 msgid "``anet audit --type``."
 msgstr "``anet audit --type``\\ 。"
 
-#: ../../upgrading.rst:169
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:180
 msgid "``anet install``"
 msgstr "``anet install``"
 
-#: ../../upgrading.rst:170
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:181
 msgid "``anet agents wire <tool>``."
 msgstr "``anet agents wire <tool>``\\ 。"
 
-#: ../../upgrading.rst:171
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:182
 msgid "``auto_reply.api_key``, ``anet autoreply set --api-key``"
 msgstr "``auto_reply.api_key``\\ 、\\ ``anet autoreply set --api-key``"
 
-#: ../../upgrading.rst:172
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:183
 msgid "``anet autoreply set --api-key-stdin``."
 msgstr "``anet autoreply set --api-key-stdin``\\ 。"
 
-#: ../../upgrading.rst:173
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:184
 msgid "``providers.anetlink``"
 msgstr "``providers.anetlink``"
 
-#: ../../upgrading.rst:174
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:185
 msgid "``modules.anetlink``."
 msgstr "``modules.anetlink``\\ 。"
 
-#: ../../upgrading.rst:175
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:186
 msgid "``rotation_grace``"
 msgstr "``rotation_grace``"
 
-#: ../../upgrading.rst:176
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:187
 msgid "Fixed at 1 hour."
 msgstr "固定为 1 小时。"
 
-#: ../../upgrading.rst:177
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:188
 msgid "``anet autoreply set --max-auto-replies``, ``--poll-interval``"
 msgstr "``anet autoreply set --max-auto-replies``、``--poll-interval``"
 
-#: ../../upgrading.rst:178
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:189
 msgid ""
 "Fixed values; remove the options (refused with ``cli_removed`` from "
 "0.3.1)."
 msgstr "已改为固定值，请删掉这两个参数（自 0.3.1 起以 ``cli_removed`` 拒绝）。"
 
-#: ../../upgrading.rst:181
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:192
 msgid "Behavior that differs"
 msgstr "行为差异"
 
-#: ../../upgrading.rst:183
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:194
 msgid ""
 "A new node accepts no task from a peer that is not on the allow list, and"
 " spends nothing automatically. The defaults are written by ``anet init``."
 msgstr "新节点不接受来自允许列表之外的对端的任何任务，也不自动支出。默认值由 ``anet init`` 写入。"
 
-#: ../../upgrading.rst:185
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:196
 msgid "Tasks of untrusted peers are answered only in the sandbox, if at all."
 msgstr "不受信任对端的任务只在沙箱中应答，或不予应答。"
 
-#: ../../upgrading.rst:186
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:197
 msgid ""
 "Task content is deleted 30 days after the task ends. ``anet retention`` "
 "shows and changes it."
 msgstr "任务内容在任务结束 30 天后删除，``anet retention`` 可显示并更改该期限。"
 
-#: ../../upgrading.rst:187
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:198
 msgid ""
 "A delegation that is not confirmed within ``no_response_after`` (15 "
 "minutes) fails with ``delivery_unconfirmed``, and a refusal of the other "
@@ -369,7 +388,7 @@ msgstr ""
 "在 ``no_response_after``\\ （15 分钟）内未获确认的委派以 ``delivery_unconfirmed`` "
 "失败，对方的拒绝连同原因送达。"
 
-#: ../../upgrading.rst:189
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:200
 msgid ""
 "The commands ``find``, ``delegate``, ``message`` and ``task`` print JSON "
 "on standard output and readable lines on standard error. A script that "
@@ -378,7 +397,7 @@ msgstr ""
 "命令 ``find``\\ 、\\ ``delegate``\\ 、\\ ``message`` 和 ``task`` 在标准输出输出 "
 "JSON，在标准错误输出可读行。解析早期合并输出的脚本需改为只读取标准输出。"
 
-#: ../../upgrading.rst:192
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:203
 msgid ""
 "``auto_reply.api_base`` must use ``https://``, or ``http://`` on the "
 "loopback interface; any other address is refused with "
@@ -390,15 +409,15 @@ msgstr ""
 "``api_base_insecure`` 拒绝。只能经私有网络上明文 HTTP 访问的模型服务，需要提供 TLS "
 "端点，或在节点所在主机的环回接口上设置转发。"
 
-#: ../../upgrading.rst:196
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:207
 msgid "Nodes and hubs of 0.2 and 0.3 cannot talk to each other."
 msgstr "0.2 与 0.3 的节点和 Hub 之间无法通信。"
 
-#: ../../upgrading.rst:200
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:211
 msgid "Upgrade a hub"
 msgstr "升级 Hub"
 
-#: ../../upgrading.rst:202
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:213
 msgid ""
 "A hub is deployed again. A 0.3 hub does not open the data directory of a "
 "0.2 hub (``hub_identity_v02``), and a 0.2 daemon does not talk to it."
@@ -406,23 +425,23 @@ msgstr ""
 "Hub 需重新部署。0.3 Hub 不会打开 0.2 Hub 的数据目录（``hub_identity_v02``），0.2 "
 "守护进程也无法与其通信。"
 
-#: ../../upgrading.rst:205
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:216
 msgid "Install ANetHub 0.3 and start it with a new, empty data directory."
 msgstr "安装 ANetHub 0.3，并以全新的空数据目录启动。"
 
-#: ../../upgrading.rst:211
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:222
 msgid ""
 "Set the recovery passphrase of the hub identity on a terminal, and store "
 "the recovery file outside the data directory."
 msgstr "在终端上设置 Hub 身份的恢复口令，并将恢复文件存放在数据目录之外。"
 
-#: ../../upgrading.rst:218
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:229
 msgid ""
 "Choose the registration mode. A new hub is ``closed``. Admit the AIDs of "
 "the first nodes, or open registration with its three gates."
 msgstr "选择注册模式。新 Hub 为 ``closed``\\ 。可准入首批节点的 AID，或开放注册并启用三道关口。"
 
-#: ../../upgrading.rst:226
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:237
 msgid ""
 "Replace the flags of 0.2 that became subcommands. ``-grant``, ``-due``, "
 "``-clear`` and ``-invite-*`` stop the program with ``hub_flag_removed`` "
@@ -431,7 +450,7 @@ msgstr ""
 "替换 0.2 中已改为子命令的标志。\\ ``-grant``\\ 、\\ ``-due``\\ 、\\ ``-clear`` 和 "
 "``-invite-*`` 会使程序停止，并以 ``hub_flag_removed`` 提示应使用的子命令。"
 
-#: ../../upgrading.rst:228
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:239
 msgid ""
 "Set ``client_max_body_size`` of the reverse proxy to at least the value "
 "of ``--relay-max-envelope`` (96 MiB by default)."
@@ -439,7 +458,7 @@ msgstr ""
 "将反向代理的 ``client_max_body_size`` 设为不小于 ``--relay-max-envelope`` 的值（默认为 96 "
 "MiB）。"
 
-#: ../../upgrading.rst:230
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:241
 msgid ""
 "For federation, write ``federation.json`` with the 0.3 peers (see "
 ":doc:`ops/federation`). The routes ``/fed/v1`` and ``/fed/v2`` do not "
@@ -448,21 +467,21 @@ msgstr ""
 "如需联邦，请编写含 0.3 对等方的 ``federation.json``\\ （参见 :doc:`ops/federation`）。路由 "
 "``/fed/v1`` 与 ``/fed/v2`` 已不存在。"
 
-#: ../../upgrading.rst:232
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:243
 msgid ""
 "Keep the old deployment in read-only form for as long as the operator "
 "needs its records. It cannot be reopened by the 0.3 programs."
 msgstr "在运维者需要旧记录期间，以只读形式保留旧部署。0.3 程序无法重新打开它。"
 
-#: ../../upgrading.rst:235
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:246
 msgid "See :doc:`ops/deployment` and :doc:`ops/backup`."
 msgstr "参见 :doc:`ops/deployment` 与 :doc:`ops/backup`\\ 。"
 
-#: ../../upgrading.rst:239
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:250
 msgid "Clients that used the hub gateway"
 msgstr "使用过 Hub 网关的客户端"
 
-#: ../../upgrading.rst:241
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:252
 msgid ""
 "The route ``/x402/resource/...`` of 0.2 answers 410 ``gateway_removed``, "
 "and voucher redemption is gone. A client that spoke plain HTTP x402 "
@@ -476,7 +495,7 @@ msgstr ""
 "``x402.payment.payload`` 的 ``payment-submitted``\\ 。参见 :doc:`howto/local-"
 "a2a` 与 :doc:`topics/payments`\\ 。"
 
-#: ../../upgrading.rst:247
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:258
 msgid ""
 "Scripts that read the 0.2 reason codes, the control-plane error bodies or"
 " the structure of task metadata should be checked against :doc:`reference"
@@ -487,40 +506,40 @@ msgstr ""
 "检查。原因码已经合并，例如 ``provider_busy``\\ 、\\ ``quota_global_per_min`` 和 "
 "``max_inflight`` 现在统一为 ``busy``\\ 。"
 
-#: ../../upgrading.rst:253
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:264
 msgid "After the upgrade"
 msgstr "升级之后"
 
-#: ../../upgrading.rst:255
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:266
 msgid ""
 "``anet doctor`` reports the state of the node. A line at level ``warn`` "
 "or ``fail`` names its next step."
 msgstr "``anet doctor`` 报告节点状态。级别为 ``warn`` 或 ``fail`` 的行会指出下一步。"
 
-#: ../../upgrading.rst:257
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:268
 msgid ""
 "``anet status`` states whether the recovery passphrase is set, and "
 "whether the hub has confirmed the key."
 msgstr "``anet status`` 说明恢复口令是否已设置，以及 Hub 是否已确认密钥。"
 
-#: ../../upgrading.rst:259
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:270
 msgid ""
 "The 0.2 data directory can be deleted when it is no longer needed. Before"
 " that, copy files that are to be kept, for example exported evidence."
 msgstr "0.2 数据目录在不再需要时可以删除。删除之前，请先复制需要保留的文件，例如已导出的证据。"
 
-#: ../../upgrading.rst:266
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:277
 msgid "Upgrading to 0.3.4"
 msgstr "升级到 0.3.4"
 
-#: ../../upgrading.rst:268
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:279
 msgid ""
 "Version 0.3.4 is an in-place upgrade of 0.3.x. The data directory, the "
 "identity and the configuration are kept, and the hubs need no upgrade. "
 "Update the node and restart its daemons:"
 msgstr "0.3.4 是 0.3.x 的原地升级。数据目录、身份和配置均保留，Hub 无需升级。更新节点并重启其守护进程："
 
-#: ../../upgrading.rst:277
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:288
 msgid ""
 "One check changes on Linux and macOS. ``anet doctor`` reports the "
 "recovery file under ``identity.recovery`` only when another account can "
@@ -533,7 +552,7 @@ msgstr ""
 "``identity.recovery`` 下报告该文件。权限为 ``0400`` 的恢复文件在 0.3.4 "
 "之前会被报告，现在报告为就位。``identity.recovery_perm`` 的语句给出本平台使该文件变为私有的命令；代码不变。"
 
-#: ../../upgrading.rst:283
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:294
 msgid ""
 "From 0.3.4, ``anet update`` also tries the npm packages of the build "
 "after the project hosts (see :ref:`intro-install-hosts`). The checks are "
@@ -543,7 +562,7 @@ msgstr ""
 "自 0.3.4 起，``anet update`` 在项目主机之后还会尝试该构建的 npm 包（参见 :ref:`intro-install-"
 "hosts`）。对每台主机的校验相同。通过 npm 安装的节点改用 npm 更新（参见 :ref:`intro-install-npm`）。"
 
-#: ../../upgrading.rst:287
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:298
 msgid ""
 "Windows is supported natively from 0.3.4. On Windows, ``anet`` is "
 "installed with the PowerShell script ``install.ps1``, as described in "
@@ -555,15 +574,15 @@ msgstr ""
 "``install.ps1`` 安装，详见 :ref:`intro-install-windows`。在 WSL2 中运行的节点是 Linux "
 "节点，拥有自己的数据目录和身份；Windows 版本不读取该目录。"
 
-#: ../../upgrading.rst:296
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:307
 msgid "Upgrading to 0.3.3"
 msgstr "升级到 0.3.3"
 
-#: ../../upgrading.rst:298
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:309
 msgid "Version 0.3.3 is an in-place upgrade of 0.3.x. One behavior changes."
 msgstr "0.3.3 是 0.3.x 的原地升级。有一项行为发生变化。"
 
-#: ../../upgrading.rst:300
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:311
 msgid ""
 "Output is English on every system, including a system with a Chinese "
 "locale. Before 0.3.3, anet and anet-hub chose Chinese when ``LC_ALL``, "
@@ -576,7 +595,7 @@ msgstr ""
 "``LANG`` 以 ``zh`` 开头时，anet 和 anet-hub 选择中文。自 0.3.3 起，只有变量 ``ANET_LANG`` "
 "选择中文，区域设置变量不再参与判断。要保留中文语句，请在守护进程、命令行和 hub 的环境中设置该变量："
 
-#: ../../upgrading.rst:310
+#: ../../../../../../data/projs/anet-dev/wt/v035-integ/docs/upgrading.rst:321
 msgid ""
 "Any value that begins with ``zh`` in any letter case selects Chinese; any"
 " other value, or no value, selects English. Scripts that match the "

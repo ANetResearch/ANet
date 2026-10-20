@@ -49,6 +49,22 @@ Windows installation
   ``PATH``, and the installer confirms with a new ``powershell.exe`` which ``anet`` runs.
 * The new parameter ``-NoJoin`` starts the node without registering with a hub.
 
+Linux and macOS installation
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+* ``install.sh`` replaces AgentNetwork 1.x, anet 0.1 and anet 0.2 in the same run and
+  without input. It stops the earlier daemon with that release's own ``stop`` command,
+  removes the npm package ``@agentnetwork/anet`` 1.x with npm, replaces earlier ``anet``
+  binaries with a link to the new binary, and renames the earlier data directory to
+  ``~/.anet-legacy-<version>-<UTC time>``. Nothing is deleted. See :ref:`upgrading-installer`.
+* The installer puts the install directory first on the search path of new shells through a
+  marked block in the shell profiles, and confirms with a new login shell that ``anet`` is
+  the new binary. ``--no-modify-path`` leaves the profiles unchanged.
+* ``sudo`` is used only as ``sudo -n``; a step that needs a password is reported with the
+  exact command. ``install.sh --system`` no longer prompts; run ``sudo -v`` first.
+* The daemon refuses to start in a data directory of AgentNetwork 1.x without a 0.3
+  identity, with ``identity_v02``.
+
 Command line
 ~~~~~~~~~~~~
 

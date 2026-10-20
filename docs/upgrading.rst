@@ -71,7 +71,18 @@ The renamed directory keeps the identity and the API tokens of the earlier relea
 The installer leaves a data directory in place while a daemon of the earlier release may
 still use it, and does not change files that need the superuser when ``sudo`` asks for a
 password. In these cases, run the commands of the report, or follow the steps of the next
-section. On Windows, see :ref:`intro-install-windows`.
+section.
+
+On Windows, run the installation command again (see :ref:`intro-install-windows`); it
+updates an installation in place and reuses its directory when that directory passes the
+checks. The installer takes over from an earlier ANet without asking: an ANet of the 1.x npm
+package, 0.1 or 0.2 on the ``PATH`` or in the global npm prefix is stopped with its own
+``stop`` command, its npm package is removed with ``npm uninstall -g @agentnetwork/anet``,
+and its data in ``%USERPROFILE%\.anet`` is renamed to
+``%USERPROFILE%\.anet-legacy-<version>-<UTC time>``. When that directory already holds an
+identity of 0.3 or later, only the entries of the earlier release are moved. Nothing is
+deleted. An installation of 0.3 or later in another directory is taken off the user's
+``PATH``.
 
 Upgrade a node by hand
 ----------------------
