@@ -488,6 +488,71 @@ jobs:
           deploy\release\test-install-e2e.ps1 -Cleanup
           if ($env:HTTP_PID) { Stop-Process -Id ([int]$env:HTTP_PID) -ErrorAction SilentlyContinue }
 
+  # install.sh of this commit takes over a real AgentNetwork 1.1.15 (the npm
+  # package @agentnetwork/anet, the release the owner reported as left in
+  # place on macOS) with its daemon running. The script is piped to sh as in
+  # the published command; it installs the release currently published on
+  # the download host, verified with the release key. Checks: the 1.x daemon
+  # is stopped, the npm package is gone, the data directory is renamed and
+  # nothing is deleted, and a new login shell of the account's own shell
+  # runs the new anet.
+  unix-upgrade:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: AgentNetwork 1.1.15 from npm, with its daemon and data
+        run: |
+          set -eu
+          npm install -g @agentnetwork/anet@1.1.15
+          command -v anet
+          anet version | tee /tmp/legacy-version
+          grep -q '1\.1\.15' /tmp/legacy-version
+          # Most 1.x verbs start the daemon; give it 30 s.
+          perl -e 'alarm 30; exec @ARGV' anet status || true
+          ls -la ~/.anet
+          echo "LEGACY_NPM_PREFIX=$(npm prefix -g)" >> "$GITHUB_ENV"
+      - name: install.sh of this commit, piped to sh
+        run: |
+          set -eu
+          cat deploy/release/install.sh | sh 2>&1 | tee /tmp/install.out
+          grep -q 'Upgraded from anet' /tmp/install.out
+      - name: what was taken over
+        run: |
+          set -eu
+          ls -d ~/.anet-legacy-1.1.15-* 
+          ls ~/.anet-legacy-1.1.15-*/api_token
+          if npm ls -g --depth=0 @agentnetwork/anet 2>/dev/null | grep -q '@agentnetwork/anet@1\.'; then
+            echo "npm package 1.x is still installed"; exit 1
+          fi
+          if nc -z 127.0.0.1 3998 2>/dev/null; then echo "the 1.x daemon still listens on 3998"; exit 1; fi
+          sh_login="$(basename "${SHELL:-/bin/sh}")"
+          case "$sh_login" in zsh|bash) ;; *) sh_login=bash ;; esac
+          out="$(perl -e 'alarm 20; exec @ARGV' "$sh_login" -lic 'command -v anet; anet version' </dev/null)"
+          echo "$out"
+          echo "$out" | head -n1 | grep -qx "$HOME/.local/bin/anet"
+          echo "$out" | grep -q '^anet 0\.[3-9]'
+          old="$LEGACY_NPM_PREFIX/bin/anet"
+          if [ -e "$old" ] || [ -L "$old" ]; then
+            if [ -L "$old" ]; then t="$(readlink "$old")"; echo "$old -> $t"; case "$t" in *"/.local/bin/anet") ;; *) echo "earlier launcher left in place"; exit 1 ;; esac
+            else echo "earlier launcher left in place"; exit 1; fi
+          fi
+      - name: a second run changes nothing and reports no takeover
+        run: |
+          set -eu
+          cat deploy/release/install.sh | sh 2>&1 | tee /tmp/install2.out
+          if grep -q 'Upgraded from anet' /tmp/install2.out; then exit 1; fi
+          test "$(ls -d ~/.anet-legacy-* | wc -l | tr -d ' ')" = 1
+
   # The platforms the release builds for, and one it does not: peercred is
   # read on Linux, macOS and FreeBSD, and on OpenBSD everything builds and
   # every Unix socket backend fails closed (peer_cred_unsupported).
