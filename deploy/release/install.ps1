@@ -1570,8 +1570,9 @@ function Start-AnetNode {
       Write-AnetLine ('   The Task Scheduler could not start the node with standard user rights (' + $why + '): the node runs with the administrator rights of this window.')
     }
   }
+  # The lines of anet up go to the console, not into the value returned.
   $r = @{}
-  Invoke-AnetNative -FilePath $Exe -ArgumentList @('up') -Result $r
+  Invoke-AnetNative -FilePath $Exe -ArgumentList @('up') -Result $r | Out-Host
   return $r['Code']
 }
 

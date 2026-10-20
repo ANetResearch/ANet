@@ -254,6 +254,17 @@ if (Test-IsWindows) {
   Check 'a timed program gets the PATH it is given' (@($r['Output']) -contains 'X-PATH-PROBE') ((@($r['Output'])) -join '|')
 }
 
+# Start-AnetNode returns the exit status of anet up alone: its output goes to
+# the console, not into the value (a POSIX stand-in for anet.exe).
+if (-not (Test-IsWindows)) {
+  $fake = Join-Path ([IO.Path]::GetTempPath()) ('anet-up-' + [Guid]::NewGuid().ToString('N'))
+  [IO.File]::WriteAllText($fake, "#!/bin/sh`necho started `$1`nexit 0`n")
+  & chmod 755 $fake
+  $code = Start-AnetNode -Exe $fake -Elevation @{ Elevated = $false; NoStandardToken = ''; Account = 'me' } 6>$null
+  Check 'Start-AnetNode returns the exit status alone' ($code -is [int] -and $code -eq 0) ([string]$code)
+  Remove-Item -LiteralPath $fake -Force
+}
+
 # --- earlier installations ---------------------------------------------------
 
 foreach ($v in @('1.1.15', '1.0.0', '0.2.1', '0.1.10', '2.0.0')) { Check ('legacy version ' + $v) (Test-AnetLegacyVersion $v) }
