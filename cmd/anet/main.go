@@ -1264,7 +1264,7 @@ func runClient(layout daemon.Layout, cmd string, rest []string, explicit bool) e
 			// A daemon from before launcher pages. Handing the URL to the browser's command line is
 			// what this avoids, so it is not the fallback.
 			return fmt.Errorf("this daemon cannot hand out a console launcher (it is older than this anet: " +
-				"restart it with `anet stop && anet up`); or run `anet console --url` and open the printed link within 60 seconds")
+				"restart it with " + restartNodeQuoted + "); or run `anet console --url` and open the printed link within 60 seconds")
 		}
 		fmt.Fprintln(errW(), "opening the console (single-use link, valid 60 s)")
 		if err := openBrowser(tk.Launcher); err != nil {

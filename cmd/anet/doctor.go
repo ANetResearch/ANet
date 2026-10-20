@@ -511,7 +511,7 @@ func collectDoctor(layout daemon.Layout, env doctorEnv) (*doctorReport, error) {
 	if b, err := os.ReadFile(filepath.Join(anethome.A2ADir(layout.Root), anethome.A2AConflictFile)); err == nil {
 		rep.A2A.PortConflict = strings.TrimSpace(string(b))
 	}
-	const freePort = "free the port (stop the process holding it), restart the node (anet stop && anet up), then: anet agents wire --refresh"
+	const freePort = "free the port (stop the process holding it), restart the node (" + restartNodeCmds + "), then: anet agents wire --refresh"
 	switch {
 	case !rep.A2A.Compiled && rep.A2A.Addr == "":
 		add("a2a", stInfo, a2ashape.Sentence("module_absent", lang, module.AbsentArgs("a2a", avail.Absence("a2a"))), "")
