@@ -18,6 +18,13 @@
 # manifest with the release key built into the binary, and needs nothing
 # from this script.
 #
+# An earlier release on this machine (AgentNetwork 1.x from npm or from
+# clawnet.cc, anet 0.1 or 0.2) is taken over without a question: its daemon
+# is stopped, its command removed or replaced, its data directory renamed
+# aside (never deleted), and PATH set so that a new terminal runs the new
+# anet. See "EARLIER INSTALLATIONS" below. The installer never waits for
+# input; sudo is only used as `sudo -n`.
+#
 # WHAT IS CHECKED, and every check stops the install with the installed
 # version untouched:
 #
@@ -45,7 +52,7 @@
 #   ssh-keygen -Y verify -f allowed_signers -I anet-release@agentnetwork.org.cn -n anet-release@agentnetwork.org.cn -s install.sh.sig < install.sh && sh install.sh
 #
 # Flags:
-#   --system        Install to /usr/local/bin (uses sudo if needed).
+#   --system        Install to /usr/local/bin (uses sudo -n if needed).
 #   --user          Install to $HOME/.local/bin (default).
 #   --prefix DIR    Install into DIR (overrides the above).
 #   --base URL      Download base, https only (or set ANET_INSTALL_BASE).
@@ -68,6 +75,8 @@
 #                   joining works too; the recovery passphrase is set later with
 #                   `anet identity protect`.
 #   --name NAME     The name to join under (default: this machine's hostname).
+#   --no-modify-path  Do not add the install directory to the shell profiles;
+#                   the command for them is printed instead.
 #   --help          Show this help.
 #
 # --shell installs a DIFFERENT BINARY, not a setting.
@@ -116,7 +125,7 @@ anet installer — verifies the signed release manifest, then installs.
   curl --proto '=https' --tlsv1.2 -fsSL https://agentnetwork.org.cn/install.sh | sh
   … | sh -s -- [flags]
 
-  --system          install to /usr/local/bin (sudo if needed)
+  --system          install to /usr/local/bin (sudo -n if needed)
   --user            install to ~/.local/bin (default)
   --prefix DIR      install into DIR
   --base URL        download base, https only (or ANET_INSTALL_BASE)
@@ -125,8 +134,10 @@ anet installer — verifies the signed release manifest, then installs.
   --agents[=LIST]   wire anet into coding agents found here (all, or LIST)
   --hub URL         start the node and join this hub
   --name NAME       name to join under (default: hostname)
+  --no-modify-path  leave the shell profiles alone (PATH is set by you)
 
-Already installed? Use `anet update`.
+Already installed? Use `anet update`. An earlier release (AgentNetwork 1.x,
+anet 0.1/0.2) is taken over: stopped, replaced, its data moved aside.
 Verify this script before running it: see SECURITY.md in
 https://github.com/ANetResearch/ANet
 EOF
@@ -240,7 +251,7 @@ add_without() {
 
 parse_args() {
   PREFIX=""; USER_MODE=1; BASE_OVERRIDE=""; HUB=""; NODE_NAME=""
-  VARIANT="default"; ASSET_PREFIX="anet"; AGENTS=""; WITHOUT=""
+  VARIANT="default"; ASSET_PREFIX="anet"; AGENTS=""; WITHOUT=""; MODIFY_PATH=1
   while [ $# -gt 0 ]; do
     case "$1" in
       --system)     USER_MODE=0 ;;
@@ -260,6 +271,7 @@ parse_args() {
       --without=*)  add_without "${1#--without=}" ;;
       --agents)     AGENTS="--all" ;;
       --agents=*)   AGENTS="$(printf '%s' "${1#--agents=}" | tr ',' ' ')" ;;
+      --no-modify-path) MODIFY_PATH=0 ;;
       -h|--help)    usage; exit 0 ;;
       *)            printf 'Error: unknown flag: %s\n' "$1" >&2; usage >&2; exit 2 ;;
     esac
@@ -426,6 +438,16 @@ apply_without() {
 # a fix back would serve.
 check_downgrade() {
   INSTALLED=""
+  # An earlier release at DEST is replaced whatever its number says:
+  # AgentNetwork 1.x counts from 1, above this project's 0.3.
+  if [ -e "$DEST" ] || [ -L "$DEST" ]; then
+    classify_anet "$DEST"
+    case "$CL_KIND" in
+      npm-legacy|bin-legacy)
+        say "  $DEST is an earlier release (${CL_VER:-version unknown}); it will be replaced"
+        return 0 ;;
+    esac
+  fi
   if [ -x "$DEST" ]; then
     INSTALLED="$("$DEST" version 2>/dev/null | sed -n '1s/^anet \([0-9][^ ]*\) .*/\1/p')" || INSTALLED=""
   fi
@@ -490,9 +512,13 @@ install_binary() {
   if mkdir -p "$PREFIX" 2>/dev/null && [ -w "$PREFIX" ]; then
     :
   elif [ "$USER_MODE" = 0 ]; then
-    say "→ ${PREFIX} needs elevated permission; using sudo…"
-    SUDO="sudo"
-    $SUDO mkdir -p "$PREFIX" || die "could not create $PREFIX"
+    # Never a password prompt: sudo -n, or the command to run first.
+    can_sudo || die "${PREFIX} needs root, and sudo needs a password, which this installer never asks for.
+  Run \`sudo -v\` in this terminal and then the same install command again,
+  or install for this user only (without --system)."
+    say "→ ${PREFIX} needs elevated permission; using sudo -n…"
+    SUDO="sudo -n"
+    $SUDO mkdir -p "$PREFIX" </dev/null || die "could not create $PREFIX"
   else
     die "cannot write to ${PREFIX}"
   fi
@@ -501,7 +527,19 @@ install_binary() {
   { $SUDO rm -f "$STAGED" && $SUDO cp "$TMP/$ASSET" "$STAGED" && $SUDO chmod 755 "$STAGED"; } \
     || die "could not write $STAGED"
   check_binary "$STAGED"
-  apply_without "$STAGED"
+  # Every check has passed. The earlier releases are taken over before the
+  # new binary takes the name: their daemons stop and their data moves
+  # aside before `anet init` writes anything (apply_without), and the npm
+  # package goes before its command link could be confused with ours.
+  survey_anets
+  stop_legacy
+  move_legacy_data
+  if [ "$DATA_HELD" = 1 ] && [ -n "$WITHOUT" ]; then
+    note manual "--without was not applied, since $DATA_DIR still holds data of an earlier release. After moving it: anet init --without $WITHOUT"
+  else
+    apply_without "$STAGED"
+  fi
+  remove_npm_legacy
   $SUDO mv -f "$STAGED" "$DEST" || die "could not write $DEST"
   STAGED=""
   record_release
@@ -518,17 +556,12 @@ install_binary() {
       codesign --force --sign - "$DEST" >/dev/null 2>&1 || true
     fi
   fi
+  replace_legacy_bins
+  note_others
+  setup_path
   say ""
   say "✓ Installed anet $VERSION → $DEST"
-  case ":$PATH:" in
-    *":$PREFIX:"*) ;;
-    *)
-      say ""
-      say "  ${PREFIX} is not on your PATH. Add this to your shell profile (~/.zshrc or ~/.bashrc):"
-      say "    export PATH=\"$PREFIX:\$PATH\""
-      say "  then open a new terminal (or run the export now)."
-      ;;
-  esac
+  upgrade_report
   if [ -n "$INSTALLED" ]; then
     say "  Daemons already running keep the old binary until restarted: anet stop --all && anet up --all"
   fi
@@ -548,10 +581,695 @@ record_release() {
   done
 }
 
+# ---------------------------------------------------------------------------
+# EARLIER INSTALLATIONS. Before the new binary takes the name `anet`, every
+# other `anet` this user can reach is found and classified (survey_anets,
+# classify_anet), and the installer takes over from those of an earlier
+# release without asking anything. sudo is only ever `sudo -n`: a password
+# prompt is never shown, and what needs one is printed as a command instead.
+#
+# Earlier releases ("legacy"):
+#   AgentNetwork 1.x  the npm package @agentnetwork/anet 1.x (a Node.js shim
+#                     that runs the binary of @agentnetwork/anet-<os>-<cpu>),
+#                     and the binaries of https://clawnet.cc/install.sh. The
+#                     binary contains the Go module path of that project,
+#                     ChatChatTech/AgentNetwork; `anet version` prints the bare
+#                     version (1.1.15) and starts nothing.
+#   anet 0.1, 0.2     binaries of the earlier releases of this project:
+#                     `anet version` prints "anet 0.2.1 (commit …)".
+# A file named anet that has neither module path is not run, not changed and
+# not removed; if it comes first on PATH, the PATH block below shadows it.
+# An anet of 0.3 or later, and the npm launcher of 0.3 or later, are left in
+# place, and reported.
+#
+# What is done, in this order, each step reported in "Upgraded from":
+#   1. the legacy daemon is stopped with the legacy binary's own command
+#      (`anet stop` for 1.x, `anet stop --all` for 0.x), with a time limit;
+#   2. a data directory of an earlier release is renamed aside, never
+#      deleted, and only when no legacy daemon still holds it (datadir_kind);
+#   3. the npm package of 1.x is removed with npm itself;
+#   4. a legacy binary elsewhere is replaced by a symbolic link to the new
+#      binary in a directory this user can write, and removed in one that
+#      only root can (a root-owned name must not lead to a file the user can
+#      change);
+#   5. the shell profiles get a marked block that puts the install directory
+#      first on PATH (unless --no-modify-path), and a fresh login shell is
+#      asked which `anet` it runs.
+# ---------------------------------------------------------------------------
+
+# note CATEGORY TEXT — one line of the "Upgraded from" report.
+note() { printf '%s|%s\n' "$1" "$2" >> "$TMP/notes"; }
+
+# run_timeout SECS CMD…: run CMD with a time limit (macOS has no timeout(1)).
+# On expiry, the process this function started, and only that one, is sent
+# SIGTERM by its PID; the status is then 124.
+run_timeout() {
+  _rt_s=$1; shift
+  "$@" &
+  _rt_pid=$!
+  ( _rt_i=0
+    while [ "$_rt_i" -lt "$_rt_s" ]; do
+      sleep 1; _rt_i=$((_rt_i + 1))
+      kill -0 "$_rt_pid" 2>/dev/null || exit 0
+    done
+    : > "$TMP/timeout.$_rt_pid"
+    kill -TERM "$_rt_pid" 2>/dev/null ) >/dev/null 2>&1 &
+  _rt_w=$!
+  _rt_rc=0
+  # (stderr of wait: the shell's own "Terminated" line on a time-out)
+  { wait "$_rt_pid" || _rt_rc=$?; } 2>/dev/null
+  kill -TERM "$_rt_w" 2>/dev/null || true
+  wait "$_rt_w" 2>/dev/null || true
+  if [ -e "$TMP/timeout.$_rt_pid" ]; then rm -f "$TMP/timeout.$_rt_pid"; return 124; fi
+  return "$_rt_rc"
+}
+
+# can_sudo: whether sudo works without a password, asked without a prompt.
+can_sudo() { command -v sudo >/dev/null 2>&1 && sudo -n true </dev/null >/dev/null 2>&1; }
+
+# clean_text: untrusted program output made printable — control characters
+# (escape sequences included) removed, at most 6 lines of 160 characters.
+clean_text() { LC_ALL=C tr -d '\000-\010\013-\037\177' | cut -c1-160 | head -n 6; }
+
+# resolve_link PATH: PATH with the symbolic links of its last component
+# followed (readlink without -f, which older macOS lacks) and its directory
+# made physical.
+resolve_link() {
+  _rl=$1; _rl_n=0
+  while [ -L "$_rl" ] && [ "$_rl_n" -lt 40 ]; do
+    _rl_t=$(readlink "$_rl") || break
+    case "$_rl_t" in /*) _rl=$_rl_t ;; *) _rl="$(dirname "$_rl")/$_rl_t" ;; esac
+    _rl_n=$((_rl_n + 1))
+  done
+  if _rl_d=$(CDPATH='' cd -P -- "$(dirname "$_rl")" 2>/dev/null && pwd -P); then
+    _rl="$_rl_d/$(basename "$_rl")"
+  fi
+  printf '%s\n' "$_rl"
+}
+
+# json_str FILE KEY: the first string value of KEY in a package.json.
+json_str() {
+  sed -n "s/^[[:space:]]*\"$2\"[[:space:]]*:[[:space:]]*\"\\([^\"]*\\)\".*/\\1/p" "$1" 2>/dev/null | head -n 1
+}
+
+# semver_ok V: V is x.y.z[-pre] and nothing else; output of a program found
+# on this machine is untrusted text.
+semver_ok() {
+  printf '%s' "$1" | grep -Eq '^[0-9]{1,6}\.[0-9]{1,6}\.[0-9]{1,6}(-[0-9A-Za-z.-]{1,40})?$'
+}
+
+# probe_version BIN: what BIN version prints, as x.y.z, or nothing. Run only
+# for a binary that carries the module path of anet or of AgentNetwork 1.x,
+# neither of which starts or reads anything for `version`; it still runs in
+# an empty HOME, with a bare environment and a time limit.
+probe_version() {
+  mkdir -p "$TMP/probe-home"
+  run_timeout 5 env -i HOME="$TMP/probe-home" PATH=/usr/bin:/bin LC_ALL=C "$1" version \
+    </dev/null >"$TMP/probe.out" 2>/dev/null || true
+  _pv=$(head -n 1 "$TMP/probe.out" | LC_ALL=C tr -d '\r' | cut -c1-200 \
+    | sed -n 's/^anet v\{0,1\}\([0-9][0-9A-Za-z.-]*\).*$/\1/p; s/^v\{0,1\}\([0-9][0-9A-Za-z.-]*\)$/\1/p' | head -n 1)
+  if semver_ok "$_pv"; then printf '%s' "$_pv"; fi
+}
+
+# npm_plat: npm's name of this platform (darwin-arm64, linux-x64, …).
+npm_plat() {
+  case "$ARCH_TAG" in amd64) printf '%s-x64' "$OS_TAG" ;; *) printf '%s-%s' "$OS_TAG" "$ARCH_TAG" ;; esac
+}
+
+# classify_anet PATH — sets:
+#   CL_KIND    npm-legacy, npm-current, bin-legacy, bin-current, other
+#   CL_FAM     v1 (AgentNetwork 1.x) or v0 (anet 0.1/0.2), for legacy kinds
+#   CL_VER     its version, when it could be read
+#   CL_TARGET  PATH with its links followed
+#   CL_PKG, CL_NAME, CL_NPMPREFIX   the npm package directory, its name and
+#              the npm prefix it is installed under
+#   CL_STOP, CL_STOPNODE   the binary to run `stop` with (1: through node)
+classify_anet() {
+  CL_KIND=other; CL_FAM=""; CL_VER=""; CL_PKG=""; CL_NAME=""; CL_NPMPREFIX=""; CL_STOP=""; CL_STOPNODE=""
+  CL_TARGET=$(resolve_link "$1")
+  [ -f "$CL_TARGET" ] || return 0
+  case "$CL_TARGET" in
+    */node_modules/@agentnetwork/*/bin/anet)
+      CL_PKG=${CL_TARGET%/bin/anet}
+      _pj="$CL_PKG/package.json"
+      CL_NAME=$(json_str "$_pj" name)
+      CL_VER=$(json_str "$_pj" version)
+      case "$CL_NAME" in
+        @agentnetwork/anet|@agentnetwork/anet-*) ;;
+        *) CL_NAME=""; CL_VER=""; return 0 ;;
+      esac
+      semver_ok "$CL_VER" || { CL_VER=""; return 0; }
+      case "$CL_PKG" in */lib/node_modules/*) CL_NPMPREFIX=${CL_PKG%%/lib/node_modules/*} ;; esac
+      # 1.x names its repository ChatChatTech/AgentNetwork; anet's npm
+      # packages exist from 0.3.4 on and name ANetResearch/ANet.
+      if grep -q 'ChatChatTech/AgentNetwork' "$_pj" 2>/dev/null \
+         || [ "$(vercmp "$CL_VER" 0.3.0)" = -1 ] \
+         || { [ "$(vercmp "$CL_VER" 1.0.0)" != -1 ] && ! grep -q 'ANetResearch/ANet' "$_pj" 2>/dev/null; }; then
+        CL_KIND=npm-legacy; CL_FAM=v1
+        if [ "$(head -c 2 "$CL_TARGET" 2>/dev/null)" != '#!' ]; then
+          CL_STOP=$CL_TARGET
+        else
+          for _c in "$CL_PKG/node_modules/@agentnetwork/anet-$(npm_plat)/bin/anet" \
+                    "$(dirname "$CL_PKG")/anet-$(npm_plat)/bin/anet"; do
+            if [ -f "$_c" ] && [ -x "$_c" ]; then CL_STOP=$_c; break; fi
+          done
+          if [ -z "$CL_STOP" ] && command -v node >/dev/null 2>&1; then CL_STOP=$CL_TARGET; CL_STOPNODE=1; fi
+        fi
+      else
+        CL_KIND=npm-current
+      fi
+      return 0 ;;
+  esac
+  [ -x "$CL_TARGET" ] || return 0
+  if LC_ALL=C grep -q 'ChatChatTech/AgentNetwork' "$CL_TARGET" 2>/dev/null; then
+    CL_VER=$(probe_version "$CL_TARGET")
+    CL_KIND=bin-legacy; CL_FAM=v1; CL_STOP=$CL_TARGET
+  elif LC_ALL=C grep -q 'github.com/ANetResearch/ANet' "$CL_TARGET" 2>/dev/null; then
+    CL_VER=$(probe_version "$CL_TARGET")
+    [ -n "$CL_VER" ] || return 0
+    if [ "$(vercmp "$CL_VER" 0.3.0)" = -1 ]; then
+      CL_KIND=bin-legacy; CL_FAM=v0; CL_STOP=$CL_TARGET
+    else
+      CL_KIND=bin-current
+    fi
+  fi
+}
+
+# survey_anets: every `anet` this user can reach — each directory of PATH
+# (walked here, since `which -a` is not everywhere), npm's global bin
+# directory, and the usual places — classified, one record per line in
+# $TMP/anets: kind|fam|version|path|target|pkg|name|npmprefix|stop|stopnode|isdest
+survey_anets() {
+  : > "$TMP/cands"; : > "$TMP/anets"
+  _ifs=$IFS; IFS=:; set -f
+  for _d in $PATH; do survey_add "$_d/anet"; done
+  IFS=$_ifs; set +f
+  if command -v npm >/dev/null 2>&1; then
+    run_timeout 20 env NPM_CONFIG_UPDATE_NOTIFIER=false npm prefix -g </dev/null >"$TMP/npm.prefix" 2>/dev/null || true
+    _np=$(head -n 1 "$TMP/npm.prefix")
+    case "$_np" in /*) survey_add "$_np/bin/anet" ;; esac
+  fi
+  for _c in /usr/local/bin/anet /opt/homebrew/bin/anet "$HOME/.local/bin/anet" "$HOME/.npm-global/bin/anet" "$DEST"; do
+    survey_add "$_c"
+  done
+  _dest_t=$(resolve_link "$DEST")
+  while IFS= read -r _p; do
+    classify_anet "$_p"
+    _isdest=0
+    if [ "$_p" = "$DEST" ] || [ "$CL_TARGET" = "$_dest_t" ]; then _isdest=1; fi
+    printf '%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s\n' "$CL_KIND" "$CL_FAM" "$CL_VER" "$_p" "$CL_TARGET" \
+      "$CL_PKG" "$CL_NAME" "$CL_NPMPREFIX" "$CL_STOP" "$CL_STOPNODE" "$_isdest" >> "$TMP/anets"
+  done < "$TMP/cands"
+}
+
+survey_add() {
+  case "$1" in /*) ;; *) return 0 ;; esac   # a relative PATH entry is not a place
+  case "$1" in *'|'*) return 0 ;; esac
+  _sa=$(printf '%s' "$1" | sed 's://*:/:g')
+  [ -e "$_sa" ] || [ -L "$_sa" ] || return 0
+  grep -Fxq -- "$_sa" "$TMP/cands" 2>/dev/null && return 0
+  printf '%s\n' "$_sa" >> "$TMP/cands"
+}
+
+# legacy_label FAM: the version an earlier release of family FAM was found
+# at, for names and the report ("1.x"/"0.2" when none could be read).
+legacy_label() {
+  _ll=$(awk -F'|' -v f="$1" '($1=="npm-legacy"||$1=="bin-legacy") && $2==f && $3!="" {print $3; exit}' "$TMP/anets")
+  if [ -n "$_ll" ]; then printf '%s' "$_ll"; elif [ "$1" = v1 ]; then printf '1.x'; else printf '0.2'; fi
+}
+
+# stop_legacy: each family's daemon, with the first legacy binary of that
+# family that can be run, under this user's HOME, with a time limit.
+stop_legacy() {
+  _st_done=""
+  while IFS='|' read -r _k _f _v _p _t _pk _nm _np _sb _sn _dst; do
+    case "$_k" in npm-legacy|bin-legacy) ;; *) continue ;; esac
+    case " $_st_done " in *" $_f "*) continue ;; esac
+    _label="AgentNetwork ${_v:-1.x}"; [ "$_f" = v0 ] && _label="anet ${_v:-0.x}"
+    if [ -z "$_sb" ]; then
+      note manual "The daemon of $_label could not be stopped here: its binary was not found beside $_p. Stop it before using the new anet."
+      continue
+    fi
+    if [ "$_f" = v1 ]; then _verb=stop; else _verb="stop --all"; fi
+    if [ -n "$_sn" ]; then _cmd="node $_sb $_verb"; else _cmd="$_sb $_verb"; fi
+    say "→ stopping the daemon of $_label: $_cmd"
+    _rc=0
+    # shellcheck disable=SC2086 # _verb is one or two words
+    if [ -n "$_sn" ]; then
+      run_timeout 60 node "$_sb" $_verb </dev/null >"$TMP/stop.out" 2>&1 || _rc=$?
+    else
+      run_timeout 60 "$_sb" $_verb </dev/null >"$TMP/stop.out" 2>&1 || _rc=$?
+    fi
+    clean_text < "$TMP/stop.out" | sed 's/^/    /'
+    if [ "$_rc" = 0 ]; then
+      note stopped "the daemon of $_label ($_cmd)"
+      _st_done="$_st_done $_f"
+    else
+      note manual "Stopping the daemon of $_label failed (status $_rc); stop it by hand: $_cmd"
+    fi
+  done < "$TMP/anets"
+}
+
+# identity_file_age FILE: older, newer, current or invalid — the identity
+# file's part of the rule of daemon.ClassifyDataDir. An identity file is a
+# CBOR map: anet 0.2's has no key 0 (its first key is 1), this version's
+# starts with key 0, the type tag "anet.identity/2".
+identity_file_age() {
+  _h=$(od -An -tx1 -N2 "$1" 2>/dev/null | tr -d ' \n')
+  case "$_h" in
+    a[1-9a-f]00|b[0-7]00) ;;
+    a[1-9a-f]0[1-9a-f]|a[1-9a-f]1[0-7]|b[0-7]0[1-9a-f]|b[0-7]1[0-7]) echo older; return 0 ;;
+    *) echo invalid; return 0 ;;
+  esac
+  _n=$(LC_ALL=C tr -c 'a-z0-9./' '\n' < "$1" | sed -n 's|^.*anet\.identity/\([0-9][0-9]*\)$|\1|p' | head -n 1)
+  if ! printf '%s' "$_n" | grep -Eq '^(0|[1-9][0-9]{0,8})$'; then echo invalid
+  elif [ "$_n" -gt 2 ]; then echo newer
+  elif [ "$_n" -lt 2 ]; then echo older
+  else echo current; fi
+}
+
+# legacy_defaults: the constants of this part.
+#   V1_MARKERS  entries AgentNetwork 1.x writes when its daemon first starts
+#               and that no release of anet writes (daemon.V1Markers)
+#   V1_ENTRIES  what 1.x keeps in its data directory, moved out of a mixed
+#               directory; not its daemon.log, a name 0.3 writes too
+#   V1_API      the address 1.x's daemon serves
+#   BASE_PATH   the PATH a new terminal starts from, before its profiles
+legacy_defaults() {
+  V1_MARKERS='api_token agent_token scoped_tokens.json peer-journal.json anet/identity.json anet/api_token'
+  V1_ENTRIES='anet anet.db anet.db-shm anet.db-wal api_token agent_token scoped_tokens.json peer-journal.json cas orgs state daemon.pid'
+  V1_API=127.0.0.1:3998
+  BASE_PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+  PATH_BEGIN='# >>> anet installer: PATH >>>'
+  PATH_END='# <<< anet installer: PATH <<<'
+  DATA_KIND=""; DATA_HELD=0; LEGACY_LEFT=0; PATH_CHECK=""; PATH_NOW=""
+}
+
+# datadir_kind DIR: none, current, older, newer, invalid, v1 or mixed — the
+# rule of daemon.ClassifyDataDir, which the daemon refuses to start by
+# (identity_v02 for older and v1); TestInstallShDataDirKindAgrees holds the
+# two equal. The identity file decides first; without one, the 1.x markers
+# do, and an identity of 0.3 under ids/ makes the directory mixed.
+#
+# Mixed directories: a 1.x directory into which anet 0.3 has written. Files
+# of `anet init` alone (config.json, the peer lists) hold no identity and do
+# not count: such a directory is v1 and is moved aside whole, those files
+# with it, and the new `anet init` writes them again. When it holds an
+# identity of 0.3 (identity.kel, or ids/<name>/identity.kel), that identity
+# may already be registered with a hub, so the directory stays where it is
+# and only the 1.x entries are moved out of it (V1_ENTRIES).
+datadir_kind() {
+  if [ ! -d "$1" ] || [ -z "$(ls -A "$1" 2>/dev/null)" ]; then echo none; return 0; fi
+  _v1=0
+  for _m in $V1_MARKERS; do
+    if [ -e "$1/$_m" ] || [ -L "$1/$_m" ]; then _v1=1; break; fi
+  done
+  if [ -f "$1/identity.kel" ]; then
+    _age=$(identity_file_age "$1/identity.kel")
+    if [ "$_age" = current ] && [ "$_v1" = 1 ]; then echo mixed; else echo "$_age"; fi
+    return 0
+  fi
+  if [ "$_v1" = 0 ]; then echo current; return 0; fi
+  for _f in "$1"/ids/*/identity.kel; do
+    if [ -f "$_f" ]; then echo mixed; return 0; fi
+  done
+  echo v1
+}
+
+# answers HOST:PORT: whether something answers HTTP on a loopback address.
+answers() {
+  case "$1" in 127.0.0.1:[0-9]*|localhost:[0-9]*) ;; *) return 1 ;; esac
+  _code=$(curl -s -g --noproxy '*' -o /dev/null --max-time 3 -w '%{http_code}' "http://$1/" 2>/dev/null || true)
+  [ -n "$_code" ] && [ "$_code" != 000 ]
+}
+
+# data_busy DIR KIND: whether a legacy daemon may still hold DIR. AgentNetwork
+# 1.x writes its PID to daemon.pid and serves 127.0.0.1:3998 (V1_API); anet
+# 0.2 serves the control_addr of its config.json. Any doubt counts as busy.
+data_busy() {
+  case "$2" in
+    v1|mixed)
+      if [ -f "$1/daemon.pid" ]; then
+        _pid=$(head -c 32 "$1/daemon.pid" | tr -cd '0-9')
+        if [ -n "$_pid" ] && ps -p "$_pid" -o comm= 2>/dev/null | grep -q anet; then return 0; fi
+      fi
+      answers "$V1_API" ;;
+    older)
+      _ca=$(json_str "$1/config.json" control_addr)
+      [ -n "$_ca" ] && answers "$_ca" ;;
+    *) return 1 ;;
+  esac
+}
+
+# describe_legacy DIR: what of value a moved directory holds, for the report.
+describe_legacy() {
+  _di=""; _dt=""; _do=""
+  for _e in anet/identity.json identity.kel; do [ -e "$1/$_e" ] && _di="${_di:+$_di, }$_e"; done
+  for _e in api_token anet/api_token agent_token scoped_tokens.json control_token.txt; do
+    [ -e "$1/$_e" ] && _dt="${_dt:+$_dt, }$_e"
+  done
+  for _e in orgs anet.db config.json; do [ -e "$1/$_e" ] && _do="${_do:+$_do, }$_e"; done
+  printf 'identity: %s; API tokens: %s; other data: %s' "${_di:-none}" "${_dt:-none}" "${_do:-none}"
+}
+
+# move_legacy_data: the data directory the new anet will use (ANET_DATA_DIR,
+# else ANET_HOME, else ~/.anet), renamed aside when it is an earlier
+# release's: DIR-legacy-<version>-<UTC time>. Nothing is deleted. Sets
+# DATA_HELD=1 when it had to stay because a legacy daemon may still use it.
+move_legacy_data() {
+  DATA_HELD=0
+  DATA_DIR=${ANET_DATA_DIR:-${ANET_HOME:-$HOME/.anet}}
+  DATA_DIR=${DATA_DIR%/}
+  DATA_KIND=$(datadir_kind "$DATA_DIR")
+  case "$DATA_KIND" in
+    older|v1|mixed) ;;
+    newer) note kept "$DATA_DIR was written by a newer anet; it is left as it is."; return 0 ;;
+    invalid) note manual "$DATA_DIR has an identity file that does not read ($DATA_DIR/identity.kel); it is left as it is. See anet doctor."; return 0 ;;
+    *) return 0 ;;
+  esac
+  if [ "$DATA_KIND" = older ]; then _lab=$(legacy_label v0); else _lab=$(legacy_label v1); fi
+  _ts=$(date -u +%Y%m%dT%H%M%SZ)
+  _to="${DATA_DIR}-legacy-${_lab}-${_ts}"
+  [ ! -e "$_to" ] || _to="${_to}-$$"
+  if data_busy "$DATA_DIR" "$DATA_KIND"; then
+    DATA_HELD=1
+    note manual "$DATA_DIR holds data of an earlier release that a running daemon may still use, so it was not moved. Stop that daemon, then: mv '$DATA_DIR' '$_to' && anet init"
+    return 0
+  fi
+  say "→ moving the data of the earlier release aside: $DATA_DIR → $_to"
+  if [ "$DATA_KIND" = mixed ]; then
+    mkdir -m 700 "$_to" || { DATA_HELD=1; note manual "could not create $_to; move the 1.x files out of $DATA_DIR by hand"; return 0; }
+    for _e in $V1_ENTRIES; do
+      if [ -e "$DATA_DIR/$_e" ] || [ -L "$DATA_DIR/$_e" ]; then
+        mv "$DATA_DIR/$_e" "$_to/" || note manual "could not move $DATA_DIR/$_e to $_to"
+      fi
+    done
+    note moved "the AgentNetwork $_lab files of $DATA_DIR → $_to; the anet 0.3 identity in $DATA_DIR stays where it is. Moved: $(describe_legacy "$_to")."
+  else
+    if ! mv "$DATA_DIR" "$_to"; then
+      DATA_HELD=1
+      note manual "could not rename $DATA_DIR; run: mv '$DATA_DIR' '$_to' && anet init"
+      return 0
+    fi
+    note moved "$DATA_DIR → $_to ($(describe_legacy "$_to")). Nothing was deleted; the new anet starts with a new identity."
+  fi
+}
+
+# remove_npm_legacy: the npm package of 1.x, with npm, under the prefix it is
+# installed in; with sudo -n when that prefix is not this user's. If npm is
+# not there or fails, the command link alone is removed when it is a link
+# into that package, and the npm command is printed.
+remove_npm_legacy() {
+  : > "$TMP/npm.done"
+  while IFS='|' read -r _k _f _v _p _t _pk _nm _np _sb _sn _dst; do
+    [ "$_k" = npm-legacy ] || continue
+    grep -Fxq -- "$_pk" "$TMP/npm.done" && continue
+    printf '%s\n' "$_pk" >> "$TMP/npm.done"
+    _show="npm uninstall -g${_np:+ --prefix $_np} $_nm"
+    _npm=$(command -v npm 2>/dev/null || true)
+    _ok=0; _how=""
+    if [ -n "$_npm" ]; then
+      say "→ removing the npm package $_nm $_v: $_show"
+      if [ -w "$(dirname "$_pk")" ] && { [ -z "$_np" ] || [ -w "$_np/bin" ]; }; then
+        run_timeout 180 env NPM_CONFIG_UPDATE_NOTIFIER=false "$_npm" uninstall -g --no-fund --no-audit --loglevel=error \
+          ${_np:+--prefix "$_np"} "$_nm" </dev/null >"$TMP/npm.out" 2>&1 && _ok=1
+      elif can_sudo; then
+        _how=" (sudo -n)"
+        run_timeout 180 sudo -n env PATH="$PATH" NPM_CONFIG_UPDATE_NOTIFIER=false "$_npm" uninstall -g --no-fund --no-audit --loglevel=error \
+          ${_np:+--prefix "$_np"} "$_nm" </dev/null >"$TMP/npm.out" 2>&1 && _ok=1
+        _show="sudo $_show"
+      else
+        _show="sudo $_show"
+        : > "$TMP/npm.out"
+      fi
+      clean_text < "$TMP/npm.out" | sed 's/^/    /'
+    fi
+    if [ "$_ok" = 1 ] && [ ! -e "$_pk" ]; then
+      note removed "npm package $_nm $_v ($_p)$_how"
+      continue
+    fi
+    if [ -L "$_p" ] && [ "$(resolve_link "$_p")" = "$_t" ]; then
+      if rm -f "$_p" 2>/dev/null || { can_sudo && sudo -n rm -f "$_p" </dev/null 2>/dev/null; }; then
+        note removed "the command $_p (a link into the npm package $_nm $_v)"
+      fi
+    fi
+    note manual "The files of the npm package $_nm $_v are still in $_pk; remove them with: $_show"
+  done < "$TMP/anets"
+}
+
+# replace_legacy_bins: each legacy binary that is not the destination. In a
+# directory this user can write it becomes a symbolic link to the new
+# binary: a script, service or agent configuration that names the old path
+# then runs the new anet, and so does this terminal, whose shell may have
+# remembered that path. In a directory only root can write it is removed
+# with sudo -n instead (a link from there would lead root to a file the user
+# can change), unless the new binary is root's too (--system).
+replace_legacy_bins() {
+  while IFS='|' read -r _k _f _v _p _t _pk _nm _np _sb _sn _dst; do
+    [ "$_k" = bin-legacy ] && [ "$_dst" != 1 ] || continue
+    _label="AgentNetwork ${_v:-1.x}"; [ "$_f" = v0 ] && _label="anet ${_v:-0.x}"
+    _dir=$(dirname "$_p")
+    _tmp="$_p.anet-new.$$"
+    if [ -w "$_dir" ]; then
+      if ln -s "$DEST" "$_tmp" 2>/dev/null && mv -f "$_tmp" "$_p"; then
+        note replaced "$_p ($_label) → a link to $DEST"
+      else
+        rm -f "$_tmp" 2>/dev/null || true
+        note manual "could not replace $_p ($_label); run: ln -sf '$DEST' '$_p'"
+        LEGACY_LEFT=1
+      fi
+    elif can_sudo; then
+      if [ -n "$SUDO" ]; then
+        if sudo -n ln -s "$DEST" "$_tmp" </dev/null 2>/dev/null && sudo -n mv -f "$_tmp" "$_p" </dev/null 2>/dev/null; then
+          note replaced "$_p ($_label) → a link to $DEST (sudo -n)"; continue
+        fi
+        sudo -n rm -f "$_tmp" </dev/null 2>/dev/null || true
+      elif sudo -n rm -f "$_p" </dev/null 2>/dev/null; then
+        note removed "$_p ($_label) (sudo -n)"; continue
+      fi
+      note manual "could not remove $_p ($_label); run: sudo rm '$_p'"
+      LEGACY_LEFT=1
+    else
+      note manual "$_p is $_label and needs root to remove; run: sudo rm '$_p'"
+      LEGACY_LEFT=1
+    fi
+  done < "$TMP/anets"
+}
+
+# note_others: the anets that are not taken over, for the report.
+note_others() {
+  while IFS='|' read -r _k _f _v _p _t _pk _nm _np _sb _sn _dst; do
+    [ "$_dst" = 1 ] && continue
+    case "$_k" in
+      npm-current) note kept "$_p: the npm launcher $_nm $_v, which runs its own release. Update it with npm update -g $_nm, or remove it with npm uninstall -g $_nm." ;;
+      bin-current) [ "$_t" = "$(resolve_link "$DEST")" ] || note kept "$_p: anet $_v." ;;
+      other) note kept "$_p: not an AgentNetwork binary; not run and not changed." ;;
+    esac
+  done < "$TMP/anets"
+}
+
+# --- PATH ------------------------------------------------------------------
+
+# path_expr: PREFIX as written into a profile ($HOME/… when under HOME).
+path_expr() {
+  case "$PREFIX" in
+    "$HOME"/*) printf '$HOME/%s' "${PREFIX#"$HOME"/}" ;;
+    *) printf '%s' "$PREFIX" ;;
+  esac
+}
+
+path_block() { # sh|fish
+  _pe=$(path_expr)
+  printf '%s\n' "$PATH_BEGIN" \
+    "# Puts the directory of anet first on PATH. Written by the anet installer;" \
+    "# to manage PATH yourself, delete this block and install with --no-modify-path."
+  if [ "$1" = fish ]; then
+    printf '%s\n' "if test \"\$PATH[1]\" != \"$_pe\"" "    set -gx PATH \"$_pe\" \$PATH" "end"
+  else
+    printf '%s\n' "case \"\$PATH\" in \"$_pe\"|\"$_pe\":*) ;; *) export PATH=\"$_pe:\$PATH\" ;; esac"
+  fi
+  printf '%s\n' "$PATH_END"
+}
+
+# write_block FILE sh|fish: the marked block in FILE, once, last in the file.
+# Prints unchanged, written or an error; the rest of FILE is kept as it is,
+# and FILE is written in place (a link to a dotfiles repository stays one).
+write_block() {
+  _wb=$(path_block "$2")
+  if [ -f "$1" ]; then
+    _nb=$(grep -cxF "$PATH_BEGIN" "$1" || true)
+    _ne=$(grep -cxF "$PATH_END" "$1" || true)
+    if [ "$_nb" != "$_ne" ]; then echo "error: $1 has an unterminated anet block"; return 0; fi
+    _cur=$(awk -v b="$PATH_BEGIN" -v e="$PATH_END" '$0==b{f=1} f{print} $0==e{f=0}' "$1")
+    _last=$(awk 'NF{l=$0} END{print l}' "$1")
+    if [ "$_cur" = "$_wb" ] && [ "$_last" = "$PATH_END" ]; then echo unchanged; return 0; fi
+    awk -v b="$PATH_BEGIN" -v e="$PATH_END" '
+      $0==b { s=1; next }
+      s { if ($0==e) s=0; next }
+      /^[ \t]*$/ { blank = blank $0 "\n"; next }
+      { printf "%s", blank; blank = ""; print }' "$1" > "$TMP/rc.new" || { echo "error: cannot read $1"; return 0; }
+  elif [ -e "$1" ]; then
+    echo "error: $1 is not a file"; return 0
+  else
+    mkdir -p "$(dirname "$1")" 2>/dev/null || { echo "error: cannot create $(dirname "$1")"; return 0; }
+    : > "$TMP/rc.new"
+  fi
+  { if [ -s "$TMP/rc.new" ]; then printf '\n'; fi; printf '%s\n' "$_wb"; } >> "$TMP/rc.new"
+  if cat "$TMP/rc.new" > "$1" 2>/dev/null; then echo written; else echo "error: cannot write $1"; fi
+}
+
+# profile_files: kind|file per line — the login shell's own files (created
+# when missing), then those other shells already have. zsh reads ZDOTDIR.
+profile_files() {
+  _zd=${ZDOTDIR:-$HOME}
+  _fish="${XDG_CONFIG_HOME:-$HOME/.config}/fish"
+  if [ -f "$HOME/.bash_profile" ]; then _bl="$HOME/.bash_profile"
+  elif [ -f "$HOME/.bash_login" ]; then _bl="$HOME/.bash_login"
+  else _bl="$HOME/.profile"; fi
+  case "$(basename "${SHELL:-sh}")" in
+    zsh)  printf 'sh|%s\nsh|%s\n' "$_zd/.zprofile" "$_zd/.zshrc" ;;
+    bash) printf 'sh|%s\nsh|%s\n' "$_bl" "$HOME/.bashrc" ;;
+    fish) printf 'fish|%s\n' "$_fish/conf.d/anet.fish" ;;
+    *)    printf 'sh|%s\n' "$HOME/.profile" ;;
+  esac
+  for _pf in "$_zd/.zprofile" "$_zd/.zshrc" "$HOME/.bash_profile" "$HOME/.bash_login" "$HOME/.bashrc" "$HOME/.profile"; do
+    [ -f "$_pf" ] && printf 'sh|%s\n' "$_pf"
+  done
+  [ -d "$_fish" ] && printf 'fish|%s\n' "$_fish/conf.d/anet.fish"
+  return 0
+}
+
+# exec_detached CMD…: exec CMD in a new session, without a controlling
+# terminal, so that an interactive shell started to answer a question cannot
+# take the terminal from this script. Only ever called as a background job
+# (run_timeout), where exec replaces that job and not this script.
+exec_detached() {
+  if command -v setsid >/dev/null 2>&1; then exec setsid "$@"; fi
+  if command -v perl >/dev/null 2>&1; then exec perl -MPOSIX -e 'POSIX::setsid(); exec { $ARGV[0] } @ARGV or exit 127' "$@"; fi
+  exec "$@"
+}
+
+# fresh_anet: the `anet` a new terminal runs — what a login, interactive
+# shell of the user's $SHELL resolves, started with an empty environment
+# (HOME, USER, the shell, a base PATH) and stdin from /dev/null, with a time
+# limit. Prints the path, or nothing when it cannot be told.
+fresh_anet() {
+  _sh=${SHELL:-/bin/sh}
+  [ -x "$_sh" ] || return 0
+  case "$(basename "$_sh")" in sh|bash|zsh|dash|ksh|mksh|yash|fish) ;; *) return 0 ;; esac
+  : > "$TMP/fresh.out"
+  run_timeout 15 exec_detached env -i HOME="$HOME" USER="${USER:-}" LOGNAME="${LOGNAME:-}" SHELL="$_sh" TERM=dumb \
+    PATH="$BASE_PATH" ${ZDOTDIR:+"ZDOTDIR=$ZDOTDIR"} ${XDG_CONFIG_HOME:+"XDG_CONFIG_HOME=$XDG_CONFIG_HOME"} \
+    "$_sh" -lic 'command -v anet' </dev/null >"$TMP/fresh.out" 2>/dev/null || true
+  LC_ALL=C tr -d '\r' < "$TMP/fresh.out" | grep '^/' | tail -n 1 || true
+}
+
+# is_dest PATH: whether PATH is, or leads to, the installed binary.
+is_dest() { [ -n "$1" ] && { [ "$1" = "$DEST" ] || [ "$(resolve_link "$1")" = "$(resolve_link "$DEST")" ]; }; }
+
+# setup_path: make `anet` in a new terminal the new binary. A block is
+# written when the install directory is not on PATH, when another anet comes
+# first on it (one that could not be removed, a 0.3 npm launcher, or a file
+# that is not anet), or when a fresh login shell does not resolve `anet` to
+# DEST. Then a fresh shell is asked again, and the result is one line.
+setup_path() {
+  _need=0
+  case ":$PATH:" in *":$PREFIX:"*) ;; *) _need=1 ;; esac
+  _cur=$(command -v anet 2>/dev/null || true)
+  is_dest "$_cur" || _need=1
+  _fresh=$(fresh_anet)
+  is_dest "$_fresh" || _need=1
+  _sh=$(basename "${SHELL:-sh}")
+  if [ "$_need" = 1 ]; then
+    if [ "$MODIFY_PATH" = 0 ]; then
+      note path "PATH was not changed (--no-modify-path). Put $PREFIX first on PATH in your shell profile: export PATH=\"$PREFIX:\$PATH\""
+    elif [ "$(id -u)" = 0 ]; then
+      note path "running as root: shell profiles were not changed. Put $PREFIX first on PATH for each user who runs anet."
+    else
+      case "$PREFIX" in
+        *[\"\$\`\\]*) note manual "$PREFIX contains a character that cannot go into a profile; put it on PATH by hand." ;;
+        *)
+          profile_files | awk '!seen[$0]++' > "$TMP/profiles"
+          while IFS='|' read -r _kind _file; do
+            _r=$(write_block "$_file" "$_kind")
+            case "$_r" in
+              written)   note path "added the anet PATH block to $_file" ;;
+              unchanged) ;;
+              *)         note manual "${_r#error: }; put $PREFIX first on PATH in it by hand" ;;
+            esac
+          done < "$TMP/profiles"
+          _fresh=$(fresh_anet) ;;
+      esac
+    fi
+  fi
+  if [ -z "$_fresh" ] && ! [ -x "${SHELL:-/bin/sh}" ]; then
+    _check="New terminals: not checked (no login shell in \$SHELL)."
+  elif is_dest "$_fresh"; then
+    _check="New terminals: \`anet\` is $DEST ($_sh -lic 'command -v anet')."
+  elif [ -n "$_fresh" ]; then
+    _check="New terminals: \`anet\` is $_fresh, not $DEST ($_sh -lic 'command -v anet'); a later line of a shell profile puts its directory first."
+  else
+    _check="New terminals: $_sh did not say which anet it runs ($_sh -lic 'command -v anet'); check with: command -v anet"
+  fi
+  PATH_CHECK=$_check
+  # This terminal: its PATH cannot be changed from here, and its shell may
+  # have remembered the path of a command that is now gone; assigning PATH
+  # makes bash and zsh forget those.
+  _cur=$(command -v anet 2>/dev/null || true)
+  if ! is_dest "$_cur" || grep -Eq '^(removed|replaced)[|]' "$TMP/notes"; then
+    if [ "$_sh" = fish ]; then
+      PATH_NOW="set -gx PATH \"$PREFIX\" \$PATH"
+    else
+      PATH_NOW="export PATH=\"$PREFIX:\$PATH\""
+    fi
+  fi
+}
+
+# upgrade_report: the PATH result, and "Upgraded from" when an earlier
+# release was found (or another anet is worth naming).
+upgrade_report() {
+  say ""
+  say "  $PATH_CHECK"
+  if [ -n "$PATH_NOW" ]; then
+    say "  This terminal keeps its PATH; run this once here, or open a new terminal:"
+    say "    $PATH_NOW"
+  fi
+  _from=$(awk -F'|' '$1=="npm-legacy"||$1=="bin-legacy" {
+      v = ($3 != "") ? $3 : (($2 == "v1") ? "1.x" : "0.x"); s = v (($1 == "npm-legacy") ? " (npm)" : "")
+      if (!seen[s]++) o = o ((o != "") ? ", " : "") s } END { print o }' "$TMP/anets")
+  if [ -z "$_from" ]; then
+    case "$DATA_KIND" in older) _from="0.2 (data only)" ;; v1|mixed) _from="1.x (data only)" ;; esac
+  fi
+  if [ -n "$_from" ]; then
+    say ""
+    say "Upgraded from anet $_from"
+  elif [ -s "$TMP/notes" ]; then
+    say ""
+    say "Other anet installations"
+  else
+    return 0
+  fi
+  for _cat in stopped removed replaced moved kept path manual; do
+    case "$_cat" in
+      stopped) _h="Stopped:" ;; removed) _h="Removed:" ;; replaced) _h="Replaced:" ;;
+      moved) _h="Moved aside:" ;; kept) _h="Left in place:" ;; path) _h="PATH:" ;;
+      manual) _h="Needs a command from you:" ;;
+    esac
+    grep "^$_cat|" "$TMP/notes" 2>/dev/null | sed "s/^$_cat|//" > "$TMP/notes.cat" || true
+    [ -s "$TMP/notes.cat" ] || continue
+    say "  $_h"
+    sed 's/^/    - /' "$TMP/notes.cat"
+  done
+}
+
 # From here on the binary is installed; a step that fails is reported and
 # the rest still run, because each prints how to do it by hand.
 run_init() {
   say ""
+  if [ "$DATA_HELD" = 1 ]; then
+    say "→ skipping anet init: $DATA_DIR still holds data of an earlier release (see above)"
+    return 0
+  fi
   if has_cmd init; then
     say "→ anet init (explicit safe defaults: inbound closed, no public capabilities, spending limits 0)"
     "$DEST" init || warn "anet init did not complete; run it by hand: anet init"
@@ -630,7 +1348,7 @@ EOF
 # cleanup: on any exit, the download dir, and a staged binary that was
 # never renamed into place.
 cleanup() {
-  if [ -n "${STAGED:-}" ]; then ${SUDO:-} rm -f "$STAGED" 2>/dev/null || true; fi
+  if [ -n "${STAGED:-}" ]; then ${SUDO:-} rm -f "$STAGED" </dev/null 2>/dev/null || true; fi
   rm -rf "$TMP"
 }
 
@@ -647,6 +1365,8 @@ main() {
   trap cleanup EXIT
   trap 'exit 130' INT TERM HUP
   release_allowed_signers > "$TMP/allowed_signers"
+  legacy_defaults
+  : > "$TMP/notes"; : > "$TMP/anets"
 
   say "→ Installing anet for ${PLAT} → ${DEST}"
   fetch_manifest

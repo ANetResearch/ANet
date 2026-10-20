@@ -1082,8 +1082,8 @@ Identity operations and states, tasks ended by identity events, local data, the 
        ``identity_v02``
      - 0.3.0
      - C
-     - This data directory is from ``anet`` 0.2, and 0.3.0 does not migrate old data; move it away and run ``anet up`` to create a new identity.
-     - 这是 ``anet`` 0.2 的数据目录，0.3.0 不迁移旧数据；请把这个目录移走后运行 ``anet up`` 生成新身份。
+     - This data directory is from an earlier release (``anet`` 0.2 or AgentNetwork 1.x), and 0.3 does not migrate old data; move it away and run ``anet up`` to create a new identity.
+     - 这是早期版本（\ ``anet`` 0.2 或 AgentNetwork 1.x）的数据目录，0.3 不迁移旧数据；请把这个目录移走后运行 ``anet up`` 生成新身份。
      - ``anet up``
    * - .. _reason-code-datadir-too-new:
 

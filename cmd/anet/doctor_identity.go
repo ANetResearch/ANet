@@ -49,6 +49,11 @@ func defaultRecoveryFile(home, aid string) string {
 func identityChecks(add func(id, status, detail, hint string), say func(id, status, key string, args a2ashape.Args),
 	rep *doctorReport, env doctorEnv, layout daemon.Layout, lang a2ashape.Language) {
 	if _, err := os.Stat(layout.IdentityPath()); err != nil {
+		// No identity file: a directory of AgentNetwork 1.x is still
+		// reported, since the daemon refuses to start on it.
+		if daemon.ClassifyDataDir(layout.Root) == daemon.DataDirV1 {
+			say("identity.format", stFail, "identity_v02", nil)
+		}
 		return
 	}
 	st, err := daemon.ReadIdentityStatus(layout, lang)
