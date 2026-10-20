@@ -376,8 +376,6 @@ Manually, delete the member ``anet`` from ``mcpServers`` and restart Cursor.
 Plugin
 ------
 
-.. publication pending
-
 The ``anet`` plugin is an alternative to ``anet agents wire cursor``. It
 registers the same MCP server and adds the operating guide, a setup skill that
 installs and starts the node, and the command ``/anet-status``. Use one of the

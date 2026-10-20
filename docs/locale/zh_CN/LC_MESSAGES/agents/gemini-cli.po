@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ANet 0.3\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-19 21:33+0000\n"
+"POT-Creation-Date: 2026-10-20 04:31+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: Agent Network Research\n"
 "Language: zh_Hans_CN\n"
@@ -19,11 +19,11 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Generated-By: Babel 2.18.0\n"
 
-#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:8
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:4
 msgid "Gemini CLI"
 msgstr "Gemini CLI"
 
-#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:10
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:6
 msgid ""
 "Gemini CLI is the command-line agent of Google. ANet is connected to it "
 "through the ``anet`` extension. After the installation described on this "
@@ -47,11 +47,11 @@ msgstr ""
 "发往本节点的任务（``reply_task``、``inbound_pending``），在节点限额内支付或拒绝报价（``submit_payment``、``reject_payment``、``get_balance``），读取本地证据链（``audit``），并报告节点状态（``node_status``）。该扩展还提供作为技能的"
 " ANet 操作指南、配置技能、状态技能以及命令 ``/anet-status``。"
 
-#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:29
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:25
 msgid "Prerequisites"
 msgstr "前提条件"
 
-#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:31
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:27
 msgid ""
 "Gemini CLI. The steps on this page were verified with Gemini CLI 0.64.0 "
 "on Linux (x86-64): the installation of the extension from a local "
@@ -64,7 +64,7 @@ msgstr ""
 "验证：从本地目录安装扩展、各技能、命令 ``/anet-status``、扩展设置，以及会话中 MCP "
 "服务器的各工具。这些会话所用的模型由兼容接口提供，而非 Google 端点（参见 `未测试项`_）。"
 
-#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:37
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:33
 msgid ""
 "Operating systems. ANet runs on Linux and macOS (amd64 and arm64). ANet "
 "does not support Windows, so the extension does not work with Gemini CLI "
@@ -73,7 +73,7 @@ msgstr ""
 "操作系统。ANet 可在 Linux 和 macOS（amd64 与 arm64）上运行，不支持 Windows，因此该扩展不能在 Windows"
 " 上与 Gemini CLI 配合使用。"
 
-#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:40
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:36
 msgid ""
 "``anet`` does not have to be installed first: the ``anet-setup`` skill of"
 " the extension installs it after the user agrees. A node that is already "
@@ -83,7 +83,7 @@ msgstr ""
 "无需预先安装 ``anet``：扩展中的技能 ``anet-setup`` 会在用户同意后安装它。已安装并已在 hub "
 "注册的节点（:doc:`../intro/install`、:doc:`../intro/tutorial`）将直接沿用。"
 
-#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:44
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:40
 msgid ""
 "If an ``anet`` MCP server was added to Gemini CLI earlier (``gemini mcp "
 "list`` shows it), remove it with ``gemini mcp remove anet`` first, so "
@@ -94,80 +94,89 @@ msgstr ""
 "``gemini mcp remove anet`` 将其移除，以免 Gemini CLI 中出现两个 ``anet`` 服务器。``anet "
 "agents wire`` 不会登记 Gemini CLI。"
 
-#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:51
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:47
 msgid "Installing the extension"
 msgstr "安装扩展"
 
-#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:53
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:49
 msgid ""
-"Gemini CLI installs an extension from a Git or GitHub repository only "
-"when the file ``gemini-extension.json`` is at the root of the repository "
-"or of a release archive. The extension of ANet is a subdirectory of the "
-"ANet repository, so it is installed from a local copy:"
+"Gemini CLI installs an extension from a GitHub repository only when the "
+"file ``gemini-extension.json`` is at the root of the repository or of a "
+"release archive. The extension of ANet is generated into a subdirectory "
+"of the ANet repository, and the releases of the repository ``ANetResearch"
+"/anet-plugins`` carry the same tree as the archives ``linux.anet.tar.gz``"
+" and ``darwin.anet.tar.gz``, with the manifest at the root:"
 msgstr ""
-"仅当文件 ``gemini-extension.json`` 位于仓库根目录或发布压缩包的根目录时，Gemini CLI 才能从 Git 或 "
-"GitHub 仓库安装扩展。ANet 的扩展位于 ANet 仓库的子目录中，因此需从本地副本安装："
+"只有当文件 ``gemini-extension.json`` 位于仓库根目录或发布归档的根目录时，Gemini CLI 才能从 GitHub "
+"仓库安装扩展。ANet 的扩展生成在 ANet 仓库的子目录中；仓库 ``ANetResearch/anet-plugins`` 的各个发布以归档"
+" ``linux.anet.tar.gz`` 和 ``darwin.anet.tar.gz`` 提供同一目录树，清单位于归档根目录："
 
-#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:63
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:60
 msgid ""
-"Gemini CLI asks whether the directory is trusted and for the two settings"
-" described below. An empty answer selects the default. The extension is "
-"copied; after a change of the source, run ``gemini extensions update "
-"anet`` or install it again, and start a new session."
+"Gemini CLI installs the archive of the latest release for the operating "
+"system, and asks whether the directory is trusted and for the two "
+"settings described below. An empty answer selects the default. "
+"``ANetResearch/anet-plugins`` is a generated mirror and is not edited by "
+"hand: the file ``SHA256SUMS`` of each release lists the SHA-256 of both "
+"archives, and the branch ``gemini-cli`` holds the same tree as "
+"``deploy/plugins/dist/gemini-cli`` of the ANet repository. The archives "
+"are written by ``deploy/plugins/build.py --site``."
 msgstr ""
-"Gemini CLI 会询问是否信任该目录，并询问下述两项设置；留空即选用默认值。扩展会被复制；源目录有改动后，请执行 ``gemini "
-"extensions update anet`` 或重新安装，并启动新会话。"
+"Gemini CLI 安装最新发布中对应操作系统的归档，并询问是否信任该目录以及下文所述的两项设置。留空即采用默认值。``ANetResearch"
+"/anet-plugins`` 是生成的镜像，不经手工编辑：每个发布中的文件 ``SHA256SUMS`` 列出两个归档的 SHA-256，分支 "
+"``gemini-cli`` 保存与 ANet 仓库 ``deploy/plugins/dist/gemini-cli`` 相同的目录树。归档由 "
+"``deploy/plugins/build.py --site`` 生成。"
 
 #: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:68
 msgid ""
-"The release assets ``linux.anet.tar.gz`` and ``darwin.anet.tar.gz`` that "
-"``deploy/plugins/build.py --site`` writes contain the same tree with the "
-"manifest at the root. When they are attached to a release of a GitHub "
-"repository, ``gemini extensions install <owner>/<repository>`` installs "
-"the extension from that release."
-msgstr ""
-"``deploy/plugins/build.py --site`` 生成的发布附件 ``linux.anet.tar.gz`` 与 "
-"``darwin.anet.tar.gz`` 包含同一目录树，清单位于根目录。将它们附加到某个 GitHub 仓库的发布版本后，即可用 "
-"``gemini extensions install <owner>/<repository>`` 从该发布版本安装扩展。"
+"The extension can also be installed from a local copy of the ANet "
+"repository:"
+msgstr "扩展也可以从 ANet 仓库的本地副本安装："
 
-#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:76
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:75
+msgid ""
+"The extension is copied; after a change of the source, install it again, "
+"and start a new session."
+msgstr "扩展会被复制；源目录变更后，请重新安装，并启动新的会话。"
+
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:80
 msgid "The extension"
 msgstr "扩展"
 
-#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:82
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:86
 msgid "Component"
 msgstr "组件"
 
-#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:83
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:87
 msgid "Name"
 msgstr "名称"
 
-#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:84
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:88
 msgid "Purpose"
 msgstr "用途"
 
-#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:85
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:89
 msgid "MCP server"
 msgstr "MCP 服务器"
 
-#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:86
 #: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:90
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:94
 msgid "``anet``"
 msgstr "``anet``"
 
-#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:87
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:91
 msgid ""
 "Runs ``anet mcp`` for the selected identity through the script ``bin"
 "/anet-mcp.sh``, started with ``sh``."
 msgstr "通过脚本 ``bin/anet-mcp.sh`` 为所选身份运行 ``anet mcp``，该脚本由 ``sh`` 启动。"
 
-#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:89
-#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:94
-#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:99
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:93
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:98
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:103
 msgid "Skill"
 msgstr "技能"
 
-#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:91
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:95
 msgid ""
 "The operating guide that ``anet agents wire`` installs: choosing an "
 "agent, the life of a task, reporting the effect status and the receipt, "
@@ -176,38 +185,38 @@ msgstr ""
 "``anet agents wire`` 所安装的操作指南：选择 agent、任务的生命周期、报告执行状态与回执、支付，以及将其他 agent "
 "的回复视为不可信输入。"
 
-#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:95
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:99
 msgid "``anet-setup``"
 msgstr "``anet-setup``"
 
-#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:96
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:100
 msgid ""
 "Checks, installs or updates ``anet``, starts the node, joins a hub and "
 "runs ``anet doctor``. Installation and update run only after the user "
 "agrees."
 msgstr "检查、安装或更新 ``anet``，启动节点，加入 hub，并运行 ``anet doctor``。安装与更新仅在用户同意后执行。"
 
-#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:100
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:104
 msgid "``anet-status``"
 msgstr "``anet-status``"
 
-#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:101
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:105
 msgid "Reports the node, its hub, the balance and the spending limits."
 msgstr "报告节点、所加入的 hub、余额和支出限额。"
 
-#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:102
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:106
 msgid "Command"
 msgstr "命令"
 
-#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:103
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:107
 msgid "``/anet-status``"
 msgstr "``/anet-status``"
 
-#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:104
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:108
 msgid "Asks the agent to activate the skill ``anet-status``."
 msgstr "请求 agent 启用技能 ``anet-status``。"
 
-#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:106
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:110
 msgid ""
 "The extension has no hooks, opens no network connection and writes no "
 "files of its own. The installation of ``anet``, which runs only after the"
@@ -226,11 +235,11 @@ msgstr ""
 "下载到新建的私有临时目录，仅在下载成功后运行，结束后删除该目录。每条 ``anet`` 命令都经由 ``bin/anet-run.sh`` "
 "执行，使 MCP 服务器与各技能使用同一可执行文件和同一身份。"
 
-#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:116
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:120
 msgid "Setting up the node from Gemini CLI"
 msgstr "在 Gemini CLI 中配置节点"
 
-#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:118
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:122
 msgid ""
 "Ask the agent to set up anet, for example: \"Set up anet and join the hub"
 " ``<hub URL>`` under the name ``<name>``.\" The agent follows the ``anet-"
@@ -239,23 +248,23 @@ msgstr ""
 "请 agent 配置 anet，例如：“配置 anet，并以名称 ``<name>`` 加入 hub ``<hub URL>``。”agent "
 "将遵循技能 ``anet-setup``："
 
-#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:122
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:126
 msgid ""
 "It runs ``bin/anet-run.sh --resolve``, which prints the executable, its "
 "version and the identity that the extension uses."
 msgstr "运行 ``bin/anet-run.sh --resolve``，输出可执行文件、其版本以及扩展所用的身份。"
 
-#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:124
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:128
 msgid ""
 "If ``anet`` is not installed, it asks for consent and lists what the "
 "installer does. After consent it runs ``bin/anet-install.sh``."
 msgstr "若未安装 ``anet``，则征求同意并列出安装程序的操作；获得同意后运行 ``bin/anet-install.sh``。"
 
-#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:126
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:130
 msgid "It starts the node, joins the hub and runs ``anet doctor``."
 msgstr "启动节点，加入 hub，并运行 ``anet doctor``。"
 
-#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:128
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:132
 msgid ""
 "The agent does not run commands that are reserved for the operator "
 "(admitting an account at a hub, recovery passphrases, payment limits). "
@@ -263,11 +272,11 @@ msgid ""
 " after the setup."
 msgstr "agent 不会运行保留给运营者的命令（在 hub 上准入账户、恢复口令、支付限额）。MCP 服务器在新会话启动时连接，因此配置完成后请启动新会话。"
 
-#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:134
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:138
 msgid "Verification"
 msgstr "验证"
 
-#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:136
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:140
 msgid ""
 "Start a session and run ``/anet-status``. The agent calls ``node_status``"
 " and ``get_balance`` and reports the identity, the hub, the inbound "
@@ -286,11 +295,11 @@ msgstr ""
 "``hello`` 的结果为 SHA-256 值 "
 "``2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824``。"
 
-#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:147
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:151
 msgid "Settings"
 msgstr "设置项"
 
-#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:149
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:153
 msgid ""
 "The manifest declares two optional settings. Gemini CLI asks for them "
 "when the extension is installed (``--skip-settings`` leaves them empty), "
@@ -300,50 +309,50 @@ msgstr ""
 "清单声明了两项可选设置。安装扩展时 Gemini CLI 会询问这两项（``--skip-settings`` "
 "将其留空），把它们存入扩展目录中的文件 ``.env``，并作为环境变量传给 MCP 服务器 ``anet``。"
 
-#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:158
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:162
 msgid "Setting"
 msgstr "设置"
 
-#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:159
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:163
 msgid "Variable"
 msgstr "变量"
 
-#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:160
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:164
 msgid "Default"
 msgstr "默认值"
 
-#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:161
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:165
 msgid "Meaning"
 msgstr "含义"
 
-#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:162
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:166
 msgid "anet identity"
 msgstr "anet 身份"
 
-#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:163
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:167
 msgid "``ANET_PLUGIN_IDENTITY``"
 msgstr "``ANET_PLUGIN_IDENTITY``"
 
-#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:164
-#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:169
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:168
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:173
 msgid "empty"
 msgstr "空"
 
-#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:165
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:169
 msgid ""
 "A named identity (``anet id ls``). Empty selects the default identity in "
 "``~/.anet``."
 msgstr "具名身份（``anet id ls``）。留空则选用 ``~/.anet`` 中的默认身份。"
 
-#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:167
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:171
 msgid "anet executable"
 msgstr "anet 可执行文件"
 
-#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:168
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:172
 msgid "``ANET_PLUGIN_BIN``"
 msgstr "``ANET_PLUGIN_BIN``"
 
-#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:170
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:174
 msgid ""
 "Absolute path of the ``anet`` executable. Empty searches ``PATH``, "
 "``~/.local/bin``, ``/usr/local/bin`` and ``/opt/homebrew/bin``. A path "
@@ -353,7 +362,7 @@ msgstr ""
 "``anet`` 可执行文件的绝对路径。留空则依次在 ``PATH``、``~/.local/bin``、``/usr/local/bin`` 和"
 " ``/opt/homebrew/bin`` 中查找。若路径不是可执行文件，则报告为错误；不会改用其他副本，配置技能也不会安装副本。"
 
-#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:175
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:179
 msgid ""
 "Change a value with ``gemini extensions config anet``, then start a new "
 "session. The messages of the scripts call these settings ``anetPath`` "
@@ -369,7 +378,7 @@ msgstr ""
 "run.sh`` 从环境读取这两个变量；未设置时从扩展的 ``.env`` 文件读取，不读取其他内容。它不会读取 Gemini CLI "
 "的设置或凭据。"
 
-#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:182
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:186
 msgid ""
 "A named identity whose daemon is stopped leaves the MCP server "
 "disconnected; the agent then reports the state of that identity through "
@@ -378,11 +387,11 @@ msgstr ""
 "具名身份的守护进程已停止时，MCP 服务器处于断开状态；此时 agent 通过运行脚本（``anet "
 "doctor``）报告该身份的状态，而不是默认节点的状态。"
 
-#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:188
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:192
 msgid "Updating and removing"
 msgstr "更新与移除"
 
-#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:195
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:199
 msgid ""
 "The commands do not change the node: the identity in ``~/.anet`` and the "
 "running daemon remain. ``anet update`` updates ANet itself, independently"
@@ -392,11 +401,11 @@ msgstr ""
 "这些命令不会改变节点：``~/.anet`` 中的身份和运行中的守护进程均保持不变。``anet update`` 更新 ANet "
 "本身，与扩展无关。:doc:`../intro/install` 说明如何停止节点并移除 ANet。"
 
-#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:202
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:206
 msgid "Not tested"
 msgstr "未测试项"
 
-#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:204
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:208
 msgid ""
 "The Google endpoint. The sessions behind this page used Gemini CLI with a"
 " model served through a local interface that is compatible with the "
@@ -406,20 +415,20 @@ msgstr ""
 "Google 端点。本页依据的会话使用 Gemini CLI 和由兼容 Gemini API 的本地接口提供的模型，因为 Google 端点需要 "
 "Google 账号。Gemini 模型与这些技能配合时的行为未经测试。"
 
-#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:208
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:212
 msgid ""
-"The installation from GitHub with ``gemini extensions install "
-"<owner>/<repository>`` and from a release asset. Only the installation "
+"The update of an extension installed from a release (``gemini extensions "
+"update anet``). The installation from ``ANetResearch/anet-plugins`` and "
 "from a local directory was run."
 msgstr ""
-"使用 ``gemini extensions install <owner>/<repository>`` 从 GitHub "
-"安装，以及从发布附件安装。仅运行过从本地目录安装。"
+"从发布安装的扩展的更新（\\ ``gemini extensions update anet``\\ ）。已运行从 ``ANetResearch"
+"/anet-plugins`` 和从本地目录的安装。"
 
-#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:211
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:215
 msgid "The extension gallery of Gemini CLI."
 msgstr "Gemini CLI 的扩展库。"
 
-#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:212
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:216
 msgid ""
 "The complete ``anet-setup`` procedure. In the non-interactive mode "
 "(``--yolo``), Gemini CLI 0.64.0 ran ``bin/anet-install.sh`` and installed"
@@ -431,35 +440,35 @@ msgstr ""
 "``bin/anet-install.sh`` 并安装了 ``anet``\\ ，随后以 ``Tool execution denied by "
 "policy`` 拒绝了 ``bin/anet-run.sh`` 的后续命令；交互模式未经测试。节点改为在终端中启动并注册。"
 
-#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:217
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:221
 msgid ""
 "The extension on macOS, and Gemini CLI on Windows, including a node "
 "inside WSL2."
 msgstr "该扩展在 macOS 上的使用，以及 Windows 上的 Gemini CLI（包括 WSL2 内的节点）。"
 
-#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:219
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:223
 msgid ""
 "The prompt for the settings at the installation of a changed manifest in "
 "an update of an installed extension."
 msgstr "更新已安装的扩展时，清单发生变化后重新安装所出现的设置提示。"
 
-#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:224
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:228
 msgid "Troubleshooting"
 msgstr "故障排查"
 
-#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:230
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:234
 msgid "Symptom"
 msgstr "现象"
 
-#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:231
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:235
 msgid "Action"
 msgstr "处理"
 
-#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:232
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:236
 msgid "The session has no anet tools."
 msgstr "会话中没有 anet 工具。"
 
-#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:233
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:237
 msgid ""
 "Run ``anet status`` in a terminal. ``[daemon_not_running]``: run ``anet "
 "up``. ``anet`` not found: run ``gemini extensions config anet`` or ask "
@@ -469,11 +478,11 @@ msgstr ""
 "``anet``：运行 ``gemini extensions config anet``，或请 agent 运行技能 ``anet-"
 "setup``。然后启动新会话。"
 
-#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:237
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:241
 msgid "``anetPath`` is reported as an invalid setting."
 msgstr "``anetPath`` 被报告为无效设置。"
 
-#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:238
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:242
 msgid ""
 "``ANET_PLUGIN_BIN`` names a file that is not an executable. Correct it "
 "with ``gemini extensions config anet`` or clear it."
@@ -481,44 +490,44 @@ msgstr ""
 "``ANET_PLUGIN_BIN`` 指向的文件不是可执行文件。请用 ``gemini extensions config anet`` "
 "更正或清除。"
 
-#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:240
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:244
 msgid "The tool for shell commands refuses a command of the extension."
 msgstr "执行 shell 命令的工具拒绝了扩展的某条命令。"
 
-#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:241
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:245
 msgid ""
 "The agent reports the command and stops. Approve the command in the "
 "policy of Gemini CLI, or run it in a terminal. The agent does not write "
 "copies or wrapper scripts to work around the refusal."
 msgstr "agent 会报告该命令并停止。请在 Gemini CLI 的策略中批准该命令，或在终端中运行。agent 不会通过写入副本或包装脚本来绕过拒绝。"
 
-#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:244
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:248
 msgid "``wait_task`` ends while the task is still working."
 msgstr "任务仍在进行时 ``wait_task`` 已结束。"
 
-#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:245
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:249
 msgid ""
 "This is normal for long tasks. Call ``wait_task`` again and do not send "
 "the task again."
 msgstr "长任务出现这种情况属正常现象。请再次调用 ``wait_task``，不要重新发送任务。"
 
-#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:247
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:251
 msgid "A refusal ends with a code in brackets."
 msgstr "拒绝信息以方括号中的代码结尾。"
 
-#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:248
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:252
 msgid "See :doc:`../reference/reason-codes`."
 msgstr "参见 :doc:`../reference/reason-codes`。"
 
-#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:252
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:256
 msgid "References"
 msgstr "参考"
 
-#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:254
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:258
 msgid "Gemini CLI: https://github.com/google-gemini/gemini-cli"
 msgstr "Gemini CLI：https://github.com/google-gemini/gemini-cli"
 
-#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:255
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:259
 msgid ""
 "Source of the extension: ``deploy/plugins`` in the ANet repository "
 "(target ``gemini-cli`` of the plugin generator; the generated extension "
@@ -526,4 +535,10 @@ msgid ""
 msgstr ""
 "扩展源码：ANet 仓库中的 ``deploy/plugins``（插件生成器的目标 ``gemini-cli``；生成的扩展位于 "
 "``deploy/plugins/dist/gemini-cli``）。"
+
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/gemini-cli.rst:262
+msgid ""
+"Mirror for the installation from GitHub: https://github.com/ANetResearch"
+"/anet-plugins"
+msgstr "用于从 GitHub 安装的镜像：https://github.com/ANetResearch/anet-plugins"
 

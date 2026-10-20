@@ -1,6 +1,3 @@
-.. publication pending: the marketplace and the repository path named on
-   this page are not published yet.
-
 .. _agents-codebuddy:
 
 CodeBuddy

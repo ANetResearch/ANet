@@ -484,8 +484,6 @@ member ``mcpServers.anet`` from ``~/.claude.json``, and delete the directory
 identity and its data are not changed by either method.
 
 
-.. publication pending
-
 .. _agents-claude-code-plugin:
 
 Plugin

@@ -1,6 +1,3 @@
-.. publication pending: the bundle is not published yet. Replace the archive
-   address below with the published one and remove this comment at release.
-
 .. _agents-trae:
 
 Trae

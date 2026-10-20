@@ -184,8 +184,6 @@ configuration home for the Windows application and for WSL. The path that the
 extension opens is authoritative.
 
 
-.. publication pending
-
 .. _agents-codex-plugin:
 
 Plugin

@@ -40,8 +40,6 @@ Prerequisites
      $ anet up
 
 
-.. publication pending
-
 .. _agents-opencode-plugin:
 
 Plugin
@@ -95,8 +93,8 @@ Install the package into the global configuration of opencode:
    $ opencode plugin @agentnetwork/opencode-anet --global
 
 Without ``--global`` the entry is written to the configuration of the current
-project. The package name is the name under which the plugin is to be
-published; it is not published yet, and the command does not work until it is.
+project. opencode downloads the package from the npm registry that its
+configuration names.
 
 A directory of the plugin is installed in the same way, with its absolute path
 in place of the package name:
@@ -236,8 +234,9 @@ Not tested
 
 The following items were not tested:
 
-* Installation from the npm registry, pinned versions, the cache, and the first
-  start without a network connection. The package is not published.
+* Pinned versions, the cache, and the first start without a network
+  connection. The installation of the published package from the npm registry
+  was run.
 * Installation from a Git URL.
 * macOS, arm64 and Windows. The plugin disables itself on Windows; this was
   covered only by a unit test.

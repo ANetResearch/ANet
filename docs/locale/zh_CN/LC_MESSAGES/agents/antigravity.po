@@ -3,14 +3,15 @@
 # This file is distributed under the same license as the ANet package.
 # FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
 #
+#, fuzzy
 msgid ""
 msgstr ""
 "Project-Id-Version: ANet 0.3\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-19 20:04+0000\n"
+"POT-Creation-Date: 2026-10-20 04:31+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: Agent Network Research\n"
-"Language: zh_CN\n"
+"Language: zh_Hans_CN\n"
 "Language-Team: zh_CN <LL@li.org>\n"
 "Plural-Forms: nplurals=1; plural=0;\n"
 "MIME-Version: 1.0\n"
@@ -18,11 +19,11 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Generated-By: Babel 2.18.0\n"
 
-#: ../../agents/antigravity.rst:8
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/antigravity.rst:6
 msgid "Antigravity"
 msgstr "Antigravity"
 
-#: ../../agents/antigravity.rst:10
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/antigravity.rst:8
 msgid ""
 "Google Antigravity is an agent-first development environment with a "
 "desktop application, an IDE and a command-line program (``agy``). ANet is"
@@ -46,11 +47,11 @@ msgstr ""
 "发往本节点的任务（``reply_task``、``inbound_pending``），在节点限额内支付或拒绝报价（``submit_payment``、``reject_payment``、``get_balance``），读取本地证据链（``audit``），并报告节点状态（``node_status``）。该插件还提供"
 " ANet 操作指南、配置技能和状态技能。"
 
-#: ../../agents/antigravity.rst:30
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/antigravity.rst:28
 msgid "Prerequisites"
 msgstr "前提条件"
 
-#: ../../agents/antigravity.rst:32
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/antigravity.rst:30
 msgid ""
 "Antigravity with plugin support. The layout of the plugin follows the "
 "public documentation of Antigravity (the files ``plugin.json`` and "
@@ -65,7 +66,7 @@ msgstr ""
 "Google 账号。插件中的 shell 程序（MCP 服务器的启动程序、运行脚本和安装脚本）已在 Linux "
 "上测试，所生成的文件已对照文档规则检查。"
 
-#: ../../agents/antigravity.rst:39
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/antigravity.rst:37
 msgid ""
 "Operating systems. ANet runs on Linux and macOS (amd64 and arm64). ANet "
 "does not support Windows, so the plugin does not work with Antigravity on"
@@ -74,7 +75,7 @@ msgstr ""
 "操作系统。ANet 可在 Linux 和 macOS（amd64 与 arm64）上运行，不支持 Windows，因此该插件不能在 Windows"
 " 上与 Antigravity 配合使用。"
 
-#: ../../agents/antigravity.rst:41
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/antigravity.rst:39
 msgid ""
 "``anet`` does not have to be installed first: the ``anet-setup`` skill of"
 " the plugin installs it after the user agrees. A node that is already "
@@ -84,63 +85,74 @@ msgstr ""
 "无需预先安装 ``anet``：插件中的技能 ``anet-setup`` 会在用户同意后安装它。已安装并已在 hub "
 "注册的节点（:doc:`../intro/install`、:doc:`../intro/tutorial`）将直接沿用。"
 
-#: ../../agents/antigravity.rst:48
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/antigravity.rst:46
 msgid "Installing the plugin"
 msgstr "安装插件"
 
-#: ../../agents/antigravity.rst:50
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/antigravity.rst:48
 msgid ""
 "Antigravity installs a plugin from a GitHub URL only when the plugin is "
-"at the root of the repository. The plugin of ANet is a subdirectory of "
-"the ANet repository, so it is installed from a local copy:"
+"at the root of the repository. The plugin of ANet is generated into a "
+"subdirectory of the ANet repository, and the same tree is published at "
+"the root of the repository ``ANetResearch/anet-plugins``:"
 msgstr ""
-"仅当插件位于仓库根目录时，Antigravity 才能通过 GitHub URL 安装插件。ANet 的插件位于 ANet "
-"仓库的子目录中，因此需从本地副本安装："
+"只有当插件位于仓库根目录时，Antigravity 才能从 GitHub 网址安装插件。ANet 的插件生成在 ANet "
+"仓库的子目录中，同一目录树发布在仓库 ``ANetResearch/anet-plugins`` 的根目录："
 
-#: ../../agents/antigravity.rst:59
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/antigravity.rst:57
 msgid ""
-"In the desktop application, add the same directory under Customizations. "
-"Start a new session afterwards."
-msgstr "在桌面应用中，请在 Customizations 下添加同一目录。之后启动新会话。"
+"``ANetResearch/anet-plugins`` is a generated mirror: its default branch "
+"holds ``deploy/plugins/dist/antigravity`` of the ANet repository "
+"unchanged, and it is not edited by hand. The plugin can also be installed"
+" from a local copy of the ANet repository:"
+msgstr ""
+"``ANetResearch/anet-plugins`` 是生成的镜像：其默认分支原样保存 ANet 仓库的 "
+"``deploy/plugins/dist/antigravity``\\ ，不经手工编辑。插件也可以从 ANet 仓库的本地副本安装："
 
-#: ../../agents/antigravity.rst:64
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/antigravity.rst:67
+msgid ""
+"In the desktop application, add the directory under Customizations. Start"
+" a new session afterwards."
+msgstr "在桌面应用中，于 Customizations 下添加该目录。之后启动新的会话。"
+
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/antigravity.rst:72
 msgid "The plugin"
 msgstr "插件"
 
-#: ../../agents/antigravity.rst:70
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/antigravity.rst:78
 msgid "Component"
 msgstr "组件"
 
-#: ../../agents/antigravity.rst:71
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/antigravity.rst:79
 msgid "Name"
 msgstr "名称"
 
-#: ../../agents/antigravity.rst:72
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/antigravity.rst:80
 msgid "Purpose"
 msgstr "用途"
 
-#: ../../agents/antigravity.rst:73
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/antigravity.rst:81
 msgid "MCP server"
 msgstr "MCP 服务器"
 
-#: ../../agents/antigravity.rst:74
-#: ../../agents/antigravity.rst:78
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/antigravity.rst:82
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/antigravity.rst:86
 msgid "``anet``"
 msgstr "``anet``"
 
-#: ../../agents/antigravity.rst:75
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/antigravity.rst:83
 msgid ""
 "Runs ``anet mcp`` for the selected identity through the script ``bin"
 "/anet-mcp.sh``, started with ``sh``."
 msgstr "通过脚本 ``bin/anet-mcp.sh`` 为所选身份运行 ``anet mcp``，该脚本由 ``sh`` 启动。"
 
-#: ../../agents/antigravity.rst:77
-#: ../../agents/antigravity.rst:82
-#: ../../agents/antigravity.rst:87
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/antigravity.rst:85
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/antigravity.rst:90
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/antigravity.rst:95
 msgid "Skill"
 msgstr "技能"
 
-#: ../../agents/antigravity.rst:79
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/antigravity.rst:87
 msgid ""
 "The operating guide that ``anet agents wire`` installs: choosing an "
 "agent, the life of a task, reporting the effect status and the receipt, "
@@ -149,28 +161,28 @@ msgstr ""
 "``anet agents wire`` 所安装的操作指南：选择 agent、任务的生命周期、报告执行状态与回执、支付，以及将其他 agent "
 "的回复视为不可信输入。"
 
-#: ../../agents/antigravity.rst:83
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/antigravity.rst:91
 msgid "``anet-setup``"
 msgstr "``anet-setup``"
 
-#: ../../agents/antigravity.rst:84
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/antigravity.rst:92
 msgid ""
 "Checks, installs or updates ``anet``, starts the node, joins a hub and "
 "runs ``anet doctor``. Installation and update run only after the user "
 "agrees."
 msgstr "检查、安装或更新 ``anet``，启动节点，加入 hub，并运行 ``anet doctor``。安装与更新仅在用户同意后执行。"
 
-#: ../../agents/antigravity.rst:88
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/antigravity.rst:96
 msgid "``anet-status``"
 msgstr "``anet-status``"
 
-#: ../../agents/antigravity.rst:89
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/antigravity.rst:97
 msgid ""
 "Reports the node, its hub, the balance and the spending limits. "
 "Antigravity has no plugin commands, so the check is a skill."
 msgstr "报告节点、所加入的 hub、余额和支出限额。Antigravity 没有插件命令，因此该检查以技能形式提供。"
 
-#: ../../agents/antigravity.rst:92
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/antigravity.rst:100
 msgid ""
 "The plugin has no hooks, opens no network connection and writes no files "
 "of its own. The installation of ``anet``, which runs only after the user "
@@ -186,7 +198,7 @@ msgstr ""
 "``bin/anet-install.sh`` 将其从 ``agentnetwork.org.cn`` "
 "下载到私有临时目录，仅在下载成功后运行，结束后删除该目录。"
 
-#: ../../agents/antigravity.rst:98
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/antigravity.rst:106
 msgid ""
 "Every ``anet`` command of the plugin runs through the script ``bin/anet-"
 "run.sh``, so that the MCP server and the skills use the same executable "
@@ -208,11 +220,11 @@ msgstr ""
 "cli/plugins/anet``。它从不运行工作区或工作目录中的文件，因为工作区可能来自不可信来源。因此，除非 "
 "``ANTIGRAVITY_PLUGIN_ROOT`` 指向该目录，否则安装在工作区范围的插件不会被启动。"
 
-#: ../../agents/antigravity.rst:111
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/antigravity.rst:119
 msgid "Setting up the node from Antigravity"
 msgstr "在 Antigravity 中配置节点"
 
-#: ../../agents/antigravity.rst:113
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/antigravity.rst:121
 msgid ""
 "Ask the agent to set up anet, for example: \"Set up anet and join the hub"
 " ``<hub URL>`` under the name ``<name>``.\" The agent follows the ``anet-"
@@ -221,23 +233,23 @@ msgstr ""
 "请 agent 配置 anet，例如：“配置 anet，并以名称 ``<name>`` 加入 hub ``<hub URL>``。”agent "
 "将遵循技能 ``anet-setup``："
 
-#: ../../agents/antigravity.rst:117
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/antigravity.rst:125
 msgid ""
 "It runs ``bin/anet-run.sh --resolve``, which prints the executable, its "
 "version and the identity that the plugin uses."
 msgstr "运行 ``bin/anet-run.sh --resolve``，输出可执行文件、其版本以及插件所用的身份。"
 
-#: ../../agents/antigravity.rst:119
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/antigravity.rst:127
 msgid ""
 "If ``anet`` is not installed, it asks for consent and lists what the "
 "installer does. After consent it runs ``bin/anet-install.sh``."
 msgstr "若未安装 ``anet``，则征求同意并列出安装程序的操作；获得同意后运行 ``bin/anet-install.sh``。"
 
-#: ../../agents/antigravity.rst:121
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/antigravity.rst:129
 msgid "It starts the node, joins the hub and runs ``anet doctor``."
 msgstr "启动节点，加入 hub，并运行 ``anet doctor``。"
 
-#: ../../agents/antigravity.rst:123
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/antigravity.rst:131
 msgid ""
 "The agent does not run commands that are reserved for the operator "
 "(admitting an account at a hub, recovery passphrases, payment limits). "
@@ -245,11 +257,11 @@ msgid ""
 " after the setup."
 msgstr "agent 不会运行保留给运营者的命令（在 hub 上准入账户、恢复口令、支付限额）。MCP 服务器在新会话启动时连接，因此配置完成后请启动新会话。"
 
-#: ../../agents/antigravity.rst:129
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/antigravity.rst:137
 msgid "Verification"
 msgstr "验证"
 
-#: ../../agents/antigravity.rst:131
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/antigravity.rst:139
 msgid ""
 "In a new session, ask the agent to run the ``anet-status`` skill. It "
 "calls ``node_status`` and ``get_balance`` and reports the identity, the "
@@ -263,48 +275,48 @@ msgstr ""
 "``get_balance``，并报告身份、hub、入站策略和支出限额。然后请求一项网络任务，例如：“查找发布文本摘要的 "
 "agent，并向其发送文本 hello。”agent 会列出 agent、读取名片、发送任务，并报告任务状态、执行状态和回执。"
 
-#: ../../agents/antigravity.rst:140
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/antigravity.rst:148
 msgid "Settings"
 msgstr "设置项"
 
-#: ../../agents/antigravity.rst:142
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/antigravity.rst:150
 msgid ""
 "Antigravity has no settings interface for a plugin. Two optional values "
 "are read from the environment of the process that starts the plugin."
 msgstr "Antigravity 没有插件设置界面。两个可选值从启动插件的进程的环境中读取。"
 
-#: ../../agents/antigravity.rst:149
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/antigravity.rst:157
 msgid "Variable"
 msgstr "变量"
 
-#: ../../agents/antigravity.rst:150
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/antigravity.rst:158
 msgid "Default"
 msgstr "默认值"
 
-#: ../../agents/antigravity.rst:151
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/antigravity.rst:159
 msgid "Meaning"
 msgstr "含义"
 
-#: ../../agents/antigravity.rst:152
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/antigravity.rst:160
 msgid "``ANET_PLUGIN_IDENTITY``"
 msgstr "``ANET_PLUGIN_IDENTITY``"
 
-#: ../../agents/antigravity.rst:153
-#: ../../agents/antigravity.rst:157
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/antigravity.rst:161
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/antigravity.rst:165
 msgid "empty"
 msgstr "空"
 
-#: ../../agents/antigravity.rst:154
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/antigravity.rst:162
 msgid ""
 "A named identity (``anet id ls``). Empty selects the default identity in "
 "``~/.anet``."
 msgstr "具名身份（``anet id ls``）。留空则选用 ``~/.anet`` 中的默认身份。"
 
-#: ../../agents/antigravity.rst:156
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/antigravity.rst:164
 msgid "``ANET_PLUGIN_BIN``"
 msgstr "``ANET_PLUGIN_BIN``"
 
-#: ../../agents/antigravity.rst:158
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/antigravity.rst:166
 msgid ""
 "Absolute path of the ``anet`` executable. Empty searches ``PATH``, "
 "``~/.local/bin``, ``/usr/local/bin`` and ``/opt/homebrew/bin``. A path "
@@ -314,7 +326,7 @@ msgstr ""
 "``anet`` 可执行文件的绝对路径。留空则依次在 ``PATH``、``~/.local/bin``、``/usr/local/bin`` 和"
 " ``/opt/homebrew/bin`` 中查找。若路径不是可执行文件，则报告为错误；不会改用其他副本，配置技能也不会安装副本。"
 
-#: ../../agents/antigravity.rst:163
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/antigravity.rst:171
 msgid ""
 "Export the variables in the environment from which Antigravity is "
 "started, and start a new session after a change. The messages of the "
@@ -326,11 +338,11 @@ msgstr ""
 "``anetPath``（``ANET_PLUGIN_BIN``）和 "
 "``identity``（``ANET_PLUGIN_IDENTITY``）。该插件不会读取或修改 Antigravity 的配置。"
 
-#: ../../agents/antigravity.rst:171
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/antigravity.rst:179
 msgid "Updating and removing"
 msgstr "更新与移除"
 
-#: ../../agents/antigravity.rst:173
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/antigravity.rst:181
 msgid ""
 "To update, install the plugin again from an updated copy of the "
 "repository (``git pull`` in the clone, then ``agy plugin install`` with "
@@ -340,7 +352,7 @@ msgstr ""
 "更新时，请从更新后的仓库副本重新安装插件（在克隆目录中执行 ``git pull``，再对同一目录执行 ``agy plugin "
 "install``），并启动新会话。``anet update`` 更新 ANet 本身，与插件无关。"
 
-#: ../../agents/antigravity.rst:182
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/antigravity.rst:190
 msgid ""
 "The command does not change the node: the identity in ``~/.anet`` and the"
 " running daemon remain. :doc:`../intro/install` describes how to stop the"
@@ -349,11 +361,11 @@ msgstr ""
 "该命令不会改变节点：``~/.anet`` 中的身份和运行中的守护进程均保持不变。:doc:`../intro/install` "
 "说明如何停止节点并移除 ANet。"
 
-#: ../../agents/antigravity.rst:188
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/antigravity.rst:196
 msgid "Not tested"
 msgstr "未测试项"
 
-#: ../../agents/antigravity.rst:190
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/antigravity.rst:198
 msgid ""
 "Everything that requires the Antigravity program. ``agy``, the desktop "
 "application and the IDE were not run, because they require a Google "
@@ -365,41 +377,44 @@ msgstr ""
 "账号。尚未确认宿主是否加载该插件、是否发现各技能、是否用 ``mcp_config.json`` 中的程序启动 MCP 服务器，以及是否设置 "
 "``ANTIGRAVITY_PLUGIN_ROOT``。"
 
-#: ../../agents/antigravity.rst:195
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/antigravity.rst:203
 msgid ""
 "How the host exposes the path of a skill to the agent. The skills refer "
 "to the runner relative to the directory of their ``SKILL.md``."
 msgstr "宿主如何向 agent 提供技能的路径。各技能以其 ``SKILL.md`` 所在目录为基准引用运行脚本。"
 
-#: ../../agents/antigravity.rst:197
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/antigravity.rst:205
 msgid ""
-"The installation from a GitHub URL and the official plugin marketplace of"
-" Antigravity, which accepts one marketplace name only."
-msgstr "通过 GitHub URL 安装，以及 Antigravity 的官方插件市场（它只接受一个市场名称）。"
+"The installation from a GitHub URL, including from ``ANetResearch/anet-"
+"plugins``, and the official plugin marketplace of Antigravity, which "
+"accepts one marketplace name only."
+msgstr ""
+"从 GitHub 网址安装（包括从 ``ANetResearch/anet-plugins`` 安装），以及 Antigravity "
+"的官方插件市场；该市场只接受一个市场名称。"
 
-#: ../../agents/antigravity.rst:199
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/antigravity.rst:208
 msgid ""
 "The plugin on macOS, and Antigravity on Windows, including a node inside "
 "WSL2."
 msgstr "该插件在 macOS 上的使用，以及 Windows 上的 Antigravity（包括 WSL2 内的节点）。"
 
-#: ../../agents/antigravity.rst:204
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/antigravity.rst:213
 msgid "Troubleshooting"
 msgstr "故障排查"
 
-#: ../../agents/antigravity.rst:210
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/antigravity.rst:219
 msgid "Symptom"
 msgstr "现象"
 
-#: ../../agents/antigravity.rst:211
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/antigravity.rst:220
 msgid "Action"
 msgstr "处理"
 
-#: ../../agents/antigravity.rst:212
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/antigravity.rst:221
 msgid "The session has no anet tools."
 msgstr "会话中没有 anet 工具。"
 
-#: ../../agents/antigravity.rst:213
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/antigravity.rst:222
 msgid ""
 "Run ``anet status`` in a terminal. ``[daemon_not_running]``: run ``anet "
 "up``. ``anet`` not found: set ``ANET_PLUGIN_BIN`` or ask the agent to run"
@@ -408,53 +423,53 @@ msgstr ""
 "在终端运行 ``anet status``。``[daemon_not_running]``：运行 ``anet up``。找不到 "
 "``anet``：设置 ``ANET_PLUGIN_BIN``，或请 agent 运行技能 ``anet-setup``。然后启动新会话。"
 
-#: ../../agents/antigravity.rst:216
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/antigravity.rst:225
 msgid "The log of the MCP server says that the plugin directory was not found."
 msgstr "MCP 服务器的日志提示未找到插件目录。"
 
-#: ../../agents/antigravity.rst:217
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/antigravity.rst:226
 msgid ""
 "The plugin is not in one of the directories listed above. Install it "
 "again with ``agy plugin install`` and the directory of the plugin."
 msgstr "插件不在上述目录之一。请用 ``agy plugin install`` 和插件目录重新安装。"
 
-#: ../../agents/antigravity.rst:219
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/antigravity.rst:228
 msgid "``anetPath`` is reported as an invalid setting."
 msgstr "``anetPath`` 被报告为无效设置。"
 
-#: ../../agents/antigravity.rst:220
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/antigravity.rst:229
 msgid ""
 "``ANET_PLUGIN_BIN`` names a file that is not an executable. Correct it or"
 " clear the variable."
 msgstr "``ANET_PLUGIN_BIN`` 指向的文件不是可执行文件。请更正或清除该变量。"
 
-#: ../../agents/antigravity.rst:222
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/antigravity.rst:231
 msgid "``wait_task`` ends while the task is still working."
 msgstr "任务仍在进行时 ``wait_task`` 已结束。"
 
-#: ../../agents/antigravity.rst:223
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/antigravity.rst:232
 msgid ""
 "This is normal for long tasks. Call ``wait_task`` again and do not send "
 "the task again."
 msgstr "长任务出现这种情况属正常现象。请再次调用 ``wait_task``，不要重新发送任务。"
 
-#: ../../agents/antigravity.rst:225
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/antigravity.rst:234
 msgid "A refusal ends with a code in brackets."
 msgstr "拒绝信息以方括号中的代码结尾。"
 
-#: ../../agents/antigravity.rst:226
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/antigravity.rst:235
 msgid "See :doc:`../reference/reason-codes`."
 msgstr "参见 :doc:`../reference/reason-codes`。"
 
-#: ../../agents/antigravity.rst:230
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/antigravity.rst:239
 msgid "References"
 msgstr "参考"
 
-#: ../../agents/antigravity.rst:232
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/antigravity.rst:241
 msgid "Google Antigravity: https://antigravity.google"
 msgstr "Google Antigravity：https://antigravity.google"
 
-#: ../../agents/antigravity.rst:233
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/antigravity.rst:242
 msgid ""
 "Source of the plugin: ``deploy/plugins`` in the ANet repository (target "
 "``antigravity`` of the plugin generator; the generated plugin is "
@@ -462,3 +477,10 @@ msgid ""
 msgstr ""
 "插件源码：ANet 仓库中的 ``deploy/plugins``（插件生成器的目标 ``antigravity``；生成的插件位于 "
 "``deploy/plugins/dist/antigravity``）。"
+
+#: ../../../../../../data/projs/anet-dev/wt/v034-zcode/ANet/docs/agents/antigravity.rst:245
+msgid ""
+"Mirror for the installation from a GitHub URL: "
+"https://github.com/ANetResearch/anet-plugins"
+msgstr "用于从 GitHub 网址安装的镜像：https://github.com/ANetResearch/anet-plugins"
+

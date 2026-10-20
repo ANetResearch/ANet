@@ -1,6 +1,4 @@
-.. publication pending: the plugin has not been published, and it has not
-   been run with the Antigravity program. The repository path named on this
-   page exists only after the generated tree is committed.
+.. The plugin has not been run with the Antigravity program; see Not tested.
 
 .. _agents-antigravity:
 
@@ -48,16 +46,26 @@ Installing the plugin
 ---------------------
 
 Antigravity installs a plugin from a GitHub URL only when the plugin is at the
-root of the repository. The plugin of ANet is a subdirectory of the ANet
-repository, so it is installed from a local copy:
+root of the repository. The plugin of ANet is generated into a subdirectory of
+the ANet repository, and the same tree is published at the root of the
+repository ``ANetResearch/anet-plugins``:
+
+.. code-block:: console
+
+   $ agy plugin install https://github.com/ANetResearch/anet-plugins
+
+``ANetResearch/anet-plugins`` is a generated mirror: its default branch holds
+``deploy/plugins/dist/antigravity`` of the ANet repository unchanged, and it is
+not edited by hand. The plugin can also be installed from a local copy of the
+ANet repository:
 
 .. code-block:: console
 
    $ git clone https://github.com/ANetResearch/ANet.git
    $ agy plugin install ./ANet/deploy/plugins/dist/antigravity
 
-In the desktop application, add the same directory under Customizations. Start
-a new session afterwards.
+In the desktop application, add the directory under Customizations. Start a new
+session afterwards.
 
 
 The plugin
@@ -194,7 +202,8 @@ Not tested
   ``ANTIGRAVITY_PLUGIN_ROOT``.
 * How the host exposes the path of a skill to the agent. The skills refer to
   the runner relative to the directory of their ``SKILL.md``.
-* The installation from a GitHub URL and the official plugin marketplace of
+* The installation from a GitHub URL, including from
+  ``ANetResearch/anet-plugins``, and the official plugin marketplace of
   Antigravity, which accepts one marketplace name only.
 * The plugin on macOS, and Antigravity on Windows, including a node inside
   WSL2.
@@ -233,3 +242,5 @@ References
 * Source of the plugin: ``deploy/plugins`` in the ANet repository (target
   ``antigravity`` of the plugin generator; the generated plugin is
   ``deploy/plugins/dist/antigravity``).
+* Mirror for the installation from a GitHub URL:
+  https://github.com/ANetResearch/anet-plugins

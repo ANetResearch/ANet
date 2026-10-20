@@ -1,7 +1,3 @@
-.. publication pending: the extension has not been published, and the
-   repository path and the release assets named on this page exist only after
-   the generated tree is committed and a release is made.
-
 .. _agents-gemini-cli:
 
 Gemini CLI
@@ -50,26 +46,34 @@ Prerequisites
 Installing the extension
 ------------------------
 
-Gemini CLI installs an extension from a Git or GitHub repository only when the
-file ``gemini-extension.json`` is at the root of the repository or of a release
-archive. The extension of ANet is a subdirectory of the ANet repository, so it
-is installed from a local copy:
+Gemini CLI installs an extension from a GitHub repository only when the file
+``gemini-extension.json`` is at the root of the repository or of a release
+archive. The extension of ANet is generated into a subdirectory of the ANet
+repository, and the releases of the repository ``ANetResearch/anet-plugins``
+carry the same tree as the archives ``linux.anet.tar.gz`` and
+``darwin.anet.tar.gz``, with the manifest at the root:
+
+.. code-block:: console
+
+   $ gemini extensions install https://github.com/ANetResearch/anet-plugins
+
+Gemini CLI installs the archive of the latest release for the operating system,
+and asks whether the directory is trusted and for the two settings described
+below. An empty answer selects the default. ``ANetResearch/anet-plugins`` is a
+generated mirror and is not edited by hand: the file ``SHA256SUMS`` of each
+release lists the SHA-256 of both archives, and the branch ``gemini-cli`` holds
+the same tree as ``deploy/plugins/dist/gemini-cli`` of the ANet repository.
+The archives are written by ``deploy/plugins/build.py --site``.
+
+The extension can also be installed from a local copy of the ANet repository:
 
 .. code-block:: console
 
    $ git clone https://github.com/ANetResearch/ANet.git
    $ gemini extensions install ./ANet/deploy/plugins/dist/gemini-cli
 
-Gemini CLI asks whether the directory is trusted and for the two settings
-described below. An empty answer selects the default. The extension is copied;
-after a change of the source, run ``gemini extensions update anet`` or install
-it again, and start a new session.
-
-The release assets ``linux.anet.tar.gz`` and ``darwin.anet.tar.gz`` that
-``deploy/plugins/build.py --site`` writes contain the same tree with the
-manifest at the root. When they are attached to a release of a GitHub
-repository, ``gemini extensions install <owner>/<repository>`` installs the
-extension from that release.
+The extension is copied; after a change of the source, install it again, and
+start a new session.
 
 
 The extension
@@ -205,9 +209,9 @@ Not tested
   model served through a local interface that is compatible with the Gemini
   API, because the Google endpoint requires a Google account. The behaviour of
   Gemini models with the skills was not tested.
-* The installation from GitHub with ``gemini extensions install <owner>/<repository>``
-  and from a release asset. Only the installation from a local directory was
-  run.
+* The update of an extension installed from a release
+  (``gemini extensions update anet``). The installation from
+  ``ANetResearch/anet-plugins`` and from a local directory was run.
 * The extension gallery of Gemini CLI.
 * The complete ``anet-setup`` procedure. In the non-interactive mode
   (``--yolo``), Gemini CLI 0.64.0 ran ``bin/anet-install.sh`` and installed
@@ -255,3 +259,5 @@ References
 * Source of the extension: ``deploy/plugins`` in the ANet repository (target
   ``gemini-cli`` of the plugin generator; the generated extension is
   ``deploy/plugins/dist/gemini-cli``).
+* Mirror for the installation from GitHub:
+  https://github.com/ANetResearch/anet-plugins

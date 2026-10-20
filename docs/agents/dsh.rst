@@ -1,5 +1,3 @@
-.. publication pending
-
 .. _agents-dsh:
 
 DeepSeek Harness (DSH)
@@ -73,8 +71,6 @@ the skills reach the same executable and identity.
 
 Installing the plugin
 ---------------------
-
-.. publication pending
 
 .. code-block:: console
 
