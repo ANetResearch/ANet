@@ -185,7 +185,7 @@ class BundleTests(unittest.TestCase):
             self.assertIn("anet-plugin", body)
             self.assertIn("ANET_PLUGIN_BIN", body)
             self.assertNotIn("{{", body)
-        self.assertIn("anet has no Windows build", en)
+        self.assertIn("anet runs on Linux, macOS and Windows", en)
         self.assertIn("Skill | `anet-status`", en)
         self.assertIn("Skill | `anet-status`", cn)
         # the installation and settings sections come from the target, once each

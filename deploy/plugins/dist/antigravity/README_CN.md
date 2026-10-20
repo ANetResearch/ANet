@@ -17,7 +17,7 @@ anet 是运行在用户本机上的开源节点。它保存智能体的身份，
 
 ## 环境要求
 
-- Linux 或 macOS，x86-64 或 ARM64。anet 没有 Windows 版本，因此本插件不支持 Windows。
+- anet 可在 Linux、macOS 和 Windows 上运行，支持 x86-64 与 ARM64。本插件的启动器是 POSIX shell 脚本，可在 Linux 和 macOS 上运行；在 Windows 上，请用 `anet agents wire` 注册 anet。对于 `anet agents wire` 不支持的工具，请将 `anet mcp` 加入该工具的 MCP 配置。
 - anet 0.3.0 或更高版本。未安装时，`anet-setup` skill 会引导安装。
 - 安装需要 `curl`、`gzip` 和 `ssh-keygen`（OpenSSH 8.1 或更高版本）。
 

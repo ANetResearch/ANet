@@ -153,7 +153,7 @@ class ManifestTests(unittest.TestCase):
         self.assertIn("Do not run them on the user's behalf", setup)
         self.assertIn("`~/.codebuddy` or `~/.workbuddy`", setup)  # the host configuration is named as off limits
         self.assertIn("Never read or edit the CodeBuddy configuration", setup)
-        self.assertIn("no Windows build", setup)
+        self.assertIn("do not run on Windows", setup)
 
     def test_readme(self):
         for name in ("README.md", "README_CN.md"):

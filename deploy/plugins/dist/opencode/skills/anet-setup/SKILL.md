@@ -16,8 +16,12 @@ guess.
 
 ## 1. Platform
 
-anet runs on Linux and macOS (x86-64 and ARM64). On Windows, stop and tell the user that anet
-has no Windows build.
+anet runs on Linux, macOS and Windows (x86-64 and ARM64). On Windows, stop and tell the user to
+install anet with the PowerShell installer (see the installation page,
+https://docs.agentnetwork.org.cn/docs/en/latest/intro/install.html#installing-on-windows), then register it with
+`anet agents wire <tool>`, or, for a tool that `anet agents wire` does not support, to add
+`anet mcp` to the MCP configuration of the tool; the launchers of this plugin are POSIX shell
+scripts and do not run on Windows.
 
 ## 2. Find the anet executable
 

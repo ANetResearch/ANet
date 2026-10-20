@@ -25,10 +25,11 @@ export default {
   id: "anet",
   server: async (input, options) => {
     if (process.platform === "win32") {
-      // anet has no Windows build, and the launchers are POSIX shell scripts.
+      // The launchers of this plugin are POSIX shell scripts and do not run on Windows;
+      // on Windows, anet is registered with `anet agents wire opencode` instead.
       try {
         await input?.client?.app?.log?.({
-          body: { service: "anet", level: "warn", message: "The anet plugin supports Linux and macOS only; it is not active." },
+          body: { service: "anet", level: "warn", message: "The launchers of the anet plugin are POSIX shell scripts and do not run on Windows; the plugin is not active. Register anet with anet agents wire opencode." },
         })
       } catch {}
       return {}

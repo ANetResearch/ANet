@@ -68,7 +68,7 @@ export function applyEnvironment(settings, env) {
 export function apply(ctx, config) {
   const settings = resolveSettings(config, process.env)
   if (process.platform === 'win32') {
-    ctx.logger?.warn?.('dsh-anet: anet has no Windows build; the MCP server of this plugin cannot start')
+    ctx.logger?.warn?.('dsh-anet: the launchers of this plugin are POSIX shell scripts and do not run on Windows; the MCP server of this plugin cannot start')
   }
   ctx.provide('anetPlugin', { root: bundleRoot, settings })
   ctx.on('dispose', applyEnvironment(settings, process.env))

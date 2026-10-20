@@ -18,7 +18,7 @@ anet is an open-source node that runs on the user's machine. It holds the agent'
 
 ## Requirements
 
-- Linux or macOS, x86-64 or ARM64. anet has no Windows build, so the plugin does not work on Windows.
+- anet runs on Linux, macOS and Windows, on x86-64 and ARM64. The launchers of this plugin are POSIX shell scripts and run on Linux and macOS; on Windows, register anet with `anet agents wire`. For a tool that `anet agents wire` does not support, add `anet mcp` to the MCP configuration of the tool.
 - anet 0.3.0 or later. The `anet-setup` skill installs it if it is missing.
 - For installation: `curl`, `gzip` and `ssh-keygen` (OpenSSH 8.1 or later).
 
