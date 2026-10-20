@@ -804,3 +804,78 @@ func TestInstallShDieAfterTakeover(t *testing.T) {
 	mustContain(t, "output", out, "Error: could not write it\nThe new binary was not installed. Already done:\n  - the daemon of AgentNetwork 1.1.15\n")
 	mustNotContain(t, "output", out, "Nothing was installed", "  - x\n")
 }
+
+// A file named anet at the destination that carries neither module path is
+// not a program of AgentNetwork or anet: it is neither run nor replaced,
+// and the install is refused before anything is changed. A link to a file
+// that no longer exists is replaced, and a binary of this project whose
+// version does not read is replaced with a warning.
+func TestInstallShForeignDest(t *testing.T) {
+	e := newLegacyEnv(t)
+	dest := filepath.Join(e.home, ".local", "bin", "anet")
+	foreign := e.fakeAnet(dest, "no marker", "anet 9.9.9 (commit x, built y)")
+	out, code := e.run(`VERSION=0.3.5; BASE=https://example.invalid; check_downgrade; echo REACHED`)
+	if code != 1 {
+		t.Fatalf("exit %d, want 1:\n%s", code, out)
+	}
+	mustContain(t, "output", out, dest+" exists and is not a program of AgentNetwork or anet", "Nothing was installed or changed.")
+	mustNotContain(t, "output", out, "REACHED")
+	if strings.Contains(e.calls(), foreign) {
+		t.Errorf("the foreign file was run:\n%s", e.calls())
+	}
+	if err := os.Remove(dest); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(e.root, "gone", "anet"), dest); err != nil {
+		t.Fatal(err)
+	}
+	out, code = e.run(`VERSION=0.3.5; BASE=https://example.invalid; check_downgrade; echo REACHED`)
+	if code != 0 {
+		t.Fatalf("exit %d:\n%s", code, out)
+	}
+	mustContain(t, "output", out, "is a link to a file that no longer exists; it will be replaced", "REACHED")
+	if err := os.Remove(dest); err != nil {
+		t.Fatal(err)
+	}
+	e.fakeAnet(dest, markerANet, "garbage")
+	out, code = e.run(`VERSION=0.3.5; BASE=https://example.invalid; check_downgrade; echo REACHED`)
+	if code != 0 {
+		t.Fatalf("exit %d:\n%s", code, out)
+	}
+	mustContain(t, "output", out, "cannot read the version of the existing "+dest+"; it will be replaced", "REACHED")
+}
+
+// After a stop, move_legacy_data waits, bounded, for the daemon to exit
+// before deciding that the directory is still in use: the process named in
+// daemon.pid ends within the wait, and the directory is moved.
+func TestInstallShWaitsForLegacyExit(t *testing.T) {
+	e := newLegacyEnv(t)
+	dir := filepath.Join(e.home, ".anet")
+	e.write(filepath.Join(dir, "api_token"), "t", 0o600)
+	sleep, err := exec.LookPath("sleep")
+	if err != nil {
+		t.Skip(err)
+	}
+	b, err := os.ReadFile(sleep)
+	if err != nil {
+		t.Skip(err)
+	}
+	fake := e.write(filepath.Join(e.root, "proc", "anet"), string(b), 0o755)
+	p := exec.Command(fake, "3")
+	if err := p.Start(); err != nil {
+		t.Skip(err)
+	}
+	// Reaped as soon as it exits: a zombie would still be listed by ps.
+	done := make(chan struct{})
+	go func() { _ = p.Wait(); close(done) }()
+	t.Cleanup(func() { _ = p.Process.Kill(); <-done })
+	e.write(filepath.Join(dir, "daemon.pid"), fmt.Sprint(p.Process.Pid), 0o600)
+	out, code := e.run(`_st_done=" v1"; move_legacy_data; echo "HELD=$DATA_HELD"`)
+	if code != 0 {
+		t.Fatalf("exit %d:\n%s", code, out)
+	}
+	mustContain(t, "output", out, "HELD=0")
+	if moved, _ := filepath.Glob(dir + "-legacy-*"); len(moved) != 1 {
+		t.Fatalf("moved %v:\n%s", moved, out)
+	}
+}

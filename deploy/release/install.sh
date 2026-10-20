@@ -452,7 +452,10 @@ apply_without() {
 
 # check_downgrade: the anet already at DEST, if any, must not be newer.
 # A validly signed OLD release is exactly what a host that wants to roll
-# a fix back would serve.
+# a fix back would serve. Nothing at DEST is run here: classify_anet has
+# read the version of a binary that carries one of the two module paths,
+# and a file that carries neither is not a program of AgentNetwork or anet
+# and is neither run nor replaced.
 check_downgrade() {
   INSTALLED=""
   # An earlier release at DEST is replaced whatever its number says:
@@ -463,18 +466,23 @@ check_downgrade() {
       npm-legacy|bin-legacy)
         say "  $DEST is an earlier release (${CL_VER:-version unknown}); it will be replaced"
         return 0 ;;
-      npm-current)
-        # The launcher is not run: its version is that of its package.
+      npm-current|bin-current)
+        # The npm launcher is not run: its version is that of its package.
         INSTALLED=$CL_VER ;;
+      *)
+        if [ -L "$DEST" ] && [ ! -e "$DEST" ]; then
+          say "  $DEST is a link to a file that no longer exists; it will be replaced"
+          return 0
+        fi
+        if [ -f "$CL_TARGET" ] && LC_ALL=C grep -q 'github.com/ANetResearch/ANet' "$CL_TARGET" 2>/dev/null; then
+          warn "cannot read the version of the existing $DEST; it will be replaced"
+          return 0
+        fi
+        die "$DEST exists and is not a program of AgentNetwork or anet; it was not run and is not changed.
+  Move it away, or install into another directory with --prefix DIR, then run this again." ;;
     esac
   fi
-  if [ -z "$INSTALLED" ] && [ -x "$DEST" ]; then
-    INSTALLED="$("$DEST" version 2>/dev/null | sed -n '1s/^anet \([0-9][^ ]*\) .*/\1/p')" || INSTALLED=""
-  fi
-  if [ -z "$INSTALLED" ]; then
-    [ -e "$DEST" ] && warn "cannot read the version of the existing $DEST; it will be replaced"
-    return 0
-  fi
+  [ -n "$INSTALLED" ] || return 0
   case "$(vercmp "$VERSION" "$INSTALLED")" in
     -1) die "$DEST is anet $INSTALLED, newer than the release on offer ($VERSION).
   Refusing to downgrade. If $BASE is a stale mirror, --base URL tries another
@@ -618,7 +626,9 @@ record_release() {
 #   anet 0.1, 0.2     binaries of the earlier releases of this project:
 #                     `anet version` prints "anet 0.2.1 (commit …)".
 # A file named anet that has neither module path is not run, not changed and
-# not removed; if it comes first on PATH, the PATH block below shadows it.
+# not removed; if it comes first on PATH, the PATH block below shadows it,
+# and if it sits at the destination itself, the install is refused before
+# anything is changed (check_downgrade).
 # An anet of 0.3 or later, and the npm launcher of 0.3 or later, are left in
 # place, and reported.
 #
@@ -972,6 +982,15 @@ move_legacy_data() {
   _ts=$(date -u +%Y%m%dT%H%M%SZ)
   _to="${DATA_DIR}-legacy-${_lab}-${_ts}"
   [ ! -e "$_to" ] || _to="${_to}-$$"
+  # A daemon that stop_legacy asked to stop may exit after its stop command
+  # returns: wait for it, at most 10 seconds, before deciding that the
+  # directory is still in use.
+  if [ -n "${_st_done:-}" ]; then
+    _dw=0
+    while [ "$_dw" -lt 10 ] && data_busy "$DATA_DIR" "$DATA_KIND"; do
+      sleep 1; _dw=$((_dw + 1))
+    done
+  fi
   if data_busy "$DATA_DIR" "$DATA_KIND"; then
     DATA_HELD=1
     note manual "$DATA_DIR holds data of an earlier release that a running daemon may still use, so it was not moved. Stop that daemon, then: mv '$DATA_DIR' '$_to' && anet init"
