@@ -18,7 +18,28 @@ or the data format. It consists of ``anet`` 0.3.6; ANetCore v0.16.1, ANetHub 0.3
 ANetLink v0.2.0 are unchanged. A 0.3.5 node and a 0.3.6 node work together, and the
 hubs need no upgrade. See :ref:`upgrading-036`.
 
-.. Windows installation: the entry for install.ps1 is added by the Windows installer change.
+Windows installation
+~~~~~~~~~~~~~~~~~~~~
+
+* ``install.ps1`` downloads its release from the npm mirror ``registry.npmmirror.com`` or
+  from the GitHub release of the project, whichever answers first in a parallel probe of at
+  most 4 seconds, then from ``registry.npmjs.org``, jsDelivr and last the project's hosts. A
+  source that does not serve the release is passed over; a file that fails a check ends the
+  installation, whichever source served it. See :ref:`intro-install-windows-sources`.
+* The output is a short summary: whether ANet is installed and running, the AID of the node,
+  the hub, the agent given remote control and the command that revokes it, a takeover in one
+  line, ``Note:`` lines only for what is left to the user, and the path of the log of the run.
+  The download is shown as one line with a bar, the speed and the time remaining on an
+  interactive console. Everything else is written to
+  ``%USERPROFILE%\.anet\logs\install-<UTC time>.log``. See
+  :ref:`intro-install-windows-output`.
+* Without ``-Controller``, the line also starts the node and joins the hub, as ``install.sh``
+  does. The new parameter ``-NoStart`` installs without starting the node.
+* ``anet hub-register`` always runs with ``--passphrase-later``.
+* A daemon of AgentNetwork 1.x that still holds the data directory is stopped by the
+  installer, through its local API and then by its process ID, after its program has been
+  checked. A data directory with a 0.3 identity and a running 0.3 daemon is no longer reported
+  as held by an earlier release. See :ref:`intro-install-windows-earlier`.
 
 Linux and macOS installation
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~

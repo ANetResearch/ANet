@@ -22,7 +22,12 @@
 ## 变更
 
 ### Windows 安装
-<!-- TODO（Windows 安装程序变更）：install.ps1 的变更。 -->
+- 下载源。`install.ps1` 只安装其所属的发布版本，因此每个下载源均按该版本请求。并行探测 npm 镜像 `registry.npmmirror.com`（该版本 npm 包的压缩包）与本项目的 GitHub 发布，每个最多 3 秒，总计最多 4 秒；已响应的下载源优先尝试，响应较快者在前。其后依次为 `registry.npmjs.org`、jsDelivr，最后为 `agentnetwork.org.cn` 与 `hub.agentnetwork.org.cn`。下载源未提供该发布版本时（无响应、HTTP 错误、返回网页而非文件、缺少文件或提供其他版本），改用下一个下载源。下载源只决定文件的来源：无论由哪个下载源提供，任一文件未通过发布固定值或签名检查即终止安装。npm 压缩包在内存中读取；压缩包中只要有一个条目的名称不是普通的相对路径，整个压缩包即被拒绝。从 GitHub 下载时仅允许重定向到 `github.com` 与 `*.githubusercontent.com`。`-Base` 与 `ANET_INSTALL_BASE` 仍替换下载源。
+- 输出。安装程序每个阶段输出一行，最后输出简短的摘要：anet 是否已安装并正在运行、节点的完整 AID、hub 及节点是否已加入（或供 hub 运营者运行的 `anet-hub admit` 命令）、使用 `-Controller` 时获得远程控制权限的代理及撤销命令、接管了较早安装时的一行说明、仅在有需要用户处理的事项时出现的 `Note:` 行，最后一行为 `Details:` 及本次运行的日志路径。在交互式控制台中，下载显示为原地更新的一行，包含进度条、大小、速度与剩余时间；`NO_COLOR` 关闭颜色，控制台代码页无法显示时进度条改用 ASCII 字符。没有交互式控制台时，下载以一行报告。设置 `ANET_LANG=zh...` 时，摘要以中文显示。
+- 日志。其余全部内容（探测与尝试过的下载源、每项检查、接管的每个步骤、对 `PATH` 与 `Run` 值的更改，以及 `anet init`、`anet up`、`anet doctor` 与 `anet hub-register` 的输出）写入 `%USERPROFILE%\.anet\logs\install-<UTC 时间>.log`，所在目录具有私有访问控制列表；数据目录尚不可用时（被拒绝，或其中仍有早期版本的数据），写入 `%TEMP%\anet-install\`。拒绝或失败以一行 `Error:` 报告，其后为 `Details:` 行；退出状态 0、1、3 不变。
+- 不带 `-Controller` 时，该命令现在同样启动节点、加入 `https://hub.agentnetwork.org.cn`，并设置为每次登录时启动，与 `install.sh` 相同。新参数 `-NoStart` 只安装，不启动节点也不加入 hub；`-NoJoin` 启动节点但不加入 hub。再次运行该命令时，运行较早版本的节点会以新的二进制文件重新启动。
+- `anet hub-register` 始终以 `--passphrase-later` 运行，不进行任何询问。
+- 停止命令运行后仍占用数据目录的 AgentNetwork 1.x 守护进程，由安装程序停止：先通过其本地 API（`127.0.0.1:3998` 上的 `POST /api/shutdown`，使用数据目录中的 API 令牌）请求关闭，10 秒后仍在运行则按进程 ID 终止。仅当进程的程序载有 AgentNetwork 1.x 的模块路径时，才认定其为此类守护进程；0.3 或更高版本的守护进程，以及沿用过期 `daemon.pid` 中进程 ID 的其他程序，绝不会被认定，因此含有 0.3 身份且有 0.3 守护进程运行的数据目录不再被报告为被早期版本占用。安装程序不按名称终止任何进程。
 
 ### Linux 与 macOS 安装
 - 安装只需一行命令，安装程序从不读取其输入：

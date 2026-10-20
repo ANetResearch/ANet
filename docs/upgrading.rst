@@ -323,7 +323,16 @@ files of npm packages are no longer requested from unpkg or by path from npmmirr
 variable ``ANET_INSTALL_BASE`` now replaces every source of ``anet update``, as ``--base``
 does, instead of being tried before the default sources. The checks are unchanged.
 
-.. Windows: the paragraph on install.ps1 is added by the Windows installer change.
+On Windows, running the installation command again updates the node and restarts a node of
+an earlier version with the new binary. Without ``-Controller``, the command now also starts
+the node and registers it with ``https://hub.agentnetwork.org.cn``; a script that relied on
+the 0.3.5 behaviour, in which the plain command only installed, passes ``-NoStart`` (neither
+start nor join) or ``-NoJoin`` (start without joining). The installer prints a short summary
+and writes the details to ``%USERPROFILE%\.anet\logs\install-<UTC time>.log``; a script that
+parsed the earlier output reads the summary lines or the log instead (see
+:ref:`intro-install-windows-output`). The download sources changed (see
+:ref:`intro-install-windows-sources`); a mirror or a CI job that sets ``-Base`` or
+``ANET_INSTALL_BASE`` is not affected.
 
 
 .. _upgrading-035:

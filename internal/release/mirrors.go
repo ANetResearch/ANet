@@ -11,18 +11,6 @@ package release
 // checked against the signed manifest.
 const NPMScope = "@agentnetwork"
 
-// npmMirrors are the download bases of the npm package of a build that
-// install.ps1 tries after DefaultBases, in its order, as a function of the
-// package name. npmmirror serves the files of a package only after the
-// package is admitted to its list of packages with file access; until then
-// it answers 403 and the next mirror is tried. `anet update` and
-// install.sh use Sources instead.
-var npmMirrors = []func(pkg string) string{
-	func(pkg string) string { return "https://registry.npmmirror.com/" + pkg + "/latest/files" },
-	func(pkg string) string { return "https://cdn.jsdelivr.net/npm/" + pkg + "@latest" },
-	func(pkg string) string { return "https://unpkg.com/" + pkg + "@latest" },
-}
-
 // variants are the builds that build-release.sh publishes. A mirror base is
 // needed before the manifest is read, so the asset prefix follows the rule
 // build-release.sh writes into release.json: anet for the default build and

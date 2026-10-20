@@ -191,3 +191,24 @@ func TestDelegateToAQuietRecipientPrintsTheDeliveryLine(t *testing.T) {
 		t.Errorf("delivery line: %q", errOut)
 	}
 }
+
+// The command list of a bare `anet` names real commands only, for the same reason as the banner.
+func TestTheGuideNamesOnlyRealCommands(t *testing.T) {
+	known := map[string]bool{}
+	for _, g := range dispatchCommands(t) {
+		for _, n := range g {
+			known[n] = true
+		}
+	}
+	// Commands that main dispatches before the client table (agents, doctor, ...) are in the help.
+	for _, sec := range helpSections() {
+		for _, e := range sec.entries {
+			known[strings.Fields(e.use)[0]] = true
+		}
+	}
+	for _, c := range guideCommands {
+		if !known[c.name] {
+			t.Errorf("a bare anet lists %q, which `anet %s` answers with `unknown command`", c.name, c.name)
+		}
+	}
+}

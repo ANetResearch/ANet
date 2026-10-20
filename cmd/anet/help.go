@@ -222,18 +222,39 @@ func guideBanner() string {
 	return strings.Join(guideBannerCommands, " · ") + " — " + helpTagline(a2ashape.Lang())
 }
 
-// guide is a bare `anet`: where this node stands and what to do next. It
-// asks the running daemon (/status) and says, in the daemon's own
-// sentences, whether it runs, the recovery reminder (ux §3.4 (g)) and the hub line
-// with its command; then the common commands. The next steps follow the
-// state: a node without a hub is told the one command that joins one,
-// a joined node how to find agents and send them tasks.
+// guideCommand is one row of the command list a bare `anet` prints: the
+// command word and what it is for, in each language.
+type guideCommand struct{ name, en, zh string }
+
+// guideCommands are the commands a bare `anet` lists, in the order a person
+// uses them. Every name is a real command (TestTheGuideNamesOnlyRealCommands).
+var guideCommands = []guideCommand{
+	{"find", "List the agents on the hub", "列出 hub 上的 agent"},
+	{"delegate", "Send a task to an agent", "向 agent 发送任务"},
+	{"inbox", "Tasks sent to this node", "发给本节点的任务"},
+	{"peers", "Choose which agents may send tasks to this node", "设定哪些 agent 可以向本节点发送任务"},
+	{"agents", "Connect coding agents: anet agents wire --all", "接入编码 agent：anet agents wire --all"},
+	{"console", "Open the local console", "打开本机控制台"},
+	{"status", "Show the state of this node", "查看本节点的状态"},
+	{"doctor", "Check the setup", "检查配置"},
+}
+
+// guide is a bare `anet`: a short overview in the manner of other command
+// line tools. It asks the running daemon (/status) for the node's state and
+// prints three status rows (node, AID, hub), each with the one command that
+// moves it on when something is missing, then the common commands and where
+// the rest are listed. The full help is `anet help --all`.
 func guide(layout daemon.Layout) {
 	w := outW()
 	lang := a2ashape.Lang()
-	fmt.Fprintf(w, "anet %s — %s\n", daemon.Version, helpTagline(lang))
-	fmt.Fprintln(w, strings.Join(guideBannerCommands, " · "))
-	fmt.Fprintln(w)
+	zh := lang == a2ashape.Chinese
+	pick := func(en, cn string) string {
+		if zh {
+			return cn
+		}
+		return en
+	}
+	fmt.Fprintf(w, "anet %s — %s\n\n", daemon.Version, pick("agent-to-agent tasks over A2A", "agent 之间基于 A2A 的任务"))
 
 	var st map[string]any
 	running := false
@@ -243,56 +264,50 @@ func guide(layout daemon.Layout) {
 			running = jsonObject(b, &st)
 		}
 	}
-	if !running {
-		args := a2ashape.Args{"path": layout.Root}
-		sayRefusal(w, "daemon_not_running", lang, args)
-		fmt.Fprintln(w)
-		renderHelpCommon(w, lang)
-		return
+	row := func(label, value string) {
+		fmt.Fprintf(w, "  %s%s %s\n", label, strings.Repeat(" ", max(0, 6-displayWidth(label))), value)
 	}
-	aid, _ := st["aid"].(string)
-	fmt.Fprintf(w, "%s  %s\n", a2ashape.Label("status.identity", lang), aid)
-	if id, _ := st["identity"].(map[string]any); id != nil {
-		if r, _ := id["recovery"].(map[string]any); r != nil {
-			if msg, _ := r["message"].(string); msg != "" {
-				next, _ := r["next"].(string)
-				fmt.Fprintf(w, "%s  %s\n", a2ashape.Label("status.recovery", lang), oneLine(msg, maxLineRunes))
-				if next = oneLine(next, maxLineRunes); next != "" {
-					fmt.Fprintln(w, nextPrefix+next)
+	note := ""
+	if !running {
+		row(pick("Node", "节点"), pick("not running; start it with: anet up", "未运行；启动：anet up"))
+	} else {
+		row(pick("Node", "节点"), pick("running", "运行中"))
+		if aid, _ := st["aid"].(string); aid != "" {
+			row("AID", aid)
+		}
+		hub, _ := st["hub"].(map[string]any)
+		url, _ := hub["url"].(string)
+		state, _ := hub["state"].(string)
+		switch {
+		case state == daemon.JoinRegistered:
+			row("Hub", url+pick(" (joined)", "（已加入）"))
+		case state == daemon.JoinPendingAdmission:
+			row("Hub", url+pick(" (waiting for the operator to admit this node)", "（等待运营者准入本节点）"))
+		case state == daemon.JoinRetrying || state == daemon.JoinRefused:
+			msg, _ := hub["message"].(string)
+			row("Hub", oneLine(msg, 160))
+		default:
+			row("Hub", pick("not joined; join with: anet hub-register https://hub.agentnetwork.org.cn --passphrase-later",
+				"未加入；加入：anet hub-register https://hub.agentnetwork.org.cn --passphrase-later"))
+		}
+		if id, _ := st["identity"].(map[string]any); id != nil {
+			if r, _ := id["recovery"].(map[string]any); r != nil {
+				if state, _ := r["state"].(string); state == daemon.RecoveryUnprotected {
+					note = pick("Note: no recovery passphrase is set; set one with: anet identity protect",
+						"注意：尚未设置恢复口令；设置：anet identity protect")
 				}
 			}
 		}
 	}
-	registered := false
-	if hub, _ := st["hub"].(map[string]any); hub != nil {
-		state, _ := hub["state"].(string)
-		registered = state == daemon.JoinRegistered
-		if msg, _ := hub["message"].(string); msg != "" {
-			next, _ := hub["next"].(string)
-			fmt.Fprintf(w, "%s  %s\n", a2ashape.Label("status.hub", lang), oneLine(msg, maxLineRunes))
-			if next = oneLine(next, maxLineRunes); next != "" {
-				fmt.Fprintln(w, nextPrefix+next)
-			}
-		}
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, pick("Commands", "命令"))
+	for _, c := range guideCommands {
+		fmt.Fprintf(w, "  %-10s %s\n", c.name, pick(c.en, c.zh))
 	}
 	fmt.Fprintln(w)
-	if registered {
-		renderHelpCommon(w, lang)
-		return
+	if note != "" {
+		fmt.Fprintln(w, note)
 	}
-	// Not joined yet: the hub line's command is the next step; until then
-	// the commands that need a hub would only refuse.
-	var rows []helpEntry
-	for _, s := range helpSections() {
-		for _, e := range s.entries {
-			if e.common && (strings.HasPrefix(e.use, "doctor") || strings.HasPrefix(e.use, "hub-register") ||
-				strings.HasPrefix(e.use, "agents wire") || strings.HasPrefix(e.use, "console")) {
-				rows = append(rows, e)
-			}
-		}
-	}
-	writeHelpRows(w, rows, lang == a2ashape.Chinese)
-	fmt.Fprintln(w)
 	fmt.Fprintln(w, helpAllPointer(lang))
 }
 
