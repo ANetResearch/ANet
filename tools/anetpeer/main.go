@@ -293,6 +293,7 @@ type handOffAnswer struct {
 }
 
 func main() {
+	refuseUnsupportedPlatform()
 	sock := flag.String("socket", "", "socket the daemon's p2p module connects to (modules.p2p.socket)")
 	peerSock := flag.String("peer", "", "where other peer processes connect: a TCP address (:39100) or a socket path")
 	lan := flag.Bool("lan", false,

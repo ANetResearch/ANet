@@ -17,9 +17,9 @@ import (
 // joinRecovery is the next_digest a first join commits to, whether the seed it comes from has no
 // passphrase (no terminal, KEL D-11), and what to do once the daemon has taken the digest (delete
 // the unprotected files a join with a passphrase replaces). With a terminal the user sets or enters
-// the recovery passphrase (D-10); without one the seed is kept under a local key in the data
-// directory (C-36) and the identity is reported as having no passphrase. A variable so that a test
-// can replace it.
+// the recovery passphrase (D-10); without one, or with --passphrase-later, the seed is kept under a
+// local key in the data directory (C-36) and the identity is reported as having no passphrase. A
+// variable so that a test can replace it.
 var joinRecovery = func(h hubCLI, dataDir, hub string, flags map[string]string) (digest []byte, unprotected bool, done func(), err error) {
 	layout := daemon.Layout{Root: dataDir}
 	st, err := daemon.ReadIdentityStatus(layout, h.lang)
@@ -27,12 +27,16 @@ var joinRecovery = func(h hubCLI, dataDir, hub string, flags map[string]string) 
 		return nil, false, nil, err
 	}
 	x := &identityCLI{layout: layout, flags: flags, lang: h.lang, out: h.stdout, err: h.stderr}
-	if !h.terminal() {
+	if passphraseLater(flags) || !h.terminal() {
 		d, err := x.joinWithoutTerminal(st, hub)
 		return d, true, nil, err
 	}
 	return x.joinWithTerminal(st, hub)
 }
+
+// passphraseLater reports `hub-register --passphrase-later`: the join takes the path of KEL D-11 even
+// when a terminal is there, and the recovery passphrase is set afterwards with anet identity protect.
+func passphraseLater(flags map[string]string) bool { return flags["passphrase-later"] == "true" }
 
 // joinWithoutTerminal is KEL D-11: the join goes through, the passphrase comes later. A file or a
 // new seed asked for by flag needs a terminal, and says so.

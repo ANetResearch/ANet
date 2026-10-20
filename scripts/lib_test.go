@@ -16,7 +16,6 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 )
@@ -99,7 +98,7 @@ type proc struct {
 func start(t *testing.T, name string, argv ...string) *proc {
 	t.Helper()
 	cmd := exec.Command(argv[0], argv[1:]...)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	newSession(cmd)
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -150,7 +149,7 @@ func TestStopUnderStopsOnlyWhatRunsFromThatPath(t *testing.T) {
 	// Someone reading a file under the path (less, an editor, tail): it names the path as argv[1] but runs
 	// nothing from there. cat on a FIFO blocks in open() with the FIFO as its argument.
 	fifo := filepath.Join(mine, "hub.log")
-	if err := syscall.Mkfifo(fifo, 0o600); err != nil {
+	if err := mkfifo(fifo, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	catBin, _ := exec.LookPath("cat")

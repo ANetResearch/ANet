@@ -2,7 +2,10 @@
 
 package main
 
-import "syscall"
+import (
+	"os/exec"
+	"syscall"
+)
 
 // detachSysProcAttr puts the spawned daemon in its own session (setsid) so it is not a child of the
 // launching shell's process group — it survives the shell (or an agent's tool-call) exiting. See
@@ -10,3 +13,7 @@ import "syscall"
 func detachSysProcAttr() *syscall.SysProcAttr {
 	return &syscall.SysProcAttr{Setsid: true}
 }
+
+// startDetached starts the detached daemon and returns the command that runs (spawn_windows.go may
+// start a second one without job breakaway).
+func startDetached(c *exec.Cmd) (*exec.Cmd, error) { return c, c.Start() }

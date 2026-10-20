@@ -1,0 +1,11 @@
+{
+  "type": "local",
+  "command": [
+    "C:\\Users\\A B\\AppData\\Local\\Programs\\anet\\anet.exe",
+    "mcp"
+  ],
+  "enabled": true,
+  "environment": {
+    "ANET_DATA_DIR": "C:\\Users\\A B\\.anet"
+  }
+}

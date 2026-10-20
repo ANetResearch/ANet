@@ -109,7 +109,7 @@ func (t claudeTool) planWire(o *Options) ([]change, error) {
 		if has && !t.ours(raw) {
 			return nil, conflict("wire_conflict.claude", "path", path)
 		}
-		if claude, err := o.LookPath("claude"); err == nil {
+		if claude, err := toolCLI(o, "claude"); err == nil {
 			w := claudeWant(o)
 			var run [][]string
 			if has {
@@ -182,7 +182,7 @@ func (t claudeTool) planUnwire(o *Options) ([]change, []Msg, error) {
 	if raw, has := servers.get("anet"); has {
 		if !t.ours(raw) {
 			notes = append(notes, msg("wire.note.foreign_entry", "path", short(o, path), "key", "mcpServers"))
-		} else if claude, err := o.LookPath("claude"); err == nil {
+		} else if claude, err := toolCLI(o, "claude"); err == nil {
 			changes = append(changes, change{
 				path: path, before: cur,
 				run: [][]string{{claude, "mcp", "remove", "-s", "user", "anet"}},

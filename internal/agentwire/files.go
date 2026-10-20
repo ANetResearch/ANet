@@ -102,7 +102,7 @@ func (c change) apply(o *Options) (string, error) {
 		perm &= c.narrow
 	}
 	if c.chmodOnly {
-		return "", ioError(c.path, os.Chmod(path, perm))
+		return "", ioError(c.path, chmodPrivate(path, perm))
 	}
 	var bak string
 	if cur != nil && (c.generated == nil || !bytes.Equal(cur, c.generated)) {
@@ -176,6 +176,11 @@ func backup(o *Options, path string, data []byte, perm fs.FileMode) (string, err
 		if err != nil {
 			return "", err
 		}
+		if err := protectNew(name, perm); err != nil {
+			f.Close()
+			os.Remove(name)
+			return "", err
+		}
 		if _, err := f.Write(data); err != nil {
 			f.Close()
 			os.Remove(name)
@@ -211,6 +216,9 @@ func writeAtomic(path string, data []byte, perm fs.FileMode) error {
 			os.Remove(tmp)
 		}
 	}()
+	if err := protectNew(tmp, perm); err != nil {
+		return err
+	}
 	if _, err := f.Write(data); err != nil {
 		return err
 	}
@@ -223,21 +231,16 @@ func writeAtomic(path string, data []byte, perm fs.FileMode) error {
 	if err := f.Close(); err != nil {
 		return err
 	}
-	if err := os.Rename(tmp, path); err != nil {
+	if err := replaceFile(tmp, path); err != nil {
 		return err
 	}
 	ok = true
 	return nil
 }
 
-// fileMode returns the permission bits of path, or 0 when it is absent.
-func fileMode(path string) fs.FileMode {
-	fi, err := os.Stat(path)
-	if err != nil {
-		return 0
-	}
-	return fi.Mode().Perm()
-}
+// fileMode returns the permission bits of path, or 0 when it is absent
+// (os_unix.go, os_windows.go).
+func fileMode(path string) fs.FileMode { return accessMode(path) }
 
 // short renders a path under home as ~/…, for output lines.
 func short(o *Options, p string) string {

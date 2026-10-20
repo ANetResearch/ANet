@@ -117,6 +117,12 @@ func watchTask(c *client, id string, reasoning bool) error {
 	w := &watcher{out: errW(), reasoning: reasoning, lang: a2ashape.Lang()}
 	if f, ok := w.out.(*os.File); ok {
 		w.tty = term.IsTerminal(int(f.Fd()))
+		if w.tty {
+			// A Windows console takes the escape sequences preview writes only in VT mode (console_*.go).
+			restore, vt := enableVT(f)
+			defer restore()
+			w.tty = vt
+		}
 	}
 	r := bufio.NewReaderSize(resp.Body, 64<<10)
 	var name string

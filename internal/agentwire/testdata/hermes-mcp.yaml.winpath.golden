@@ -1,0 +1,9 @@
+  # >>> anet mcp (managed by `anet agents wire`; edits inside this block are overwritten) >>>
+  anet:
+    command: "C:\\Users\\A B\\AppData\\Local\\Programs\\anet\\anet.exe"
+    args: ["mcp"]
+    env:
+      ANET_DATA_DIR: "C:\\Users\\A B\\.anet"
+    timeout: 900
+    connect_timeout: 30
+  # <<< anet mcp <<<

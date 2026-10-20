@@ -345,8 +345,8 @@ func readToken(raw string) (string, error) {
 	if !fi.Mode().IsRegular() {
 		return "", fmt.Errorf("token file %s is not a regular file", path)
 	}
-	if fi.Mode().Perm()&0o007 != 0 {
-		return "", fmt.Errorf("token file %s is accessible to other users (mode %04o); chmod o-rwx", path, fi.Mode().Perm())
+	if err := checkTokenFileAccess(path, fi); err != nil {
+		return "", err
 	}
 	b, err := io.ReadAll(io.LimitReader(f, 4096))
 	if err != nil {

@@ -468,7 +468,8 @@ func runDaemonDetached(layout daemon.Layout) error {
 	c.Stdout = logf
 	c.Stderr = logf
 	c.SysProcAttr = detachSysProcAttr() // new session so it outlives the launching shell (see spawn_*.go)
-	if err := c.Start(); err != nil {
+	c, err = startDetached(c)
+	if err != nil {
 		return fmt.Errorf("start daemon: %w", err)
 	}
 	// Keep the handle and reap in the background instead of releasing it.
@@ -586,6 +587,8 @@ func stopHint(name string) string {
 // runUp starts a node detached: `anet up [name] [--all]`. With --all it brings up every known identity;
 // with a positional name it targets that identity; otherwise it uses the resolved selection.
 func runUp(idFlag string, rest []string) error {
+	// Started at logon by the Run value, `anet up` has a console window of its own: hide it (Windows only).
+	hideOwnConsoleIfAlone()
 	// ANET_INVITE is ignored, said once (LEC AV-5).
 	defaultHubCLI().warnInviteEnv()
 	pos, flags := splitFlags(rest)
@@ -1027,8 +1030,8 @@ var knownFlags = map[string][]string{
 	"help":     {"all"},
 	"mcp":      {},
 	"version":  {},
-	"update":   {"check", "base"},
-	"init":     {"json", "without", "with"},
+	"update":   {"check", "base", "verify-dir", "installed"},
+	"init":     {"json", "without", "with", "shell-controller"},
 	"doctor":   {"json", "apparmor-profile"},
 	"audit":    {"since", "peer", "interaction", "type", "json", "export"},
 
@@ -1037,7 +1040,7 @@ var knownFlags = map[string][]string{
 
 	// through the control plane
 	"status":       {"json"},
-	"hub-register": {"name", "caps", "recovery-file", "new-recovery"}, // --token, --token-file, --accept-delegations: cli_removed (removed.go)
+	"hub-register": {"name", "caps", "recovery-file", "new-recovery", "passphrase-later"}, // --token, --token-file, --accept-delegations: cli_removed (removed.go)
 	"hub-leave":    {},
 	"peers":        {"json"},
 	"inbound":      {},
@@ -1261,7 +1264,7 @@ func runClient(layout daemon.Layout, cmd string, rest []string, explicit bool) e
 			// A daemon from before launcher pages. Handing the URL to the browser's command line is
 			// what this avoids, so it is not the fallback.
 			return fmt.Errorf("this daemon cannot hand out a console launcher (it is older than this anet: " +
-				"restart it with `anet stop && anet up`); or run `anet console --url` and open the printed link within 60 seconds")
+				"restart it with " + restartNodeQuoted + "); or run `anet console --url` and open the printed link within 60 seconds")
 		}
 		fmt.Fprintln(errW(), "opening the console (single-use link, valid 60 s)")
 		if err := openBrowser(tk.Launcher); err != nil {

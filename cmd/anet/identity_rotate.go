@@ -476,7 +476,7 @@ func (x *identityCLI) protectUnjoined(t *ttySession, st daemon.IdentityStatus) e
 		_ = os.Remove(np)
 		return err
 	}
-	if err := os.Rename(np, path); err != nil {
+	if err := renameDurable(np, path); err != nil {
 		return err
 	}
 	syncDir(parentDir(path))

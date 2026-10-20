@@ -34,7 +34,7 @@ func localRecPath(dataDir string) string { return filepath.Join(dataDir, localRe
 // rename. The file is mode perm; a directory that is missing is made 0700.
 func writeFileDurable(path string, data []byte, perm os.FileMode) error {
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	if err := mkdirDurable(dir); err != nil {
 		return err
 	}
 	f, err := os.CreateTemp(dir, filepath.Base(path)+".tmp*")
@@ -42,7 +42,10 @@ func writeFileDurable(path string, data []byte, perm os.FileMode) error {
 		return err
 	}
 	tmp := f.Name()
-	_, err = f.Write(data)
+	err = protectDurableTemp(tmp, perm)
+	if err == nil {
+		_, err = f.Write(data)
+	}
 	if err == nil {
 		err = f.Chmod(perm)
 	}
@@ -53,7 +56,7 @@ func writeFileDurable(path string, data []byte, perm os.FileMode) error {
 		err = cerr
 	}
 	if err == nil {
-		err = os.Rename(tmp, path)
+		err = renameDurable(tmp, path)
 	}
 	if err != nil {
 		_ = os.Remove(tmp)

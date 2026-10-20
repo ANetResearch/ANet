@@ -23,7 +23,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 )
@@ -403,7 +402,7 @@ func TestTheTapForwardsAndRecordsWhatTheHubSawAndIsStoppedByPath(t *testing.T) {
 		t.Fatalf("canary_tap: %q", out)
 	}
 	// Whatever the test does, the tap does not outlive it.
-	t.Cleanup(func() { _ = syscall.Kill(pid, syscall.SIGKILL) })
+	t.Cleanup(func() { killPID(pid) })
 
 	send := func(method, path, body string) (int, string, http.Header) {
 		req, err := http.NewRequest(method, "http://"+addr+path, strings.NewReader(body))
