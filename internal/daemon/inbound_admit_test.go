@@ -825,6 +825,11 @@ func TestABurstOverTheQuotaIsToldWhenToSendAgain(t *testing.T) {
 		PerCallerInflight: 8}}); err != nil {
 		t.Fatal(err)
 	}
+	// The per-minute window starts on the minute: a burst that crosses one
+	// gets a fresh window. Send it well inside one.
+	if ms := time.Now().UnixMilli() % 60_000; ms > 40_000 {
+		time.Sleep(time.Duration(60_000-ms+500) * time.Millisecond)
+	}
 	var ids []string
 	for range 6 {
 		id, err := caller.DelegateCapability(ctx, prov.AID(), lampCap, map[string]any{"on": true})
