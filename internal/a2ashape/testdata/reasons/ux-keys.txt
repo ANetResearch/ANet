@@ -270,6 +270,7 @@ limits_confirm.line
 payee_confirm
 redeem_confirm
 preview.confirm_reasoning
+shell.controller_confirm
 identity.prompt.first_join
 identity.prompt.passphrase
 identity.prompt.new_passphrase

@@ -1856,8 +1856,8 @@ State sentences of the local sandbox.
        ``platform_unsupported``
      - 0.3.0
      - S fail
-     - There is no sandbox on this platform (only Linux and macOS); on Windows, run ``anet`` in WSL2.
-     - 本平台没有沙箱（只支持 Linux 与 macOS）；Windows 请在 WSL2 中运行 ``anet``\ 。
+     - There is no sandbox on this platform (only Linux and macOS have one), so every run that needs the sandbox is refused.
+     - 本平台没有沙箱（只有 Linux 与 macOS 有），需要沙箱的运行一律拒绝。
      - 
    * - ``platform_unsupported.pending``
      - 
@@ -2272,6 +2272,12 @@ Confirmation prompts and common lines printed by the command line.
      - T
      - Turn on reasoning previews: requesters who ask for previews also get the reasoning.
      - 开启推理预览：要预览的请求方也会收到推理内容。
+     - 
+   * - ``shell.controller_confirm``
+     - 
+     - T
+     - Let {peer} run any command on this computer through the shell module, as the user that runs this node: it is added to the allow list and becomes the only caller the shell module accepts. No other peer gains access.
+     - 允许 {peer} 通过 shell 模块、以运行本节点的用户身份在本机执行任意命令：它会被加入 allow 名单，并成为 shell 模块唯一接受的调用方。其他对端不会因此获得访问权限。
      - 
    * - ``identity.prompt.first_join``
      - 
