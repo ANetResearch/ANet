@@ -375,6 +375,16 @@ func TestSiteJSONInstallMatchesSkill(t *testing.T) {
 const apexPS1OneLine = "[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor 3072; " +
 	"& ([scriptblock]::Create((Invoke-RestMethod -UseBasicParsing -Uri 'https://agentnetwork.org.cn/install.ps1'))) -Controller '<controller AID>'"
 
+// apexPS1Verify is the signature check of install.ps1: one line, the same in cmd.exe and in a POSIX
+// shell.
+const apexPS1Verify = "ssh-keygen -Y verify -f allowed_signers -I anet-release@agentnetwork.org.cn " +
+	"-n anet-release@agentnetwork.org.cn -s install.ps1.sig < install.ps1"
+
+// apexPS1VerifyRun is the last line of the verify-first PowerShell form: the check in cmd.exe, a stop when
+// it fails, and only then the run of the verified copy.
+const apexPS1VerifyRun = `cmd /c "` + apexPS1Verify + `"; if ($LASTEXITCODE -ne 0) { throw 'install.ps1 did not verify' }; ` +
+	`& ([scriptblock]::Create((Get-Content -Raw .\install.ps1))) -Controller '<controller AID>'`
+
 // The Windows command the website shows is SKILL.md's, llms.txt's and the
 // one install.ps1's header gives, word for word.
 func TestSiteJSONInstallPS1MatchesSkill(t *testing.T) {
@@ -403,13 +413,25 @@ func TestSiteJSONInstallPS1MatchesSkill(t *testing.T) {
 	if !strings.Contains(string(ps1), "#   "+s.InstallWindows+"\n") {
 		t.Error("install.ps1's header does not give site.json's install_windows")
 	}
-	// The verify-first form is in SKILL.md too, for an agent to relay.
+	// The verify-first form is in SKILL.md too, for an agent to relay. It verifies in cmd.exe (PowerShell
+	// has no input redirection) and stops on a failed check before the script runs: the check, the stop
+	// and the run are one line, so the run cannot follow a failed check however the block is pasted.
+	// allowed_signers is written without a byte order mark ([IO.File]::WriteAllText), not with the
+	// UTF-16 > redirection of Windows PowerShell 5.1.
+	skill := readApex(t, "SKILL.md")
 	for _, want := range []string{
 		"Invoke-WebRequest -UseBasicParsing https://agentnetwork.org.cn/install.ps1.sig -OutFile install.ps1.sig",
-		"ssh-keygen -Y verify -f allowed_signers -I anet-release@agentnetwork.org.cn -n anet-release@agentnetwork.org.cn -s install.ps1.sig < install.ps1",
+		"\n[IO.File]::WriteAllText((Join-Path $PWD.ProviderPath 'allowed_signers'), '",
+		"\n" + apexPS1VerifyRun + "\n",
+		"\n" + apexPS1Verify + "\n",
 	} {
-		if !strings.Contains(readApex(t, "SKILL.md"), want) {
+		if !strings.Contains(skill, want) {
 			t.Errorf("SKILL.md lacks %q", want)
+		}
+	}
+	for _, l := range strings.Split(skill, "\n") {
+		if strings.Contains(l, "ssh-keygen -Y verify") && (strings.HasPrefix(strings.TrimSpace(l), "#") || strings.HasSuffix(l, "\\")) {
+			t.Errorf("SKILL.md has a commented-out or split verify command: %q", l)
 		}
 	}
 	for _, b := range []byte(s.InstallWindows) {

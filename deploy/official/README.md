@@ -269,8 +269,7 @@ git add internal/official/manifest.json internal/official/manifest.json.sig
 手工核验(与 `SECURITY.md` 中发布公钥同一行 `allowed_signers`):
 
 ```sh
-ssh-keygen -Y verify -f allowed_signers -I anet-release@agentnetwork.org.cn \
-  -n anet-official@agentnetwork.org.cn -s manifest.json.sig < manifest.json
+ssh-keygen -Y verify -f allowed_signers -I anet-release@agentnetwork.org.cn -n anet-official@agentnetwork.org.cn -s manifest.json.sig < manifest.json
 ```
 
 联调:`scripts/official-testbin.sh` 用 `go build -overlay` 造一个把指定 AID 视为官方的测试

@@ -54,6 +54,7 @@ import (
 	"net/url"
 	"os"
 	"os/user"
+	"path"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -242,7 +243,7 @@ func parseUnix(raw, rest string) (Target, error) {
 		return Target{}, fmt.Errorf("url %q: a socket URL is unix:///absolute/path (three slashes), optionally followed by :/request/path", raw)
 	}
 	sock, reqPath, _ := strings.Cut(rest, ":")
-	if filepath.Clean(sock) != sock || strings.ContainsAny(sock, "?#%\\") || strings.IndexFunc(sock, func(r rune) bool { return r <= ' ' || r == 0x7f }) >= 0 {
+	if path.Clean(sock) != sock || strings.ContainsAny(sock, "?#%\\") || strings.IndexFunc(sock, func(r rune) bool { return r <= ' ' || r == 0x7f }) >= 0 {
 		return Target{}, fmt.Errorf("url %q: the socket path must be clean and absolute, without spaces, control characters or ?#%%\\", raw)
 	}
 	if sock == "/" {

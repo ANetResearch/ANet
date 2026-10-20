@@ -81,9 +81,25 @@ func OpenNoFollow(name string, flag int, perm os.FileMode) (*os.File, error) {
 	return os.OpenFile(name, flag|syscall.O_NOFOLLOW, perm)
 }
 
-// ReplaceFile renames oldpath over newpath. unix: os.Rename. windows: os.Rename, retried for at most
+// OpenReplaceable opens the existing file name for reading, writing or both (flag: os.O_RDONLY,
+// os.O_WRONLY or os.O_RDWR, nothing else) so that, while the handle stays open, the path can still be
+// replaced by ReplaceFile or removed, and the handle keeps referring to the file it opened.
+// unix: os.OpenFile(name, flag, 0); a rename over an open file or its removal never depends on it.
+// windows: CreateFile with FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE, OPEN_EXISTING, following
+// links as os.OpenFile does. os.OpenFile omits FILE_SHARE_DELETE, and a handle without it makes every
+// rename over the path and every removal of it fail until the handle is closed.
+func OpenReplaceable(name string, flag int) (*os.File, error) {
+	return os.OpenFile(name, flag, 0)
+}
+
+// ReplaceFile renames oldpath over newpath. unix: os.Rename. windows: a rename with POSIX semantics
+// (SetFileInformationByHandle, FileRenameInfoEx, FILE_RENAME_FLAG_REPLACE_IF_EXISTS|
+// FILE_RENAME_FLAG_POSIX_SEMANTICS), which replaces newpath even while handles opened with
+// FILE_SHARE_DELETE (OpenReplaceable) hold it, those handles keeping the replaced file; when that
+// rename fails, os.Rename (MoveFileEx), whose error is the one returned. Either is retried for at most
 // 2 s (backoff 10 ms doubling, cap 200 ms) while it fails with ERROR_ACCESS_DENIED,
-// ERROR_SHARING_VIOLATION or ERROR_LOCK_VIOLATION (a reader holds newpath; F10).
+// ERROR_SHARING_VIOLATION or ERROR_LOCK_VIOLATION (a reader without FILE_SHARE_DELETE holds newpath;
+// F10).
 func ReplaceFile(oldpath, newpath string) error {
 	return os.Rename(oldpath, newpath)
 }

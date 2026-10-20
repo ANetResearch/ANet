@@ -386,9 +386,10 @@ func TestWindowsRunCmdTimeoutKillsAGrandchild(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
 	start := time.Now()
-	_, _, err := runCmd(ctx, o, nil, ps, "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+	stdout, stderr, err := runCmd(ctx, o, nil, ps, "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
 		"-EncodedCommand", encodedPS(script))
 	elapsed := time.Since(start)
+	t.Logf("stdout %q, stderr %q", stdout, stderr)
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("runCmd: %v, want the deadline", err)
 	}

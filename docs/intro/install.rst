@@ -183,8 +183,7 @@ the values below, and use the repository copy if they differ.
    $ curl --proto '=https' --tlsv1.2 -fsSLO https://agentnetwork.org.cn/install.sh
    $ curl --proto '=https' --tlsv1.2 -fsSLO https://agentnetwork.org.cn/install.sh.sig
    $ echo 'anet-release@agentnetwork.org.cn namespaces="anet-release@agentnetwork.org.cn,anet-official@agentnetwork.org.cn" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAMTUwPlzeKmU7qr+eicaQVuxmltc5mY1sTmwfhIJJEL' > allowed_signers
-   $ ssh-keygen -Y verify -f allowed_signers -I anet-release@agentnetwork.org.cn \
-       -n anet-release@agentnetwork.org.cn -s install.sh.sig < install.sh && sh install.sh
+   $ ssh-keygen -Y verify -f allowed_signers -I anet-release@agentnetwork.org.cn -n anet-release@agentnetwork.org.cn -s install.sh.sig < install.sh && sh install.sh
 
 The key fingerprint is ``SHA256:/4FMm/jgZcBII3z3O3r81Y8SxFfugdLRu3zj2gnclD4``.
 A successful check prints ``Good "anet-release@agentnetwork.org.cn"
@@ -230,27 +229,36 @@ Verifying the installer before running it
 
 The one-line command trusts the host that serves ``install.ps1`` and its TLS
 certificate. To avoid that trust, download the script and its signature,
-verify the signature with the release key, and run the verified copy:
+verify the signature with the release key, and run the verified copy.
+
+The signature is checked with ``ssh-keygen -Y verify`` from OpenSSH 8.1 or
+later (``ssh -V`` prints the version). The following block writes the file
+``allowed_signers`` with the release key line given in
+:ref:`intro-install-verify` as UTF-8 without a byte order mark, which
+``ssh-keygen`` requires; the ``>`` redirection of Windows PowerShell 5.1
+writes UTF-16. It runs the check in ``cmd.exe``, which provides the input
+redirection that PowerShell lacks, and stops before running the script when
+the signature does not verify:
 
 .. code-block:: powershell
 
    Invoke-WebRequest -UseBasicParsing https://agentnetwork.org.cn/install.ps1 -OutFile install.ps1
    Invoke-WebRequest -UseBasicParsing https://agentnetwork.org.cn/install.ps1.sig -OutFile install.ps1.sig
+   [IO.File]::WriteAllText((Join-Path $PWD.ProviderPath 'allowed_signers'), 'anet-release@agentnetwork.org.cn namespaces="anet-release@agentnetwork.org.cn,anet-official@agentnetwork.org.cn" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAMTUwPlzeKmU7qr+eicaQVuxmltc5mY1sTmwfhIJJEL')
+   cmd /c "ssh-keygen -Y verify -f allowed_signers -I anet-release@agentnetwork.org.cn -n anet-release@agentnetwork.org.cn -s install.ps1.sig < install.ps1"; if ($LASTEXITCODE -ne 0) { throw 'install.ps1 did not verify' }; & ([scriptblock]::Create((Get-Content -Raw .\install.ps1))) -Controller '<controller AID>'
 
-The signature is checked with ``ssh-keygen -Y verify`` from OpenSSH 8.1 or
-later (``ssh -V`` prints the version), on this computer or on another one. The
-file ``allowed_signers`` holds the release key line given in
-:ref:`intro-install-verify`. The command reads ``install.ps1`` through input
-redirection, which PowerShell does not provide; run it in ``cmd.exe`` or in a
-POSIX shell:
+When this computer has an older OpenSSH, copy ``install.ps1``,
+``install.ps1.sig`` and ``allowed_signers`` to a computer with OpenSSH 8.1 or
+later and run the check there. The command is the same in ``cmd.exe`` and in
+a POSIX shell:
 
 .. code-block:: console
 
    $ ssh-keygen -Y verify -f allowed_signers -I anet-release@agentnetwork.org.cn -n anet-release@agentnetwork.org.cn -s install.ps1.sig < install.ps1
 
 A successful check prints ``Good "anet-release@agentnetwork.org.cn"
-signature`` followed by the key fingerprint. Then run the verified copy in
-PowerShell, in the directory that holds it:
+signature`` followed by the key fingerprint. Only then run the verified copy
+in PowerShell, in the directory that holds it:
 
 .. code-block:: powershell
 

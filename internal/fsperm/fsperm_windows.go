@@ -218,6 +218,58 @@ func Inspect(path string) (Info, error) {
 	return i, nil
 }
 
+// aceInherited is INHERITED_ACE (ACE_HEADER.AceFlags): the entry was inherited from a parent.
+const aceInherited = 0x10
+
+// ExplicitSIDs returns the SIDs ("S-1-…") that the explicit entries (allow and deny; not inherited) of
+// the DACL of path name, each once, in the order of the list. It never follows a final link. A NULL
+// or missing DACL has none. An explicit entry of a type whose SID this package does not read is an
+// error: the SID could not be named.
+func ExplicitSIDs(path string) ([]string, error) {
+	h, err := openMeta(path, windows.READ_CONTROL|windows.FILE_READ_ATTRIBUTES)
+	if err != nil {
+		return nil, &os.PathError{Op: "open", Path: path, Err: err}
+	}
+	defer windows.CloseHandle(h)
+	fail := func(err error) ([]string, error) {
+		return nil, &os.PathError{Op: "inspect", Path: path, Err: err}
+	}
+	sd, err := windows.GetSecurityInfo(h, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION)
+	if err != nil {
+		return fail(err)
+	}
+	dacl, _, err := sd.DACL()
+	switch {
+	case errors.Is(err, windows.ERROR_OBJECT_NOT_FOUND), err == nil && dacl == nil:
+		return nil, nil
+	case err != nil:
+		return fail(err)
+	}
+	b, err := aclBytes(sd, dacl)
+	if err != nil {
+		return fail(err)
+	}
+	entries, err := parseACL(b)
+	if err != nil {
+		return fail(err)
+	}
+	var out []string
+	seen := map[string]bool{}
+	for _, e := range entries {
+		if e.flags&aceInherited != 0 {
+			continue
+		}
+		if e.sid == nil {
+			return fail(fmt.Errorf("an entry of type %#x names no SID this package reads", e.typ))
+		}
+		if s := sidString(e.sid); !seen[s] {
+			seen[s] = true
+			out = append(out, s)
+		}
+	}
+	return out, nil
+}
+
 // privateSDDL is the private descriptor for a directory (inherited by its children, owner set to
 // the user) or a file.
 func privateSDDL(dir bool) (string, error) {
@@ -592,14 +644,121 @@ const (
 	replaceMaxGap   = 200 * time.Millisecond
 )
 
-// ReplaceFile renames oldpath over newpath. unix: os.Rename. windows: os.Rename, retried for at most
+// OpenReplaceable opens the existing file name for reading, writing or both (flag: os.O_RDONLY,
+// os.O_WRONLY or os.O_RDWR, nothing else) so that, while the handle stays open, the path can still be
+// replaced by ReplaceFile or removed, and the handle keeps referring to the file it opened.
+// unix: os.OpenFile(name, flag, 0); a rename over an open file or its removal never depends on it.
+// windows: CreateFile with FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE, OPEN_EXISTING, following
+// links as os.OpenFile does. os.OpenFile omits FILE_SHARE_DELETE, and a handle without it makes every
+// rename over the path and every removal of it fail until the handle is closed.
+func OpenReplaceable(name string, flag int) (*os.File, error) {
+	fail := func(err error) (*os.File, error) {
+		return nil, &os.PathError{Op: "open", Path: name, Err: err}
+	}
+	var access uint32
+	switch flag {
+	case os.O_RDONLY:
+		access = windows.GENERIC_READ
+	case os.O_WRONLY:
+		access = windows.GENERIC_WRITE
+	case os.O_RDWR:
+		access = windows.GENERIC_READ | windows.GENERIC_WRITE
+	default:
+		return fail(syscall.EINVAL)
+	}
+	if name == "" {
+		return fail(windows.ERROR_FILE_NOT_FOUND)
+	}
+	namep, err := windows.UTF16PtrFromString(fixLongPath(name))
+	if err != nil {
+		return fail(err)
+	}
+	const share = windows.FILE_SHARE_READ | windows.FILE_SHARE_WRITE | windows.FILE_SHARE_DELETE
+	h, err := windows.CreateFile(namep, access, share, nil, windows.OPEN_EXISTING, windows.FILE_ATTRIBUTE_NORMAL, 0)
+	if err != nil {
+		return fail(err)
+	}
+	return os.NewFile(uintptr(h), name), nil
+}
+
+// fixLongPath gives an absolute path of MAX_PATH characters or more the \\?\ prefix, so that the
+// functions this file calls with a path accept it as os.OpenFile and os.Rename do. Any other path is
+// returned as it is.
+func fixLongPath(path string) string {
+	if len(path) < windows.MAX_PATH || !filepath.IsAbs(path) || strings.HasPrefix(path, `\\`) {
+		return path
+	}
+	return `\\?\` + filepath.Clean(path)
+}
+
+// fileRenameInfo is FILE_RENAME_INFO with its union read as Flags (SetFileInformationByHandle,
+// FileRenameInfoEx); FileName continues past the end of the struct.
+type fileRenameInfo struct {
+	Flags          uint32
+	RootDirectory  windows.Handle
+	FileNameLength uint32
+	FileName       [1]uint16
+}
+
+// renamePOSIX renames oldpath over newpath with POSIX semantics: newpath is replaced even while it is
+// open through handles that share delete access, and those handles keep the replaced file. A link at
+// oldpath is renamed itself, as MoveFileEx renames it. File systems without POSIX semantics (FAT,
+// exFAT, versions before Windows 10 1607) fail it, and ReplaceFile then uses os.Rename.
+func renamePOSIX(oldpath, newpath string) error {
+	dst, err := filepath.Abs(newpath)
+	if err != nil {
+		return err
+	}
+	src, err := windows.UTF16PtrFromString(fixLongPath(oldpath))
+	if err != nil {
+		return err
+	}
+	name, err := windows.UTF16FromString(fixLongPath(dst))
+	if err != nil {
+		return err
+	}
+	h, err := windows.CreateFile(src, windows.DELETE|windows.SYNCHRONIZE,
+		windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE|windows.FILE_SHARE_DELETE, nil, windows.OPEN_EXISTING,
+		windows.FILE_FLAG_OPEN_REPARSE_POINT|windows.FILE_FLAG_BACKUP_SEMANTICS, 0)
+	if err != nil {
+		return err
+	}
+	defer windows.CloseHandle(h)
+	nameBytes := uintptr(len(name)-1) * 2 // without the terminating NUL
+	size := max(unsafe.Offsetof(fileRenameInfo{}.FileName)+nameBytes+2, unsafe.Sizeof(fileRenameInfo{}))
+	buf := make([]uint64, (size+7)/8) // 8-byte aligned, as the struct requires
+	info := (*fileRenameInfo)(unsafe.Pointer(&buf[0]))
+	info.Flags = windows.FILE_RENAME_REPLACE_IF_EXISTS | windows.FILE_RENAME_POSIX_SEMANTICS
+	info.FileNameLength = uint32(nameBytes)
+	copy(unsafe.Slice(&info.FileName[0], len(name)), name)
+	return windows.SetFileInformationByHandle(h, windows.FileRenameInfoEx, (*byte)(unsafe.Pointer(info)), uint32(size))
+}
+
+// replaceOnce is one attempt of ReplaceFile: renamePOSIX, then os.Rename when that fails.
+func replaceOnce(oldpath, newpath string) error {
+	if renamePOSIX(oldpath, newpath) == nil {
+		return nil
+	}
+	return os.Rename(oldpath, newpath)
+}
+
+// ReplaceFile renames oldpath over newpath. unix: os.Rename. windows: a rename with POSIX semantics
+// (SetFileInformationByHandle, FileRenameInfoEx, FILE_RENAME_FLAG_REPLACE_IF_EXISTS|
+// FILE_RENAME_FLAG_POSIX_SEMANTICS), which replaces newpath even while handles opened with
+// FILE_SHARE_DELETE (OpenReplaceable) hold it, those handles keeping the replaced file; when that
+// rename fails, os.Rename (MoveFileEx), whose error is the one returned. Either is retried for at most
 // 2 s (backoff 10 ms doubling, cap 200 ms) while it fails with ERROR_ACCESS_DENIED,
-// ERROR_SHARING_VIOLATION or ERROR_LOCK_VIOLATION (a reader holds newpath; F10).
+// ERROR_SHARING_VIOLATION or ERROR_LOCK_VIOLATION (a reader without FILE_SHARE_DELETE holds newpath;
+// F10).
+//
+// MoveFileEx alone is not enough: without POSIX semantics a file that any handle holds open cannot be
+// replaced, even when every such handle shares delete access, because the replaced name stays in the
+// directory until its last handle closes.
 func ReplaceFile(oldpath, newpath string) error {
 	deadline := time.Now().Add(replaceWait)
 	gap := replaceFirstGap
 	for {
-		err := os.Rename(oldpath, newpath)
+		err := replaceOnce(oldpath, newpath)
 		if err == nil || !replaceRetryable(err) {
 			return err
 		}

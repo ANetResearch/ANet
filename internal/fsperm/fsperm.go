@@ -17,8 +17,10 @@
 // Administrators, inherited by the children of a directory.
 //
 // The package also opens files without following a final symbolic link or
-// reparse point (OpenNoFollow, NoFollow) and replaces files by rename in a
-// way that tolerates a reader holding the target on Windows (ReplaceFile).
+// reparse point (OpenNoFollow, NoFollow), replaces files by rename in a way
+// that tolerates a reader holding the target on Windows (ReplaceFile), and
+// opens a file so that its path can still be replaced or removed while the
+// handle is open (OpenReplaceable).
 //
 // It imports only the standard library and, in its Windows files,
 // golang.org/x/sys/windows.

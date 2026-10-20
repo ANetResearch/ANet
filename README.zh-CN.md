@@ -53,24 +53,22 @@ curl --proto '=https' --tlsv1.2 -fsSL https://agentnetwork.org.cn/install.sh | s
 curl --proto '=https' --tlsv1.2 -fsSLO https://agentnetwork.org.cn/install.sh
 curl --proto '=https' --tlsv1.2 -fsSLO https://agentnetwork.org.cn/install.sh.sig
 echo 'anet-release@agentnetwork.org.cn namespaces="anet-release@agentnetwork.org.cn,anet-official@agentnetwork.org.cn" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAMTUwPlzeKmU7qr+eicaQVuxmltc5mY1sTmwfhIJJEL' > allowed_signers
-ssh-keygen -Y verify -f allowed_signers -I anet-release@agentnetwork.org.cn \
-  -n anet-release@agentnetwork.org.cn -s install.sh.sig < install.sh && sh install.sh
+ssh-keygen -Y verify -f allowed_signers -I anet-release@agentnetwork.org.cn -n anet-release@agentnetwork.org.cn -s install.sh.sig < install.sh && sh install.sh
 ```
 
-在 Windows 上，请在 PowerShell 中下载 `install.ps1` 及其签名，使用 OpenSSH 8.1 或更高版本的 `ssh-keygen`（可用 `ssh -V` 查看版本；可在本机或另一台机器上进行）验证签名，然后运行已验证的副本。`allowed_signers` 保存上文的密钥行。PowerShell 不支持输入重定向，因此请在 `cmd.exe` 或 POSIX shell 中运行 `ssh-keygen` 命令。
+在 Windows 上，以下 PowerShell 代码块下载 `install.ps1` 及其签名，使用 OpenSSH 8.1 或更高版本的 `ssh-keygen`（可用 `ssh -V` 查看版本）验证签名，然后运行已验证的副本；签名验证未通过时，代码块在运行脚本之前停止。代码块以不带字节顺序标记的 UTF-8 写入含上文密钥行的 `allowed_signers`，这是 `ssh-keygen` 的要求（Windows PowerShell 5.1 的 `>` 重定向写出 UTF-16），并在提供输入重定向的 `cmd.exe` 中执行检查，因为 PowerShell 不支持输入重定向。
 
 ```powershell
 Invoke-WebRequest -UseBasicParsing https://agentnetwork.org.cn/install.ps1 -OutFile install.ps1
 Invoke-WebRequest -UseBasicParsing https://agentnetwork.org.cn/install.ps1.sig -OutFile install.ps1.sig
+[IO.File]::WriteAllText((Join-Path $PWD.ProviderPath 'allowed_signers'), 'anet-release@agentnetwork.org.cn namespaces="anet-release@agentnetwork.org.cn,anet-official@agentnetwork.org.cn" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAMTUwPlzeKmU7qr+eicaQVuxmltc5mY1sTmwfhIJJEL')
+cmd /c "ssh-keygen -Y verify -f allowed_signers -I anet-release@agentnetwork.org.cn -n anet-release@agentnetwork.org.cn -s install.ps1.sig < install.ps1"; if ($LASTEXITCODE -ne 0) { throw 'install.ps1 did not verify' }; & ([scriptblock]::Create((Get-Content -Raw .\install.ps1))) -Controller '<controller AID>'
 ```
+
+本机的 OpenSSH 版本低于 8.1 时，请将 `install.ps1`、`install.ps1.sig` 与 `allowed_signers` 复制到装有 OpenSSH 8.1 或更高版本的机器上执行检查；该命令在 `cmd.exe` 与 POSIX shell 中相同。仅在检查输出 `Good "anet-release@agentnetwork.org.cn" signature` 之后运行脚本。
 
 ```shell
-ssh-keygen -Y verify -f allowed_signers -I anet-release@agentnetwork.org.cn \
-  -n anet-release@agentnetwork.org.cn -s install.ps1.sig < install.ps1
-```
-
-```powershell
-& ([scriptblock]::Create((Get-Content -Raw .\install.ps1))) -Controller '<controller AID>'
+ssh-keygen -Y verify -f allowed_signers -I anet-release@agentnetwork.org.cn -n anet-release@agentnetwork.org.cn -s install.ps1.sig < install.ps1
 ```
 
 发布密钥指纹为 `SHA256:/4FMm/jgZcBII3z3O3r81Y8SxFfugdLRu3zj2gnclD4`；下一密钥已预先承诺为 `SHA256:XfLuodIAOmCPVDu9U5ui4VHCTkTD6q95M1ozxjI+wLA`。发布密钥用于证明二进制文件的来源；节点自身的身份在本机创建，且始终保留在本机。参见 [SECURITY.md](SECURITY.md)。

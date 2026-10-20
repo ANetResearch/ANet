@@ -23,8 +23,9 @@ Already installed (0.3.0 or later)? `anet update`. Then `anet doctor` shows what
 `anet agents wire --all` gives Claude Code, Codex, Cursor, opencode and Hermes the 14 anet MCP tools
 (`list_agents`, `get_agent_card`, `send_message`, `wait_task`, `get_task`, `list_tasks`, `reply_task`,
 `submit_payment`, …), and any A2A client can use the local A2A interface at
-`http://127.0.0.1:<port>/a2a/v1/agents/<aid>`. The 0.1.x commands (`anet whoami`, `anet board`) and the
-npm package are gone.
+`http://127.0.0.1:<port>/a2a/v1/agents/<aid>`. The 0.1.x commands (`anet whoami`, `anet board`) are gone.
+`npm install --global @agentnetwork/anet` installs a launcher that verifies the signed release manifest and the
+SHA-256 digests before it runs the binary; the signed installers above remain the primary way to install.
 
 ## Docs
 

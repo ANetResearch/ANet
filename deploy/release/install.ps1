@@ -61,13 +61,21 @@
 #   anet-release@agentnetwork.org.cn namespaces="anet-release@agentnetwork.org.cn,anet-official@agentnetwork.org.cn" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAMTUwPlzeKmU7qr+eicaQVuxmltc5mY1sTmwfhIJJEL
 #
 # Verify-first form (ssh-keygen -Y verify needs OpenSSH 8.1 or later; ssh -V
-# shows the version, and the check can run on another machine):
+# shows the version). It writes the line above into allowed_signers as UTF-8
+# without a byte order mark, checks the signature in cmd.exe (PowerShell has
+# no input redirection), and stops before running the script when the check
+# fails:
 #
 #   Invoke-WebRequest -UseBasicParsing https://agentnetwork.org.cn/install.ps1 -OutFile install.ps1
 #   Invoke-WebRequest -UseBasicParsing https://agentnetwork.org.cn/install.ps1.sig -OutFile install.ps1.sig
-#   # write the line above into a file named allowed_signers, then:
-#   #   ssh-keygen -Y verify -f allowed_signers -I anet-release@agentnetwork.org.cn -n anet-release@agentnetwork.org.cn -s install.ps1.sig < install.ps1
-#   & ([scriptblock]::Create((Get-Content -Raw .\install.ps1))) -Controller '<AID>'
+#   [IO.File]::WriteAllText((Join-Path $PWD.ProviderPath 'allowed_signers'), 'anet-release@agentnetwork.org.cn namespaces="anet-release@agentnetwork.org.cn,anet-official@agentnetwork.org.cn" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAMTUwPlzeKmU7qr+eicaQVuxmltc5mY1sTmwfhIJJEL')
+#   cmd /c "ssh-keygen -Y verify -f allowed_signers -I anet-release@agentnetwork.org.cn -n anet-release@agentnetwork.org.cn -s install.ps1.sig < install.ps1"; if ($LASTEXITCODE -ne 0) { throw 'install.ps1 did not verify' }; & ([scriptblock]::Create((Get-Content -Raw .\install.ps1))) -Controller '<controller AID>'
+#
+# With an older OpenSSH, run the check on another machine with OpenSSH 8.1 or
+# later (the same command in cmd.exe and in a POSIX shell), and run the
+# script only after it prints Good "anet-release@agentnetwork.org.cn" signature:
+#
+#   ssh-keygen -Y verify -f allowed_signers -I anet-release@agentnetwork.org.cn -n anet-release@agentnetwork.org.cn -s install.ps1.sig < install.ps1
 #
 # The default build, and what it can do (the same text as internal/a2ashape
 # InstallHeader; a test keeps the two equal):

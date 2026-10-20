@@ -938,7 +938,10 @@ func (r *encKeyRing) writeRingFile(data []byte) error {
 	if err := zeroAndRemove(tmp); err != nil {
 		return err
 	}
-	old, err := os.OpenFile(r.path, os.O_RDWR, 0)
+	// Opened so that the rename below can replace the file while this
+	// handle holds it: on Windows a handle os.OpenFile makes lacks
+	// FILE_SHARE_DELETE and would make every write after the first fail.
+	old, err := fsperm.OpenReplaceable(r.path, os.O_RDWR)
 	switch {
 	case err == nil:
 		defer old.Close()

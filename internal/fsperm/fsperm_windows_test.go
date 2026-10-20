@@ -505,6 +505,134 @@ func TestWindowsReplaceFileWhileReading(t *testing.T) {
 	}
 }
 
+// A handle that shares delete access (OpenReplaceable, or any reader that asks for it) does not stop
+// ReplaceFile: the POSIX-semantics rename replaces the name at once, and the handle keeps the replaced
+// file, which it can still read and overwrite. Without that, every key ring write after the first
+// failed while writeRingFile held the old file open.
+func TestWindowsReplaceFileWhileOpenReplaceable(t *testing.T) {
+	root := t.TempDir()
+	dst := filepath.Join(root, "dst")
+	winWrite(t, dst, "v0")
+	for i := 1; i <= 3; i++ {
+		old, err := OpenReplaceable(dst, os.O_RDWR)
+		if err != nil {
+			t.Fatal(err)
+		}
+		tmp := filepath.Join(root, "tmp")
+		want := "v" + string(rune('0'+i))
+		winWrite(t, tmp, want)
+		start := time.Now()
+		if err := ReplaceFile(tmp, dst); err != nil {
+			old.Close()
+			t.Fatalf("write %d: ReplaceFile while the old file is open: %v", i, err)
+		}
+		if d := time.Since(start); d >= replaceWait/2 {
+			t.Errorf("write %d: ReplaceFile waited %v for a handle that shares delete access", i, d)
+		}
+		prev := make([]byte, 2)
+		if _, err := old.ReadAt(prev, 0); err != nil || string(prev) != "v"+string(rune('0'+i-1)) {
+			t.Errorf("write %d: the old handle reads %q, %v", i, prev, err)
+		}
+		if _, err := old.WriteAt([]byte{0, 0}, 0); err != nil {
+			t.Errorf("write %d: overwrite the replaced file through the old handle: %v", i, err)
+		}
+		if err := old.Sync(); err != nil {
+			t.Errorf("write %d: sync the replaced file: %v", i, err)
+		}
+		if err := old.Close(); err != nil {
+			t.Errorf("write %d: close: %v", i, err)
+		}
+		if b, err := os.ReadFile(dst); err != nil || string(b) != want {
+			t.Fatalf("write %d: dst = %q, %v", i, b, err)
+		}
+		if _, err := os.Lstat(tmp); !errors.Is(err, fs.ErrNotExist) {
+			t.Errorf("write %d: tmp still exists: %v", i, err)
+		}
+	}
+}
+
+// A file OpenReplaceable holds can be removed, and a reader as Go opens files (no FILE_SHARE_DELETE)
+// still makes ReplaceFile wait (TestWindowsReplaceFileWhileReading). OpenReplaceable takes only an
+// access mode and refuses a missing file as os.OpenFile does.
+func TestWindowsOpenReplaceable(t *testing.T) {
+	root := t.TempDir()
+	p := filepath.Join(root, "f")
+	winWrite(t, p, "data")
+	f, err := OpenReplaceable(p, os.O_RDONLY)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(p); err != nil {
+		t.Errorf("remove a file OpenReplaceable holds: %v", err)
+	}
+	b := make([]byte, 4)
+	if _, err := f.ReadAt(b, 0); err != nil || string(b) != "data" {
+		t.Errorf("the handle reads %q, %v", b, err)
+	}
+	f.Close()
+	if _, err := OpenReplaceable(filepath.Join(root, "missing"), os.O_RDWR); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("a missing file: %v", err)
+	}
+	for _, flag := range []int{os.O_RDWR | os.O_CREATE, os.O_WRONLY | os.O_TRUNC, os.O_RDONLY | os.O_APPEND} {
+		if _, err := OpenReplaceable(p, flag); !errors.Is(err, syscall.EINVAL) {
+			t.Errorf("flag %#x: %v, want EINVAL", flag, err)
+		}
+	}
+}
+
+// ReplaceFile accepts a relative target, as os.Rename does: the POSIX-semantics rename needs a full
+// path, which ReplaceFile makes.
+func TestWindowsReplaceFileRelative(t *testing.T) {
+	root := t.TempDir()
+	t.Chdir(root)
+	winWrite(t, "dst", "old")
+	winWrite(t, "tmp", "new")
+	if err := ReplaceFile("tmp", "dst"); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(root, "dst")); string(b) != "new" {
+		t.Errorf("dst = %q", b)
+	}
+}
+
+// ExplicitSIDs names the SIDs of the explicit entries, allow and deny, each once, and leaves out the
+// inherited ones.
+func TestWindowsExplicitSIDs(t *testing.T) {
+	root := t.TempDir()
+	winSetDACL(t, root, winPrivateDACL("(A;OICI;FR;;;AU)"))
+	p := filepath.Join(root, "f")
+	winWrite(t, p, "x")
+	if got, err := ExplicitSIDs(p); err != nil || len(got) != 0 {
+		t.Fatalf("a file with inherited entries only: %v, %v", got, err)
+	}
+	sd, err := windows.SecurityDescriptorFromString("D:(A;;FR;;;WD)(D;;FW;;;BG)(A;;0x1;;;WD)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dacl, _, err := sd.DACL()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := windows.SetNamedSecurityInfo(p, windows.SE_FILE_OBJECT,
+		windows.DACL_SECURITY_INFORMATION|windows.UNPROTECTED_DACL_SECURITY_INFORMATION, nil, nil, dacl, nil); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ExplicitSIDs(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]int{}
+	for _, s := range got {
+		seen[s]++
+	}
+	if len(got) != 2 || seen["S-1-1-0"] != 1 || seen["S-1-5-32-546"] != 1 {
+		t.Errorf("explicit SIDs %v, want S-1-1-0 and S-1-5-32-546 once each", got)
+	}
+	if _, err := ExplicitSIDs(filepath.Join(root, "missing")); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("a missing file: %v", err)
+	}
+}
+
 // Missing parents are created private too, as os.MkdirAll(dir, 0o700) makes them on unix: none inherits
 // the access that the directory above it grants to other accounts. The existing directory is not changed.
 func TestWindowsMkdirAllPrivateParents(t *testing.T) {

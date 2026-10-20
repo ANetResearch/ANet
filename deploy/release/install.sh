@@ -42,8 +42,7 @@
 #   curl --proto '=https' --tlsv1.2 -fsSLO https://agentnetwork.org.cn/install.sh
 #   curl --proto '=https' --tlsv1.2 -fsSLO https://agentnetwork.org.cn/install.sh.sig
 #   echo 'anet-release@agentnetwork.org.cn namespaces="anet-release@agentnetwork.org.cn,anet-official@agentnetwork.org.cn" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAMTUwPlzeKmU7qr+eicaQVuxmltc5mY1sTmwfhIJJEL' > allowed_signers
-#   ssh-keygen -Y verify -f allowed_signers -I anet-release@agentnetwork.org.cn \
-#     -n anet-release@agentnetwork.org.cn -s install.sh.sig < install.sh && sh install.sh
+#   ssh-keygen -Y verify -f allowed_signers -I anet-release@agentnetwork.org.cn -n anet-release@agentnetwork.org.cn -s install.sh.sig < install.sh && sh install.sh
 #
 # Flags:
 #   --system        Install to /usr/local/bin (uses sudo if needed).

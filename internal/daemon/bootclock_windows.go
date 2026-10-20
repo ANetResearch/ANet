@@ -9,8 +9,8 @@ import (
 )
 
 // procQueryInterruptTime is QueryInterruptTime (Windows 10 and Windows Server 2016 or later), looked up
-// when it is first called.
-var procQueryInterruptTime = windows.NewLazySystemDLL("kernel32.dll").NewProc("QueryInterruptTime")
+// when it is first called. It is exported by KernelBase.dll; kernel32.dll does not forward it.
+var procQueryInterruptTime = windows.NewLazySystemDLL("kernelbase.dll").NewProc("QueryInterruptTime")
 
 // bootClock is the interrupt time in milliseconds: the time since boot in 100 ns units, which keeps
 // counting while the machine sleeps or hibernates (it is the biased interrupt time; the unbiased one
