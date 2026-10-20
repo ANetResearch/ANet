@@ -123,14 +123,15 @@ func (h hubCLI) refusedBy(code int, body []byte) error {
 }
 
 // runHubRegister is `anet hub-register <url> [--name N] [--caps a,b]
-// [--recovery-file F] [--new-recovery]` (LEC CL-4):
+// [--recovery-file F] [--new-recovery] [--passphrase-later]` (LEC CL-4):
 //
 //  1. the removed flags were refused before this (removed.go); ANET_INVITE
 //     is ignored with one line;
 //  2. dry_run asks the daemon what this would do; a hub that cannot be
 //     reached is said at once, before any passphrase (UX-O1);
 //  3. a first join brings next_digest (and unprotected without a
-//     terminal); switching hubs is a key rotation (KEL L-4);
+//     terminal, or with --passphrase-later); switching hubs is a key
+//     rotation (KEL L-4);
 //  4. the answer: the recovery reminder and its command first, then the
 //     join state's sentence and its command. Exit 0 for registered, waiting
 //     for admission and retrying; 1 for refused (ux UX-C4).
@@ -139,10 +140,20 @@ func runHubRegister(c *client, rest []string) error {
 }
 
 func (h hubCLI) hubRegister(c *client, rest []string) error {
-	const use = "anet hub-register <url> [--name N] [--caps a,b] [--recovery-file F] [--new-recovery]"
+	const use = "anet hub-register <url> [--name N] [--caps a,b] [--recovery-file F] [--new-recovery] [--passphrase-later]"
 	pos, flags := splitFlags(rest)
 	if len(pos) != 1 || strings.TrimSpace(pos[0]) == "" {
 		return usageError{use}
+	}
+	// --passphrase-later asks nothing: it cannot be combined with the flags that name a recovery file or
+	// ask for a new seed, both of which need a passphrase now.
+	if v, later := flags["passphrase-later"]; later {
+		_, file := flags["recovery-file"]
+		_, fresh := flags["new-recovery"]
+		if v != "true" || file || fresh {
+			return usageError{"anet hub-register <url> [--name N] [--caps a,b] --passphrase-later" +
+				"  (--passphrase-later takes no value and is not combined with --recovery-file or --new-recovery)"}
+		}
 	}
 	h.warnInviteEnv()
 	hub := strings.TrimRight(strings.TrimSpace(pos[0]), "/")
@@ -166,9 +177,9 @@ func (h hubCLI) hubRegister(c *client, rest []string) error {
 	if v := flags["caps"]; v != "" {
 		body["caps"] = strings.Split(v, ",")
 	}
-	// Switching hubs is a key rotation (KEL L-4); without a terminal the daemon answers it with
-	// hub_switch_requires_rotation, and nothing here is asked.
-	if dry.Action == "switch" && h.terminal() {
+	// Switching hubs is a key rotation (KEL L-4); without a terminal, or with --passphrase-later, the
+	// daemon answers it with hub_switch_requires_rotation, and nothing here is asked.
+	if dry.Action == "switch" && !passphraseLater(flags) && h.terminal() {
 		return h.switchHub(c, hub, flags)
 	}
 	var afterJoin func()

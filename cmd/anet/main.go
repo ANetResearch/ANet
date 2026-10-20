@@ -1030,8 +1030,8 @@ var knownFlags = map[string][]string{
 	"help":     {"all"},
 	"mcp":      {},
 	"version":  {},
-	"update":   {"check", "base"},
-	"init":     {"json", "without", "with"},
+	"update":   {"check", "base", "verify-dir", "installed"},
+	"init":     {"json", "without", "with", "shell-controller"},
 	"doctor":   {"json", "apparmor-profile"},
 	"audit":    {"since", "peer", "interaction", "type", "json", "export"},
 
@@ -1040,7 +1040,7 @@ var knownFlags = map[string][]string{
 
 	// through the control plane
 	"status":       {"json"},
-	"hub-register": {"name", "caps", "recovery-file", "new-recovery"}, // --token, --token-file, --accept-delegations: cli_removed (removed.go)
+	"hub-register": {"name", "caps", "recovery-file", "new-recovery", "passphrase-later"}, // --token, --token-file, --accept-delegations: cli_removed (removed.go)
 	"hub-leave":    {},
 	"peers":        {"json"},
 	"inbound":      {},

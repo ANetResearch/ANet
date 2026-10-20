@@ -59,6 +59,7 @@ func helpSections() []helpSection {
 			{"identity deactivate", "永久注销本身份（需要恢复口令；不可撤销）", "deactivate this identity for good (needs the recovery passphrase; it cannot be undone)", false},
 			{"--id <name> <command>", "对指定身份执行任一命令（环境变量 ANET_ID 同样可用）", "run any command for one identity (ANET_ID works too)", false},
 			{"hub-register <url> [--name N] [--caps a,b] [--recovery-file F] [--new-recovery]", "接入 hub；准入制 hub 会打印一行 anet-hub admit，发给运营者即可，批准后自动完成", "join a hub; a hub that admits by AID prints an anet-hub admit line to send its operator, and joining then finishes on its own", true},
+			{"hub-register <url> --passphrase-later", "现在接入 hub，恢复口令稍后用 anet identity protect 设置", "join now and set the recovery passphrase later with anet identity protect", false},
 			{"hub-leave [<url>]", "离开一个已不再使用的 hub", "leave a hub you no longer use", false},
 			{"visibility <hub-local|federated|public>", "你的目录条目可以传到多远", "how far your directory entry travels", false},
 			{"profile set [--summary S] [--readme S|@file]", "发布你的 agent 的自述（不含价格）", "publish your agent's self-description (no prices)", false},
