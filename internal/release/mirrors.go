@@ -20,17 +20,21 @@ var npmMirrors = []func(pkg string) string{
 	func(pkg string) string { return "https://unpkg.com/" + pkg + "@latest" },
 }
 
-// variantPrefixes are the asset prefixes of the variants, as build-release.sh
-// names them in release.json; a mirror base is needed before the manifest is
-// read.
-var variantPrefixes = map[string]string{"default": "anet", "shell": "anet-shell"}
+// variants are the builds that build-release.sh publishes. A mirror base is
+// needed before the manifest is read, so the asset prefix follows the rule
+// build-release.sh writes into release.json: anet for the default build and
+// anet-<variant> for the others.
+var variants = map[string]bool{"default": true, "shell": true}
 
 // NPMPackage is the npm package that carries the build of variant for goos
 // and goarch, or "" when no such package is published.
 func NPMPackage(variant, goos, goarch string) string {
-	prefix, ok := variantPrefixes[variant]
-	if !ok || (goos != "linux" && goos != "darwin") {
+	if !variants[variant] || (goos != "linux" && goos != "darwin") {
 		return ""
+	}
+	prefix := "anet"
+	if variant != "default" {
+		prefix += "-" + variant
 	}
 	cpu := map[string]string{"amd64": "x64", "arm64": "arm64"}[goarch]
 	if cpu == "" {
