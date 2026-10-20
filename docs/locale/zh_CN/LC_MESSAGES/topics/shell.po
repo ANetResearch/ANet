@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ANet 0.3\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-20 08:26+0000\n"
+"POT-Creation-Date: 2026-10-20 12:36+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: zh_CN\n"
@@ -380,32 +380,33 @@ msgid ""
 "The module runs on Windows with the same access control: the caller must "
 "be on ``peers.allow`` and on the list of the module, and ``allow_local`` "
 "stays off. The installer parameter ``-Controller`` writes such a "
-"configuration for exactly one AID (see :ref:`intro-install-windows-"
+"configuration for exactly one AID, without a confirmation: the parameter "
+"on the command line is the consent (see :ref:`intro-install-windows-"
 "controller`)."
 msgstr ""
 "该模块在 Windows 上以相同的访问控制运行：调用方必须同时位于 ``peers.allow`` 和模块的名单中，且 "
-"``allow_local`` 保持关闭。安装程序参数 ``-Controller`` 为恰好一个 AID 写入此类配置（参见 :ref"
-":`intro-install-windows-controller`）。"
+"``allow_local`` 保持关闭。安装程序参数 ``-Controller`` 为恰好一个 AID "
+"写入此类配置，不请求确认：命令行中的该参数即为同意（参见 :ref:`intro-install-windows-controller`）。"
 
-#: ../../topics/shell.rst:179
+#: ../../topics/shell.rst:180
 msgid ""
 "*Interpreters.* The key ``shell`` accepts the following values. Any other"
 " value is a configuration error."
 msgstr "*解释器。* 键 ``shell`` 接受以下值。其他任何值都属于配置错误。"
 
-#: ../../topics/shell.rst:186
+#: ../../topics/shell.rst:187
 msgid "Value"
 msgstr "值"
 
-#: ../../topics/shell.rst:187
+#: ../../topics/shell.rst:188
 msgid "Interpreter"
 msgstr "解释器"
 
-#: ../../topics/shell.rst:188
+#: ../../topics/shell.rst:189
 msgid "``powershell`` (the default)"
 msgstr "``powershell``\\ （默认）"
 
-#: ../../topics/shell.rst:189
+#: ../../topics/shell.rst:190
 msgid ""
 "``%SystemRoot%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe``. The "
 "path is fixed and never looked up on ``PATH``."
@@ -413,27 +414,27 @@ msgstr ""
 "``%SystemRoot%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe``。该路径固定，从不在"
 " ``PATH`` 中查找。"
 
-#: ../../topics/shell.rst:191
+#: ../../topics/shell.rst:192
 msgid "``pwsh``"
 msgstr "``pwsh``"
 
-#: ../../topics/shell.rst:192
+#: ../../topics/shell.rst:193
 msgid "PowerShell 7 (``pwsh.exe``)."
 msgstr "PowerShell 7（\\ ``pwsh.exe``）。"
 
-#: ../../topics/shell.rst:193
+#: ../../topics/shell.rst:194
 msgid "``cmd``"
 msgstr "``cmd``"
 
-#: ../../topics/shell.rst:194
+#: ../../topics/shell.rst:195
 msgid "``cmd.exe``."
 msgstr "``cmd.exe``\\ 。"
 
-#: ../../topics/shell.rst:195
+#: ../../topics/shell.rst:196
 msgid "An absolute path"
 msgstr "绝对路径"
 
-#: ../../topics/shell.rst:196
+#: ../../topics/shell.rst:197
 msgid ""
 "A path to ``powershell.exe``, ``pwsh.exe``, ``cmd.exe``, ``sh.exe`` or "
 "``bash.exe``."
@@ -441,7 +442,7 @@ msgstr ""
 "指向 ``powershell.exe``\\ 、\\ ``pwsh.exe``\\ 、\\ ``cmd.exe``\\ 、\\ "
 "``sh.exe`` 或 ``bash.exe`` 的路径。"
 
-#: ../../topics/shell.rst:198
+#: ../../topics/shell.rst:199
 msgid ""
 "*Invocation.* PowerShell receives the command as ``-EncodedCommand``, "
 "with ``-NoProfile``, ``-NonInteractive`` and ``-ExecutionPolicy Bypass``,"
@@ -452,7 +453,7 @@ msgstr ""
 "``-NonInteractive`` 和 ``-ExecutionPolicy Bypass``\\ ，以 UTF-8 输出。超出 "
 "Windows 命令行长度限制的命令会被拒绝。"
 
-#: ../../topics/shell.rst:202
+#: ../../topics/shell.rst:203
 msgid ""
 "*Arguments.* The arguments of a command with ``args: true`` are quoted "
 "for PowerShell: each argument is enclosed in single quotes, and the "
@@ -464,7 +465,7 @@ msgstr ""
 "规则加引号：每个参数用单引号括起，参数内的单引号字符（包括印刷体引号）均写两次。\\ ``cmd`` 不接受参数；使用该解释器时，``args: "
 "true`` 的命令会被拒绝。"
 
-#: ../../topics/shell.rst:207
+#: ../../topics/shell.rst:208
 msgid ""
 "*Characters refused in arguments.* Windows runs a batch file (``.bat`` or"
 " ``.cmd``, including the launchers that npm installs) through "
@@ -481,7 +482,7 @@ msgstr ""
 " ``\" % ! ^ & | < > ( )`` 中任一字符、回车或换行的参数都会被拒绝，命令不会运行。参数需要这些字符的命令，应声明为不带 "
 "``args``，并在 ``run`` 中写出完整的命令行。"
 
-#: ../../topics/shell.rst:215
+#: ../../topics/shell.rst:216
 msgid ""
 "*Process trees.* Each command runs in a Job object. On a timeout or a "
 "cancellation the whole process tree is terminated. A process that a "
@@ -491,20 +492,25 @@ msgstr ""
 "*进程树。* 每条命令都在 Job 对象中运行。超时或取消时，整个进程树都会被终止。命令遗留运行的进程在该命令结束后继续存在（与 Linux 和 "
 "macOS 相同），但会随守护进程结束而结束。"
 
-#: ../../topics/shell.rst:219
+#: ../../topics/shell.rst:220
 msgid ""
 "*Working directory.* The default working directory is the profile "
 "directory of the user."
 msgstr "*工作目录。* 默认工作目录为用户的配置文件目录。"
 
-#: ../../topics/shell.rst:221
+#: ../../topics/shell.rst:222
 msgid ""
 "*Privileges.* Commands run as the user that runs the node. The node runs "
 "as the logged-on user and never as a Windows service, and the module uses"
-" no elevation mechanism."
-msgstr "*权限。* 命令以运行节点的用户身份运行。节点以已登录用户的身份运行，从不作为 Windows 服务运行，且该模块不使用任何提权机制。"
+" no elevation mechanism. When the installer runs in an elevated window, "
+"it starts the node with standard user rights if Windows provides them, "
+"and states otherwise (see :ref:`intro-install-windows`)."
+msgstr ""
+"*权限。* 命令以运行节点的用户身份运行。节点以已登录用户的身份运行，从不作为 Windows "
+"服务运行，且该模块不使用任何提权机制。安装程序在提升权限的窗口中运行时，若 Windows "
+"提供标准用户权限，则以标准用户权限启动节点，否则予以说明（参见 :ref:`intro-install-windows`）。"
 
-#: ../../topics/shell.rst:224
+#: ../../topics/shell.rst:227
 msgid "A configuration for Windows:"
 msgstr "Windows 配置示例："
 

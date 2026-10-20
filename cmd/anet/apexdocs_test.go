@@ -368,12 +368,19 @@ func TestSiteJSONInstallMatchesSkill(t *testing.T) {
 	}
 }
 
-// apexPS1OneLine is the one-line installation command of the Windows
-// installer (its specification, section 5.1): TLS 1.2 added for Windows
-// PowerShell 5.1, the script fetched over https from this host as text and
-// run as a script block, which the execution policy does not apply to.
-const apexPS1OneLine = "[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor 3072; " +
-	"& ([scriptblock]::Create((Invoke-RestMethod -UseBasicParsing -Uri 'https://agentnetwork.org.cn/install.ps1'))) -Controller '<controller AID>'"
+// apexWindowsCommand is the published Windows installation command (v0.3.5): one line whose bytes run
+// unchanged in cmd.exe, Windows PowerShell 5.1, PowerShell 7, bash and zsh in WSL and Git Bash. A new
+// powershell.exe fetches install.ps1 over https as text and runs it as a script block, which the
+// execution policy does not apply to; TLS 1.2 is set for Windows PowerShell 5.1. It installs the
+// default build only. apexWindowsControllerCommand adds -Controller with the placeholder
+// CONTROLLER_AID, which install.ps1 refuses by name (cmd.exe would read < and > as redirections).
+// internal/release's install.ps1 test holds the script's header to the same two lines.
+const (
+	apexWindowsCommand = `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ` +
+		`"[Net.ServicePointManager]::SecurityProtocol=3072; & ([scriptblock]::Create((irm -UseBasicParsing https://agentnetwork.org.cn/install.ps1)))"`
+	apexWindowsControllerCommand = `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ` +
+		`"[Net.ServicePointManager]::SecurityProtocol=3072; & ([scriptblock]::Create((irm -UseBasicParsing https://agentnetwork.org.cn/install.ps1))) -Controller CONTROLLER_AID"`
+)
 
 // apexPS1Verify is the signature check of install.ps1: one line, the same in cmd.exe and in a POSIX
 // shell.
@@ -383,61 +390,110 @@ const apexPS1Verify = "ssh-keygen -Y verify -f allowed_signers -I anet-release@a
 // apexPS1VerifyRun is the last line of the verify-first PowerShell form: the check in cmd.exe, a stop when
 // it fails, and only then the run of the verified copy.
 const apexPS1VerifyRun = `cmd /c "` + apexPS1Verify + `"; if ($LASTEXITCODE -ne 0) { throw 'install.ps1 did not verify' }; ` +
-	`& ([scriptblock]::Create((Get-Content -Raw .\install.ps1))) -Controller '<controller AID>'`
+	`& ([scriptblock]::Create((Get-Content -Raw .\install.ps1))) -Controller CONTROLLER_AID`
 
-// The Windows command the website shows is SKILL.md's, llms.txt's and the
-// one install.ps1's header gives, word for word.
-func TestSiteJSONInstallPS1MatchesSkill(t *testing.T) {
-	s := apexSiteSource(t)
-	if s.InstallWindows != apexPS1OneLine {
-		t.Errorf("site.json install_windows is not the one-line command:\n got:  %q\n want: %q", s.InstallWindows, apexPS1OneLine)
-	}
-	var blocks []string
-	for _, m := range regexp.MustCompile("(?s)```powershell\n(.*?)```").FindAllStringSubmatch(readApex(t, "SKILL.md"), -1) {
-		blocks = append(blocks, strings.TrimRight(m[1], "\n"))
-	}
-	found := false
-	for _, b := range blocks {
-		found = found || b == s.InstallWindows
-	}
-	if !found {
-		t.Errorf("SKILL.md has no PowerShell block that is site.json's install_windows: %q", blocks)
-	}
-	if !strings.Contains(readApex(t, "llms.txt"), "\n    "+s.InstallWindows+"\n") {
-		t.Error("llms.txt does not give site.json's install_windows as an indented block")
-	}
-	ps1, err := os.ReadFile(filepath.Join(apexDir, "..", "install.ps1"))
+// apexRepoFile reads a file of the repository.
+func apexRepoFile(t *testing.T, rel string) string {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join("..", "..", filepath.FromSlash(rel)))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(ps1), "#   "+s.InstallWindows+"\n") {
-		t.Error("install.ps1's header does not give site.json's install_windows")
+	return string(b)
+}
+
+// apexFencedLines are the lines of the fenced code blocks of a Markdown document.
+func apexFencedLines(doc string) map[string]bool {
+	out := map[string]bool{}
+	for _, m := range regexp.MustCompile("(?s)```[a-z]*\n(.*?)```").FindAllStringSubmatch(doc, -1) {
+		for _, l := range strings.Split(m[1], "\n") {
+			out[l] = true
+		}
+	}
+	return out
+}
+
+// The published Windows commands satisfy the shell constraints, and every document that gives the
+// Windows installation gives them word for word: site.json (the plain form, which works when pasted
+// as it is), SKILL.md, llms.txt, the header of install.ps1, docs/intro/install.rst and the two
+// READMEs (both forms). The zh_CN catalog of install.rst names the placeholder as the source does and
+// carries no earlier form.
+func TestWindowsInstallCommandPublished(t *testing.T) {
+	for _, c := range []string{apexWindowsCommand, apexWindowsControllerCommand} {
+		if strings.ContainsAny(c, "$%!^`'<>\r\n\t") {
+			t.Errorf("the command holds a character a shell interprets: %q", c)
+		}
+		head, arg, _ := strings.Cut(c, " -Command ")
+		if head != "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass" || len(arg) < 2 ||
+			arg[0] != '"' || arg[len(arg)-1] != '"' || strings.Count(arg, `"`) != 2 {
+			t.Errorf("everything after -Command is not one double-quoted argument: %q", c)
+		}
+	}
+	s := apexSiteSource(t)
+	if s.InstallWindows != apexWindowsCommand {
+		t.Errorf("site.json install_windows is not the published command:\n got:  %q\n want: %q", s.InstallWindows, apexWindowsCommand)
+	}
+	skill := apexFencedLines(readApex(t, "SKILL.md"))
+	llms := readApex(t, "llms.txt")
+	ps1 := apexRepoFile(t, "deploy/release/install.ps1")
+	rst := apexRepoFile(t, "docs/intro/install.rst")
+	readme := apexFencedLines(apexRepoFile(t, "README.md"))
+	readmeZh := apexFencedLines(apexRepoFile(t, "README.zh-CN.md"))
+	for _, c := range []string{apexWindowsCommand, apexWindowsControllerCommand} {
+		if !skill[c] {
+			t.Errorf("SKILL.md has no code block line %q", c)
+		}
+		if !strings.Contains(llms, "\n    "+c+"\n") {
+			t.Errorf("llms.txt does not give %q as an indented block", c)
+		}
+		if !strings.Contains(ps1, "\n#   "+c+"\n") {
+			t.Errorf("install.ps1's header does not give %q", c)
+		}
+		if !strings.Contains(rst, "\n   "+c+"\n") {
+			t.Errorf("docs/intro/install.rst does not give %q in a code block", c)
+		}
+		if !readme[c] || !readmeZh[c] {
+			t.Errorf("README.md (%v) or README.zh-CN.md (%v) has no code block line %q", readme[c], readmeZh[c], c)
+		}
+	}
+	po := apexRepoFile(t, "docs/locale/zh_CN/LC_MESSAGES/intro/install.po")
+	for _, doc := range []struct{ name, text string }{
+		{"SKILL.md", readApex(t, "SKILL.md")}, {"llms.txt", llms}, {"install.rst", rst}, {"install.po", po},
+		{"README.md", apexRepoFile(t, "README.md")}, {"README.zh-CN.md", apexRepoFile(t, "README.zh-CN.md")},
+		{"SECURITY.md", apexRepoFile(t, "SECURITY.md")},
+	} {
+		for _, old := range []string{"<controller AID>", "SecurityProtocol -bor 3072", "Invoke-RestMethod -UseBasicParsing -Uri"} {
+			if strings.Contains(doc.text, old) {
+				t.Errorf("%s still gives the earlier Windows command (%q)", doc.name, old)
+			}
+		}
+	}
+	if !strings.Contains(po, "CONTROLLER_AID") {
+		t.Error("the zh_CN catalog of install.rst does not name CONTROLLER_AID")
 	}
 	// The verify-first form is in SKILL.md too, for an agent to relay. It verifies in cmd.exe (PowerShell
 	// has no input redirection) and stops on a failed check before the script runs: the check, the stop
 	// and the run are one line, so the run cannot follow a failed check however the block is pasted.
 	// allowed_signers is written without a byte order mark ([IO.File]::WriteAllText), not with the
 	// UTF-16 > redirection of Windows PowerShell 5.1.
-	skill := readApex(t, "SKILL.md")
+	text := readApex(t, "SKILL.md")
 	for _, want := range []string{
 		"Invoke-WebRequest -UseBasicParsing https://agentnetwork.org.cn/install.ps1.sig -OutFile install.ps1.sig",
 		"\n[IO.File]::WriteAllText((Join-Path $PWD.ProviderPath 'allowed_signers'), '",
 		"\n" + apexPS1VerifyRun + "\n",
 		"\n" + apexPS1Verify + "\n",
 	} {
-		if !strings.Contains(skill, want) {
+		if !strings.Contains(text, want) {
 			t.Errorf("SKILL.md lacks %q", want)
 		}
 	}
-	for _, l := range strings.Split(skill, "\n") {
+	for _, l := range strings.Split(text, "\n") {
 		if strings.Contains(l, "ssh-keygen -Y verify") && (strings.HasPrefix(strings.TrimSpace(l), "#") || strings.HasSuffix(l, "\\")) {
 			t.Errorf("SKILL.md has a commented-out or split verify command: %q", l)
 		}
 	}
-	for _, b := range []byte(s.InstallWindows) {
-		if b < 0x20 || b > 0x7e {
-			t.Fatalf("install_windows is not one line of ASCII: %q", s.InstallWindows)
-		}
+	if !strings.Contains(ps1, "\n#   "+apexPS1VerifyRun+"\n") {
+		t.Error("install.ps1's header does not give the verify-first line")
 	}
 }
 

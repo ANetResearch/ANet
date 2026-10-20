@@ -31,7 +31,7 @@ Tools used by the installer
    ``shasum``, and ``ssh-keygen`` from OpenSSH 8.1 or later. The signature
    check uses ``ssh-keygen``. If it is missing, the installer stops and names
    the package to install; no option skips the signature check. On Windows:
-   Windows PowerShell 5.1 or PowerShell 7, and no other tool.
+   Windows PowerShell 5.1, which Windows includes, and no tool to install.
 
 Network
    Outbound HTTPS to the download host. A node needs no inbound connection
@@ -200,27 +200,155 @@ Windows Server 2019 or later, on amd64 and arm64. WSL2 is not required.
 Requirements
 ------------
 
-* Windows PowerShell 5.1 or PowerShell 7. The installer uses no other tool;
-  in particular it does not use ``ssh-keygen``, because Windows 10 version
-  1809 ships an OpenSSH release older than 8.1.
-* A PowerShell window that is not elevated. The node, and every command that
-  it runs for a controller, run as the user who installs it. The installer
-  refuses to run in an elevated window unless ``-Elevated`` is given.
+* Windows PowerShell 5.1, which every supported version of Windows includes.
+  The installer uses no tool that has to be installed; in particular it does
+  not use ``ssh-keygen``, because Windows 10 version 1809 ships an OpenSSH
+  release older than 8.1.
 * Outbound HTTPS to the download hosts.
+
+The installer runs in a window that is elevated or not, and in a session
+without a visible console, such as the tool call of an agent or a CI job.
 
 Installing with the one-line command
 ------------------------------------
 
-Run the following line in PowerShell. ``<controller AID>`` is the AID of the
-node that is to be given access to the shell module of this computer:
+The installation is started with one line. The line is identical in
+``cmd.exe``, Windows PowerShell 5.1, PowerShell 7, a ``bash`` or ``zsh``
+shell in WSL 1 or WSL 2, and Git Bash: it contains no character that one of
+these shells interprets, and everything after ``-Command`` is one argument in
+double quotes. Replace ``CONTROLLER_AID`` with the AID of the node that is to
+be given access to the shell module of this computer:
 
-.. code-block:: powershell
+.. code-block:: text
 
-   [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor 3072; & ([scriptblock]::Create((Invoke-RestMethod -UseBasicParsing -Uri 'https://agentnetwork.org.cn/install.ps1'))) -Controller '<controller AID>'
+   powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol=3072; & ([scriptblock]::Create((irm -UseBasicParsing https://agentnetwork.org.cn/install.ps1))) -Controller CONTROLLER_AID"
 
-The first statement adds TLS 1.2 to the protocols of the session, which
-Windows PowerShell 5.1 requires. Without ``-Controller``, the same line
-installs the default build only and changes nothing else.
+Without ``-Controller``, the line installs the default build only and changes
+nothing else:
+
+.. code-block:: text
+
+   powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol=3072; & ([scriptblock]::Create((irm -UseBasicParsing https://agentnetwork.org.cn/install.ps1)))"
+
+The line starts a new ``powershell.exe``, which enables TLS 1.2 (required by
+Windows PowerShell 5.1), downloads ``install.ps1`` and runs it as a script
+block, to which the execution policy does not apply. The placeholder is a
+plain word because ``cmd.exe`` reads ``<`` and ``>`` as redirections; the
+installer refuses the unchanged placeholder ``CONTROLLER_AID`` with a message
+that names it. The exit status of ``powershell.exe`` is the result of the
+installation: 0 when it completed.
+
+No interaction
+--------------
+
+The installer asks no question and reads nothing from the console. Every
+decision is made from the parameters on the command line. In particular:
+
+* ``-Controller`` on the command line is the consent to the grant. The
+  installer passes it to ``anet init --shell-controller`` as ``--yes``, and no
+  confirmation is asked. At the end, the installer prints what was granted,
+  read back from ``config.json`` and ``peers.allow``, and the two steps that
+  revoke it.
+* The recovery passphrase is not asked during the installation
+  (``anet hub-register --passphrase-later``); set it afterwards with
+  ``anet identity protect``.
+* The installation also completes when standard input and output are not a
+  console, as with WSL interoperability, a CI job or the tool call of an
+  agent.
+
+Running the command in WSL
+--------------------------
+
+Run in a WSL shell, the line installs the Windows build on the Windows host,
+for the Windows user who runs WSL: that is the computer that the controller is
+given, and the node runs as a Windows program. The command requires that
+``powershell.exe`` can be started from WSL, which WSL interoperability
+provides and which is enabled by default (``[interop] enabled`` and
+``appendWindowsPath`` in ``/etc/wsl.conf``). To install ANet inside the Linux
+distribution instead, use ``install.sh`` (see :ref:`intro-install-script`).
+
+The install directory
+---------------------
+
+Without ``-Prefix``, the installer chooses the install directory. It uses the
+first of the following directories that passes the checks below, and prints
+one line for each directory it skips, with the reason; the reason names the
+accounts concerned, and an account that Windows cannot name is shown by its
+SID followed by ``(unresolved)``:
+
+#. the directory of an ANet 0.3 or later that is already installed for the
+   user, found on the user's ``PATH`` or in the ``Run`` value below;
+#. ``%LOCALAPPDATA%\Programs\anet``;
+#. ``%LOCALAPPDATA%\anet\bin``, beside the runtime directory
+   ``%LOCALAPPDATA%\anet\run`` of the node;
+#. ``%USERPROFILE%\.anet-bin``.
+
+A directory passes when no directory above it grants another account the
+right to rename it or to change its access control list, and when it is
+private to the user: it is owned by the user, SYSTEM or Administrators, and no
+access control entry grants another account more than synchronization,
+traversal and reading attributes. Such entries, for example the one that
+Windows grants an app container capability on the profile directory, give no
+access to the contents and are ignored. An entry that grants listing or
+reading, writing or appending, creating files or subdirectories, deletion,
+reading or changing permissions, taking ownership, or a generic right fails the
+check. A directory that does not exist yet is checked through the nearest
+directory above it, and each missing level is created with an access control
+list of its own: full control for the user, SYSTEM and Administrators, and
+nothing else. ``%LOCALAPPDATA%\anet`` is created in this way when the third
+directory is used, and the node accepts it as the parent of its runtime
+directory.
+
+``-Prefix`` overrides the choice. The given directory is subject to the same
+checks, and a directory that fails them is refused.
+
+An elevated window
+------------------
+
+An elevated window is not refused. ANet is installed for the current account,
+with the same per-user directories, ``PATH`` and ``Run`` value as in a window
+that is not elevated. The parameter ``-Elevated`` is accepted for
+compatibility and has no effect.
+
+The node is not started with the elevated token when a standard user token is
+available. The installer registers a one-time task in the Task Scheduler for
+the current user, with the interactive token and the least privileges, runs
+``anet up`` through it and deletes the task. When Windows has no standard
+user token for the account, because User Account Control is off or the
+account is the built-in Administrator, or when the task cannot run, for
+example because the user is not logged on interactively, the node is started
+directly with the rights of the window, and the installer says so in one
+line. At the next logon, the ``Run`` value starts the node with the token of
+the logon.
+
+Earlier installations
+---------------------
+
+The installer takes over from other ANet installations of the user, without
+asking:
+
+* An ANet of an earlier line (the npm package ``@agentnetwork/anet`` 1.x, or
+  0.1 or 0.2) that is found on the machine's or the user's ``PATH`` or in the
+  global npm prefix (``npm prefix -g``) is stopped with its own ``stop``
+  command, with a time limit. The installer never ends a process by name.
+* Its npm package is removed with ``npm uninstall -g @agentnetwork/anet``.
+  When that is not possible, the installer prints the command to run.
+* Its data in ``%USERPROFILE%\.anet`` is moved aside, never deleted, after its
+  daemon has stopped. When no identity of ANet 0.3 or later is in the
+  directory, the whole directory is renamed to
+  ``%USERPROFILE%\.anet-legacy-<version>-<UTC time>``. Otherwise only the
+  entries of the earlier line (``api_token``, ``anet``, ``orgs`` and
+  ``state``) are moved into a directory of that name, and the data of 0.3
+  stays in place. A data directory of 0.3 or later is never moved.
+* Another installation of ANet 0.3 or later outside npm is left in place and
+  taken off the user's ``PATH``, so that the ``PATH`` holds one copy. The npm
+  launcher of 0.3 or later is left alone.
+
+The install directory is put first on the user's ``PATH``. The installer then
+starts a new ``powershell.exe`` with the ``PATH`` that a new window receives
+and reports in one line which ``anet`` it runs. A directory on the machine's
+``PATH`` precedes the user's ``PATH``; an earlier ``anet`` there is reported.
+Finally, the installer lists what it stopped, removed and moved.
 
 .. _intro-install-windows-verify:
 
@@ -232,9 +360,9 @@ certificate. To avoid that trust, download the script and its signature,
 verify the signature with the release key, and run the verified copy.
 
 The signature is checked with ``ssh-keygen -Y verify`` from OpenSSH 8.1 or
-later (``ssh -V`` prints the version). The following block writes the file
-``allowed_signers`` with the release key line given in
-:ref:`intro-install-verify` as UTF-8 without a byte order mark, which
+later (``ssh -V`` prints the version). The following block, for a PowerShell
+window, writes the file ``allowed_signers`` with the release key line given
+in :ref:`intro-install-verify` as UTF-8 without a byte order mark, which
 ``ssh-keygen`` requires; the ``>`` redirection of Windows PowerShell 5.1
 writes UTF-16. It runs the check in ``cmd.exe``, which provides the input
 redirection that PowerShell lacks, and stops before running the script when
@@ -245,7 +373,7 @@ the signature does not verify:
    Invoke-WebRequest -UseBasicParsing https://agentnetwork.org.cn/install.ps1 -OutFile install.ps1
    Invoke-WebRequest -UseBasicParsing https://agentnetwork.org.cn/install.ps1.sig -OutFile install.ps1.sig
    [IO.File]::WriteAllText((Join-Path $PWD.ProviderPath 'allowed_signers'), 'anet-release@agentnetwork.org.cn namespaces="anet-release@agentnetwork.org.cn,anet-official@agentnetwork.org.cn" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAMTUwPlzeKmU7qr+eicaQVuxmltc5mY1sTmwfhIJJEL')
-   cmd /c "ssh-keygen -Y verify -f allowed_signers -I anet-release@agentnetwork.org.cn -n anet-release@agentnetwork.org.cn -s install.ps1.sig < install.ps1"; if ($LASTEXITCODE -ne 0) { throw 'install.ps1 did not verify' }; & ([scriptblock]::Create((Get-Content -Raw .\install.ps1))) -Controller '<controller AID>'
+   cmd /c "ssh-keygen -Y verify -f allowed_signers -I anet-release@agentnetwork.org.cn -n anet-release@agentnetwork.org.cn -s install.ps1.sig < install.ps1"; if ($LASTEXITCODE -ne 0) { throw 'install.ps1 did not verify' }; & ([scriptblock]::Create((Get-Content -Raw .\install.ps1))) -Controller CONTROLLER_AID
 
 When this computer has an older OpenSSH, copy ``install.ps1``,
 ``install.ps1.sig`` and ``allowed_signers`` to a computer with OpenSSH 8.1 or
@@ -262,7 +390,10 @@ in PowerShell, in the directory that holds it:
 
 .. code-block:: powershell
 
-   & ([scriptblock]::Create((Get-Content -Raw .\install.ps1))) -Controller '<controller AID>'
+   & ([scriptblock]::Create((Get-Content -Raw .\install.ps1))) -Controller CONTROLLER_AID
+
+Run in an open PowerShell window in this way, the script leaves the window
+open and sets ``$LASTEXITCODE`` to the result.
 
 Installer parameters
 --------------------
@@ -276,20 +407,22 @@ Installer parameters
    * - ``-Controller <AID>``
      - Install the build with the ``shell`` module, give exactly this AID
        access to it (see :ref:`intro-install-windows-controller`), and join
-       ``https://hub.agentnetwork.org.cn`` unless ``-Hub`` is given.
+       ``https://hub.agentnetwork.org.cn`` unless ``-Hub`` or ``-NoJoin`` is
+       given. The parameter is the consent to the grant.
    * - ``-Shell``
      - Install the build with the ``shell`` module. No caller is given access.
    * - ``-Hub <URL>``
      - Start the node and register it with the hub at ``URL`` as the last
        step.
+   * - ``-NoJoin``
+     - Do not register with a hub. With ``-Controller``, the node is still
+       started. Register later with ``anet hub-register``.
    * - ``-Name <name>``
      - The name to register under. The default is the computer name.
    * - ``-Prefix <directory>``
-     - Install to this absolute directory. The default is
-       ``%LOCALAPPDATA%\Programs\anet``. The directory must be private to the
-       user, and no directory above it may grant another account the right to
-       rename it or to change its access control list. A directory name that
-       contains ``;`` or ``%`` is refused.
+     - Install to this absolute directory instead of the directory the
+       installer chooses. The directory must pass the checks of the chosen
+       directories. A directory name that contains ``;`` or ``%`` is refused.
    * - ``-Without <modules>``
      - Switch off the listed modules in the configuration, as
        ``install.sh --without`` does (see :ref:`intro-install-modules`). The
@@ -300,10 +433,9 @@ Installer parameters
    * - ``-NoAutostart``
      - Do not write the value that starts the node at logon.
    * - ``-NoPath``
-     - Do not add the installation directory to the user's ``PATH``.
+     - Do not put the installation directory on the user's ``PATH``.
    * - ``-Elevated``
-     - Required to install from an elevated PowerShell window. The controller
-       then runs its commands with administrator rights.
+     - Accepted for compatibility with 0.3.4; it has no effect.
 
 The download hosts are those of :ref:`intro-install-hosts`. The npm packages of
 the Windows builds are ``@agentnetwork/anet-win32-<cpu>`` and
@@ -319,8 +451,8 @@ Paths
    * - Item
      - Location
    * - Binary
-     - ``%LOCALAPPDATA%\Programs\anet\anet.exe``, with the release manifest
-       ``anet.exe.release.json`` and its signature
+     - ``anet.exe`` in the install directory (see above), with the release
+       manifest ``anet.exe.release.json`` and its signature
        ``anet.exe.release.json.sig`` beside it.
    * - Data directory
      - ``%USERPROFILE%\.anet``
@@ -355,23 +487,24 @@ What ``-Controller`` opens
 * The AID on ``peers.allow``.
 * The defaults of ``anet init``: the inbound policy ``closed``, no public
   capabilities and spending limits of 0 (see :ref:`intro-install-init`).
-* The registration with the hub.
+* The registration with the hub, unless ``-NoJoin`` is given.
 
-The installer asks one confirmation on the console, through
-``anet init --shell-controller``. Declining it leaves the access closed. The
-recovery passphrase is not asked during the installation
-(``anet hub-register --passphrase-later``); set it afterwards with
-``anet identity protect``. Access is revoked with ``anet peers remove <AID>``
-and by removing the ``modules.shell`` block. The shell module on Windows is
-described in :ref:`topics-shell-windows`.
+Up to version 0.3.4, the installer asked one confirmation on the console.
+That confirmation is removed: the parameter on the command line is the
+consent, and the installer runs ``anet init --shell-controller <AID> --yes``.
+Run without ``--yes`` in a terminal, ``anet init --shell-controller`` still
+asks the confirmation. Access is revoked with ``anet peers remove <AID>`` and
+by removing the ``modules.shell`` block from ``config.json``, followed by a
+restart of the node. The shell module on Windows is described in
+:ref:`topics-shell-windows`.
 
 Background operation
 --------------------
 
 ``anet up`` starts the daemon detached from the console. The daemon keeps
-running when the PowerShell window is closed, stops at logoff, and starts
-again at logon through the ``Run`` value above. It runs as the logged-on user
-and never as a Windows service.
+running when the window is closed, stops at logoff, and starts again at logon
+through the ``Run`` value above. It runs as the logged-on user and never as a
+Windows service.
 
 Updating on Windows
 -------------------
@@ -387,13 +520,18 @@ commands one after the other:
    anet stop --all
    anet up --all
 
+Running the one-line command again also updates an installation; it reuses the
+install directory of the existing installation when that directory passes the
+checks.
+
 Uninstalling on Windows
 -----------------------
 
 #. Stop the daemons with ``anet stop --all``.
 #. Remove the value ``AgentNetwork`` under
    ``HKCU\Software\Microsoft\Windows\CurrentVersion\Run``.
-#. Delete the directory ``%LOCALAPPDATA%\Programs\anet``.
+#. Delete the install directory; ``(Get-Command anet).Source`` names the
+   binary in it.
 #. Remove that directory from the user's ``PATH``.
 
 The data directory ``%USERPROFILE%\.anet`` holds the identity. Delete it only

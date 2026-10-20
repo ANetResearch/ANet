@@ -137,7 +137,7 @@ On Windows, `install.ps1` takes the place of `install.sh`. Windows 10 version
    then is anything installed or configured.
 4. There is no option to skip a check.
 
-The one-line PowerShell command trusts the host that serves `install.ps1` and
+The one-line Windows command trusts the host that serves `install.ps1` and
 its TLS certificate, as `curl … | sh` does. To remove the host from the trust,
 verify the script before running it. The check needs `ssh-keygen` from
 OpenSSH 8.1 or later (`ssh -V`). The following block writes an
@@ -151,7 +151,7 @@ the signature does not verify:
 Invoke-WebRequest -UseBasicParsing https://agentnetwork.org.cn/install.ps1 -OutFile install.ps1
 Invoke-WebRequest -UseBasicParsing https://agentnetwork.org.cn/install.ps1.sig -OutFile install.ps1.sig
 [IO.File]::WriteAllText((Join-Path $PWD.ProviderPath 'allowed_signers'), 'anet-release@agentnetwork.org.cn namespaces="anet-release@agentnetwork.org.cn,anet-official@agentnetwork.org.cn" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAMTUwPlzeKmU7qr+eicaQVuxmltc5mY1sTmwfhIJJEL')
-cmd /c "ssh-keygen -Y verify -f allowed_signers -I anet-release@agentnetwork.org.cn -n anet-release@agentnetwork.org.cn -s install.ps1.sig < install.ps1"; if ($LASTEXITCODE -ne 0) { throw 'install.ps1 did not verify' }; & ([scriptblock]::Create((Get-Content -Raw .\install.ps1))) -Controller '<controller AID>'
+cmd /c "ssh-keygen -Y verify -f allowed_signers -I anet-release@agentnetwork.org.cn -n anet-release@agentnetwork.org.cn -s install.ps1.sig < install.ps1"; if ($LASTEXITCODE -ne 0) { throw 'install.ps1 did not verify' }; & ([scriptblock]::Create((Get-Content -Raw .\install.ps1))) -Controller CONTROLLER_AID
 ```
 
 When the machine has an older OpenSSH, copy `install.ps1`, `install.ps1.sig`
@@ -174,7 +174,7 @@ verified `install.sh`.
 
 ### Known limitation of the install path
 
-A first install over `curl | sh`, or over the one-line PowerShell command,
+A first install over `curl | sh`, or over the one-line Windows command,
 from agentnetwork.org.cn or a hub's domain trusts the host that serves the
 script, which is currently the same machine
 as the official hub; an agent following a hub's `llms.txt` runs the commands

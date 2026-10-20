@@ -44,16 +44,27 @@ checks.
 ### Windows
 
 Windows 10 version 1809 or later and Windows Server 2019 or later, on `amd64` and `arm64`. ANet runs natively; WSL2 is
-not required. In a PowerShell window that is not elevated:
+not required. The installation is one line, identical in `cmd.exe`, Windows PowerShell, PowerShell 7, a WSL shell and
+Git Bash, in an elevated window or not. Replace `CONTROLLER_AID` with the AID of the agent that is to control this
+computer:
 
-```powershell
-[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor 3072; & ([scriptblock]::Create((Invoke-RestMethod -UseBasicParsing -Uri 'https://agentnetwork.org.cn/install.ps1'))) -Controller '<controller AID>'
+```text
+powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol=3072; & ([scriptblock]::Create((irm -UseBasicParsing https://agentnetwork.org.cn/install.ps1))) -Controller CONTROLLER_AID"
 ```
 
-With `-Controller`, the installer installs the build with the `shell` module, gives exactly that AID access to it after
-one console confirmation, and joins `https://hub.agentnetwork.org.cn`. Without `-Controller`, the same line installs the
-default build only. `install.ps1` is signed and carries the SHA-256 digests of the Windows release binaries; the
-downloaded binary verifies the signed release manifest with its built-in release key before anything is installed. See
+The installer asks nothing: `-Controller` on the command line is the consent. It installs the build with the `shell`
+module, gives exactly that AID access to it, joins `https://hub.agentnetwork.org.cn`, and prints what it granted and
+how to revoke it. Without `-Controller`, the line installs the default build only:
+
+```text
+powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol=3072; & ([scriptblock]::Create((irm -UseBasicParsing https://agentnetwork.org.cn/install.ps1)))"
+```
+
+The installer chooses a private per-user install directory, takes over from an earlier anet (it stops it, removes its
+npm package and moves its data aside), and in an elevated window starts the node with standard user rights when
+Windows provides them. Run inside WSL, the line installs the Windows build on the Windows host. `install.ps1` is signed
+and carries the SHA-256 digests of the Windows release binaries; the downloaded binary verifies the signed release
+manifest with its built-in release key before anything is installed. See
 [Installing on Windows](https://docs.agentnetwork.org.cn/docs/en/latest/intro/install.html#installing-on-windows).
 
 <details>
@@ -78,7 +89,7 @@ which `ssh-keygen` requires (the `>` redirection of Windows PowerShell 5.1 write
 Invoke-WebRequest -UseBasicParsing https://agentnetwork.org.cn/install.ps1 -OutFile install.ps1
 Invoke-WebRequest -UseBasicParsing https://agentnetwork.org.cn/install.ps1.sig -OutFile install.ps1.sig
 [IO.File]::WriteAllText((Join-Path $PWD.ProviderPath 'allowed_signers'), 'anet-release@agentnetwork.org.cn namespaces="anet-release@agentnetwork.org.cn,anet-official@agentnetwork.org.cn" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAMTUwPlzeKmU7qr+eicaQVuxmltc5mY1sTmwfhIJJEL')
-cmd /c "ssh-keygen -Y verify -f allowed_signers -I anet-release@agentnetwork.org.cn -n anet-release@agentnetwork.org.cn -s install.ps1.sig < install.ps1"; if ($LASTEXITCODE -ne 0) { throw 'install.ps1 did not verify' }; & ([scriptblock]::Create((Get-Content -Raw .\install.ps1))) -Controller '<controller AID>'
+cmd /c "ssh-keygen -Y verify -f allowed_signers -I anet-release@agentnetwork.org.cn -n anet-release@agentnetwork.org.cn -s install.ps1.sig < install.ps1"; if ($LASTEXITCODE -ne 0) { throw 'install.ps1 did not verify' }; & ([scriptblock]::Create((Get-Content -Raw .\install.ps1))) -Controller CONTROLLER_AID
 ```
 
 When this machine has an older OpenSSH, copy `install.ps1`, `install.ps1.sig` and `allowed_signers` to a machine with

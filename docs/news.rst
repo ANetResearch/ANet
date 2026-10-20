@@ -8,6 +8,64 @@ Release notes
    :depth: 2
 
 
+.. _news-0.3.5:
+
+ANet 0.3.5 (draft)
+------------------
+
+ANet 0.3.5 is a patch release. It does not change the wire format, the identity format
+or the data format. A 0.3.4 node and a 0.3.5 node work together, and the hubs need no
+upgrade.
+
+Windows installation
+~~~~~~~~~~~~~~~~~~~~
+
+* The installation is started with one line that is identical in ``cmd.exe``, Windows
+  PowerShell 5.1, PowerShell 7, ``bash`` and ``zsh`` in WSL 1 and WSL 2, and Git Bash:
+  ``powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "..."``. The
+  controller form ends with ``-Controller CONTROLLER_AID``; the installer refuses the
+  unchanged placeholder. Run in WSL, the line installs the Windows build on the Windows host.
+  See :ref:`intro-install-windows`.
+* The installer asks nothing and reads nothing from the console. ``-Controller`` on the
+  command line is the consent to the grant; the console confirmation of 0.3.4 is removed. At
+  the end, the installer prints what was granted and how to revoke it. The installation
+  completes without a console, as in the tool call of an agent, a CI job or WSL.
+* The exit status of ``powershell.exe`` is the result of the installation.
+* An elevated window is no longer refused, and ``-Elevated`` has no effect. ANet is installed
+  for the current account. The node is started with standard user rights through a one-time
+  Task Scheduler task when Windows provides a standard user token, and otherwise with the
+  rights of the window, which the installer states.
+* Without ``-Prefix``, the installer chooses the install directory: an existing installation,
+  ``%LOCALAPPDATA%\Programs\anet``, ``%LOCALAPPDATA%\anet\bin`` or
+  ``%USERPROFILE%\.anet-bin``, the first that passes the checks. It reports each skipped
+  directory with the reason and names the accounts concerned.
+* The privacy check ignores an access control entry that grants another account no more than
+  synchronization, traversal and reading attributes, such as the entry of an app container
+  capability on the profile directory. Every other grant still fails the check.
+* The installer takes over from earlier installations: an ANet of the 1.x npm package, 0.1 or
+  0.2 is stopped with its own ``stop`` command, its npm package is removed, and its data in
+  ``%USERPROFILE%\.anet`` is moved aside without being deleted. Another installation of 0.3
+  or later is taken off the user's ``PATH``. The install directory is put first on the user's
+  ``PATH``, and the installer confirms with a new ``powershell.exe`` which ``anet`` runs.
+* The new parameter ``-NoJoin`` starts the node without registering with a hub.
+
+Command line
+~~~~~~~~~~~~
+
+* ``anet init --shell-controller <AID> --yes`` writes the controller grant without a
+  confirmation; the command line is the confirmation. Without ``--yes``, the grant is
+  confirmed on the terminal as before, and a process without a terminal is refused with
+  ``tty_required``.
+
+Continuous integration
+~~~~~~~~~~~~~~~~~~~~~~
+
+* A job on ``windows-latest`` runs ``install.ps1`` end to end with the published command from
+  ``cmd.exe``, Windows PowerShell 5.1, PowerShell 7 and Git Bash, against a release of the
+  commit that is signed with a key made for the job, and takes over a planted earlier
+  installation. It contacts no hub.
+
+
 .. _news-0.3.4:
 
 ANet 0.3.4

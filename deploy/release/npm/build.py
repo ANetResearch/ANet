@@ -124,14 +124,14 @@ anet runs on Linux, macOS and Windows (x64 and arm64).
 
 The package contains a launcher (`bin/anet`, Node.js 18 or later) and no binary. The build of the platform is in the optional dependency `@agentnetwork/anet-<os>-<cpu>` (`<os>` is `linux`, `darwin` or `win32`), as the archive and the signed release manifest of the project. Before the first run of a version the launcher checks that `release.json` is signed by the anet release key (`allowed_signers` in this package, the same key as in `SECURITY.md` of the repository), that it names this version, and that the SHA-256 of the archive and of the binary are the ones it lists. Any failure stops the launcher before anything is run. The checked binary is written to `~/.cache/anet/npm/<version>/` (`~/Library/Caches/anet/npm/<version>/` on macOS, `%LOCALAPPDATA%\\anet\\npm\\<version>\\` on Windows) and run from there.
 
-Update with `npm update --global @agentnetwork/anet`. The installers of the project (`install.sh` and `install.ps1`, also in this package with their signatures) install the same binary into `~/.local/bin`, or on Windows into `%LOCALAPPDATA%\\Programs\\anet`, instead:
+Update with `npm update --global @agentnetwork/anet`. The installers of the project (`install.sh` and `install.ps1`, also in this package with their signatures) install the same binary into `~/.local/bin`, or on Windows into a private per-user directory they choose (`%LOCALAPPDATA%\\Programs\\anet` when it qualifies), instead:
 
 ```sh
 curl --proto '=https' --tlsv1.2 -fsSL https://agentnetwork.org.cn/install.sh | sh
 ```
 
-```powershell
-[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor 3072; & ([scriptblock]::Create((Invoke-RestMethod -UseBasicParsing -Uri 'https://agentnetwork.org.cn/install.ps1')))
+```text
+powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol=3072; & ([scriptblock]::Create((irm -UseBasicParsing https://agentnetwork.org.cn/install.ps1)))"
 ```
 
 Documentation: {docs}

@@ -48,34 +48,46 @@ curl --proto '=https' --tlsv1.2 -fsSLO https://agentnetwork.org.cn/install.sh.si
 ssh-keygen -Y verify -f allowed_signers -I anet-release@agentnetwork.org.cn -n anet-release@agentnetwork.org.cn -s install.sh.sig < install.sh && sh install.sh
 ```
 
-On Windows (Windows 10 1809 or Windows Server 2019 and later), run the installer in a PowerShell window that
-is not elevated:
+On Windows (Windows 10 1809 or Windows Server 2019 and later), run this one line. It is the same in
+cmd.exe, Windows PowerShell, PowerShell 7, a WSL shell (bash or zsh) and Git Bash, in an elevated window or
+not, and it asks nothing. Replace `CONTROLLER_AID` with the AID the user gives you; do not choose one
+yourself:
 
-```powershell
-[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor 3072; & ([scriptblock]::Create((Invoke-RestMethod -UseBasicParsing -Uri 'https://agentnetwork.org.cn/install.ps1'))) -Controller '<controller AID>'
+```text
+powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol=3072; & ([scriptblock]::Create((irm -UseBasicParsing https://agentnetwork.org.cn/install.ps1))) -Controller CONTROLLER_AID"
 ```
 
-`-Controller` names the agent that may run commands on this machine: the installer installs the shell build,
-asks the user one confirmation on the console, gives that agent (and no other) the right to run any command
-here as this user, starts the node, joins the official hub and starts the node again at every logon. Replace
-`<controller AID>` with the AID the user gives you; do not choose one yourself. Without `-Controller` the same
-line installs the default build and does nothing else. The installer checks the downloaded binary against
-SHA-256 values in the signed script, and the binary then verifies the signed release manifest before anything
-is installed.
+`-Controller` names the agent that may run commands on this computer. Giving it on the command line is the
+user's consent; the installer asks no confirmation. It installs the shell build, gives that agent (and no
+other) the right to run any command here as this user, starts the node, joins the official hub, starts the
+node again at every logon, and at the end prints what it granted and how to revoke it. Without
+`-Controller`, the line installs the default build and does nothing else:
+
+```text
+powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol=3072; & ([scriptblock]::Create((irm -UseBasicParsing https://agentnetwork.org.cn/install.ps1)))"
+```
+
+The installer chooses the install directory itself and reports each directory it skipped, with the reason.
+In an elevated window it installs for the current account and starts the node with standard user rights
+when Windows provides them. It stops and removes an earlier anet (the 1.x npm package, 0.1, 0.2) and moves
+its data aside. Run inside WSL, the line installs the Windows build on the Windows host, for the Windows user;
+install.sh installs anet inside the Linux distribution instead. The exit status of powershell.exe is the
+result. The installer checks the downloaded binary against SHA-256 values in the signed script, and the
+binary then verifies the signed release manifest before anything is installed.
 
 The line above trusts the host that serves the script. To trust only the release key, relay this form to the
-user. It verifies the script with ssh-keygen from OpenSSH 8.1 or later (`ssh -V` shows the version) and stops
-before running it when the signature does not verify. In the third line, replace the quoted placeholder with
-the `allowed_signers` line from the README or SECURITY.md of the repository (not from this host);
-`[IO.File]::WriteAllText` writes it as UTF-8 without a byte order mark, which ssh-keygen requires, whereas the
-`>` redirection of Windows PowerShell 5.1 writes UTF-16. The check runs in `cmd.exe`, which provides the input
-redirection that PowerShell lacks:
+user, for a PowerShell window. It verifies the script with ssh-keygen from OpenSSH 8.1 or later (`ssh -V`
+shows the version) and stops before running it when the signature does not verify. In the third line,
+replace the quoted placeholder with the `allowed_signers` line from the README or SECURITY.md of the
+repository (not from this host); `[IO.File]::WriteAllText` writes it as UTF-8 without a byte order mark,
+which ssh-keygen requires, whereas the `>` redirection of Windows PowerShell 5.1 writes UTF-16. The check runs
+in `cmd.exe`, which provides the input redirection that PowerShell lacks:
 
 ```powershell
 Invoke-WebRequest -UseBasicParsing https://agentnetwork.org.cn/install.ps1 -OutFile install.ps1
 Invoke-WebRequest -UseBasicParsing https://agentnetwork.org.cn/install.ps1.sig -OutFile install.ps1.sig
 [IO.File]::WriteAllText((Join-Path $PWD.ProviderPath 'allowed_signers'), '<allowed_signers line from the repository>')
-cmd /c "ssh-keygen -Y verify -f allowed_signers -I anet-release@agentnetwork.org.cn -n anet-release@agentnetwork.org.cn -s install.ps1.sig < install.ps1"; if ($LASTEXITCODE -ne 0) { throw 'install.ps1 did not verify' }; & ([scriptblock]::Create((Get-Content -Raw .\install.ps1))) -Controller '<controller AID>'
+cmd /c "ssh-keygen -Y verify -f allowed_signers -I anet-release@agentnetwork.org.cn -n anet-release@agentnetwork.org.cn -s install.ps1.sig < install.ps1"; if ($LASTEXITCODE -ne 0) { throw 'install.ps1 did not verify' }; & ([scriptblock]::Create((Get-Content -Raw .\install.ps1))) -Controller CONTROLLER_AID
 ```
 
 When the machine has an older OpenSSH, copy `install.ps1`, `install.ps1.sig` and `allowed_signers` to a machine
