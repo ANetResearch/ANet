@@ -17,12 +17,13 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
-	"syscall"
 	"time"
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/ANetResearch/ANet/internal/fsperm"
 	"github.com/ANetResearch/ANet/internal/pathsafe"
+	"github.com/ANetResearch/ANet/internal/procgroup"
 )
 
 const (
@@ -169,11 +170,25 @@ func InvokeAgent(ctx context.Context, o execInvokeOpts) (string, error) {
 
 func lookPathFirst(names ...string) (string, error) {
 	for _, n := range names {
-		if p, err := exec.LookPath(n); err == nil {
+		if p, err := lookAgentPath(n); err == nil {
 			return p, nil
 		}
 	}
 	return "", fmt.Errorf("%s not found on PATH", strings.Join(names, ", "))
+}
+
+// lookAgentPath is exec.LookPath for an agent binary, except that a program found only relative to the
+// daemon's working directory counts as not found (exec.ErrDot, or a relative result where a GODEBUG
+// setting turned that error off): an agent never runs from the daemon's working directory.
+func lookAgentPath(name string) (string, error) {
+	p, err := exec.LookPath(name)
+	if err != nil {
+		return "", err
+	}
+	if !filepath.IsAbs(p) {
+		return "", &exec.Error{Name: name, Err: exec.ErrDot}
+	}
+	return p, nil
 }
 
 // runCmd runs one agent CLI to completion, or kills it and everything it started when ctx expires.
@@ -227,17 +242,12 @@ func runCmd(ctx context.Context, o execInvokeOpts, stdin []byte, bin string, arg
 	cmd.Env = env
 	cmd.Stdin = in
 	cmd.ExtraFiles = extra
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Cancel = func() error {
-		if cmd.Process == nil {
-			return nil
-		}
-		return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) // negative pid: the whole group
-	}
+	// procgroup puts the command in a process group of its own (Setpgid) and makes cmd.Cancel kill
+	// the whole group; on Windows the group is a Job object that is terminated as a whole.
 	cmd.WaitDelay = 3 * time.Second
 	outBuf, errBuf := &cappedBuffer{max: agentStdoutMax, over: over}, &cappedBuffer{max: agentStderrMax, over: over}
 	cmd.Stdout, cmd.Stderr = outBuf, errBuf
-	err = cmd.Run()
+	err = procgroup.Run(cmd)
 	if over.hit.Load() {
 		return outBuf.Bytes(), errBuf.Bytes(), fmt.Errorf("%w (more than %d bytes on stdout or %d on stderr)", errAgentOutputTooLarge, agentStdoutMax, agentStderrMax)
 	}
@@ -355,14 +365,14 @@ func writeConversationFile(o execInvokeOpts) (path string, cleanup func(), err e
 		if parent == "" {
 			parent = os.TempDir()
 		}
-		if dir, err = os.MkdirTemp(parent, ".anet-in-"); err != nil {
+		if dir, err = mkdirTempPrivate(parent, ".anet-in-"); err != nil {
 			return "", cleanup, err
 		}
 		made := dir
 		cleanup = func() { _ = os.RemoveAll(made) }
 	}
 	path = filepath.Join(dir, conversationFileName)
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC|syscall.O_NOFOLLOW, 0o600)
+	f, err := fsperm.OpenNoFollow(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 	if err == nil {
 		_, err = io.WriteString(f, o.Conversation)
 		if cerr := f.Close(); err == nil {
@@ -428,7 +438,7 @@ func detectCursorBin() (string, error) {
 	if p, err := lookPathFirst("agent", "cursor-agent"); err == nil {
 		return p, nil
 	}
-	if p, err := exec.LookPath("cursor"); err == nil {
+	if p, err := lookAgentPath("cursor"); err == nil {
 		return p, nil
 	}
 	return "", fmt.Errorf("cursor agent not found — install Cursor Agent CLI (`agent`) or Cursor IDE")
@@ -453,7 +463,7 @@ func invokeCursor(ctx context.Context, o execInvokeOpts) (string, error) {
 	defer cleanup()
 	args = append(args, fileInputMessage(o.Instructions, conv))
 	bin := o.Command
-	if filepath.Base(bin) == "cursor" {
+	if agentBinIs(bin, "cursor") {
 		args = append([]string{"agent"}, args...)
 	}
 	stdout, stderr, err := runCmd(ctx, o, nil, bin, args...)
@@ -493,7 +503,7 @@ func cursorCreateChat(ctx context.Context, o execInvokeOpts) (string, error) {
 		bin = b
 	}
 	args := []string{"create-chat"}
-	if filepath.Base(bin) == "cursor" {
+	if agentBinIs(bin, "cursor") {
 		args = append([]string{"agent"}, args...)
 	}
 	stdout, stderr, err := runCmd(ctx, o, nil, bin, args...)
