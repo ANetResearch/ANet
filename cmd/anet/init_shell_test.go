@@ -76,7 +76,7 @@ func TestInitShellControllerCommandYes(t *testing.T) {
 	l := shellCtlLayout(t)
 	opened := withShellCtl(t, true, "yes")
 	var out bytes.Buffer
-	if err := initShellControllerTo(&out, l, false, shellCtlAID); err != nil {
+	if err := initShellControllerTo(&out, l, false, shellCtlAID, false); err != nil {
 		t.Fatalf("error %v (exit %d)", err, exitStatus(err, io.Discard))
 	}
 	if *opened != 1 {
@@ -100,7 +100,7 @@ func TestInitShellControllerCommandYes(t *testing.T) {
 	}
 
 	out.Reset()
-	if err := initShellControllerTo(&out, l, false, shellCtlAID); err != nil {
+	if err := initShellControllerTo(&out, l, false, shellCtlAID, false); err != nil {
 		t.Fatal(err)
 	}
 	if *opened != 1 {
@@ -116,7 +116,7 @@ func TestInitShellControllerCommandNoAndNoTerminal(t *testing.T) {
 	for _, answer := range []string{"no", ""} {
 		l := shellCtlLayout(t)
 		withShellCtl(t, true, answer)
-		err := initShellControllerTo(io.Discard, l, false, shellCtlAID)
+		err := initShellControllerTo(io.Discard, l, false, shellCtlAID, false)
 		if err == nil || exitStatus(err, io.Discard) != 1 {
 			t.Fatalf("answer %q: error %v", answer, err)
 		}
@@ -126,12 +126,66 @@ func TestInitShellControllerCommandNoAndNoTerminal(t *testing.T) {
 	}
 }
 
+// --yes is the confirmation: with no terminal at all, the grant is written as the confirmed one is,
+// no terminal is opened, and the output says how it was confirmed. A second run changes nothing.
+func TestInitShellControllerCommandYesFlag(t *testing.T) {
+	l := shellCtlLayout(t)
+	opened := withShellCtl(t, true, "")
+	var out bytes.Buffer
+	if err := runInitTo(t, &out, l, "--shell-controller", shellCtlAID, "--yes"); err != nil {
+		t.Fatalf("error %v (exit %d)", err, exitStatus(err, io.Discard))
+	}
+	if *opened != 0 {
+		t.Fatalf("terminal opened %d times, want 0", *opened)
+	}
+	block, allow := shellCtlOnDisk(t, l)
+	want := map[string]any{"allow": []any{shellCtlAID}, "allow_arbitrary": true}
+	if interp := shellControllerInterp(); interp != "" {
+		want["shell"] = interp
+	}
+	if !reflect.DeepEqual(block, want) {
+		t.Fatalf("modules.shell = %v", block)
+	}
+	if !strings.Contains(allow, shellCtlAID+"\n") {
+		t.Fatalf("peers.allow = %q", allow)
+	}
+	if !strings.Contains(out.String(), "confirmed by --yes on the command line") {
+		t.Errorf("output:\n%s", out.String())
+	}
+	out.Reset()
+	if err := initShellControllerTo(&out, l, false, shellCtlAID, true); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "nothing changed") || strings.Contains(out.String(), "confirmed by --yes") {
+		t.Fatalf("output:\n%s", out.String())
+	}
+}
+
+// runInitTo is runInit with its standard output captured into w.
+func runInitTo(t *testing.T, w io.Writer, l daemon.Layout, args ...string) error {
+	t.Helper()
+	r, pw, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	prev := os.Stdout
+	os.Stdout = pw
+	done := make(chan struct{})
+	go func() { io.Copy(w, r); close(done) }()
+	err = runInit(l, args)
+	os.Stdout = prev
+	pw.Close()
+	<-done
+	r.Close()
+	return err
+}
+
 // --json prints the plan.
 func TestInitShellControllerCommandJSON(t *testing.T) {
 	l := shellCtlLayout(t)
 	withShellCtl(t, true, "yes")
 	var out bytes.Buffer
-	if err := initShellControllerTo(&out, l, true, shellCtlAID); err != nil {
+	if err := initShellControllerTo(&out, l, true, shellCtlAID, false); err != nil {
 		t.Fatal(err)
 	}
 	var plan daemon.ShellControllerPlan
@@ -155,6 +209,9 @@ func TestInitShellControllerCommandRefusals(t *testing.T) {
 		{"with --with", []string{"--shell-controller", shellCtlAID, "--with", "cas"}, true},
 		{"short aid", []string{"--shell-controller", "bafyreie6k7"}, true},
 		{"no shell module", []string{"--shell-controller", shellCtlAID}, false},
+		{"--yes alone", []string{"--yes"}, true},
+		{"--yes with --without", []string{"--without", "cas", "--yes"}, true},
+		{"--yes with a value", []string{"--shell-controller", shellCtlAID, "--yes=no"}, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -181,7 +238,7 @@ func TestInitShellControllerCommandRefusals(t *testing.T) {
 			t.Fatal(err)
 		}
 		opened := withShellCtl(t, true, "yes")
-		err := initShellControllerTo(io.Discard, l, false, shellCtlAID)
+		err := initShellControllerTo(io.Discard, l, false, shellCtlAID, false)
 		if err == nil || exitStatus(err, io.Discard) != 2 || *opened != 0 {
 			t.Fatalf("error %v, terminal opened %d times", err, *opened)
 		}
@@ -200,7 +257,7 @@ func TestInitShellControllerCommandDaemonRunning(t *testing.T) {
 	prev := os.Stderr
 	devnull, _ := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
 	os.Stderr = devnull
-	err = initShellControllerTo(io.Discard, l, false, shellCtlAID)
+	err = initShellControllerTo(io.Discard, l, false, shellCtlAID, false)
 	os.Stderr = prev
 	devnull.Close()
 	if err == nil || exitStatus(err, io.Discard) != 1 || *opened != 0 {

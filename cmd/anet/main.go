@@ -1031,7 +1031,7 @@ var knownFlags = map[string][]string{
 	"mcp":      {},
 	"version":  {},
 	"update":   {"check", "base", "verify-dir", "installed"},
-	"init":     {"json", "without", "with", "shell-controller"},
+	"init":     {"json", "without", "with", "shell-controller", "yes"},
 	"doctor":   {"json", "apparmor-profile"},
 	"audit":    {"since", "peer", "interaction", "type", "json", "export"},
 

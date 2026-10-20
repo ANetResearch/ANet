@@ -21,7 +21,7 @@ import (
 	"github.com/ANetResearch/ANet/module"
 )
 
-const initUsage = "anet init [--without <module>[,<module>...]] [--with <module>] [--shell-controller <aid>] [--json]"
+const initUsage = "anet init [--without <module>[,<module>...]] [--with <module>] [--shell-controller <aid> [--yes]] [--json]"
 
 // shellInBinary reports whether this binary contains the shell module, asked of an Availability value
 // with nothing turned off (MOD-1: the registry is read through the value); tests replace it.
@@ -43,7 +43,15 @@ func runInit(layout daemon.Layout, rest []string) error {
 		if _, ok := flags["with"]; ok {
 			return usageError{initUsage}
 		}
-		return initShellControllerTo(os.Stdout, layout, flags["json"] == "true", aid)
+		yes, given := flags["yes"]
+		if given && yes != "true" {
+			return usageError{initUsage}
+		}
+		return initShellControllerTo(os.Stdout, layout, flags["json"] == "true", aid, given)
+	}
+	// --yes confirms the controller grant and nothing else.
+	if _, ok := flags["yes"]; ok {
+		return usageError{initUsage}
 	}
 	var without, with []string
 	for _, f := range []struct {
@@ -187,7 +195,13 @@ func shellControllerInterp() string {
 // (daemon.InitShellController). Exit status 2 for input that has to change (an AID that is not whole, a
 // binary without the shell module, a configuration that conflicts); 1 for a running daemon, no terminal
 // or a declined confirmation; 0 when written or already in place.
-func initShellControllerTo(w io.Writer, layout daemon.Layout, asJSON bool, aid string) error {
+//
+// With yes (`--yes`), the command line is the confirmation: nothing is asked and no terminal is opened,
+// so the installer runs the grant without a console (install.ps1 -Controller, an agent's tool call, a
+// CI job). It writes exactly what the confirmed grant writes, under the same refusals. It opens nothing
+// that the caller could not open already: the grant is offline (no daemon may run) and writes two files
+// of the data directory, which a process running as this user can write itself.
+func initShellControllerTo(w io.Writer, layout daemon.Layout, asJSON bool, aid string, yes bool) error {
 	lang := a2ashape.Lang()
 	if !identity.ValidAID(aid) {
 		args := a2ashape.Args{"value": printable(aid, 64)}
@@ -205,6 +219,9 @@ func initShellControllerTo(w io.Writer, layout daemon.Layout, asJSON bool, aid s
 			"(install.ps1 -Controller or -Shell on Windows, install.sh --shell elsewhere)"}
 	}
 	confirm := func(p daemon.ShellControllerPlan) error {
+		if yes {
+			return nil
+		}
 		return ttyConfirm("shell_controller", func() (string, error) {
 			return a2ashape.Sentence("shell.controller_confirm", a2ashape.Lang(), a2ashape.Args{"peer": p.AID}), nil
 		})
@@ -227,6 +244,9 @@ func initShellControllerTo(w io.Writer, layout daemon.Layout, asJSON bool, aid s
 	}
 	if plan.AddAllow {
 		fmt.Fprintf(w, "  + peers.allow %s\n", plan.AID)
+	}
+	if yes && plan.Changed {
+		fmt.Fprintln(w, "  confirmed by --yes on the command line")
 	}
 	fmt.Fprintf(w, "\nOnly %s can run commands through the shell module. Every command and every refusal is recorded "+
 		"on this node's evidence chain (anet audit). Start the node with: anet up\n", plan.AID)
