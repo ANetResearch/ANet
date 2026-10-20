@@ -67,9 +67,13 @@ func ResolveThroughExisting(p string) (string, error) {
 }
 
 // PathWithin reports whether p equals root or lies below it. Both must be cleaned absolute paths.
+//
+// On Windows, where file names are case-insensitive, the two paths must be on the same volume and
+// their components are compared without regard to case (and without the trailing dots and spaces
+// Windows ignores); every caller uses the answer to refuse an overlap, so the comparison errs
+// toward "within".
 func PathWithin(p, root string) bool {
-	rel, err := filepath.Rel(root, p)
-	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+	return pathWithin(p, root)
 }
 
 // MaxSafeNameBytes caps a file name derived from a peer-supplied name.
@@ -84,7 +88,10 @@ const MaxSafeNameBytes = 128
 //     (.envrc, .npmrc);
 //   - trailing dots and spaces are removed and Windows device names (CON, NUL, COM1, …) get a "_"
 //     prefix, for clients that save the name on Windows;
-//   - the result is limited to MaxSafeNameBytes, keeping a short extension.
+//   - the result is limited to MaxSafeNameBytes, keeping a short extension;
+//   - on Windows only, the characters < > : " | ? * become "_" (so a name cannot address an
+//     alternate data stream) and COM0, LPT0 and the superscript forms COM¹ COM² COM³ LPT¹ LPT²
+//     LPT³ are treated as device names too.
 //
 // An empty result becomes "attachment".
 func SafeName(name string) string {
@@ -109,15 +116,21 @@ func SafeName(name string) string {
 	if windowsReservedName(stem) {
 		name = "_" + name
 	}
+	name = limitName(name)
+	if name == "" || name == "_" {
+		return "attachment"
+	}
+	return osSafeName(name)
+}
+
+// limitName limits name to MaxSafeNameBytes, keeping an extension of up to 16 bytes.
+func limitName(name string) string {
 	if len(name) > MaxSafeNameBytes {
 		ext := filepath.Ext(name)
 		if len(ext) > 16 {
 			ext = ""
 		}
 		name = TruncateUTF8(name[:len(name)-len(ext)], MaxSafeNameBytes-len(ext)) + ext
-	}
-	if name == "" || name == "_" {
-		return "attachment"
 	}
 	return name
 }

@@ -77,12 +77,24 @@ var nameRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 
 // ValidName reports whether name is a legal identity name. "default" is
 // allowed (it maps to the home itself); "ids" is reserved (it is the
-// container subdirectory).
+// container subdirectory). On Windows a device name (con, prn, aux, nul,
+// com0-9, lpt0-9 and their superscript-digit forms, in any case, with or
+// without an extension) and a name ending in "." or " " are not legal
+// either: Windows would not create a directory of that name.
 func ValidName(name string) bool {
 	if name == "" || name == IDsDir || len(name) > 64 {
 		return false
 	}
-	return nameRe.MatchString(name)
+	return nameRe.MatchString(name) && osValidName(name)
+}
+
+// NameTaken reports whether an identity directory with this name already
+// exists under <home>/ids: an entry of exactly this name on unix, an entry
+// whose name differs at most in case on Windows, where both would be the
+// same directory. An error other than a missing ids directory counts as
+// taken, so a caller about to create the identity stops.
+func NameTaken(name string) bool {
+	return nameTaken(filepath.Join(Home(), IDsDir), name)
 }
 
 // Dir is the data directory of a named identity: the home for "" or
@@ -120,7 +132,9 @@ type Identity struct {
 // <home>/ids whose name is a valid identity name, in directory order
 // (sorted by name). It reads directory entries only; whether a directory
 // holds an initialized identity is the caller's question (internal/daemon
-// Layout.Initialized), and a missing home yields just the default.
+// Layout.Initialized), and a missing home yields just the default. On
+// Windows, names that differ only in case are listed once, the first in
+// sorted order.
 func Identities() []Identity {
 	home := Home()
 	out := []Identity{{Name: DefaultName, Dir: home}}
@@ -129,7 +143,7 @@ func Identities() []Identity {
 		return out
 	}
 	for _, e := range ents {
-		if e.IsDir() && ValidName(e.Name()) {
+		if e.IsDir() && ValidName(e.Name()) && !listedAlready(out[1:], e.Name()) {
 			out = append(out, Identity{Name: e.Name(), Dir: filepath.Join(home, IDsDir, e.Name())})
 		}
 	}
