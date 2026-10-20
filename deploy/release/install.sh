@@ -291,6 +291,7 @@ detect_platform() {
   case "$OS" in
     Linux*)  OS_TAG="linux" ;;
     Darwin*) OS_TAG="darwin" ;;
+    MINGW*|MSYS*|CYGWIN*) die "this is Windows; install with PowerShell instead: see https://docs.agentnetwork.org.cn/docs/en/latest/intro/install.html#installing-on-windows" ;;
     *) die "unsupported OS: $OS (linux/darwin only)" ;;
   esac
   ARCH="$(uname -m)"

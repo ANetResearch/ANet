@@ -1,0 +1,4 @@
+# The installers are published as the bytes that were signed; a checkout on
+# Windows must not change them (no CRLF conversion).
+deploy/release/install.ps1 -text
+deploy/release/*.sh text eol=lf
