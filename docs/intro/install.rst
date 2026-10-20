@@ -200,7 +200,10 @@ directory of npm, and ``/usr/local/bin/anet``, ``/opt/homebrew/bin/anet`` and
        placed before it on the search path. An npm launcher whose command is
        the installation target itself is removed with npm.
    * - A file named ``anet`` that is not a program of AgentNetwork
-     - Not run, not changed, and named in the report.
+     - Not run, not changed, and named in the report. At the installation
+       target itself (``~/.local/bin/anet`` by default), such a file is
+       refused before anything is changed; a link to a file that no longer
+       exists is replaced.
 
 An earlier release is recognized by the Go module path in its binary, or by
 the ``repository`` field of its npm package. Its version is read with
@@ -379,8 +382,10 @@ be given access to the shell module of this computer:
 
    powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol=3072; & ([scriptblock]::Create((irm -UseBasicParsing https://agentnetwork.org.cn/install.ps1))) -Controller CONTROLLER_AID"
 
-Without ``-Controller``, the line installs the default build only and changes
-nothing else:
+Without ``-Controller``, the line installs the default build: no agent is
+given access, and the node is not started. Everything else described in this
+section, the choice of the install directory, the takeover of earlier
+installations and the ``PATH``, is the same in both forms:
 
 .. code-block:: text
 
@@ -392,7 +397,12 @@ block, to which the execution policy does not apply. The placeholder is a
 plain word because ``cmd.exe`` reads ``<`` and ``>`` as redirections; the
 installer refuses the unchanged placeholder ``CONTROLLER_AID`` with a message
 that names it. The exit status of ``powershell.exe`` is the result of the
-installation: 0 when it completed.
+installation: 0 when it completed; 3 when ANet is installed but the
+installation stopped before its last step and the commands that complete it
+were printed (see :ref:`intro-install-windows-elevated` and
+:ref:`intro-install-windows-earlier`); 1 for a refusal or a failure before
+anything was installed; otherwise the exit status of the ``anet`` command that
+failed.
 
 No interaction
 --------------
@@ -433,7 +443,11 @@ accounts concerned, and an account that Windows cannot name is shown by its
 SID followed by ``(unresolved)``:
 
 #. the directory of an ANet 0.3 or later that is already installed for the
-   user, found on the user's ``PATH`` or in the ``Run`` value below;
+   user, found on the user's ``PATH`` or in the ``Run`` value below, when
+   that directory holds nothing but the files of that installation
+   (``anet.exe``, its release record and signature, binaries moved aside by
+   an update); a directory that also holds other files is reported and not
+   used;
 #. ``%LOCALAPPDATA%\Programs\anet``;
 #. ``%LOCALAPPDATA%\anet\bin``, beside the runtime directory
    ``%LOCALAPPDATA%\anet\run`` of the node;
@@ -458,6 +472,8 @@ directory.
 ``-Prefix`` overrides the choice. The given directory is subject to the same
 checks, and a directory that fails them is refused.
 
+.. _intro-install-windows-elevated:
+
 An elevated window
 ------------------
 
@@ -466,45 +482,98 @@ with the same per-user directories, ``PATH`` and ``Run`` value as in a window
 that is not elevated. The parameter ``-Elevated`` is accepted for
 compatibility and has no effect.
 
-The node is not started with the elevated token when a standard user token is
-available. The installer registers a one-time task in the Task Scheduler for
-the current user, with the interactive token and the least privileges, runs
-``anet up`` through it and deletes the task. When Windows has no standard
-user token for the account, because User Account Control is off or the
-account is the built-in Administrator, or when the task cannot run, for
-example because the user is not logged on interactively, the node is started
-directly with the rights of the window, and the installer says so in one
-line. At the next logon, the ``Run`` value starts the node with the token of
-the logon.
+While Windows has a standard user token for the account, that is, while User
+Account Control is on, the elevated window has more rights than the programs
+of the account normally run with, and the installer does not run anything
+that is already on the computer from it: an earlier ``anet.exe`` found on the
+``PATH`` is classified by its contents without being run, its ``stop``
+command and ``npm`` are not run, and the commands are printed instead, to be
+run in a normal window of the account.
+
+The node is never started with the elevated token in that case. The installer
+registers a one-time task in the Task Scheduler for the current user, with the
+interactive token and the least privileges, runs ``anet up`` through it and
+deletes the task; tasks that an earlier run left behind are removed at the
+start. When the task cannot run or does not complete within 30 seconds, for
+example because the Task Scheduler is unavailable or the user is not logged on
+interactively, the node is not started: the installation ends with exit
+status 3, the ``Run`` value is written unless ``-NoAutostart`` is given, so
+that the node starts at the next logon, and the commands that start it now
+(``anet up``, then ``anet hub-register`` unless ``-NoJoin`` is given) are
+printed for a normal window. The controller's commands are therefore run with
+the user's rights, never with the administrator's.
+
+An elevated window that runs as an account other than the one logged on to
+the session, which is the case when another account's credentials are given to
+the User Account Control prompt, is refused before anything is changed: ANet
+would be installed for that other account, and its node would run as that
+account in the user's session. Run the command in a normal window of your own
+account.
+
+When Windows has no standard user token for the account, because User Account
+Control is off or the account is the built-in Administrator, the window has
+the rights the account always has: earlier installations are taken over as in
+any other window, the node is started directly with the rights of the window,
+and the installer says so in one line.
+
+.. _intro-install-windows-earlier:
 
 Earlier installations
 ---------------------
 
 The installer takes over from other ANet installations of the user, without
-asking:
+asking, in an order that leaves a consistent state when a step fails:
 
-* An ANet of an earlier line (the npm package ``@agentnetwork/anet`` 1.x, or
-  0.1 or 0.2) that is found on the machine's or the user's ``PATH`` or in the
-  global npm prefix (``npm prefix -g``) is stopped with its own ``stop``
-  command, with a time limit. The installer never ends a process by name.
-* Its npm package is removed with ``npm uninstall -g @agentnetwork/anet``.
-  When that is not possible, the installer prints the command to run.
-* Its data in ``%USERPROFILE%\.anet`` is moved aside, never deleted, after its
-  daemon has stopped. When no identity of ANet 0.3 or later is in the
-  directory, the whole directory is renamed to
-  ``%USERPROFILE%\.anet-legacy-<version>-<UTC time>``. Otherwise only the
-  entries of the earlier line (``api_token``, ``anet``, ``orgs`` and
-  ``state``) are moved into a directory of that name, and the data of 0.3
-  stays in place. A data directory of 0.3 or later is never moved.
-* Another installation of ANet 0.3 or later outside npm is left in place and
-  taken off the user's ``PATH``, so that the ``PATH`` holds one copy. The npm
-  launcher of 0.3 or later is left alone.
+* An ``anet.exe`` found on the machine's or the user's ``PATH`` is recognized
+  by the Go module path in the file: that of AgentNetwork 1.x
+  (``ChatChatTech/AgentNetwork``) or that of this project. The npm package
+  ``@agentnetwork/anet`` in the global npm prefix (``npm prefix -g``) is
+  recognized by its ``package.json``: its name, a version in the form
+  ``x.y.z``, and the ``repository`` field or the version, as ``install.sh``
+  does. A file named ``anet.exe`` that is not a program of either project is
+  reported and never run.
+* An ANet of the earlier line is stopped with its own ``stop`` command, with a
+  time limit; the binary that is run must carry the module path of
+  AgentNetwork 1.x. The installer never ends a process by name.
+* The installer then waits, for up to 15 seconds, until the daemon has
+  exited: until the process named in ``daemon.pid`` is gone and
+  ``127.0.0.1:3998`` no longer answers.
+* Its data in ``%USERPROFILE%\.anet`` (or ``ANET_DATA_DIR``) is moved aside,
+  never deleted, by the same rule as ``install.sh`` and the daemon (see
+  :ref:`intro-install-earlier`). A directory with the identity file of 0.2,
+  or with the files of 1.x and no identity of 0.3, is renamed to
+  ``%USERPROFILE%\.anet-legacy-<version>-<UTC time>``. A directory with the
+  files of 1.x and an identity of 0.3 (``identity.kel``, or
+  ``ids\<name>\identity.kel`` of this version) stays in place, and only the
+  1.x entries (``anet``, ``anet.db`` and its journals, ``api_token``,
+  ``agent_token``, ``scoped_tokens.json``, ``peer-journal.json``, ``cas``,
+  ``orgs``, ``state`` and ``daemon.pid``) are moved into a directory of that
+  name. A directory of 0.3, of a newer release, or whose identity file does
+  not read is not changed.
+* Only after the data has been moved is the npm package removed with
+  ``npm uninstall -g @agentnetwork/anet``. When that is not possible, the
+  installer prints the command to run.
+* Another installation of ANet 0.3 or later outside npm is left in place. Its
+  directory is taken off the user's ``PATH`` only when it holds nothing but
+  the files of that installation; a directory that also holds other programs
+  stays on the ``PATH`` and is reported. The npm launcher of 0.3 or later is
+  left alone.
+
+When the data directory holds the data of an earlier release but cannot be
+moved, because its daemon still runs after the wait, because no earlier
+installation was found that could be stopped, or because the move failed, the
+installation stops before ``anet init``: nothing in that directory is changed,
+the npm package stays, the exit status is 3, and the installer prints the
+exact commands that remain, in order (stopping the earlier daemon, renaming
+the directory, removing the package, ``anet init``, the grant, ``anet up``
+and the hub registration).
 
 The install directory is put first on the user's ``PATH``. The installer then
 starts a new ``powershell.exe`` with the ``PATH`` that a new window receives
 and reports in one line which ``anet`` it runs. A directory on the machine's
 ``PATH`` precedes the user's ``PATH``; an earlier ``anet`` there is reported.
-Finally, the installer lists what it stopped, removed and moved.
+What was stopped, moved and removed is listed as it happens, before ``anet
+init``; what ``-Controller`` granted is printed at the end.
 
 .. _intro-install-windows-verify:
 
@@ -636,14 +705,23 @@ What the installer checks
 What ``-Controller`` opens
 --------------------------
 
-``-Controller`` changes exactly the following, and nothing else:
+``-Controller`` opens exactly the following, and nothing else:
 
+* The build with the ``shell`` module is installed instead of the default
+  build.
 * The configuration block
   ``modules.shell = {"allow":["<AID>"],"allow_arbitrary":true,"shell":"powershell"}``.
 * The AID on ``peers.allow``.
 * The defaults of ``anet init``: the inbound policy ``closed``, no public
   capabilities and spending limits of 0 (see :ref:`intro-install-init`).
+* The node is started, and the ``Run`` value starts it at every logon unless
+  ``-NoAutostart`` is given.
 * The registration with the hub, unless ``-NoJoin`` is given.
+
+No auto-reply, no other peer, no public capability and no listener beyond the
+node's loopback ones are opened. The install directory, the ``PATH`` and the
+takeover of earlier installations are the same with and without
+``-Controller``.
 
 Up to version 0.3.4, the installer asked one confirmation on the console.
 That confirmation is removed: the parameter on the command line is the

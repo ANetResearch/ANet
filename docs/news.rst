@@ -32,9 +32,13 @@ Windows installation
   completes without a console, as in the tool call of an agent, a CI job or WSL.
 * The exit status of ``powershell.exe`` is the result of the installation.
 * An elevated window is no longer refused, and ``-Elevated`` has no effect. ANet is installed
-  for the current account. The node is started with standard user rights through a one-time
-  Task Scheduler task when Windows provides a standard user token, and otherwise with the
-  rights of the window, which the installer states.
+  for the current account. While Windows provides a standard user token (User Account Control
+  on), nothing already on the computer is run from the elevated window, and the node is
+  started only with standard user rights, through a one-time Task Scheduler task; when that
+  fails, the node starts at the next logon instead, and the installation ends with exit
+  status 3 and the commands to run in a normal window. An elevated window of another account
+  than the one logged on is refused. Without a standard token, the node runs with the rights
+  of the window, which the installer states.
 * Without ``-Prefix``, the installer chooses the install directory: an existing installation,
   ``%LOCALAPPDATA%\Programs\anet``, ``%LOCALAPPDATA%\anet\bin`` or
   ``%USERPROFILE%\.anet-bin``, the first that passes the checks. It reports each skipped
@@ -42,11 +46,15 @@ Windows installation
 * The privacy check ignores an access control entry that grants another account no more than
   synchronization, traversal and reading attributes, such as the entry of an app container
   capability on the profile directory. Every other grant still fails the check.
-* The installer takes over from earlier installations: an ANet of the 1.x npm package, 0.1 or
-  0.2 is stopped with its own ``stop`` command, its npm package is removed, and its data in
-  ``%USERPROFILE%\.anet`` is moved aside without being deleted. Another installation of 0.3
-  or later is taken off the user's ``PATH``. The install directory is put first on the user's
-  ``PATH``, and the installer confirms with a new ``powershell.exe`` which ``anet`` runs.
+* The installer takes over from earlier installations: an ANet of the 1.x npm package,
+  recognized by the module path in its binary, is stopped with its own ``stop`` command, the
+  installer waits for its daemon to exit, its data in ``%USERPROFILE%\.anet`` is moved aside
+  by the rule of the daemon and ``install.sh`` without being deleted, and only then is its npm
+  package removed; when the data cannot be moved, the installation stops before ``anet init``
+  with exit status 3 and the remaining commands. Another installation of 0.3 or later is taken
+  off the user's ``PATH`` when its directory holds nothing else. The install directory is put
+  first on the user's ``PATH``, and the installer confirms with a new ``powershell.exe`` which
+  ``anet`` runs.
 * The new parameter ``-NoJoin`` starts the node without registering with a hub.
 
 Linux and macOS installation

@@ -61,19 +61,25 @@ powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "[Net
 user's consent; the installer asks no confirmation. It installs the shell build, gives that agent (and no
 other) the right to run any command here as this user, starts the node, joins the official hub, starts the
 node again at every logon, and at the end prints what it granted and how to revoke it. Without
-`-Controller`, the line installs the default build and does nothing else:
+`-Controller`, the line installs the default build, gives no one access and does not start the node;
+the rest of what the installer does is the same in both forms:
 
 ```text
 powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol=3072; & ([scriptblock]::Create((irm -UseBasicParsing https://agentnetwork.org.cn/install.ps1)))"
 ```
 
 The installer chooses the install directory itself and reports each directory it skipped, with the reason.
-In an elevated window it installs for the current account and starts the node with standard user rights
-when Windows provides them. It stops and removes an earlier anet (the 1.x npm package, 0.1, 0.2) and moves
-its data aside. Run inside WSL, the line installs the Windows build on the Windows host, for the Windows user;
+In an elevated window it installs for the current account; while User Account Control is on, it runs
+nothing that is already on the computer from that window, starts the node only with standard user rights
+through a one-time Task Scheduler task, and when that fails leaves the node to start at the next logon and
+ends with exit status 3 and the commands to run in a normal window. An elevated window of another account
+than the one logged on is refused. It stops an earlier anet (the 1.x npm package, recognized by the module
+path in its binary), waits for its daemon to exit, moves its data aside and then removes the npm package;
+when the data cannot be moved, it stops before `anet init` with exit status 3 and prints the remaining
+commands. Run inside WSL, the line installs the Windows build on the Windows host, for the Windows user;
 install.sh installs anet inside the Linux distribution instead. The exit status of powershell.exe is the
-result. The installer checks the downloaded binary against SHA-256 values in the signed script, and the
-binary then verifies the signed release manifest before anything is installed.
+result: 0 when everything was done. The installer checks the downloaded binary against SHA-256 values in
+the signed script, and the binary then verifies the signed release manifest before anything is installed.
 
 The line above trusts the host that serves the script. To trust only the release key, relay this form to the
 user, for a PowerShell window. It verifies the script with ssh-keygen from OpenSSH 8.1 or later (`ssh -V`

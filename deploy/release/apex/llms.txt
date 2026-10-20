@@ -16,7 +16,8 @@ installs the Windows build on the Windows host. Verifying the script first: see 
 
     powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol=3072; & ([scriptblock]::Create((irm -UseBasicParsing https://agentnetwork.org.cn/install.ps1))) -Controller CONTROLLER_AID"
 
-Without -Controller, the line installs the default build only:
+Without -Controller, the line installs the default build, gives no one access and does not start the node
+(the install directory, the takeover of an earlier anet and the PATH are the same in both forms):
 
     powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol=3072; & ([scriptblock]::Create((irm -UseBasicParsing https://agentnetwork.org.cn/install.ps1)))"
 

@@ -60,9 +60,10 @@ how to revoke it. Without `-Controller`, the line installs the default build onl
 powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol=3072; & ([scriptblock]::Create((irm -UseBasicParsing https://agentnetwork.org.cn/install.ps1)))"
 ```
 
-The installer chooses a private per-user install directory, takes over from an earlier anet (it stops it, removes its
-npm package and moves its data aside), and in an elevated window starts the node with standard user rights when
-Windows provides them. Run inside WSL, the line installs the Windows build on the Windows host. `install.ps1` is signed
+The installer chooses a private per-user install directory, takes over from an earlier anet (it stops it, waits for
+its daemon to exit, moves its data aside and then removes its npm package), and in an elevated window runs nothing
+that is already on the computer and starts the node only with standard user rights, or not at all, while User
+Account Control is on. Run inside WSL, the line installs the Windows build on the Windows host. `install.ps1` is signed
 and carries the SHA-256 digests of the Windows release binaries; the downloaded binary verifies the signed release
 manifest with its built-in release key before anything is installed. See
 [Installing on Windows](https://docs.agentnetwork.org.cn/docs/en/latest/intro/install.html#installing-on-windows).
