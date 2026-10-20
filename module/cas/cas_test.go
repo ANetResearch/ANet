@@ -289,3 +289,28 @@ func TestReopenPersists(t *testing.T) {
 		t.Fatalf("blob lost across reopen: ok=%v err=%v", ok, err)
 	}
 }
+
+// A blob damaged on disk is repaired by a Put of the right bytes: Put does not take the presence of
+// the file for the presence of the content.
+func TestPutRepairsCorruptBlob(t *testing.T) {
+	s := open(t)
+	body := []byte("content that must survive")
+	cid, err := s.Put(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, damage := range [][]byte{[]byte("garbage of another size"), []byte("CONTENT THAT MUST SURVIVE")} {
+		if err := os.WriteFile(s.blobPath(cid), damage, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.Get(cid); !errors.Is(err, ErrCorrupt) {
+			t.Fatalf("get of a damaged blob = %v, want ErrCorrupt", err)
+		}
+		if again, err := s.Put(body); err != nil || again != cid {
+			t.Fatalf("put again = (%q, %v)", again, err)
+		}
+		if got, err := s.Get(cid); err != nil || !bytes.Equal(got, body) {
+			t.Fatalf("get after the repairing put = (%q, %v), want the original bytes", got, err)
+		}
+	}
+}

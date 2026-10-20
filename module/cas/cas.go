@@ -19,6 +19,7 @@
 package cas
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"os"
@@ -96,7 +97,7 @@ func (s *Store) blobPath(canonCID string) string {
 }
 
 // Put writes body to the content-addressed layer and returns its CID. Idempotent:
-// identical bytes → identical CID, written at most once. The write is atomic (temp +
+// identical bytes → identical CID, written once while the stored copy stays intact. The write is atomic (temp +
 // rename) so a reader never observes a partial blob.
 func (s *Store) Put(body []byte) (string, error) {
 	cidStr, err := anetcid.Sum(body)
@@ -108,8 +109,14 @@ func (s *Store) Put(body []byte) (string, error) {
 		return "", err
 	}
 	final := s.blobPath(canon)
-	if _, err := os.Stat(final); err == nil {
-		return canon, nil // already present (idempotent)
+	if fi, err := os.Stat(final); err == nil {
+		// Already present (idempotent) — when the stored bytes are still these bytes. A blob damaged on
+		// disk fails Get with ErrCorrupt; it is replaced below, so a Put of the right bytes repairs it.
+		if fi.Mode().IsRegular() && fi.Size() == int64(len(body)) {
+			if have, err := os.ReadFile(final); err == nil && bytes.Equal(have, body) {
+				return canon, nil
+			}
+		}
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return "", fmt.Errorf("cas: stat: %w", err)
 	}
