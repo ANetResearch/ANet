@@ -1,6 +1,6 @@
 # 官网上由 anet 提供的文件(发布根)
 
-agentnetwork.org.cn 上有几条路径的内容来自本仓库,而不是官网自己的仓库:签名安装器、下载文件、
+agentnetwork.org.cn 上有几条路径的内容来自本仓库,而不是官网自己的仓库:签名安装器(`install.sh` 与 Windows 的 `install.ps1`)、下载文件、
 给 agent 读的 `SKILL.md` 与 `llms.txt`,以及官网运行时读取的 `site.json`。它们由本目录的 `publish.sh`
 写进一个独立的发布根(缺省 `/var/www/anet-release`),nginx 用 `nginx-locations.conf` 里的 location 直接从那里提供。
 官网的构建与部署从不写这个目录,所以官网部署不会覆盖安装器与这些文本。
@@ -12,6 +12,7 @@ agentnetwork.org.cn 上有几条路径的内容来自本仓库,而不是官网�
 | 公网路径 | 发布根中的文件 | 来源 | 缓存 |
 |---|---|---|---|
 | `/install.sh`、`/install.sh.sig` | `install.sh`、`install.sh.sig` | `build-release.sh` 的 `dist/`(`--dist`) | `no-cache`(`expires epoch`) / 缺省 |
+| `/install.ps1`、`/install.ps1.sig` | `install.ps1`、`install.ps1.sig` | 同上;`build-release.sh` 把该版本四个 Windows 构建的 SHA-256 与大小写入模板后签名,签名先于脚本换入 | `no-cache`(`expires epoch`),`text/plain` / 缺省 |
 | `/dl/` | `dl/`(`release.json(.sig)`、`VERSION`、`checksums.txt`、`*.gz`) | 同上,整个目录一次改名换入 | 缺省 |
 | `/SKILL.md`、`/llms-full.txt` | `SKILL.md` | 本目录(`--web`) | `no-cache`(`expires epoch`) / 缺省 |
 | `/llms.txt` | `llms.txt` | 本目录(`--web`) | 缺省 |
@@ -21,8 +22,9 @@ agentnetwork.org.cn 上有几条路径的内容来自本仓库,而不是官网�
 | `/plugins/<目标>/*.json`、`/plugins/<目标>/SHA256SUMS` 及其列出的平台归档 | `plugins/<目标>/` | `deploy/plugins/build.py --site` 的输出(`--plugins`);指向当前版本,每次发布替换 | `no-cache`(`expires epoch`) |
 | `/plugins/<目标>/` 下其他文件(带版本号的归档) | `plugins/<目标>/` | 同上;已发布的版本不替换 | 缺省 |
 
-带 `add_header` 的 location 不再继承 server 块的安全头,所以这里的 location 都不用它:`/install.sh`、
+带 `add_header` 的 location 不再继承 server 块的安全头,所以这里的 location 都不用它:`/install.sh`、`/install.ps1`、
 `/SKILL.md` 与 `/site.json` 用 `expires epoch` 得到 `Cache-Control: no-cache`,全部保留 server 块的安全头。
+`/install.ps1` 以 `text/plain` 提供:Windows 的一行安装命令用 `Invoke-RestMethod` 取回脚本文本再执行。
 
 ## 2. `site.json`
 
@@ -31,6 +33,7 @@ agentnetwork.org.cn 上有几条路径的内容来自本仓库,而不是官网�
 ```json
 {"v": 1, "version": "0.3.3",
  "install": "<安装命令,与 SKILL.md 中的逐字相同>",
+ "install_windows": "<Windows 的一行安装命令(PowerShell),与 SKILL.md 中的逐字相同>",
  "skill_url": "https://agentnetwork.org.cn/SKILL.md",
  "agent_hint": "<给 agent 的一句提示,与 SKILL.md 中的同一句逐字相同>"}
 ```
@@ -41,6 +44,7 @@ agentnetwork.org.cn 上有几条路径的内容来自本仓库,而不是官网�
   `--dist` 必须与 `--web` 同一次运行(单独 `--dist` 会被拒绝),否则 `site.json` 会留在已被删除的旧版本上。
 - **一致性由测试保证**(`cmd/anet/apexdocs_test.go`):
   - `TestSiteJSONInstallMatchesSkill`:`install` 与 `SKILL.md` 里的安装命令代码块逐字相同,且是固定 https 与 TLS 1.2 的签名安装器;
+  - `TestSiteJSONInstallPS1MatchesSkill`:`install_windows` 与 `SKILL.md` 里的 PowerShell 代码块、`llms.txt` 与 `install.ps1` 文件头中的一行命令逐字相同;
   - `TestSiteJSONAgentHintMatchesSkill`:`agent_hint` 是原因表的 `agent_hint.join`(英文),并且 `SKILL.md` 里有同一句;
   - `TestSiteJSONCommandsInHelp`:其中每条 `anet …` 都是 `anet help --all` 列出的命令、子命令与参数;
   - `TestPublishWritesSiteJSON`、`TestNginxServesSiteJSONNoCache`:发布脚本的产物与 nginx 的缓存头。
@@ -93,12 +97,14 @@ deploy/release/apex/publish.sh --plugins /tmp/anet-plugins-site
 ```sh
 curl -sSI https://agentnetwork.org.cn/site.json   # 200;Content-Type: application/json;恰有一行 Cache-Control: no-cache;站点的安全头仍在
 curl -sSI https://agentnetwork.org.cn/install.sh  # 同上(text/x-shellscript);/SKILL.md 同上(text/markdown)
+curl -sSI https://agentnetwork.org.cn/install.ps1 # 同上(text/plain; charset=utf-8)
+curl -sS  https://agentnetwork.org.cn/install.ps1 | grep -c "^\$AnetRelease = @{"   # 1:已写入发布固定值,不是模板
 curl -sS  https://agentnetwork.org.cn/site.json   # version 与下一行相同
 curl -sS  https://agentnetwork.org.cn/dl/VERSION
 curl -sS  https://agentnetwork.org.cn/SKILL.md | cmp - deploy/release/apex/SKILL.md
 ```
 
-若这三个路径出现两行 `Cache-Control`,是 server 块自己也设了缓存头:改 server 块,不要在这些 location 里加
+若这几个路径出现两行 `Cache-Control`,是 server 块自己也设了缓存头:改 server 块,不要在这些 location 里加
 `add_header`(那会丢掉安全头)。
 
 ## 5. 热修官网页面:带内容哈希的文件

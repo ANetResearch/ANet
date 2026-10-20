@@ -218,16 +218,17 @@ func TestApexDocsTeachOnlyRealCommands(t *testing.T) {
 
 // siteJSON is the served /site.json.
 type siteJSON struct {
-	V         int    `json:"v"`
-	Version   string `json:"version"`
-	Install   string `json:"install"`
-	SkillURL  string `json:"skill_url"`
-	AgentHint string `json:"agent_hint"`
+	V              int    `json:"v"`
+	Version        string `json:"version"`
+	Install        string `json:"install"`
+	InstallWindows string `json:"install_windows"`
+	SkillURL       string `json:"skill_url"`
+	AgentHint      string `json:"agent_hint"`
 }
 
 var (
-	siteSourceKeys = []string{"agent_hint", "install", "skill_url", "v"}
-	siteServedKeys = []string{"agent_hint", "install", "skill_url", "v", "version"}
+	siteSourceKeys = []string{"agent_hint", "install", "install_windows", "skill_url", "v"}
+	siteServedKeys = []string{"agent_hint", "install", "install_windows", "skill_url", "v", "version"}
 )
 
 // apexDecodeSite decodes b strictly and requires exactly the keys in want.
@@ -286,7 +287,7 @@ func TestSiteJSONSource(t *testing.T) {
 	if s.SkillURL != apexSkillURL {
 		t.Errorf("skill_url = %q, want %q", s.SkillURL, apexSkillURL)
 	}
-	for name, v := range map[string]string{"install": s.Install, "agent_hint": s.AgentHint} {
+	for name, v := range map[string]string{"install": s.Install, "install_windows": s.InstallWindows, "agent_hint": s.AgentHint} {
 		if v == "" || !utf8.ValidString(v) || strings.TrimSpace(v) != v {
 			t.Errorf("%s is empty, not UTF-8 or padded: %q", name, v)
 		}
@@ -364,6 +365,57 @@ func TestSiteJSONInstallMatchesSkill(t *testing.T) {
 	}
 	if strings.Contains(s.Install, "npm") {
 		t.Errorf("install mentions npm: %q", s.Install)
+	}
+}
+
+// apexPS1OneLine is the one-line installation command of the Windows
+// installer (its specification, section 5.1): TLS 1.2 added for Windows
+// PowerShell 5.1, the script fetched over https from this host as text and
+// run as a script block, which the execution policy does not apply to.
+const apexPS1OneLine = "[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor 3072; " +
+	"& ([scriptblock]::Create((Invoke-RestMethod -UseBasicParsing -Uri 'https://agentnetwork.org.cn/install.ps1'))) -Controller '<controller AID>'"
+
+// The Windows command the website shows is SKILL.md's, llms.txt's and the
+// one install.ps1's header gives, word for word.
+func TestSiteJSONInstallPS1MatchesSkill(t *testing.T) {
+	s := apexSiteSource(t)
+	if s.InstallWindows != apexPS1OneLine {
+		t.Errorf("site.json install_windows is not the one-line command:\n got:  %q\n want: %q", s.InstallWindows, apexPS1OneLine)
+	}
+	var blocks []string
+	for _, m := range regexp.MustCompile("(?s)```powershell\n(.*?)```").FindAllStringSubmatch(readApex(t, "SKILL.md"), -1) {
+		blocks = append(blocks, strings.TrimRight(m[1], "\n"))
+	}
+	found := false
+	for _, b := range blocks {
+		found = found || b == s.InstallWindows
+	}
+	if !found {
+		t.Errorf("SKILL.md has no PowerShell block that is site.json's install_windows: %q", blocks)
+	}
+	if !strings.Contains(readApex(t, "llms.txt"), "\n    "+s.InstallWindows+"\n") {
+		t.Error("llms.txt does not give site.json's install_windows as an indented block")
+	}
+	ps1, err := os.ReadFile(filepath.Join(apexDir, "..", "install.ps1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(ps1), "#   "+s.InstallWindows+"\n") {
+		t.Error("install.ps1's header does not give site.json's install_windows")
+	}
+	// The verify-first form is in SKILL.md too, for an agent to relay.
+	for _, want := range []string{
+		"Invoke-WebRequest -UseBasicParsing https://agentnetwork.org.cn/install.ps1.sig -OutFile install.ps1.sig",
+		"ssh-keygen -Y verify -f allowed_signers -I anet-release@agentnetwork.org.cn -n anet-release@agentnetwork.org.cn -s install.ps1.sig < install.ps1",
+	} {
+		if !strings.Contains(readApex(t, "SKILL.md"), want) {
+			t.Errorf("SKILL.md lacks %q", want)
+		}
+	}
+	for _, b := range []byte(s.InstallWindows) {
+		if b < 0x20 || b > 0x7e {
+			t.Fatalf("install_windows is not one line of ASCII: %q", s.InstallWindows)
+		}
 	}
 }
 
@@ -455,6 +507,8 @@ func apexFakeDist(t *testing.T, version string) string {
 		"checksums.txt":    hex.EncodeToString(sum[:]) + "  " + gz + "\n",
 		"install.sh":       "#!/bin/sh\n",
 		"install.sh.sig":   "sig",
+		"install.ps1":      "Write-Host installer\n",
+		"install.ps1.sig":  "sig",
 		gz:                 body,
 	} {
 		apexWriteFile(t, filepath.Join(d, name), content)
@@ -507,6 +561,41 @@ func apexServedSite(t *testing.T, v string) string {
 	return strings.Replace(src, `{"v": 1,`, `{"v": 1, "version": "`+v+`",`, 1)
 }
 
+// publish.sh requires and verifies both installers, and puts each signature
+// in place before its script.
+func TestPublishInstallers(t *testing.T) {
+	script := readApex(t, "publish.sh")
+	for _, want := range []string{
+		"install.sh install.sh.sig install.ps1 install.ps1.sig; do",
+		"for f in release.json install.sh install.ps1; do",
+	} {
+		if !strings.Contains(script, want) {
+			t.Errorf("publish.sh does not contain %q", want)
+		}
+	}
+	order := []string{`put "$DIST/install.sh.sig" install.sh.sig`, `put "$DIST/install.sh" install.sh`,
+		`put "$DIST/install.ps1.sig" install.ps1.sig`, `put "$DIST/install.ps1" install.ps1`}
+	at := 0
+	for _, o := range order {
+		i := strings.Index(script[at:], o)
+		if i < 0 {
+			t.Fatalf("publish.sh does not publish in the order signature, script: %q", o)
+		}
+		at += i
+	}
+	// A dist without the Windows installer is refused before anything changes.
+	dist := apexFakeDist(t, "9.9.9")
+	if err := os.Remove(filepath.Join(dist, "install.ps1.sig")); err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	out, err := apexRunPublish(t, "--dist", dist, "--root", root)
+	if err == nil || !strings.Contains(out, "install.ps1.sig is missing") {
+		t.Errorf("a dist without install.ps1.sig: %v\n%s", err, out)
+	}
+	apexSameSnapshot(t, "a refused --dist", map[string]string{}, apexSnapshot(t, root))
+}
+
 func TestPublishWritesSiteJSON(t *testing.T) {
 	t.Run("web takes the version of the release dl/ serves", func(t *testing.T) {
 		root := t.TempDir()
@@ -531,7 +620,8 @@ func TestPublishWritesSiteJSON(t *testing.T) {
 			t.Fatalf("served site.json: %v", err)
 		}
 		src := apexSiteSource(t)
-		if s.Version != "9.8.7" || s.V != src.V || s.Install != src.Install || s.SkillURL != src.SkillURL || s.AgentHint != src.AgentHint {
+		if s.Version != "9.8.7" || s.V != src.V || s.Install != src.Install || s.InstallWindows != src.InstallWindows ||
+			s.SkillURL != src.SkillURL || s.AgentHint != src.AgentHint {
 			t.Errorf("served site.json %+v is not the source %+v with version 9.8.7", s, src)
 		}
 		if fi, err := os.Stat(filepath.Join(root, "site.json")); err != nil || fi.Mode().Perm() != 0o644 {
@@ -731,10 +821,11 @@ func TestNginxServesSiteJSONNoCache(t *testing.T) {
 			t.Errorf("location = /site.json must not use %s:\n%s", banned, body)
 		}
 	}
-	// /install.sh and /SKILL.md are revalidated on every use the same way,
-	// and keep the server block's security headers: expires epoch, no
-	// add_header (UX-16 left them with add_header, which dropped them).
-	for _, loc := range []string{"/install.sh", "/SKILL.md"} {
+	// /install.sh, /install.ps1 and /SKILL.md are revalidated on every use
+	// the same way, and keep the server block's security headers: expires
+	// epoch, no add_header (UX-16 left them with add_header, which dropped
+	// them).
+	for _, loc := range []string{"/install.sh", "/install.ps1", "/SKILL.md"} {
 		body, ok := apexNginxLocation(conf, "=", loc)
 		if !ok {
 			t.Errorf("nginx-locations.conf has no `location = %s`", loc)
@@ -752,6 +843,17 @@ func TestNginxServesSiteJSONNoCache(t *testing.T) {
 				t.Errorf("location = %s must not use %s:\n%s", loc, banned, body)
 			}
 		}
+	}
+	// install.ps1 is text: Invoke-RestMethod returns a text/plain body as
+	// the string the one-line command makes a script block of. Its
+	// signature is served beside it.
+	if body, ok := apexNginxLocation(conf, "=", "/install.ps1"); !ok ||
+		!strings.Contains(body, `types { } default_type "text/plain; charset=utf-8";`) ||
+		!strings.Contains(body, "alias /var/www/anet-release/install.ps1;") {
+		t.Errorf("location = /install.ps1 does not serve the script as text/plain:\n%s", body)
+	}
+	if body, ok := apexNginxLocation(conf, "=", "/install.ps1.sig"); !ok || !strings.Contains(body, "alias /var/www/anet-release/install.ps1.sig;") {
+		t.Errorf("nginx-locations.conf does not serve /install.ps1.sig:\n%s", body)
 	}
 	// No location in the file drops the server block's headers.
 	if strings.Contains(regexp.MustCompile(`(?m)^\s*#.*$`).ReplaceAllString(conf, ""), "add_header") {

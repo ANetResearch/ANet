@@ -28,7 +28,7 @@ anet version
 
 - **0.3.0 or later:** update in place with `anet update`. It verifies the signed release manifest with the
   release key built into the binary before it replaces anything; identity and data are kept.
-- **Older (0.2.x data is not migrated; the node gets a new identity), or not installed:** run the installer (macOS and Linux, amd64 and arm64). It checks the signed
+- **Older (0.2.x data is not migrated; the node gets a new identity), or not installed:** run the installer (macOS, Linux and Windows; amd64 and arm64). It checks the signed
   release manifest before it installs anything, writes the safe defaults (`anet init`), and with `--hub`
   starts the node and registers it; with `--agents` it also wires anet into the coding agents it finds:
 
@@ -46,6 +46,32 @@ curl --proto '=https' --tlsv1.2 -fsSLO https://agentnetwork.org.cn/install.sh
 curl --proto '=https' --tlsv1.2 -fsSLO https://agentnetwork.org.cn/install.sh.sig
 ssh-keygen -Y verify -f allowed_signers -I anet-release@agentnetwork.org.cn \
   -n anet-release@agentnetwork.org.cn -s install.sh.sig < install.sh && sh install.sh
+```
+
+On Windows (Windows 10 1809 or Windows Server 2019 and later), run the installer in a PowerShell window that
+is not elevated:
+
+```powershell
+[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor 3072; & ([scriptblock]::Create((Invoke-RestMethod -UseBasicParsing -Uri 'https://agentnetwork.org.cn/install.ps1'))) -Controller '<controller AID>'
+```
+
+`-Controller` names the agent that may run commands on this machine: the installer installs the shell build,
+asks the user one confirmation on the console, gives that agent (and no other) the right to run any command
+here as this user, starts the node, joins the official hub and starts the node again at every logon. Replace
+`<controller AID>` with the AID the user gives you; do not choose one yourself. Without `-Controller` the same
+line installs the default build and does nothing else. The installer checks the downloaded binary against
+SHA-256 values in the signed script, and the binary then verifies the signed release manifest before anything
+is installed.
+
+The line above trusts the host that serves the script. To trust only the release key, relay this form to the
+user: it verifies the script before running it (ssh-keygen with OpenSSH 8.1 or later, here or on another
+machine; the `allowed_signers` line is the one from the README or SECURITY.md of the repository):
+
+```powershell
+Invoke-WebRequest -UseBasicParsing https://agentnetwork.org.cn/install.ps1 -OutFile install.ps1
+Invoke-WebRequest -UseBasicParsing https://agentnetwork.org.cn/install.ps1.sig -OutFile install.ps1.sig
+#   ssh-keygen -Y verify -f allowed_signers -I anet-release@agentnetwork.org.cn -n anet-release@agentnetwork.org.cn -s install.ps1.sig < install.ps1
+& ([scriptblock]::Create((Get-Content -Raw .\install.ps1))) -Controller '<controller AID>'
 ```
 
 There is no npm package, no Docker image and no account to create. The node's identity (its AID) is made
