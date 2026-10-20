@@ -242,9 +242,13 @@ Check 'a timed program: its exit status and output' ($r['Code'] -eq 3 -and @($r[
 $r = @{}
 # .NET Framework writes the byte order mark of the console input encoding
 # when it closes the standard input of a child (Windows PowerShell 5.1 with
-# UTF-8 input); the child then reads that mark and the end of input.
-Invoke-AnetTimed -FilePath $self -ArgumentList @('-NoProfile', '-NonInteractive', '-Command', '([Console]::In.ReadToEnd() -replace ''^(\uFEFF|\u00EF\u00BB\u00BF)'', '''').Length') -TimeoutSeconds 60 -Result $r
-Check 'a timed program reads an empty standard input, not the console' ($r['Code'] -eq 0 -and @($r['Output']) -contains '0') ((@($r['Output'])) -join '|')
+# UTF-8 input), and the child decodes those three bytes in its own code
+# page. What matters is that the child reads the end of its input at once
+# instead of waiting for the console: it ends well within the time limit
+# and has read at most that mark.
+Invoke-AnetTimed -FilePath $self -ArgumentList @('-NoProfile', '-NonInteractive', '-Command', '[Console]::In.ReadToEnd().Length') -TimeoutSeconds 60 -Result $r
+$read = @($r['Output'] | Where-Object { ([string]$_) -match '^\d+$' })
+Check 'a timed program reads an empty standard input, not the console' ($r['Code'] -eq 0 -and -not $r['TimedOut'] -and $read.Count -eq 1 -and [int]$read[0] -le 3) ((@($r['Output'])) -join '|')
 $r = @{}
 Invoke-AnetTimed -FilePath $self -ArgumentList @('-NoProfile', '-NonInteractive', '-Command', 'Start-Sleep -Seconds 60') -TimeoutSeconds 2 -Result $r
 Check 'a timed program that runs too long is ended and reported' ($r['TimedOut'] -and $r['Code'] -eq -1)
