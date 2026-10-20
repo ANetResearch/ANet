@@ -500,6 +500,17 @@ func value(code, variant, name string, lang Language, args Args, now time.Time) 
 		if !present(args, name) {
 			return OfficialHubURL, true
 		}
+	case "command":
+		// identity.recovery_perm: the command that makes the recovery file
+		// private. The caller passes the platform's command (Windows: an
+		// icacls command); without one it is chmod 600 on the path.
+		if !present(args, name) && code == "identity.recovery_perm" {
+			p, ok := value(code, variant, "path", lang, args, now)
+			if !ok {
+				return "", false
+			}
+			return "chmod 600 " + p, true
+		}
 	}
 	if !present(args, name) {
 		return "", false
@@ -2791,9 +2802,9 @@ var reasonTable = []Row{
 		Zh: "恢复口令只在轮换、换 hub、恢复与注销时需要；忘记口令后这些操作都做不了，身份仍可正常收发。恢复文件不在缺省位置时，若你已另存则不需要处理。",
 		En: "The recovery passphrase is needed only to rotate, switch hubs, recover or deactivate; without it those are impossible, but the identity keeps working. If the recovery file is not in the default place and you saved a copy, nothing to do."},
 	{Code: "identity.recovery_perm", Class: ClassS, Level: LevelWarn,
-		Zh:       "恢复文件 {path} 的权限不是 0600；请执行 chmod 600 {path}。",
-		En:       "The recovery file {path} is not mode 0600; run chmod 600 {path}.",
-		NextKind: NextCommand, Next: "chmod 600 {path}"},
+		Zh:       "恢复文件 {path} 可被其他账户访问；请执行 {command}。",
+		En:       "The recovery file {path} is accessible to other accounts; run {command}.",
+		NextKind: NextCommand, Next: "{command}"},
 	{Code: "identity.recovery_leftover", Class: ClassS, Level: LevelWarn,
 		Zh:       "有一份没有完成的新恢复文件 {path}；运行任意 anet identity 命令会自动收尾。",
 		En:       "There is an unfinished new recovery file {path}; any anet identity command finishes it.",

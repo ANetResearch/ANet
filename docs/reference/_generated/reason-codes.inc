@@ -2832,9 +2832,9 @@ Sentences that only the diagnostic report prints.
    * - ``identity.recovery_perm``
      - 
      - S warn
-     - The recovery file {path} is not mode 0600; run ``chmod 600 {path}``.
-     - 恢复文件 {path} 的权限不是 0600；请执行 ``chmod 600 {path}``\ 。
-     - ``chmod 600 {path}``
+     - The recovery file {path} is accessible to other accounts; run ``{command}``.
+     - 恢复文件 {path} 可被其他账户访问；请执行 ``{command}``\ 。
+     - ``{command}``
    * - ``identity.recovery_leftover``
      - 
      - S warn

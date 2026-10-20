@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ANet 0.3\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-20 07:09+0000\n"
+"POT-Creation-Date: 2026-10-20 07:24+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: zh_CN\n"
@@ -3753,6 +3753,7 @@ msgid "{action}需要在你自己的终端里确认；请在终端运行：\\ ``
 msgstr "{action}需要在你自己的终端里确认；请在终端运行：\\ ``{command}``\\ 。"
 
 #: ../../reference/_generated/reason-codes.inc:953
+#: ../../reference/_generated/reason-codes.inc:2837
 #, python-brace-format
 msgid "``{command}``"
 msgstr "``{command}``"
@@ -8233,18 +8234,17 @@ msgstr "``identity.recovery_perm``"
 
 #: ../../reference/_generated/reason-codes.inc:2835
 #, python-brace-format
-msgid "The recovery file {path} is not mode 0600; run ``chmod 600 {path}``."
-msgstr "The recovery file {path} is not mode 0600; run ``chmod 600 {path}``."
+msgid ""
+"The recovery file {path} is accessible to other accounts; run "
+"``{command}``."
+msgstr ""
+"The recovery file {path} is accessible to other accounts; run "
+"``{command}``."
 
 #: ../../reference/_generated/reason-codes.inc:2836
 #, python-brace-format
-msgid "恢复文件 {path} 的权限不是 0600；请执行 ``chmod 600 {path}``\\ 。"
-msgstr "恢复文件 {path} 的权限不是 0600；请执行 ``chmod 600 {path}``\\ 。"
-
-#: ../../reference/_generated/reason-codes.inc:2837
-#, python-brace-format
-msgid "``chmod 600 {path}``"
-msgstr "``chmod 600 {path}``"
+msgid "恢复文件 {path} 可被其他账户访问；请执行 ``{command}``\\ 。"
+msgstr "恢复文件 {path} 可被其他账户访问；请执行 ``{command}``\\ 。"
 
 #: ../../reference/_generated/reason-codes.inc:2838
 msgid "``identity.recovery_leftover``"
