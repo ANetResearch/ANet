@@ -114,7 +114,13 @@ func newModule(raw []byte) (module.Module, error) {
 	if err := cfg.validate(); err != nil {
 		return nil, err
 	}
-	return &Module{cfg: cfg}, nil
+	// An interpreter this platform cannot run safely is a configuration error here, so the daemon
+	// refuses to start rather than refusing every call later. On unix every value is accepted.
+	ip, err := resolveInterpreter(cfg.Shell)
+	if err != nil {
+		return nil, err
+	}
+	return &Module{cfg: cfg, ip: &ip}, nil
 }
 
 // Command is one thing the operator has decided this node may do.
@@ -178,7 +184,7 @@ type Config struct {
 	TimeoutS int `json:"timeout_s,omitempty"`
 	// MaxOutputBytes caps captured output. Zero uses the default.
 	MaxOutputBytes int `json:"max_output_bytes,omitempty"`
-	// Shell overrides the interpreter. Default /bin/sh.
+	// Shell overrides the interpreter. Default /bin/sh (powershell.exe on Windows).
 	Shell string `json:"shell,omitempty"`
 }
 
@@ -216,6 +222,9 @@ func (c Config) validate() error {
 type Module struct {
 	cfg  Config
 	host module.Host
+	// ip is the interpreter newModule resolved; nil for a Module built without newModule, which
+	// resolves it on each use.
+	ip *interp
 }
 
 func (m *Module) Name() string { return name }
@@ -299,9 +308,11 @@ func (m *Module) maxOutput() int {
 	return defaultMaxOutput
 }
 
-func (m *Module) shell() string {
-	if m.cfg.Shell != "" {
-		return m.cfg.Shell
+// interpreter is the interpreter commands run with: cfg.Shell resolved (resolveInterpreter), /bin/sh on
+// unix and Windows PowerShell on Windows when it is empty.
+func (m *Module) interpreter() (interp, error) {
+	if m.ip != nil {
+		return *m.ip, nil
 	}
-	return "/bin/sh"
+	return resolveInterpreter(m.cfg.Shell)
 }
