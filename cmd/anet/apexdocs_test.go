@@ -30,7 +30,8 @@ func readApex(t *testing.T, name string) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return string(b)
+	// A checkout on Windows may convert the documents to CRLF.
+	return strings.ReplaceAll(string(b), "\r\n", "\n")
 }
 
 var apexLiteralWord = regexp.MustCompile(`^[a-z][a-z-]*$`)
@@ -399,7 +400,7 @@ func apexRepoFile(t *testing.T, rel string) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return string(b)
+	return strings.ReplaceAll(string(b), "\r\n", "\n")
 }
 
 // apexFencedLines are the lines of the fenced code blocks of a Markdown document.
