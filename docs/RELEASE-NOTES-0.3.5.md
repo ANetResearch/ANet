@@ -50,6 +50,7 @@ Installing on Windows: https://docs.agentnetwork.org.cn/docs/en/latest/intro/ins
 
 ### Continuous integration
 - The job `windows-install` runs `install.ps1` end to end on `windows-latest` with the published command, from `cmd.exe`, Windows PowerShell 5.1, PowerShell 7 and Git Bash. It installs a release of the commit that the job `windows-dist` builds and signs with a key made for the run, takes over a planted installation of the 1.1.15 npm package, and checks the grant, the `Run` value, the `PATH`, the private install directory and `anet version`. No hub is contacted.
+- The job `unix-upgrade` runs `install.sh` of the commit, piped to `sh`, on macOS and Ubuntu over a real installation of the npm package `@agentnetwork/anet` 1.1.15 with its daemon running. It checks that the daemon is stopped, that the npm package is removed, that the data directory is renamed, and that a new login shell runs the new `anet`; a second run reports no takeover.
 
 ## Known limitations
 

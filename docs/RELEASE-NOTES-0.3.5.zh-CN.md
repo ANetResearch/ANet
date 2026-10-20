@@ -50,6 +50,7 @@
 
 ### 持续集成
 - 作业 `windows-install` 在 `windows-latest` 上以发布的命令，分别从 `cmd.exe`、Windows PowerShell 5.1、PowerShell 7 与 Git Bash 端到端运行 `install.ps1`。它安装由作业 `windows-dist` 构建、并以本次运行生成的密钥签名的当前提交的发布版本，接管预先放置的 1.1.15 npm 包安装，并检查授权、`Run` 值、`PATH`、私有安装目录与 `anet version`。不连接任何 hub。
+- 作业 `unix-upgrade` 在 macOS 与 Ubuntu 上，针对一个守护进程正在运行的 npm 包 `@agentnetwork/anet` 1.1.15 真实安装，以管道方式将当前提交的 `install.sh` 交给 `sh` 运行。它检查守护进程已停止、npm 包已删除、数据目录已改名，以及新的登录 shell 运行的是新的 `anet`；第二次运行不再报告接管。
 
 ## 已知限制
 

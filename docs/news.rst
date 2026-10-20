@@ -80,6 +80,9 @@ Continuous integration
   ``cmd.exe``, Windows PowerShell 5.1, PowerShell 7 and Git Bash, against a release of the
   commit that is signed with a key made for the job, and takes over a planted earlier
   installation. It contacts no hub.
+* A job on macOS and Ubuntu runs ``install.sh`` of the commit, piped to ``sh``, over a real
+  installation of the npm package ``@agentnetwork/anet`` 1.1.15 with its daemon running,
+  and checks the takeover and the ``anet`` that a new login shell runs.
 
 
 .. _news-0.3.4:
