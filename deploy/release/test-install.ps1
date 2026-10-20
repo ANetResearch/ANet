@@ -258,7 +258,8 @@ Check 'a program that does not start is code -1' ($r['Code'] -eq -1 -and -not $r
 if (Test-IsWindows) {
   $r = @{}
   Invoke-AnetTimed -FilePath $self -ArgumentList @('-NoProfile', '-NonInteractive', '-Command', 'Write-Output $env:PATH') -PathVariable 'X-PATH-PROBE' -TimeoutSeconds 60 -Result $r
-  Check 'a timed program gets the PATH it is given' (@($r['Output']) -contains 'X-PATH-PROBE') ((@($r['Output'])) -join '|')
+  # PowerShell 7 puts its own directory in front of the PATH it starts with.
+  Check 'a timed program gets the PATH it is given' (@(@($r['Output']) -join ';' -split ';') -contains 'X-PATH-PROBE') ((@($r['Output'])) -join '|')
 }
 
 # Start-AnetNode returns the exit status of anet up alone: its output goes to
