@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ANet 0.3\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-20 07:09+0000\n"
+"POT-Creation-Date: 2026-10-20 08:26+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: zh_CN\n"
@@ -1128,23 +1128,53 @@ msgid ""
 "On a timeout or a cancellation the whole process tree is terminated."
 msgstr "*进程树。* ``shell`` 模块的命令在 Job 对象中运行。超时或取消时，整个进程树都会被终止。"
 
-#: ../../reference/security.rst:476
+#: ../../reference/security.rst:475
+msgid ""
+"*Arguments of shell commands.* An argument that ``cmd.exe`` would "
+"interpret is refused, whatever the interpreter; see "
+":doc:`../topics/shell`."
+msgstr ""
+"*shell 命令的参数。* 无论使用哪种解释器，``cmd.exe`` 会解释的参数都会被拒绝；参见 "
+":doc:`../topics/shell`。"
+
+#: ../../reference/security.rst:477
+msgid ""
+"*Files received from peers.* ``anet pull`` marks each file it writes with"
+" the ``Zone.Identifier`` stream of a file downloaded from the Internet "
+"(zone 3), so that SmartScreen, Office and Windows Explorer treat the file"
+" as coming from another computer. A file whose extension Windows Explorer"
+" reads when it displays a folder (``.lnk``, ``.url``, ``.website``, "
+"``.scf``, ``.library-ms``, ``.searchConnector-ms``, ``.appref-ms``, "
+"``.settingcontent-ms``, ``.theme``, ``.themepack`` and "
+"``.desktopthemepack``), and a file named ``desktop.ini``, is written with"
+" the suffix ``.txt``. Each file is private to the user from the moment it"
+" is created."
+msgstr ""
+"*从对端接收的文件。* ``anet pull`` 为写入的每个文件添加从 Internet 下载的文件所带的 "
+"``Zone.Identifier`` 流（区域 3），使 SmartScreen、Office 和 Windows "
+"资源管理器将该文件视为来自其他计算机。Windows "
+"资源管理器在显示文件夹时会读取的扩展名（``.lnk``、``.url``、``.website``、``.scf``、``.library-ms"
+"``、``.searchConnector-ms``、``.appref-ms``、``.settingcontent-"
+"ms``、``.theme``、``.themepack`` 和 ``.desktopthemepack``）的文件，以及名为 "
+"``desktop.ini`` 的文件，写入时会加上后缀 ``.txt``。每个文件自创建时起即为当前用户私有。"
+
+#: ../../reference/security.rst:485
 msgid ""
 "The other limitations of the Windows build are listed in :ref:`reference-"
 "known-limitations-windows`."
 msgstr "Windows 版本的其他限制列于 :ref:`reference-known-limitations-windows`\\ 。"
 
-#: ../../reference/security.rst:480
+#: ../../reference/security.rst:489
 msgid "Correctness limits"
 msgstr "正确性方面的限制"
 
-#: ../../reference/security.rst:482
+#: ../../reference/security.rst:491
 msgid ""
 "Further limitations of tasks, evidence, peers and interfaces are listed "
 "in :doc:`known-limitations`."
 msgstr "任务、证据、对端和接口的其他局限，列于 :doc:`known-limitations`\\ 。"
 
-#: ../../reference/security.rst:485
+#: ../../reference/security.rst:494
 msgid ""
 "*Repeated message identifiers.* While a task is running, the same "
 "identifier with the same content returns the original task and sends "
@@ -1163,7 +1193,7 @@ msgstr ""
 "分钟前结束；此时返回原任务。如果连接中断时应答已经写出，重试会创建第二个任务。为每次调用生成新标识符的客户端没有这层保护。MCP "
 "不提供标识符：如果模型两次发出同一调用，会创建两个任务。"
 
-#: ../../reference/security.rst:493
+#: ../../reference/security.rst:502
 msgid ""
 "*Reasons for refusal.* If a peer refuses because of a quota, a policy or "
 "unsuitable files, the reason travels with the delivery confirmation. The "
@@ -1176,7 +1206,7 @@ msgstr ""
 " ``UNAVAILABLE``\\ （未运行）。\\ ``no_response``\\ （默认 15 "
 "分钟）只涵盖对端确认收到后却始终没有应答的情况。"
 
-#: ../../reference/security.rst:497
+#: ../../reference/security.rst:506
 msgid ""
 "*Previews.* A preview is a snapshot of the answer that the provider is "
 "writing. It is not covered by a receipt and can differ from the final "
@@ -1190,7 +1220,7 @@ msgstr ""
 "*预览。* 预览是提供方正在撰写的回答的快照。它不受回执涵盖，可能与最终回答不同，最终回答会整体取代它。只有启用 ANet "
 "预览扩展的流式客户端和控制平面才能看到预览。推理预览仅出现在控制平面，且仅在双方都启用时才有。推理预览可能暴露提供方的系统提示或内部信息；该设置默认关闭。显示预览的界面必须将其标明为预览。"
 
-#: ../../reference/security.rst:503
+#: ../../reference/security.rst:512
 msgid ""
 "*Capability calls with files.* The provider is an endpoint and sees the "
 "files. ``discard`` restricts the storage of ANet only, not the backend "
@@ -1203,7 +1233,7 @@ msgstr ""
 "无从得知后端是否保存文件。本项目运行的人脸和视觉服务不保留输入。在人脸识别的法律要求得到确认之前，``face.compare`` 仅对 "
 "allow 名单开放。"
 
-#: ../../reference/security.rst:507
+#: ../../reference/security.rst:516
 msgid ""
 "*Receipts.* The requester checks that the conversation in the receipt "
 "does not change what the requester said. It does not check whether "
@@ -1211,7 +1241,7 @@ msgid ""
 "recorded every sentence."
 msgstr "*回执。* 请求方检查回执中的对话是否改变了请求方所说的内容。它不检查是否有遗漏：回执不能证明提供方记录了每一句话。"
 
-#: ../../reference/security.rst:510
+#: ../../reference/security.rst:519
 msgid ""
 "*Limits visible to a model.* MCP gives access to the payment limits of "
 "the node, and a peer can induce a model to tell them. A peer can also "
@@ -1222,7 +1252,7 @@ msgstr ""
 "可以访问节点的支付限额，对端可以诱使模型把它们说出来。对端也可以通过报价得知自动支付限额，因此泄露的信息很少。工具说明要求模型不要告诉其他 "
 "agent。"
 
-#: ../../reference/security.rst:513
+#: ../../reference/security.rst:522
 msgid ""
 "*Public capability quota.* Several AIDs can use up the global quota of a "
 "public capability; the per-caller concurrency limit and prices only limit"
@@ -1231,7 +1261,7 @@ msgstr ""
 "*公开能力的配额。* 多个 AID 可以用完某项公开能力的全局配额；每个调用方的并发限制和价格只能起到限制作用。其他调用方随后会得到 "
 "``busy``\\ 。"
 
-#: ../../reference/security.rst:515
+#: ../../reference/security.rst:524
 msgid ""
 "*Policy approve.* A caller that is not on the list is refused directly "
 "for a ``discard`` capability that is open only to the allow list, and can"
@@ -1241,14 +1271,14 @@ msgstr ""
 "*approve 策略。* 不在名单上的调用方，对仅向 allow 名单开放的 ``discard`` "
 "能力会被直接拒绝，因此可以得知该能力存在。在 ``closed`` 和 ``open`` 下看不到这一点。"
 
-#: ../../reference/security.rst:518
+#: ../../reference/security.rst:527
 msgid ""
 "*Web caches.* Files of the hub web page that carry a hash in their name "
 "are cached for a year. A fix is published under a new name; in extreme "
 "cases, an old page can remain in the cache of a visitor."
 msgstr "*Web 缓存。* hub 网页中名称带有哈希的文件会缓存一年。修复会以新名称发布；在极端情况下，旧页面可能保留在访问者的缓存中。"
 
-#: ../../reference/security.rst:520
+#: ../../reference/security.rst:529
 msgid ""
 "*Update channel.* Install ANet only with the signed ``install.sh``, the "
 "signed ``install.ps1`` on Windows, or with ``anet update``. Each checks "
@@ -1261,11 +1291,11 @@ msgstr ""
 "``anet update`` 安装 ANet。三者都用发布密钥检查发布签名（参见仓库中的 "
 "``SECURITY.md``）。提供二进制文件下载的主机不受信任；它可以扣留某个发布版本，但无法使另一个二进制文件被接受。"
 
-#: ../../reference/security.rst:527
+#: ../../reference/security.rst:536
 msgid "Reporting a vulnerability"
 msgstr "报告漏洞"
 
-#: ../../reference/security.rst:529
+#: ../../reference/security.rst:538
 msgid ""
 "Report a suspected vulnerability by email to ``hi@anet0.com`` with the "
 "subject ``[SECURITY]``, and include the affected version (``anet "

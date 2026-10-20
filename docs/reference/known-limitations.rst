@@ -282,6 +282,24 @@ Agent launchers ending in ``.cmd`` or ``.bat``
    instructions would not reach the agent intact. Install the native
    executable of the agent, or set ``auto_reply.command`` to its ``.exe``.
 
+Marks on files received from peers
+   The ``Zone.Identifier`` mark that ``anet pull`` writes requires a volume
+   with alternate data streams (NTFS or ReFS). On FAT and exFAT the file is
+   written without the mark. On Linux and macOS, pulled files keep the names
+   that the peer gave them, and macOS files carry no ``com.apple.quarantine``
+   attribute.
+
+Processes of the same user at low integrity
+   The private access control lists exclude other accounts and AppContainer
+   processes, but they carry no mandatory integrity label. A process of the
+   same user that runs at low integrity outside an AppContainer can read the
+   files of the data directory, including the control token and the identity
+   keys, and can therefore use the local control endpoint. The threat model
+   treats processes of the same user as trusted; on Linux and macOS they have
+   the same access. A label that denies reading to lower integrity levels is
+   not applied, because it would also deny access to the tools of the user
+   that run at low integrity.
+
 Plugin launchers
    The launchers of the plugins are POSIX shell scripts and do not run on
    Windows. Register the node with ``anet agents wire`` instead (see

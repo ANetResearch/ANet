@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ANet 0.3\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-20 07:09+0000\n"
+"POT-Creation-Date: 2026-10-20 08:26+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: zh_CN\n"
@@ -466,6 +466,23 @@ msgstr ""
 
 #: ../../topics/shell.rst:207
 msgid ""
+"*Characters refused in arguments.* Windows runs a batch file (``.bat`` or"
+" ``.cmd``, including the launchers that npm installs) through "
+"``cmd.exe``, which interprets its arguments again with its own rules. "
+"Quoting by the interpreter therefore does not protect an argument that "
+"reaches a batch file. With every interpreter, an argument that contains "
+"one of the characters ``\" % ! ^ & | < > ( )``, a carriage return or a "
+"line feed is refused, and the command does not run. Commands whose "
+"arguments need these characters are to be declared without ``args``, with"
+" the complete command line in ``run``."
+msgstr ""
+"*参数中拒绝的字符。* Windows 通过 ``cmd.exe`` 运行批处理文件（``.bat`` 或 ``.cmd``，包括 npm "
+"安装的启动器），``cmd.exe`` 会按其自身规则再次解释其参数。因此，解释器的引号处理无法保护传给批处理文件的参数。无论使用哪种解释器，包含"
+" ``\" % ! ^ & | < > ( )`` 中任一字符、回车或换行的参数都会被拒绝，命令不会运行。参数需要这些字符的命令，应声明为不带 "
+"``args``，并在 ``run`` 中写出完整的命令行。"
+
+#: ../../topics/shell.rst:215
+msgid ""
 "*Process trees.* Each command runs in a Job object. On a timeout or a "
 "cancellation the whole process tree is terminated. A process that a "
 "command leaves running survives the command, as on Linux and macOS, but "
@@ -474,20 +491,20 @@ msgstr ""
 "*进程树。* 每条命令都在 Job 对象中运行。超时或取消时，整个进程树都会被终止。命令遗留运行的进程在该命令结束后继续存在（与 Linux 和 "
 "macOS 相同），但会随守护进程结束而结束。"
 
-#: ../../topics/shell.rst:211
+#: ../../topics/shell.rst:219
 msgid ""
 "*Working directory.* The default working directory is the profile "
 "directory of the user."
 msgstr "*工作目录。* 默认工作目录为用户的配置文件目录。"
 
-#: ../../topics/shell.rst:213
+#: ../../topics/shell.rst:221
 msgid ""
 "*Privileges.* Commands run as the user that runs the node. The node runs "
 "as the logged-on user and never as a Windows service, and the module uses"
 " no elevation mechanism."
 msgstr "*权限。* 命令以运行节点的用户身份运行。节点以已登录用户的身份运行，从不作为 Windows 服务运行，且该模块不使用任何提权机制。"
 
-#: ../../topics/shell.rst:216
+#: ../../topics/shell.rst:224
 msgid "A configuration for Windows:"
 msgstr "Windows 配置示例："
 

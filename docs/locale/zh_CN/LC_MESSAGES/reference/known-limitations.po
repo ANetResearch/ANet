@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ANet 0.3\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-20 07:09+0000\n"
+"POT-Creation-Date: 2026-10-20 08:26+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: zh_CN\n"
@@ -587,16 +587,62 @@ msgstr "以 ``.cmd`` 或 ``.bat`` 结尾的 Agent 启动器"
 
 #: ../../reference/known-limitations.rst:277
 msgid ""
-"Such a launcher cannot receive arguments that Go cannot escape for "
-"``cmd.exe``. Configure the underlying ``.exe`` or the Node.js entry point"
-" instead."
-msgstr "此类启动器无法接收 Go 无法为 ``cmd.exe`` 转义的参数。请改为配置其底层的 ``.exe`` 或 Node.js 入口。"
+"Auto-reply refuses an agent program that is a batch file, such as the "
+"``claude.cmd`` or ``codex.cmd`` launchers that npm installs, whether it "
+"is found on ``PATH`` or configured in ``auto_reply.command``. Windows "
+"runs a batch file through ``cmd.exe``, which ends the command line at the"
+" first line break and interprets ``%``, ``&`` and ``|`` in the arguments,"
+" so the instructions would not reach the agent intact. Install the native"
+" executable of the agent, or set ``auto_reply.command`` to its ``.exe``."
+msgstr ""
+"自动回复拒绝以批处理文件作为 Agent 程序，例如 npm 安装的 ``claude.cmd`` 或 ``codex.cmd`` "
+"启动器，无论该程序是在 ``PATH`` 中找到的，还是在 ``auto_reply.command`` 中配置的。Windows 通过 "
+"``cmd.exe`` 运行批处理文件，``cmd.exe`` 会在第一个换行处结束命令行，并解释参数中的 ``%``、``&`` 和 "
+"``|``，因此指令无法完整地传给 Agent。请安装该 Agent 的原生可执行文件，或将 ``auto_reply.command`` 设为其"
+" ``.exe``。"
 
-#: ../../reference/known-limitations.rst:281
+#: ../../reference/known-limitations.rst:285
+msgid "Marks on files received from peers"
+msgstr "从对端接收的文件的标记"
+
+#: ../../reference/known-limitations.rst:286
+msgid ""
+"The ``Zone.Identifier`` mark that ``anet pull`` writes requires a volume "
+"with alternate data streams (NTFS or ReFS). On FAT and exFAT the file is "
+"written without the mark. On Linux and macOS, pulled files keep the names"
+" that the peer gave them, and macOS files carry no "
+"``com.apple.quarantine`` attribute."
+msgstr ""
+"``anet pull`` 写入的 ``Zone.Identifier`` 标记要求卷支持备用数据流（NTFS 或 ReFS）。在 FAT 和 "
+"exFAT 卷上，文件写入时不带该标记。在 Linux 和 macOS 上，拉取的文件保留对端给出的文件名，macOS 上的文件不带 "
+"``com.apple.quarantine`` 属性。"
+
+#: ../../reference/known-limitations.rst:292
+msgid "Processes of the same user at low integrity"
+msgstr "同一用户的低完整性级别进程"
+
+#: ../../reference/known-limitations.rst:293
+msgid ""
+"The private access control lists exclude other accounts and AppContainer "
+"processes, but they carry no mandatory integrity label. A process of the "
+"same user that runs at low integrity outside an AppContainer can read the"
+" files of the data directory, including the control token and the "
+"identity keys, and can therefore use the local control endpoint. The "
+"threat model treats processes of the same user as trusted; on Linux and "
+"macOS they have the same access. A label that denies reading to lower "
+"integrity levels is not applied, because it would also deny access to the"
+" tools of the user that run at low integrity."
+msgstr ""
+"私有访问控制列表排除了其他账户和 AppContainer 进程，但不带强制完整性标签。同一用户在 AppContainer "
+"之外以低完整性级别运行的进程，可以读取数据目录中的文件，包括控制令牌和身份密钥，因而可以使用本地控制端点。威胁模型将同一用户的进程视为可信；在 "
+"Linux 和 macOS "
+"上，这些进程拥有相同的访问权限。禁止较低完整性级别读取的标签未被采用，因为它同样会拒绝该用户以低完整性级别运行的工具的访问。"
+
+#: ../../reference/known-limitations.rst:303
 msgid "Plugin launchers"
 msgstr "插件启动器"
 
-#: ../../reference/known-limitations.rst:282
+#: ../../reference/known-limitations.rst:304
 msgid ""
 "The launchers of the plugins are POSIX shell scripts and do not run on "
 "Windows. Register the node with ``anet agents wire`` instead (see "
@@ -605,11 +651,11 @@ msgstr ""
 "插件的启动器是 POSIX shell 脚本，不能在 Windows 上运行。请改用 ``anet agents wire`` 注册节点（参见 "
 ":doc:`../agents/index`）。"
 
-#: ../../reference/known-limitations.rst:286
+#: ../../reference/known-limitations.rst:308
 msgid "No Authenticode signature"
 msgstr "没有 Authenticode 签名"
 
-#: ../../reference/known-limitations.rst:287
+#: ../../reference/known-limitations.rst:309
 msgid ""
 "The release binaries carry no Authenticode signature. Smart App Control "
 "in enforcement mode, or an endpoint policy, may block them. The integrity"
@@ -619,25 +665,32 @@ msgstr ""
 "Control）或终端策略可能会阻止它们。``anet`` 本身的完整性依靠发布密钥保证（参见 :ref:`intro-install-"
 "windows`）。"
 
-#: ../../reference/known-limitations.rst:293
+#: ../../reference/known-limitations.rst:315
 msgid "What is not part of 0.3.0"
 msgstr "0.3.0 不包含的内容"
 
-#: ../../reference/known-limitations.rst:295
+#: ../../reference/known-limitations.rst:317
 msgid ""
 "Anonymous first-contact tokens, sending through Tor or oblivious HTTP, "
 "direct delivery between hubs, and several witnesses for one identity."
 msgstr "匿名首次联系令牌、经由 Tor 或不经意 HTTP 发送、hub 之间的直接投递，以及一个身份对应多个见证方。"
 
-#: ../../reference/known-limitations.rst:297
+#: ../../reference/known-limitations.rst:319
 msgid ""
 "Chunked transfer of large attachments. A sealed envelope is at most 96 "
 "MiB by default."
 msgstr "大型附件的分块传输。密封信封默认最大为 96 MiB。"
 
-#: ../../reference/known-limitations.rst:299
+#: ../../reference/known-limitations.rst:321
 msgid ""
 "A build tag for the console. The console is turned off with ``without``; "
 "see :doc:`../topics/modules`."
 msgstr "控制台的构建标签。控制台通过 ``without`` 关闭，参见 :doc:`../topics/modules`。"
+
+#~ msgid ""
+#~ "Such a launcher cannot receive arguments"
+#~ " that Go cannot escape for "
+#~ "``cmd.exe``. Configure the underlying ``.exe``"
+#~ " or the Node.js entry point instead."
+#~ msgstr "此类启动器无法接收 Go 无法为 ``cmd.exe`` 转义的参数。请改为配置其底层的 ``.exe`` 或 Node.js 入口。"
 

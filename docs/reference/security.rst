@@ -472,6 +472,15 @@ on a facility that Windows does not provide, the build uses the following equiva
   :doc:`../topics/sandbox`.
 * *Process trees.* A command of the ``shell`` module runs in a Job object. On a timeout or a
   cancellation the whole process tree is terminated.
+* *Arguments of shell commands.* An argument that ``cmd.exe`` would interpret is refused,
+  whatever the interpreter; see :doc:`../topics/shell`.
+* *Files received from peers.* ``anet pull`` marks each file it writes with the
+  ``Zone.Identifier`` stream of a file downloaded from the Internet (zone 3), so that SmartScreen,
+  Office and Windows Explorer treat the file as coming from another computer. A file whose
+  extension Windows Explorer reads when it displays a folder (``.lnk``, ``.url``, ``.website``,
+  ``.scf``, ``.library-ms``, ``.searchConnector-ms``, ``.appref-ms``, ``.settingcontent-ms``,
+  ``.theme``, ``.themepack`` and ``.desktopthemepack``), and a file named ``desktop.ini``, is
+  written with the suffix ``.txt``. Each file is private to the user from the moment it is created.
 
 The other limitations of the Windows build are listed in :ref:`reference-known-limitations-windows`.
 
