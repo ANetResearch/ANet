@@ -1,8 +1,8 @@
-# ANet 0.3.5 release notes (draft)
+# ANet 0.3.5 release notes
 
 [中文](RELEASE-NOTES-0.3.5.zh-CN.md)
 
-Release date: to be set at release.
+Release date: 2026-10-20.
 
 | Component | Version | Repository |
 |---|---|---|

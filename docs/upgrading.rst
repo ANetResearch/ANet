@@ -271,6 +271,31 @@ After the upgrade
   to be kept, for example exported evidence.
 
 
+.. _upgrading-035:
+
+Upgrading to 0.3.5
+------------------
+
+Version 0.3.5 is an in-place upgrade of 0.3.x. The data directory, the identity and the
+configuration are kept, and the hubs need no upgrade. Update the node and restart its
+daemons:
+
+.. code-block:: console
+
+   $ anet update
+   $ anet stop --all && anet up --all
+
+Running the installation command again also updates a node: ``install.sh`` on Linux and
+macOS, and the command of :ref:`intro-install-windows` on Windows. From 0.3.5, both
+installers take over from AgentNetwork 1.x, anet 0.1 and anet 0.2 in the same run (see
+:ref:`upgrading-installer`) and ask nothing.
+
+On Windows, the installer no longer asks a confirmation for ``-Controller``: the parameter on
+the command line is the consent. A script that relied on that confirmation as a second step
+now grants access as soon as the command runs. ``install.sh --system`` no longer prompts for
+a password; run ``sudo -v`` first.
+
+
 .. _upgrading-034:
 
 Upgrading to 0.3.4

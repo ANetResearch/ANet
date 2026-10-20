@@ -10,12 +10,13 @@ Release notes
 
 .. _news-0.3.5:
 
-ANet 0.3.5 (draft)
-------------------
+ANet 0.3.5
+----------
 
 ANet 0.3.5 is a patch release. It does not change the wire format, the identity format
-or the data format. A 0.3.4 node and a 0.3.5 node work together, and the hubs need no
-upgrade.
+or the data format. It consists of ``anet`` 0.3.5; ANetCore v0.16.1, ANetHub 0.3.3 and
+ANetLink v0.2.0 are unchanged. A 0.3.4 node and a 0.3.5 node work together, and the
+hubs need no upgrade. See :ref:`upgrading-035`.
 
 Windows installation
 ~~~~~~~~~~~~~~~~~~~~
