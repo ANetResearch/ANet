@@ -48,12 +48,12 @@ Run the installer for the current user:
 
    $ curl --proto '=https' --tlsv1.2 -fsSL https://agentnetwork.org.cn/install.sh | sh
 
-The binary is written to ``~/.local/bin/anet``. If that directory is not on
-the search path, add it in the shell profile:
-
-.. code-block:: console
-
-   $ export PATH="$HOME/.local/bin:$PATH"
+The binary is written to ``~/.local/bin/anet``. When that directory is not
+on the search path, or another ``anet`` comes before it, the installer adds a
+marked block to the shell profiles that places the directory first (see
+:ref:`intro-install-path`). An earlier release of ``anet`` on the machine is
+replaced in the same run (see :ref:`intro-install-earlier`). The installer
+never waits for input.
 
 Before anything is written outside a temporary directory, the installer
 performs these checks. A failure of any check ends the installation and
@@ -92,7 +92,10 @@ Options follow ``sh -s --`` when the script is read from a pipe.
    * - ``--user``
      - Install to ``~/.local/bin``. This is the default.
    * - ``--system``
-     - Install to ``/usr/local/bin``. ``sudo`` is used when required.
+     - Install to ``/usr/local/bin``. ``sudo -n`` is used when required; the
+       installer never asks for a password. When ``sudo`` needs one, the
+       installer stops and says so; run ``sudo -v`` in the same terminal and
+       repeat the command.
    * - ``--prefix DIR``
      - Install to ``DIR``. Overrides ``--user`` and ``--system``.
    * - ``--base URL``
@@ -115,6 +118,9 @@ Options follow ``sh -s --`` when the script is read from a pipe.
    * - ``--without MODULES``
      - Switch off the listed modules in the configuration. See
        :ref:`intro-install-modules`.
+   * - ``--no-modify-path``
+     - Do not change the shell profiles. The installer prints the line to add
+       instead (see :ref:`intro-install-path`).
    * - ``--help``
      - Print the option summary.
 
@@ -160,6 +166,156 @@ fails a check ends the installation instead of moving on to the next host. A
 content delivery network can serve an older release for a while after a new
 one is published; the installer then installs that release, or refuses it when
 a newer ``anet`` is already installed.
+
+.. _intro-install-earlier:
+
+Earlier installations
+---------------------
+
+The installer replaces earlier releases without asking for input. It examines
+every ``anet`` on the search path, the ``anet`` in the global ``bin``
+directory of npm, and ``/usr/local/bin/anet``, ``/opt/homebrew/bin/anet`` and
+``~/.local/bin/anet``, and acts on each one as follows.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 34 66
+
+   * - Found
+     - Action
+   * - AgentNetwork 1.x installed with npm (the package
+       ``@agentnetwork/anet`` 1.x)
+     - The daemon is stopped with the ``anet stop`` command of that release.
+       The package is removed with ``npm uninstall -g @agentnetwork/anet``
+       under the npm prefix in which it is installed.
+   * - AgentNetwork 1.x, anet 0.1 or anet 0.2 as a binary, for example from
+       ``https://clawnet.cc/install.sh`` or from an earlier ``install.sh``
+     - The daemon is stopped with ``anet stop`` (1.x) or ``anet stop --all``
+       (0.1 and 0.2). In a directory that the user can write, the binary is
+       replaced by a symbolic link to the new binary, so that scripts and
+       configurations that name the old path run the new release. In a
+       directory that only the superuser can write, the binary is removed.
+   * - ``anet`` 0.3 or later, and the npm launcher of 0.3 or later
+     - Left in place and named in the report. The installation directory is
+       placed before it on the search path. An npm launcher whose command is
+       the installation target itself is removed with npm.
+   * - A file named ``anet`` that is not a program of AgentNetwork
+     - Not run, not changed, and named in the report.
+
+An earlier release is recognized by the Go module path in its binary, or by
+the ``repository`` field of its npm package. Its version is read with
+``anet version`` in an empty home directory and with a time limit. Apart from
+that, only its ``stop`` command is run.
+
+The data directory of an earlier release is renamed and never deleted. The
+directory concerned is the one that the new release uses: ``ANET_DATA_DIR``,
+else ``ANET_HOME``, else ``~/.anet``.
+
+* A directory with the identity file of anet 0.1 or 0.2, or with the files of
+  AgentNetwork 1.x and no identity of 0.3, is renamed to
+  ``<directory>-legacy-<version>-<time>``, for example
+  ``~/.anet-legacy-1.1.15-20261020T120000Z``. The time is UTC. The files that
+  ``anet init`` of 0.3 may have written into it hold no identity and move with
+  it. ``anet init`` then writes a new configuration, and the first
+  ``anet up`` creates a new identity.
+* A directory with the files of AgentNetwork 1.x and an identity of 0.3
+  (``identity.kel``, or ``ids/<name>/identity.kel``) stays in place. Only the
+  1.x files are moved into the new directory.
+* A directory of 0.3, or of a newer release, is not changed.
+
+The daemon applies the same rule. It does not start in a data directory of an
+earlier release and reports ``identity_v02``. The directory is not moved while
+a daemon of the earlier release may still use it, that is, while the process
+named in its ``daemon.pid`` runs or while its control address answers. The
+report then gives the command to run after that daemon has stopped, and
+``anet init`` is skipped.
+
+``sudo`` is used only as ``sudo -n``, which fails instead of asking for a
+password. A step that needs a password is not carried out; the report gives
+the exact command. At the end of the output, the section
+``Upgraded from anet <version>`` lists what was stopped, removed, replaced and
+moved, and the commands that remain:
+
+.. code-block:: text
+
+   Upgraded from anet 1.1.15 (npm)
+     Stopped:
+       - the daemon of AgentNetwork 1.1.15 (.../anet-darwin-arm64/bin/anet stop)
+     Removed:
+       - npm package @agentnetwork/anet 1.1.15 (/opt/homebrew/bin/anet)
+     Moved aside:
+       - /Users/user/.anet → /Users/user/.anet-legacy-1.1.15-20261020T120000Z (identity: anet/identity.json; API tokens: api_token, agent_token, scoped_tokens.json; other data: anet.db). Nothing was deleted; the new anet starts with a new identity.
+     PATH:
+       - added the anet PATH block to /Users/user/.zprofile
+       - added the anet PATH block to /Users/user/.zshrc
+
+The renamed directory keeps the identity and the API tokens of the earlier
+release. Release 0.3 does not read them. See :doc:`/upgrading` for the steps
+after the installation.
+
+.. _intro-install-path:
+
+Search path
+-----------
+
+A new terminal runs the new ``anet`` without further steps. When the
+installation directory is not on the search path, when another ``anet`` comes
+before it, or when a new login shell does not find the new binary, the
+installer appends this block to the shell profiles, or replaces the block if
+it is already present:
+
+.. code-block:: sh
+
+   # >>> anet installer: PATH >>>
+   # Puts the directory of anet first on PATH. Written by the anet installer;
+   # to manage PATH yourself, delete this block and install with --no-modify-path.
+   case "$PATH" in "$HOME/.local/bin"|"$HOME/.local/bin":*) ;; *) export PATH="$HOME/.local/bin:$PATH" ;; esac
+   # <<< anet installer: PATH <<<
+
+.. list-table::
+   :header-rows: 1
+   :widths: 20 80
+
+   * - Shell
+     - Profiles
+   * - zsh
+     - ``.zprofile`` and ``.zshrc`` in ``$ZDOTDIR``, or in the home directory
+       when ``ZDOTDIR`` is not set
+   * - bash
+     - ``~/.bash_profile`` if it exists, else ``~/.bash_login`` if it exists,
+       else ``~/.profile``; and ``~/.bashrc``
+   * - fish
+     - ``~/.config/fish/conf.d/anet.fish`` (below ``XDG_CONFIG_HOME`` when it
+       is set), with the same effect in fish syntax
+   * - Other shells
+     - ``~/.profile``
+
+The profiles of the login shell named by ``SHELL`` are created when they do
+not exist. The profiles of other shells are changed only when they exist.
+Running the installer again adds no second block; a block that is no longer
+last in its file is moved to the end. A profile that is a symbolic link, for
+example into a repository of dotfiles, is written through the link. A file
+with a block whose end marker is missing is not changed and is named in the
+report.
+
+The installer then starts a login, interactive shell of ``SHELL`` with an
+empty environment and input from ``/dev/null``, asks it for
+``command -v anet``, and reports the result on one line:
+
+.. code-block:: text
+
+   New terminals: `anet` is /Users/user/.local/bin/anet (zsh -lic 'command -v anet').
+
+The terminal in which the installer runs keeps its search path. The installer
+prints the command that updates it:
+
+.. code-block:: console
+
+   $ export PATH="$HOME/.local/bin:$PATH"
+
+With ``--no-modify-path``, the profiles are not changed and the installer
+prints the line to add. When the installer runs as the superuser, it does not
+change profiles. To undo the change, delete the lines between the two markers.
 
 .. _intro-install-verify:
 

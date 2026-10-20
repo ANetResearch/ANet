@@ -145,7 +145,19 @@ EOF
 
 say()  { printf '%s\n' "$*"; }
 warn() { printf 'Warning: %s\n' "$*" >&2; }
-die()  { printf 'Error: %s\n' "$*" >&2; printf 'Nothing was installed or changed.\n' >&2; exit 1; }
+# die: the error, and then either that nothing was changed or, once an
+# earlier release has been taken over (stopped, removed, moved), what was
+# done, since that stays done.
+die() {
+  printf 'Error: %s\n' "$*" >&2
+  if [ -n "${TMP:-}" ] && grep -Eq '^(stopped|removed|replaced|moved)[|]' "$TMP/notes" 2>/dev/null; then
+    printf 'The new binary was not installed. Already done:\n' >&2
+    grep -E '^(stopped|removed|replaced|moved|manual)[|]' "$TMP/notes" | sed 's/^[a-z]*|/  - /' >&2
+  else
+    printf 'Nothing was installed or changed.\n' >&2
+  fi
+  exit 1
+}
 
 # fetch URL OUT [MAXBYTES] — https only, and never follow a redirect off
 # https. MAXBYTES bounds what is read before anything has been verified:
@@ -427,7 +439,12 @@ apply_without() {
   out="$("$1" init --without "$WITHOUT" 2>&1)" && _rc=0 || _rc=$?
   if [ "$_rc" -ne 0 ]; then
     printf '%s\n' "$out" >&2
-    printf 'Nothing was installed or changed.\n' >&2
+    if grep -Eq '^(stopped|removed|replaced|moved)[|]' "${TMP:-/nonexistent}/notes" 2>/dev/null; then
+      printf 'The new binary was not installed. Already done:\n' >&2
+      grep -E '^(stopped|removed|replaced|moved|manual)[|]' "$TMP/notes" | sed 's/^[a-z]*|/  - /' >&2
+    else
+      printf 'Nothing was installed or changed.\n' >&2
+    fi
     exit "$_rc"
   fi
   printf '%s\n' "$out" | sed 's/^/  /'
@@ -446,9 +463,12 @@ check_downgrade() {
       npm-legacy|bin-legacy)
         say "  $DEST is an earlier release (${CL_VER:-version unknown}); it will be replaced"
         return 0 ;;
+      npm-current)
+        # The launcher is not run: its version is that of its package.
+        INSTALLED=$CL_VER ;;
     esac
   fi
-  if [ -x "$DEST" ]; then
+  if [ -z "$INSTALLED" ] && [ -x "$DEST" ]; then
     INSTALLED="$("$DEST" version 2>/dev/null | sed -n '1s/^anet \([0-9][^ ]*\) .*/\1/p')" || INSTALLED=""
   fi
   if [ -z "$INSTALLED" ]; then
@@ -648,8 +668,9 @@ run_timeout() {
 can_sudo() { command -v sudo >/dev/null 2>&1 && sudo -n true </dev/null >/dev/null 2>&1; }
 
 # clean_text: untrusted program output made printable — control characters
-# (escape sequences included) removed, at most 6 lines of 160 characters.
-clean_text() { LC_ALL=C tr -d '\000-\010\013-\037\177' | cut -c1-160 | head -n 6; }
+# (escape sequences included) and empty lines removed, at most 6 lines of
+# 160 characters.
+clean_text() { LC_ALL=C tr -d '\000-\010\013-\037\177' | grep -v '^[[:space:]]*$' | cut -c1-160 | head -n 6 || true; }
 
 # resolve_link PATH: PATH with the symbolic links of its last component
 # followed (readlink without -f, which older macOS lacks) and its directory
@@ -978,11 +999,14 @@ move_legacy_data() {
 # remove_npm_legacy: the npm package of 1.x, with npm, under the prefix it is
 # installed in; with sudo -n when that prefix is not this user's. If npm is
 # not there or fails, the command link alone is removed when it is a link
-# into that package, and the npm command is printed.
+# into that package, and the npm command is printed. The npm launcher of 0.3
+# is removed the same way only when its command is the destination itself
+# (an npm prefix of ~/.local): the new binary takes that name, and npm is
+# kept consistent with what is there.
 remove_npm_legacy() {
   : > "$TMP/npm.done"
   while IFS='|' read -r _k _f _v _p _t _pk _nm _np _sb _sn _dst; do
-    [ "$_k" = npm-legacy ] || continue
+    [ "$_k" = npm-legacy ] || { [ "$_k" = npm-current ] && [ "$_dst" = 1 ]; } || continue
     grep -Fxq -- "$_pk" "$TMP/npm.done" && continue
     printf '%s\n' "$_pk" >> "$TMP/npm.done"
     _show="npm uninstall -g${_np:+ --prefix $_np} $_nm"
@@ -1005,7 +1029,11 @@ remove_npm_legacy() {
       clean_text < "$TMP/npm.out" | sed 's/^/    /'
     fi
     if [ "$_ok" = 1 ] && [ ! -e "$_pk" ]; then
-      note removed "npm package $_nm $_v ($_p)$_how"
+      if [ "$_k" = npm-current ]; then
+        note removed "npm package $_nm $_v ($_p), whose command was the destination of this install$_how"
+      else
+        note removed "npm package $_nm $_v ($_p)$_how"
+      fi
       continue
     fi
     if [ -L "$_p" ] && [ "$(resolve_link "$_p")" = "$_t" ]; then
@@ -1237,9 +1265,11 @@ upgrade_report() {
   _from=$(awk -F'|' '$1=="npm-legacy"||$1=="bin-legacy" {
       v = ($3 != "") ? $3 : (($2 == "v1") ? "1.x" : "0.x"); s = v (($1 == "npm-legacy") ? " (npm)" : "")
       if (!seen[s]++) o = o ((o != "") ? ", " : "") s } END { print o }' "$TMP/anets")
-  if [ -z "$_from" ]; then
-    case "$DATA_KIND" in older) _from="0.2 (data only)" ;; v1|mixed) _from="1.x (data only)" ;; esac
-  fi
+  # Data of a release whose command was not found is named too.
+  case "$DATA_KIND" in
+    older)   grep -q '^[a-z-]*-legacy|v0|' "$TMP/anets" || _from="${_from:+$_from, }0.2 (data)" ;;
+    v1|mixed) grep -q '^[a-z-]*-legacy|v1|' "$TMP/anets" || _from="${_from:+$_from, }1.x (data)" ;;
+  esac
   if [ -n "$_from" ]; then
     say ""
     say "Upgraded from anet $_from"

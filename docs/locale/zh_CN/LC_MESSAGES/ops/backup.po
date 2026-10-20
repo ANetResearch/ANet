@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ANet 0.3\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-16 14:35+0000\n"
+"POT-Creation-Date: 2026-10-20 12:36+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: zh_CN\n"
@@ -57,9 +57,7 @@ msgstr "内容与说明"
 msgid "``hub.db``"
 msgstr "``hub.db``"
 
-#: ../../ops/backup.rst:30
-#: ../../ops/backup.rst:36
-#: ../../ops/backup.rst:41
+#: ../../ops/backup.rst:30 ../../ops/backup.rst:36 ../../ops/backup.rst:41
 #: ../../ops/backup.rst:67
 msgid "yes"
 msgstr "是"
@@ -103,8 +101,7 @@ msgstr ""
 msgid "``federation.json``"
 msgstr "``federation.json``"
 
-#: ../../ops/backup.rst:47
-#: ../../ops/backup.rst:63
+#: ../../ops/backup.rst:47 ../../ops/backup.rst:63
 msgid "if used"
 msgstr "如使用"
 
@@ -116,9 +113,7 @@ msgstr "对等方表(:ref:`ops-federation`)。"
 msgid "``kel_hwm``"
 msgstr "``kel_hwm``"
 
-#: ../../ops/backup.rst:50
-#: ../../ops/backup.rst:55
-#: ../../ops/backup.rst:60
+#: ../../ops/backup.rst:50 ../../ops/backup.rst:55 ../../ops/backup.rst:60
 msgid "no"
 msgstr "否"
 
@@ -348,13 +343,13 @@ msgstr "自 hub 开始服务起已过 30 分钟,且节点发来以已存历史�
 #: ../../ops/backup.rst:161
 msgid ""
 "Each agent is released on its own. Nodes report ``This node's hub was "
-"just restored from a backup and is checking identity records; nothing "
-"to do, it takes at most 30 minutes.`` An owner who is online is "
-"released within seconds. An agent that rotated after the backup and "
-"whose node stays offline remains held until it connects."
+"just restored from a backup and is checking identity records; nothing to "
+"do, it takes at most 30 minutes.`` An owner who is online is released "
+"within seconds. An agent that rotated after the backup and whose node "
+"stays offline remains held until it connects."
 msgstr ""
-"各 Agent 分别解除。节点会报告 ``This node's hub was just restored from a backup "
-"and is checking identity records; nothing to do, it takes at most 30 "
+"各 Agent 分别解除。节点会报告 ``This node's hub was just restored from a backup and "
+"is checking identity records; nothing to do, it takes at most 30 "
 "minutes.`` 在线的所有者会在数秒内解除。备份之后发生过轮换、且节点保持离线的 Agent,会一直被挂起,直到其节点连接为止。"
 
 #: ../../ops/backup.rst:167
@@ -707,19 +702,24 @@ msgstr "节点拒绝在无法使用的数据目录中启动,并保持该目录�
 
 #: ../../ops/backup.rst:360
 msgid ""
-"``This data directory is from anet 0.2, and 0.3.0 does not migrate old "
-"data; move it away and run anet up to create a new identity.``"
+"``This data directory is from an earlier release (anet 0.2 or "
+"AgentNetwork 1.x), and 0.3 does not migrate old data; move it away and "
+"run anet up to create a new identity.``"
 msgstr ""
-"``This data directory is from anet 0.2, and 0.3.0 does not migrate old "
-"data; move it away and run anet up to create a new identity.``"
+"``This data directory is from an earlier release (anet 0.2 or "
+"AgentNetwork 1.x), and 0.3 does not migrate old data; move it away and "
+"run anet up to create a new identity.``"
 
 #: ../../ops/backup.rst:361
 msgid ""
-"Release 0.3.0 does not migrate old identities. Move the directory away. "
-"The new identity must join a hub again."
-msgstr "0.3.0 版不迁移旧身份。请将该目录移开。新身份须重新加入 hub。"
+"Release 0.3 does not migrate old identities. Move the directory away; "
+"from 0.3.5, ``install.sh`` renames it to ``~/.anet-"
+"legacy-<version>-<time>``. The new identity must join a hub again."
+msgstr ""
+"0.3 版不迁移旧身份。请将该目录移开；自 0.3.5 起，``install.sh`` 会将其改名为 ``~/.anet-"
+"legacy-<版本>-<时间>``。新身份须重新加入 hub。"
 
-#: ../../ops/backup.rst:364
+#: ../../ops/backup.rst:365
 msgid ""
 "``This data directory was written by a newer anet, which this version "
 "cannot open; run anet update and start again (do not delete the "
@@ -729,11 +729,11 @@ msgstr ""
 "cannot open; run anet update and start again (do not delete the "
 "directory).``"
 
-#: ../../ops/backup.rst:365
+#: ../../ops/backup.rst:366
 msgid "The data is valid. Upgrade the program."
 msgstr "数据有效。请升级程序。"
 
-#: ../../ops/backup.rst:367
+#: ../../ops/backup.rst:368
 msgid ""
 "``The identity file ... is damaged and cannot be read, so anet did not "
 "start``"
@@ -741,23 +741,23 @@ msgstr ""
 "``The identity file ... is damaged and cannot be read, so anet did not "
 "start``"
 
-#: ../../ops/backup.rst:368
+#: ../../ops/backup.rst:369
 msgid ""
 "Restore ``identity.kel`` from a backup, or recover the identity from its "
 "recovery file with ``anet identity recover``."
 msgstr "从备份中恢复 ``identity.kel``,或使用 ``anet identity recover`` 凭恢复文件恢复该身份。"
 
-#: ../../ops/backup.rst:371
+#: ../../ops/backup.rst:372
 msgid ""
 "The hub refuses a damaged or incompatible data directory in the same way "
 "(see :ref:`ops-hub`)."
 msgstr "hub 对损坏或不兼容的数据目录同样拒绝启动(参见 :ref:`ops-hub`)。"
 
-#: ../../ops/backup.rst:376
+#: ../../ops/backup.rst:377
 msgid "Deletion and backups"
 msgstr "删除与备份"
 
-#: ../../ops/backup.rst:378
+#: ../../ops/backup.rst:379
 msgid ""
 "ANet deletes content by schedule: task content at the end of its "
 "retention period, encryption keys when they can no longer be used, and "

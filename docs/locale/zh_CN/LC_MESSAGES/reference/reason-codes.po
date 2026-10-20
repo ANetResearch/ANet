@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ANet 0.3\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-20 07:24+0000\n"
+"POT-Creation-Date: 2026-10-20 12:36+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: zh_CN\n"
@@ -4122,15 +4122,21 @@ msgstr "``identity_v02``"
 
 #: ../../reference/_generated/reason-codes.inc:1085
 msgid ""
-"This data directory is from ``anet`` 0.2, and 0.3.0 does not migrate old "
-"data; move it away and run ``anet up`` to create a new identity."
+"This data directory is from an earlier release (``anet`` 0.2 or "
+"AgentNetwork 1.x), and 0.3 does not migrate old data; move it away and "
+"run ``anet up`` to create a new identity."
 msgstr ""
-"This data directory is from ``anet`` 0.2, and 0.3.0 does not migrate old "
-"data; move it away and run ``anet up`` to create a new identity."
+"This data directory is from an earlier release (``anet`` 0.2 or "
+"AgentNetwork 1.x), and 0.3 does not migrate old data; move it away and "
+"run ``anet up`` to create a new identity."
 
 #: ../../reference/_generated/reason-codes.inc:1086
-msgid "这是 ``anet`` 0.2 的数据目录，0.3.0 不迁移旧数据；请把这个目录移走后运行 ``anet up`` 生成新身份。"
-msgstr "这是 ``anet`` 0.2 的数据目录，0.3.0 不迁移旧数据；请把这个目录移走后运行 ``anet up`` 生成新身份。"
+msgid ""
+"这是早期版本（\\ ``anet`` 0.2 或 AgentNetwork 1.x）的数据目录，0.3 不迁移旧数据；请把这个目录移走后运行 "
+"``anet up`` 生成新身份。"
+msgstr ""
+"这是早期版本（\\ ``anet`` 0.2 或 AgentNetwork 1.x）的数据目录，0.3 不迁移旧数据；请把这个目录移走后运行 "
+"``anet up`` 生成新身份。"
 
 #: ../../reference/_generated/reason-codes.inc:1087
 #: ../../reference/_generated/reason-codes.inc:1523

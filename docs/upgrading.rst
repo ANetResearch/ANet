@@ -3,10 +3,13 @@
 Upgrading to 0.3
 ================
 
-Version 0.3 is not an in-place upgrade of 0.2. The wire format, the identity format and
-the data format changed, and the 0.3 programs contain no migration code. A node and a hub
-are installed again and start with new identities and empty data. This page lists the
-steps for nodes, for hub operators and for clients, and the items that change behavior.
+Version 0.3 is not an in-place upgrade of 0.2, nor of AgentNetwork 1.x, the earlier
+project that published the npm package ``@agentnetwork/anet`` 1.x. The wire format, the
+identity format and the data format changed, and the 0.3 programs contain no migration
+code. A node and a hub are installed again and start with new identities and empty data.
+From 0.3.5, the installer carries out the steps for a node (see
+:ref:`upgrading-installer`). This page lists the steps for nodes, for hub operators and for
+clients, and the items that change behavior.
 
 .. contents::
    :local:
@@ -16,7 +19,8 @@ steps for nodes, for hub operators and for clients, and the items that change be
 What does not carry over
 ------------------------
 
-* Identities. A 0.2 AID is not valid in 0.3. A new identity is created and registered.
+* Identities. A 0.2 AID, and the DID of AgentNetwork 1.x, are not valid in 0.3. A new
+  identity is created and registered.
 * Allow lists, trust lists and deny lists refer to AIDs, and have to be entered again with
   the new AIDs of the peers.
 * Reviews, the reputation of an AID and entries on the list of official agents.
@@ -24,21 +28,76 @@ What does not carry over
 * The task history and the evidence chain of the 0.2 data directory stay in that directory;
   the 0.3 programs do not read them.
 
-Upgrade a node
---------------
+.. _upgrading-installer:
 
-1. Stop the 0.2 daemon.
+Upgrade a node with the installer
+---------------------------------
+
+From 0.3.5, ``install.sh`` upgrades a node of AgentNetwork 1.x, anet 0.1 or anet 0.2 on
+Linux and macOS in one run and without input:
+
+.. code-block:: console
+
+   $ curl --proto '=https' --tlsv1.2 -fsSL https://agentnetwork.org.cn/install.sh | sh
+
+The installer verifies the release as described in :doc:`intro/install`, and then:
+
+1. stops the daemon of the earlier release with the ``stop`` command of that release;
+2. renames the data directory, for example ``~/.anet`` to
+   ``~/.anet-legacy-1.1.15-20261020T120000Z``; nothing in it is deleted, and a 0.3 identity
+   that is already in it stays in place;
+3. removes the npm package ``@agentnetwork/anet`` 1.x with npm, and replaces earlier
+   binaries of ``anet`` by a link to the new binary, or removes them;
+4. installs the new binary, places its directory first on the search path of new
+   terminals, and runs ``anet init``.
+
+The section ``Upgraded from anet <version>`` at the end of the output lists each of these
+steps, and gives the exact command for each step that could not be carried out. The rules
+are described in :ref:`intro-install-earlier` and :ref:`intro-install-path`. Then:
+
+1. Open a new terminal, or run the ``export PATH=...`` line that the installer prints, and
+   check the version.
+
+   .. code-block:: console
+
+      $ anet version
+
+2. Continue with step 4 of the next section: start the node, join a hub, wire the coding
+   agents again and enter the peers again.
+
+The renamed directory keeps the identity and the API tokens of the earlier release. Release
+0.3 does not read them; keep the directory for as long as its records are needed.
+
+The installer leaves a data directory in place while a daemon of the earlier release may
+still use it, and does not change files that need the superuser when ``sudo`` asks for a
+password. In these cases, run the commands of the report, or follow the steps of the next
+section. On Windows, see :ref:`intro-install-windows`.
+
+Upgrade a node by hand
+----------------------
+
+These steps apply when the installer cannot complete the upgrade, and to installations that
+the installer does not manage.
+
+1. Stop the daemon of the earlier release.
 
    .. code-block:: console
 
       $ anet stop --all
 
-2. Move the 0.2 data directory aside. A 0.3 daemon refuses to start on it and says
+   AgentNetwork 1.x stops with ``anet stop``. Remove its npm package afterwards:
+
+   .. code-block:: console
+
+      $ anet stop
+      $ npm uninstall -g @agentnetwork/anet
+
+2. Move the data directory aside. A 0.3 daemon refuses to start on it and says
    ``identity_v02``; nothing in it is deleted by the refusal.
 
    .. code-block:: console
 
-      $ mv ~/.anet ~/.anet-0.2
+      $ mv ~/.anet ~/.anet-legacy-0.2
 
 3. Install 0.3. The installer verifies the signed release manifest before it installs
    (see :doc:`intro/install`). ``anet update`` from 0.2 also replaces the binary after it

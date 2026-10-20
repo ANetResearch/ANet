@@ -1,3 +1,5 @@
+//go:build !windows
+
 package release
 
 import (
@@ -754,4 +756,51 @@ func TestInstallShReplacesLegacyDest(t *testing.T) {
 
 func init() {
 	legacyFuncs = append(legacyFuncs, "check_downgrade")
+}
+
+// The npm launcher of 0.3 whose command is the destination itself (an npm
+// prefix of ~/.local) is removed with npm, so that npm and the file there
+// agree; its version is read from its package.json, and it is not run.
+func TestInstallShNpmLauncherAtDest(t *testing.T) {
+	e := newLegacyEnv(t)
+	prefix := filepath.Join(e.home, ".local")
+	link, pkg, _ := e.npmTree(prefix, "0.3.4", "git+https://github.com/ANetResearch/ANet.git")
+	e.write(filepath.Join(pkg, "bin", "anet"), "#!/bin/sh\ntouch '"+e.root+"/launcher-ran'\n", 0o755)
+	e.fakeNpm(prefix, false)
+	out, code := e.run(`VERSION=0.3.5; BASE=https://example.invalid; check_downgrade; survey_anets; remove_npm_legacy; upgrade_report`)
+	if code != 0 {
+		t.Fatalf("exit %d:\n%s", code, out)
+	}
+	mustContain(t, "output", out, "upgrading "+link+": 0.3.4 → 0.3.5",
+		"npm package @agentnetwork/anet 0.3.4 ("+link+"), whose command was the destination of this install")
+	mustContain(t, "calls", e.calls(), "npm uninstall -g --no-fund --no-audit --loglevel=error --prefix "+prefix+" @agentnetwork/anet\n")
+	if _, err := os.Stat(filepath.Join(e.root, "launcher-ran")); err == nil {
+		t.Error("the npm launcher was run")
+	}
+}
+
+// Data of an earlier release whose command is gone is named in the title.
+func TestInstallShReportNamesDataOnly(t *testing.T) {
+	e := newLegacyEnv(t)
+	e.write(filepath.Join(e.home, ".anet", "anet", "identity.json"), "{}", 0o600)
+	out, code := e.run(`survey_anets; move_legacy_data; upgrade_report`)
+	if code != 0 {
+		t.Fatalf("exit %d:\n%s", code, out)
+	}
+	mustContain(t, "report", out, "Upgraded from anet 1.x (data)\n", "Moved aside:")
+}
+
+// A failure after the takeover says what was done, not that nothing was.
+func TestInstallShDieAfterTakeover(t *testing.T) {
+	e := newLegacyEnv(t)
+	out, code := e.run(`die "before"`)
+	if code != 1 || !strings.Contains(out, "Nothing was installed or changed.") {
+		t.Fatalf("exit %d:\n%s", code, out)
+	}
+	out, code = e.run(`note stopped "the daemon of AgentNetwork 1.1.15"; note kept "x"; die "could not write it"`)
+	if code != 1 {
+		t.Fatalf("exit %d:\n%s", code, out)
+	}
+	mustContain(t, "output", out, "Error: could not write it\nThe new binary was not installed. Already done:\n  - the daemon of AgentNetwork 1.1.15\n")
+	mustNotContain(t, "output", out, "Nothing was installed", "  - x\n")
 }
