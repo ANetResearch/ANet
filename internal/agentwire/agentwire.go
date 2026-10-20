@@ -456,9 +456,8 @@ func mcpEnv(o *Options) map[string]string {
 
 // isAnetCommand reports whether command names the anet binary, however it
 // was spelled: an absolute path from an earlier wire, or the bare `anet`
-// the tutorials told people to write by hand.
+// the tutorials told people to write by hand. The name is compared by
+// sameBinaryName (os_unix.go, os_windows.go).
 func isAnetCommand(command string) bool {
-	base := filepath.Base(strings.TrimSpace(command))
-	base = strings.TrimSuffix(base, ".exe")
-	return base == "anet"
+	return sameBinaryName(filepath.Base(strings.TrimSpace(command)), "anet")
 }

@@ -1,0 +1,9 @@
+{
+  "command": "C:\\Users\\A B\\AppData\\Local\\Programs\\anet\\anet.exe",
+  "args": [
+    "mcp"
+  ],
+  "env": {
+    "ANET_DATA_DIR": "C:\\Users\\A B\\.anet"
+  }
+}
