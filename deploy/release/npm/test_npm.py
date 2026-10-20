@@ -188,6 +188,29 @@ class NpmPackages(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(json.loads(r.stdout), [True, True, False, False, False, False])
 
+    def test_build_without_windows(self):
+        """A release without Windows builds needs no install.ps1 and ships none."""
+        mf = self.dist / "release.json"
+        m = json.loads(mf.read_text())
+        m["assets"] = {k: v for k, v in m["assets"].items() if v["os"] != "windows"}
+        mf.write_text(json.dumps(m, indent=2) + "\n")
+        self.sign(mf)
+        with self.subTest("an install.ps1 that pins builds the release does not have"):
+            r, _ = self.build()
+            self.assertNotEqual(r.returncode, 0)
+            self.assertIn("lists no Windows build", r.stderr)
+            shutil.rmtree(self.tmp / "out", ignore_errors=True)
+        for f in ("install.ps1", "install.ps1.sig"):
+            (self.dist / f).unlink()
+        r, out = self.build()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        main = next(d for d in out.iterdir() if json.loads((d / "package.json").read_text())["name"] == "@agentnetwork/anet")
+        pkg = json.loads((main / "package.json").read_text())
+        self.assertFalse((main / "install.ps1").exists())
+        self.assertNotIn("install.ps1", pkg["files"])
+        self.assertNotIn("win32", pkg["os"])
+        self.assertTrue((main / "install.sh").is_file())
+
     def test_build_refuses(self):
         with self.subTest("archive"):
             gz = self.dist / f"anet-{GOOS}-{GOARCH}.gz"
@@ -206,6 +229,15 @@ class NpmPackages(unittest.TestCase):
             self.assertNotEqual(r.returncode, 0)
             self.assertIn("does not verify", r.stderr)
             mf.write_text(good)
+            shutil.rmtree(self.tmp / "out", ignore_errors=True)
+        with self.subTest("a Windows build without install.ps1"):
+            ps1 = self.dist / "install.ps1"
+            good = ps1.read_bytes()
+            ps1.unlink()
+            r, _ = self.build()
+            self.assertNotEqual(r.returncode, 0)
+            self.assertIn("install.ps1 is missing (release.json lists a Windows build)", r.stderr)
+            ps1.write_bytes(good)
             shutil.rmtree(self.tmp / "out", ignore_errors=True)
         with self.subTest("installer signature"):
             ps1 = self.dist / "install.ps1"

@@ -38,7 +38,8 @@
 # to the hub site's public directory.
 #
 # Every check runs before anything served changes: the dist and web files
-# are all there; with --allowed-signers (the repository's
+# are all there (install.ps1 exactly when release.json lists a Windows
+# build); with --allowed-signers (the repository's
 # internal/release/allowed_signers), release.json, install.sh and
 # install.ps1 verify against the release key; site.json can take the version; every *.gz
 # matches checksums.txt. dl/ is swapped in one rename; each other file is
@@ -86,16 +87,28 @@ if [ -n "$DIST" ]; then
   if [ -z "$WEB" ] && [ -e "$ROOT/site.json" ]; then
     die "$ROOT/site.json names the release dl/ serves now: publish the text in the same run (add --web deploy/release/apex) so it names this one"
   fi
-  for f in release.json release.json.sig VERSION checksums.txt install.sh install.sh.sig install.ps1 install.ps1.sig; do
+  # install.ps1 pins the Windows builds: a release that lists one must
+  # carry it, and one without Windows builds has none (build-release.sh
+  # writes it only when it built both Windows platforms).
+  for f in release.json release.json.sig VERSION checksums.txt install.sh install.sh.sig; do
     [ -f "$DIST/$f" ] || die "$DIST/$f is missing"
   done
+  INSTALLERS="install.sh"
+  if grep -Eq '"os"[[:space:]]*:[[:space:]]*"windows"' "$DIST/release.json"; then
+    for f in install.ps1 install.ps1.sig; do
+      [ -f "$DIST/$f" ] || die "$DIST/$f is missing (release.json lists a Windows build)"
+    done
+    INSTALLERS="install.sh install.ps1"
+  elif [ -e "$DIST/install.ps1" ] || [ -e "$DIST/install.ps1.sig" ]; then
+    die "$DIST/install.ps1 is present but release.json lists no Windows build: it would pin builds this release does not have"
+  fi
   ls "$DIST"/*.gz >/dev/null 2>&1 || die "no .gz in $DIST"
   if [ -n "$SIGNERS" ]; then
-    for f in release.json install.sh install.ps1; do
+    for f in release.json $INSTALLERS; do
       ssh-keygen -Y verify -f "$SIGNERS" -I "$NS" -n "$NS" -s "$DIST/$f.sig" < "$DIST/$f" >/dev/null ||
         die "$f does not verify against $SIGNERS"
     done
-    echo "signatures: release.json, install.sh, install.ps1 Good"
+    echo "signatures: release.json $INSTALLERS Good"
   else
     echo "signatures: not checked (no --allowed-signers)"
   fi
@@ -285,8 +298,15 @@ if [ -n "$DIST" ]; then
   # the old signature, which would fail verification.
   put "$DIST/install.sh.sig" install.sh.sig
   put "$DIST/install.sh" install.sh
-  put "$DIST/install.ps1.sig" install.ps1.sig
-  put "$DIST/install.ps1" install.ps1
+  case " $INSTALLERS " in
+    *" install.ps1 "*)
+      put "$DIST/install.ps1.sig" install.ps1.sig
+      put "$DIST/install.ps1" install.ps1 ;;
+    *)
+      if [ -e "$ROOT/install.ps1" ]; then
+        echo "  note: $ROOT/install.ps1 is left as it was; it pins the Windows builds of an earlier release, which dl/ no longer serves"
+      fi ;;
+  esac
 fi
 
 if [ -n "$WEB" ]; then

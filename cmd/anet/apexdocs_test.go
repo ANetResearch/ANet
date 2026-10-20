@@ -501,7 +501,7 @@ func apexFakeDist(t *testing.T, version string) string {
 	body := "archive " + version
 	sum := sha256.Sum256([]byte(body))
 	for name, content := range map[string]string{
-		"release.json":     `{"version": "` + version + `"}`,
+		"release.json":     `{"version": "` + version + `", "assets": {"anet-windows-amd64": {"variant": "default", "os": "windows", "arch": "amd64"}}}`,
 		"release.json.sig": "sig",
 		"VERSION":          version + "\n",
 		"checksums.txt":    hex.EncodeToString(sum[:]) + "  " + gz + "\n",
@@ -561,13 +561,16 @@ func apexServedSite(t *testing.T, v string) string {
 	return strings.Replace(src, `{"v": 1,`, `{"v": 1, "version": "`+v+`",`, 1)
 }
 
-// publish.sh requires and verifies both installers, and puts each signature
-// in place before its script.
+// publish.sh requires and verifies both installers when the release has
+// Windows builds, and only install.sh when it has none; it puts each
+// signature in place before its script.
 func TestPublishInstallers(t *testing.T) {
 	script := readApex(t, "publish.sh")
 	for _, want := range []string{
-		"install.sh install.sh.sig install.ps1 install.ps1.sig; do",
-		"for f in release.json install.sh install.ps1; do",
+		"install.sh install.sh.sig; do",
+		"for f in install.ps1 install.ps1.sig; do",
+		`INSTALLERS="install.sh install.ps1"`,
+		"for f in release.json $INSTALLERS; do",
 	} {
 		if !strings.Contains(script, want) {
 			t.Errorf("publish.sh does not contain %q", want)
@@ -592,6 +595,34 @@ func TestPublishInstallers(t *testing.T) {
 	out, err := apexRunPublish(t, "--dist", dist, "--root", root)
 	if err == nil || !strings.Contains(out, "install.ps1.sig is missing") {
 		t.Errorf("a dist without install.ps1.sig: %v\n%s", err, out)
+	}
+	apexSameSnapshot(t, "a refused --dist", map[string]string{}, apexSnapshot(t, root))
+
+	// A release without Windows builds needs no install.ps1, and publishes none.
+	dist = apexFakeDist(t, "9.9.8")
+	apexWriteFile(t, filepath.Join(dist, "release.json"), `{"version": "9.9.8", "assets": {"anet-linux-amd64": {"variant": "default", "os": "linux", "arch": "amd64"}}}`)
+	for _, f := range []string{"install.ps1", "install.ps1.sig"} {
+		if err := os.Remove(filepath.Join(dist, f)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	root = t.TempDir()
+	if out, err := apexRunPublish(t, "--dist", dist, "--root", root); err != nil {
+		t.Fatalf("a dist without Windows builds: %v\n%s", err, out)
+	}
+	got := apexSnapshot(t, root)
+	if _, ok := got["install.sh"]; !ok {
+		t.Errorf("install.sh was not published: %v", got)
+	}
+	if _, ok := got["install.ps1"]; ok {
+		t.Errorf("install.ps1 was published for a release without Windows builds")
+	}
+	// An install.ps1 in a dist without Windows builds pins builds it does not have.
+	dist = apexFakeDist(t, "9.9.7")
+	apexWriteFile(t, filepath.Join(dist, "release.json"), `{"version": "9.9.7", "assets": {}}`)
+	root = t.TempDir()
+	if out, err := apexRunPublish(t, "--dist", dist, "--root", root); err == nil || !strings.Contains(out, "lists no Windows build") {
+		t.Errorf("an install.ps1 without Windows builds: %v\n%s", err, out)
 	}
 	apexSameSnapshot(t, "a refused --dist", map[string]string{}, apexSnapshot(t, root))
 }

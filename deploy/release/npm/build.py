@@ -5,8 +5,8 @@ Usage: build.py --dist DIR --out DIR [--allowed-signers FILE]
 
 DIR holds what build-release.sh writes and the download hosts serve under
 /dl/ and at the root: release.json, release.json.sig, install.sh,
-install.sh.sig, install.ps1, install.ps1.sig and the .gz of every build that
-release.json names. The signatures are verified with ssh-keygen against
+install.sh.sig, install.ps1 and install.ps1.sig (exactly when release.json
+names a Windows build) and the .gz of every build that release.json names. The signatures are verified with ssh-keygen against
 internal/release/allowed_signers, and every .gz against its sha256 and size
 in release.json, before anything is written. The packages, one directory
 each under --out, are:
@@ -45,6 +45,8 @@ CPU = {"amd64": "x64", "arm64": "arm64"}
 NPM_OS = {"linux": "linux", "darwin": "darwin", "windows": "win32"}
 OS_NAME = {"linux": "Linux", "darwin": "macOS", "windows": "Windows"}
 INSTALLERS = ("install.sh", "install.sh.sig", "install.ps1", "install.ps1.sig")
+# The installers of a release without Windows builds.
+INSTALLERS_UNIX = ("install.sh", "install.sh.sig")
 DOCS = "https://docs.agentnetwork.org.cn/docs/en/latest/intro/install.html"
 REPOSITORY = {"type": "git", "url": "git+https://github.com/ANetResearch/ANet.git", "directory": "deploy/release/npm"}
 
@@ -144,15 +146,25 @@ def main():
     a = ap.parse_args()
     dist, out, allowed = a.dist.resolve(), a.out.resolve(), a.allowed_signers.resolve()
 
-    for f in ("release.json", "release.json.sig") + INSTALLERS:
+    for f in ("release.json", "release.json.sig"):
         if not (dist / f).is_file():
             die(f"{dist / f} is missing")
     verify(dist / "release.json", allowed)
-    verify(dist / "install.sh", allowed)
-    verify(dist / "install.ps1", allowed)
     m = json.loads((dist / "release.json").read_text())
     if m.get("schema") != "anet-release/1":
         die(f"release.json: schema {m.get('schema')} is not anet-release/1")
+    # install.ps1 pins the Windows builds: a release that lists one carries
+    # it, and a release without Windows builds has none.
+    windows = any(info.get("os") == "windows" for info in m["assets"].values())
+    installers = INSTALLERS if windows else INSTALLERS_UNIX
+    if not windows and any((dist / f).exists() for f in INSTALLERS if f not in INSTALLERS_UNIX):
+        die(f"{dist / 'install.ps1'} is present but release.json lists no Windows build")
+    for f in installers:
+        if not (dist / f).is_file():
+            die(f"{dist / f} is missing" + (" (release.json lists a Windows build)" if f.startswith("install.ps1") else ""))
+    for f in installers:
+        if not f.endswith(".sig"):
+            verify(dist / f, allowed)
     version = m["version"]
     prefixes = {k: v["asset_prefix"] for k, v in m["variants"].items()}
 
@@ -194,7 +206,7 @@ def main():
     shutil.copyfile(HERE / "anet.js", d / "bin" / "anet")
     os.chmod(d / "bin" / "anet", 0o755)
     shutil.copyfile(allowed, d / "allowed_signers")
-    for f in INSTALLERS:
+    for f in installers:
         shutil.copyfile(dist / f, d / f)
     shutil.copyfile(licence, d / "LICENSE")
     (d / "README.md").write_text(MAIN_README.format(version=version, docs=DOCS))
@@ -202,8 +214,8 @@ def main():
     pkg.update({
         "keywords": ["anet", "agentnetwork", "a2a", "agent-to-agent", "mcp", "x402", "multi-agent", "cli"],
         "bin": {"anet": "bin/anet"},
-        "files": ["bin", "allowed_signers", *INSTALLERS, "README.md", "LICENSE"],
-        "os": sorted(NPM_OS.values()),
+        "files": ["bin", "allowed_signers", *installers, "README.md", "LICENSE"],
+        "os": sorted(v for k, v in NPM_OS.items() if windows or k != "windows"),
         "cpu": sorted(set(CPU.values())),
         "engines": {"node": ">=18"},
         "optionalDependencies": dict(sorted(optional.items())),
