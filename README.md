@@ -60,8 +60,9 @@ powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "[Net
 ```
 
 The installer asks nothing: `-Controller` on the command line is the consent. It installs the build with the `shell`
-module, gives exactly that AID access to it, joins `https://hub.agentnetwork.org.cn`, and prints what it granted and
-how to revoke it. Without `-Controller`, the line installs the default build only:
+module, gives exactly that AID access to it, starts the node, joins `https://hub.agentnetwork.org.cn`, and names the
+agent and how to revoke its access in a short summary. Without `-Controller`, the line installs the default build,
+starts the node and joins the same hub, and gives no one access:
 
 ```text
 powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol=3072; & ([scriptblock]::Create((irm -UseBasicParsing https://agentnetwork.org.cn/install.ps1)))"
@@ -70,7 +71,8 @@ powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "[Net
 The installer chooses a private per-user install directory, takes over from an earlier anet (it stops it, waits for
 its daemon to exit, moves its data aside and then removes its npm package), and in an elevated window runs no program
 of the account (an earlier anet, its stop command, npm) and starts the node only with standard user rights, or not at all, while User
-Account Control is on. Run inside WSL, the line installs the Windows build on the Windows host. `install.ps1` is signed
+Account Control is on. It downloads from the npm mirror or GitHub, whichever answers first, and falls back to the
+project's hosts; it prints a short summary and writes the details to a log under `%USERPROFILE%\.anet\logs`. Run inside WSL, the line installs the Windows build on the Windows host. `install.ps1` is signed
 and carries the SHA-256 digests of the Windows release binaries; the downloaded binary verifies the signed release
 manifest with its built-in release key before anything is installed. See
 [Installing on Windows](https://docs.agentnetwork.org.cn/docs/en/latest/intro/install.html#installing-on-windows).

@@ -597,7 +597,8 @@ Requirements
   The installer uses no tool that has to be installed; in particular it does
   not use ``ssh-keygen``, because Windows 10 version 1809 ships an OpenSSH
   release older than 8.1.
-* Outbound HTTPS to the download hosts.
+* Outbound HTTPS to at least one of the download sources (see
+  :ref:`intro-install-windows-sources`).
 
 The installer runs in a window that is elevated or not, and in a session
 without a visible console, such as the tool call of an agent or a CI job.
@@ -610,16 +611,21 @@ The installation is started with one line. The line is identical in
 shell in WSL 1 or WSL 2, and Git Bash: it contains no character that one of
 these shells interprets, and everything after ``-Command`` is one argument in
 double quotes. Replace ``CONTROLLER_AID`` with the AID of the node that is to
-be given access to the shell module of this computer:
+be given access to the shell module of this computer. The installer installs
+the build with the ``shell`` module, gives that AID access to it, starts the
+node, registers it with ``https://hub.agentnetwork.org.cn`` and starts it at
+every logon:
 
 .. code-block:: text
 
    powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol=3072; & ([scriptblock]::Create((irm -UseBasicParsing https://agentnetwork.org.cn/install.ps1))) -Controller CONTROLLER_AID"
 
-Without ``-Controller``, the line installs the default build: no agent is
-given access, and the node is not started. Everything else described in this
-section, the choice of the install directory, the takeover of earlier
-installations and the ``PATH``, is the same in both forms:
+Without ``-Controller``, the line installs the default build and gives no
+agent access. The node is started and registered with the hub in the same way;
+``-NoJoin`` leaves out the registration and ``-NoStart`` leaves out both.
+Everything else described in this section, the download sources, the choice
+of the install directory, the takeover of earlier installations, the ``PATH``
+and the output, is the same in both forms:
 
 .. code-block:: text
 
@@ -646,15 +652,103 @@ decision is made from the parameters on the command line. In particular:
 
 * ``-Controller`` on the command line is the consent to the grant. The
   installer passes it to ``anet init --shell-controller`` as ``--yes``, and no
-  confirmation is asked. At the end, the installer prints what was granted,
-  read back from ``config.json`` and ``peers.allow``, and the two steps that
-  revoke it.
-* The recovery passphrase is not asked during the installation
-  (``anet hub-register --passphrase-later``); set it afterwards with
-  ``anet identity protect``.
+  confirmation is asked. The summary names the agent that was given access and
+  the command that revokes it; the log records what was granted, read back
+  from ``config.json`` and ``peers.allow``, and both steps of the revocation.
+* The recovery passphrase is not asked during the installation: the
+  installer always runs ``anet hub-register`` with ``--passphrase-later``. Set
+  the passphrase afterwards with ``anet identity protect``.
 * The installation also completes when standard input and output are not a
   console, as with WSL interoperability, a CI job or the tool call of an
   agent.
+
+.. _intro-install-windows-output:
+
+What the installer prints
+-------------------------
+
+While it works, the installer prints one line per phase: the download, and the
+installed binary with the result of the signature check. On an interactive
+console, the download is shown as one line that is updated several times per
+second, with a bar, the megabytes received and expected, the current speed and
+the estimated time remaining; when the download completes, the line remains
+with the size, the average speed and the elapsed time. The bar is drawn in red
+and dark gray, or without colours when the variable ``NO_COLOR`` is set, and
+with ASCII characters when the code page of the console cannot display the
+line-drawing character. When the output is not an interactive console, as in a
+CI job, the tool call of an agent or a pipe, the download is reported in one
+line once it is complete.
+
+The installation ends with a short summary, for example:
+
+.. code-block:: text
+
+   anet 0.3.6 is installed and running.
+     AID   bafyrei...
+     Hub   https://hub.agentnetwork.org.cn (joined)
+   Remote control: allowed for bafyrei... only; revoke with: anet peers remove bafyrei...
+   Run 'anet' in a new window to get started.
+   Details: C:\Users\<user>\.anet\logs\install-20261020T151644Z.log
+
+The ``AID`` line gives the identity of the node in full. The ``Hub`` line
+states whether the node joined the hub, whether the hub waits for its
+operator to admit the node (the line then gives the ``anet-hub admit`` command
+for the operator), or whether the hub could not be reached yet, in which case
+the node keeps trying. The ``Remote control`` line appears only with
+``-Controller``. A line beginning with ``Replaced`` appears only when an
+earlier installation was taken over, and names the directory that now holds
+its data. A line beginning with ``Note:`` appears only for something that is
+left to the user, such as a command to run. With ``ANET_LANG`` set to a value
+that begins with ``zh``, the summary is in Chinese.
+
+The last line names the log of the run. The log records everything else: the
+download sources that were probed and tried, each check, every step of the
+takeover, the changes to the ``PATH`` and to the ``Run`` value, and the output
+of ``anet init``, ``anet up``, ``anet doctor`` and ``anet hub-register``. It
+is written to ``%USERPROFILE%\.anet\logs\install-<UTC time>.log``, in a
+directory with an access control list of its own (full control for the user,
+SYSTEM and Administrators, and nothing else). When the data directory is not
+ready for it, because the installation stopped before ``anet init`` or the
+directory still holds the data of an earlier release, the log is written to
+``%TEMP%\anet-install\`` instead. A refusal and a failure are reported in a
+short ``Error:`` line followed by the ``Details:`` line.
+
+.. _intro-install-windows-sources:
+
+Download sources
+----------------
+
+``install.ps1`` installs exactly the release with which it was published,
+because it carries the SHA-256 digests of that release. Every download source
+is therefore asked for that version:
+
+#. The npm mirror ``registry.npmmirror.com`` and the GitHub release of the
+   project (``github.com/ANetResearch/ANet/releases/download/v<version>/``)
+   are probed in parallel, each for at most 3 seconds and for at most 4
+   seconds in all. The sources that answered are tried first, the faster one
+   first; a source that did not answer is not used.
+#. The npm registry ``registry.npmjs.org``.
+#. jsDelivr (``cdn.jsdelivr.net``).
+#. The project's hosts ``agentnetwork.org.cn`` and ``hub.agentnetwork.org.cn``.
+
+From an npm registry, the installer downloads the tarball of the npm package
+of the build (``@agentnetwork/anet-win32-<cpu>`` or
+``@agentnetwork/anet-shell-win32-<cpu>``) and reads ``release.json``, its
+signature and the compressed binary from its ``dl`` directory, in memory. The
+tarball is refused as a whole when it contains an entry whose name is not a
+plain relative path, for example one with ``..``; nothing is ever written
+under the name of an entry. A download from GitHub may be redirected only to
+``github.com`` and to hosts under ``githubusercontent.com``, and only over
+HTTPS.
+
+A source that does not serve the release, because it does not answer, returns
+an HTTP error, returns a page instead of a file, lacks a file or serves another
+version, is passed over for the next source in one line. A source only
+determines where the files come from: every file is checked as described in
+:ref:`intro-install-windows-checks`, and a file that fails a check ends the
+installation, whichever source served it. ``-Base`` replaces the list of
+sources, and so does the environment variable ``ANET_INSTALL_BASE`` when
+``-Base`` is not given.
 
 Running the command in WSL
 --------------------------
@@ -770,10 +864,17 @@ asking, in an order that leaves a consistent state when a step fails:
   reported and never run.
 * An ANet of the earlier line is stopped with its own ``stop`` command, with a
   time limit; the binary that is run must carry the module path of
-  AgentNetwork 1.x. The installer never ends a process by name.
-* The installer then waits, for up to 15 seconds, until the daemon has
-  exited: until the process named in ``daemon.pid`` is gone and
-  ``127.0.0.1:3998`` no longer answers.
+  AgentNetwork 1.x.
+* When a daemon of AgentNetwork 1.x still holds the data directory, the
+  installer stops it: a daemon is the process named in ``daemon.pid``, or the
+  process that listens on ``127.0.0.1:3998``, and only when its program
+  carries the module path of AgentNetwork 1.x. A daemon of ANet 0.3 or later,
+  or another program that reuses the process ID of a stale ``daemon.pid``, is
+  never taken for one. The installer first asks the daemon to shut down
+  through its local API, with the API token from the data directory, as the
+  ``stop`` command of 1.x does, and waits up to 10 seconds; a daemon that is
+  still running is then ended by its process ID, after its program has been
+  checked again. The installer never ends a process by name.
 * Its data in ``%USERPROFILE%\.anet`` (or ``ANET_DATA_DIR``) is moved aside,
   never deleted, by the same rule as ``install.sh`` and the daemon (see
   :ref:`intro-install-earlier`). A directory with the identity file of 0.2,
@@ -797,8 +898,8 @@ asking, in an order that leaves a consistent state when a step fails:
 
 The data directory is moved in this way whether or not an earlier installation
 was found, as ``install.sh`` does, once no daemon holds it. When it holds the
-data of an earlier release but cannot be moved, because its daemon still runs
-after the wait or because the move failed, the installation stops before
+data of an earlier release but cannot be moved, because its daemon could not be
+stopped or because the move failed, the installation stops before
 ``anet init``: nothing in that directory is changed,
 the npm package stays, the exit status is 3, and the installer prints the
 exact commands that remain, in order (stopping the earlier daemon, renaming
@@ -808,9 +909,9 @@ and the hub registration).
 The install directory is put first on the user's ``PATH``. The installer then
 starts a new ``powershell.exe`` with the ``PATH`` that a new window receives
 and reports in one line which ``anet`` it runs. A directory on the machine's
-``PATH`` precedes the user's ``PATH``; an earlier ``anet`` there is reported.
-What was stopped, moved and removed is listed as it happens, before ``anet
-init``; what ``-Controller`` granted is printed at the end.
+``PATH`` precedes the user's ``PATH``; an earlier ``anet`` there is reported
+in a ``Note:`` line. The summary reports a takeover in one line; what was
+stopped, moved and removed is recorded in the log.
 
 .. _intro-install-windows-verify:
 
@@ -867,18 +968,20 @@ Installer parameters
    * - Parameter
      - Effect
    * - ``-Controller <AID>``
-     - Install the build with the ``shell`` module, give exactly this AID
-       access to it (see :ref:`intro-install-windows-controller`), and join
-       ``https://hub.agentnetwork.org.cn`` unless ``-Hub`` or ``-NoJoin`` is
-       given. The parameter is the consent to the grant.
+     - Install the build with the ``shell`` module and give exactly this AID
+       access to it (see :ref:`intro-install-windows-controller`). The
+       parameter is the consent to the grant.
    * - ``-Shell``
      - Install the build with the ``shell`` module. No caller is given access.
    * - ``-Hub <URL>``
-     - Start the node and register it with the hub at ``URL`` as the last
-       step.
+     - Register with the hub at ``URL`` instead of
+       ``https://hub.agentnetwork.org.cn``.
    * - ``-NoJoin``
-     - Do not register with a hub. With ``-Controller``, the node is still
-       started. Register later with ``anet hub-register``.
+     - Start the node, but do not register with a hub. Register later with
+       ``anet hub-register``.
+   * - ``-NoStart``
+     - Neither start the node nor register with a hub. Start the node later
+       with ``anet up``.
    * - ``-Name <name>``
      - The name to register under. The default is the computer name.
    * - ``-Prefix <directory>``
@@ -891,7 +994,8 @@ Installer parameters
        configuration is changed after the binary is installed.
    * - ``-Base <URL or directory>``
      - Download from this ``https://`` address, or read a release from this
-       local directory, instead of the default hosts. Every check is the same.
+       local directory, instead of the download sources. Every check is the
+       same.
    * - ``-NoAutostart``
      - Do not write the value that starts the node at logon.
    * - ``-NoPath``
@@ -899,9 +1003,9 @@ Installer parameters
    * - ``-Elevated``
      - Accepted for compatibility with 0.3.4; it has no effect.
 
-The download hosts are those of :ref:`intro-install-hosts`. The npm packages of
-the Windows builds are ``@agentnetwork/anet-win32-<cpu>`` and
-``@agentnetwork/anet-shell-win32-<cpu>``.
+The download sources are described in :ref:`intro-install-windows-sources`.
+The npm packages of the Windows builds are ``@agentnetwork/anet-win32-<cpu>``
+and ``@agentnetwork/anet-shell-win32-<cpu>``.
 
 Paths
 -----
@@ -924,6 +1028,8 @@ Paths
      - The value ``AgentNetwork`` under
        ``HKCU\Software\Microsoft\Windows\CurrentVersion\Run``. Removing the
        value stops the start at logon.
+
+.. _intro-install-windows-checks:
 
 What the installer checks
 -------------------------
@@ -949,16 +1055,16 @@ What ``-Controller`` opens
 * The configuration block
   ``modules.shell = {"allow":["<AID>"],"allow_arbitrary":true,"shell":"powershell"}``.
 * The AID on ``peers.allow``.
-* The defaults of ``anet init``: the inbound policy ``closed``, no public
-  capabilities and spending limits of 0 (see :ref:`intro-install-init`).
-* The node is started, and the ``Run`` value starts it at every logon unless
-  ``-NoAutostart`` is given.
-* The registration with the hub, unless ``-NoJoin`` is given.
 
-No auto-reply, no other peer, no public capability and no listener beyond the
-node's loopback ones are opened. The install directory, the ``PATH`` and the
-takeover of earlier installations are the same with and without
-``-Controller``.
+Everything else is what every installation does: the defaults of
+``anet init`` (the inbound policy ``closed``, no public capabilities and
+spending limits of 0, see :ref:`intro-install-init`), the start of the node,
+the ``Run`` value that starts it at every logon unless ``-NoAutostart`` is
+given, and the registration with the hub unless ``-NoJoin`` or ``-NoStart`` is
+given. No auto-reply, no other peer, no public capability and no listener
+beyond the node's loopback ones are opened. The install directory, the
+``PATH`` and the takeover of earlier installations are the same with and
+without ``-Controller``.
 
 Up to version 0.3.4, the installer asked one confirmation on the console.
 That confirmation is removed: the parameter on the command line is the
@@ -966,7 +1072,8 @@ consent, and the installer runs ``anet init --shell-controller <AID> --yes``.
 Run without ``--yes`` in a terminal, ``anet init --shell-controller`` still
 asks the confirmation. Access is revoked with ``anet peers remove <AID>`` and
 by removing the ``modules.shell`` block from ``config.json``, followed by a
-restart of the node. The shell module on Windows is described in
+restart of the node. The summary gives the first command, which takes effect at
+once; the log gives both steps. The shell module on Windows is described in
 :ref:`topics-shell-windows`.
 
 Background operation
@@ -993,7 +1100,9 @@ commands one after the other:
 
 Running the one-line command again also updates an installation; it reuses the
 install directory of the existing installation when that directory passes the
-checks.
+checks. A node that runs an earlier version is stopped and started again with
+the new binary; with ``-NoStart``, it keeps running, and the summary gives the
+commands that restart it.
 
 Uninstalling on Windows
 -----------------------

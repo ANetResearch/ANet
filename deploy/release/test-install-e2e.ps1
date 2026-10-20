@@ -15,13 +15,24 @@
 #   -Takeover                with -Verify: the earlier anet was stopped with
 #                            its own stop command, its npm package removed,
 #                            and its data moved aside.
+#   -Output FILE             with -Verify: what the installation printed. It
+#                            is the short summary of the specification: at
+#                            most 12 lines, the node running with its AID,
+#                            the controller and how to revoke it, the
+#                            takeover in one line when -Takeover is given
+#                            (and none otherwise), no error, and last the
+#                            line Details: with the log of the run, which
+#                            exists in the logs directory of the data
+#                            directory, is private to this user, and holds
+#                            the details (the verification, anet init,
+#                            anet up, anet doctor, the grant).
 #   -Cleanup                 stop the node this job started.
 #
 # It runs in Windows PowerShell 5.1 and in PowerShell 7. It contacts no
 # host: the installation reads the release from a local directory and does
 # not join a hub (-NoJoin). The exit status is the number of failed checks.
 
-param([switch]$Plant, [string]$LegacyExe, [switch]$Verify, [string]$Aid, [switch]$Takeover, [switch]$Cleanup)
+param([switch]$Plant, [string]$LegacyExe, [switch]$Verify, [string]$Aid, [switch]$Takeover, [string]$Output, [switch]$Cleanup)
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 3
@@ -119,6 +130,39 @@ if ($Verify) {
     Check 'the 0.3 data directory holds none of it' (-not (Test-Path -LiteralPath (Join-Path $dataDir 'api_token')) -and -not (Test-Path -LiteralPath (Join-Path $dataDir 'orgs')) -and -not (Test-Path -LiteralPath (Join-Path $dataDir 'daemon.pid')))
     Check 'the data directory of 0.3 is of this version' ((Get-AnetDataDirKind -Root $dataDir) -eq 'current') (Get-AnetDataDirKind -Root $dataDir)
     Check 'the install directory holds anet files only' (Test-AnetDedicatedDir -Dir $dir)
+  }
+
+  if ($Output -ne '') {
+    $lines = @([IO.File]::ReadAllLines($Output) | Where-Object { $_.Trim() -ne '' })
+    $all = $lines -join "`n"
+    Write-Host ('--- what the installation printed ---' + "`n" + $all + "`n" + '---')
+    Check 'the installation printed at most 12 lines' ($lines.Count -gt 0 -and $lines.Count -le 12) ([string]$lines.Count)
+    Check 'it says that anet is installed and running' (@($lines | Where-Object { $_ -match '^anet [0-9]+\.[0-9]+\.[0-9]+(-\S+)? is installed and running\.$' }).Count -eq 1) $all
+    Check 'it gives the AID of the node in full' (@($lines | Where-Object { $_ -cmatch '^  AID   bafyrei[a-z2-7]{52}$' }).Count -eq 1) $all
+    Check 'it joins no hub (-NoJoin)' (@($lines | Where-Object { $_ -like '  Hub*' }).Count -eq 0) $all
+    Check 'it names the controller and how to revoke its access, in one line' ($lines -ccontains ('Remote control: allowed for ' + $Aid + ' only; revoke with: anet peers remove ' + $Aid)) $all
+    Check 'it says how to start' (@($lines | Where-Object { $_ -ceq "Run 'anet' in a new window to get started." -or $_ -ceq "Run 'anet' to get started." }).Count -eq 1) $all
+    Check 'it reports no error' (@($lines | Where-Object { $_ -like 'Error:*' }).Count -eq 0) $all
+    $replaced = @($lines | Where-Object { $_ -like 'Replaced *' })
+    if ($Takeover) {
+      Check 'the takeover is one line, with where the data is kept' ($replaced.Count -eq 1 -and $replaced[0] -like ('Replaced AgentNetwork 1.1.15; its data is kept in ' + $profileDir + '\.anet-legacy-1.1.15-*')) ($replaced -join ' | ')
+    } else {
+      Check 'no takeover is reported when there was none' ($replaced.Count -eq 0) ($replaced -join ' | ')
+    }
+    $last = $lines[-1]
+    Check 'the last line names the log' ($last -like 'Details: *') $last
+    $log = $last.Substring('Details: '.Length)
+    Check 'the log is in the logs directory of the data directory' ((Split-Path -Parent $log) -ieq (Join-Path $dataDir 'logs') -and (Split-Path -Leaf $log) -match '^install-[0-9]{8}T[0-9]{6}Z(-[0-9]+)?\.log$') $log
+    Check 'the log exists' (Test-Path -LiteralPath $log -PathType Leaf) $log
+    if (Test-Path -LiteralPath $log -PathType Leaf) {
+      $text = [IO.File]::ReadAllText($log)
+      foreach ($want in @('install.ps1 of anet ', '$ anet update --verify-dir ', '$ anet init', '$ anet up', '$ anet doctor', ('$ anet init --shell-controller ' + $Aid + ' --yes'),
+                          'Granted, as -Controller on the command line requested', 'exit status 0')) {
+        Check ('the log holds: ' + $want) ($text.Contains($want))
+      }
+      if ($Takeover) { Check 'the log holds the takeover steps' ($text.Contains('stopped AgentNetwork 1.1.15 with its own stop command') -and $text.Contains('removed the npm package @agentnetwork/anet 1.1.15')) }
+      Check 'the logs directory is private to this user' ($null -eq (Get-AnetPrivacyProblem -Path (Split-Path -Parent $log))) ([string](Get-AnetPrivacyProblem -Path (Split-Path -Parent $log)))
+    }
   }
 
   # A new window, with the PATH Windows gives it, runs the new anet.

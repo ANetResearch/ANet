@@ -7,10 +7,16 @@
 # line does not call Install-Anet), first as the template, which must refuse
 # to install, and then with the pins block replaced by pins of fixture
 # builds made here. The tests call the functions that decide: parameter
-# validation, the order of the download bases and the npm package names, the
-# pin check, the privacy check of a directory before and after its access
-# control list is replaced, and the replacement of a binary. Nothing is
-# downloaded, and nothing outside a temporary directory is written.
+# validation; the download sources, their order for given probe results and
+# the npm package names; the reading of npm tarballs (an unsafe entry name is
+# refused); a source that does not serve the release passed over and a file
+# that fails the pins ending the installation (with the HTTP function
+# replaced by one that serves fixtures); the pin check; the daemon of an
+# earlier anet that holds the data directory; the log of a run; the summary
+# (golden output, in English and Chinese); the privacy check of a directory
+# before and after its access control list is replaced, and the replacement
+# of a binary. Nothing is downloaded (the probe asks 127.0.0.1 only), and
+# nothing outside a temporary directory is written.
 #
 # The exit status is the number of failed checks (0: all passed).
 
@@ -68,9 +74,9 @@ Check 'install.ps1 has one pins line' (([regex]::Matches($template, [regex]::Esc
 # -Without changes config.json with the installed binary, after the
 # replacement: a failure before it leaves the machine unchanged.
 $replaceAt = $template.IndexOf('$aside = Install-AnetStaged -Staged $S.Staged -Exe $S.Exe')
-$withoutAt = $template.IndexOf('Invoke-AnetNative -FilePath $S.Exe -ArgumentList @(''init'', ''--without'', $list)')
+$withoutAt = $template.IndexOf('Invoke-AnetCommand -Exe $S.Exe -ArgumentList @(''init'', ''--without'', $list)')
 Check 'init --without runs with the installed binary, after the replacement' ($replaceAt -gt 0 -and $withoutAt -gt $replaceAt) ('' + $replaceAt + ' ' + $withoutAt)
-Check 'the staged binary runs nothing but the verification' (-not $template.Contains('-FilePath $S.Staged -ArgumentList @(''init'''))
+Check 'the staged binary runs nothing but the verification' (([regex]::Matches($template, '-Exe \$Staged ')).Count -eq 1 -and -not $template.Contains('$S.Staged -ArgumentList'))
 
 # --- the template refuses to run ---------------------------------------------
 
@@ -114,15 +120,15 @@ Check 'released pins are accepted' (-not (Refuses { Assert-AnetReleased } ''))
 
 $aid = 'bafyrei' + ('a' * 26) + ('2' * 26)
 $o = Get-AnetOptions -Given @{}
-Check 'no parameters: default build, no join' ($o.Variant -eq 'default' -and $o.AssetPrefix -eq 'anet' -and -not $o.Join -and $o.Controller -eq '')
+Check 'no parameters: default build, started, joins the default hub' ($o.Variant -eq 'default' -and $o.AssetPrefix -eq 'anet' -and $o.Start -and $o.Join -and $o.Hub -eq 'https://hub.agentnetwork.org.cn' -and $o.Controller -eq '')
 $o = Get-AnetOptions -Given @{ Controller = $aid }
 Check '-Controller: shell build and a join at the default hub' ($o.Variant -eq 'shell' -and $o.AssetPrefix -eq 'anet-shell' -and $o.Join -and $o.Hub -eq 'https://hub.agentnetwork.org.cn')
 $o = Get-AnetOptions -Given @{ Controller = $aid; Hub = 'https://h.example' }
 Check '-Controller with -Hub joins that hub' ($o.Hub -eq 'https://h.example' -and $o.Join)
 $o = Get-AnetOptions -Given @{ Shell = [switch]$true }
-Check '-Shell: shell build, no join' ($o.Variant -eq 'shell' -and -not $o.Join)
+Check '-Shell: shell build, started and joined' ($o.Variant -eq 'shell' -and $o.Start -and $o.Join)
 $o = Get-AnetOptions -Given @{ Hub = 'https://h.example' }
-Check '-Hub alone: default build and a join' ($o.Variant -eq 'default' -and $o.Join)
+Check '-Hub alone: default build and a join of that hub' ($o.Variant -eq 'default' -and $o.Join -and $o.Hub -eq 'https://h.example')
 foreach ($bad in @('', 'bafyrei', ('bafyrei' + ('a' * 51)), ('bafyrei' + ('a' * 53)), ('BAFYREI' + ('a' * 52)),
                   ('bafyrei' + ('a' * 51) + '1'), ('bafyrei' + ('a' * 51) + 'A'), (' ' + $aid), ($aid + ';calc'))) {
   Check ('-Controller ''' + $bad + ''' is refused') (Refuses { Get-AnetOptions -Given @{ Controller = $bad } } 'is not an AID')
@@ -163,8 +169,15 @@ foreach ($ph in @('CONTROLLER_AID', 'controller_aid', ' CONTROLLER_AID ')) {
 $o = Get-AnetOptions -Given @{ Controller = $aid; NoJoin = [switch]$true }
 Check '-Controller -NoJoin: shell build, no hub, no join' ($o.Variant -eq 'shell' -and $o.Hub -eq '' -and -not $o.Join)
 Check '-NoJoin with -Hub is refused' (Refuses { Get-AnetOptions -Given @{ NoJoin = [switch]$true; Hub = 'https://h.example' } } 'contradict')
+$o = Get-AnetOptions -Given @{ NoJoin = [switch]$true }
+Check '-NoJoin: started, no hub, no join' ($o.Start -and $o.Hub -eq '' -and -not $o.Join)
+$o = Get-AnetOptions -Given @{ NoStart = [switch]$true }
+Check '-NoStart: neither started nor joined' (-not $o.Start -and $o.Hub -eq '' -and -not $o.Join)
+$o = Get-AnetOptions -Given @{ Controller = $aid; NoStart = [switch]$true }
+Check '-Controller -NoStart: shell build, not started' ($o.Variant -eq 'shell' -and -not $o.Start -and -not $o.Join)
+Check '-NoStart with -Hub is refused' (Refuses { Get-AnetOptions -Given @{ NoStart = [switch]$true; Hub = 'https://h.example' } } 'contradict')
 $o = Get-AnetOptions -Given @{ Elevated = [switch]$true }
-Check '-Elevated is accepted and changes nothing' ($o.Variant -eq 'default' -and -not $o.Join)
+Check '-Elevated is accepted and changes nothing' ($o.Variant -eq 'default' -and $o.Join -and $o.Start)
 Check 'the staged binary is anet.new.exe (PowerShell runs only names in PATHEXT)' ((Split-Path -Leaf (Get-AnetStagedPath -Dir $here)) -ceq 'anet.new.exe')
 if (Test-IsWindows) {
   $o = Get-AnetOptions -Given @{ Prefix = 'C:\Users\x\anet\' }
@@ -173,28 +186,52 @@ if (Test-IsWindows) {
 Check '-Base that is not https and not a directory is refused' (Refuses { Get-AnetOptions -Given @{ Base = 'http://example.org' } } 'neither')
 Check '-Base that does not exist is refused' (Refuses { Get-AnetOptions -Given @{ Base = 'C:\no\such\anet-dir' } } 'neither')
 
-# --- download bases and npm names --------------------------------------------
+# --- download sources, their order and the npm names ------------------------
 
 Check 'npm package, default x64' ((Get-AnetNpmPackage -AssetPrefix 'anet' -Arch 'amd64') -eq '@agentnetwork/anet-win32-x64')
 Check 'npm package, default arm64' ((Get-AnetNpmPackage -AssetPrefix 'anet' -Arch 'arm64') -eq '@agentnetwork/anet-win32-arm64')
 Check 'npm package, shell x64' ((Get-AnetNpmPackage -AssetPrefix 'anet-shell' -Arch 'amd64') -eq '@agentnetwork/anet-shell-win32-x64')
 Check 'npm package, shell arm64' ((Get-AnetNpmPackage -AssetPrefix 'anet-shell' -Arch 'arm64') -eq '@agentnetwork/anet-shell-win32-arm64')
+$list = Get-AnetSourceList -AssetPrefix 'anet-shell' -Arch 'arm64' -Version '9.8.7'
+Check 'npmmirror: the tarball of exactly this version' ($list['npmmirror'].Kind -eq 'tarball' -and $list['npmmirror'].Url -ceq 'https://registry.npmmirror.com/@agentnetwork/anet-shell-win32-arm64/-/anet-shell-win32-arm64-9.8.7.tgz' -and $list['npmmirror'].MetaUrl -ceq 'https://registry.npmmirror.com/@agentnetwork/anet-shell-win32-arm64/9.8.7') $list['npmmirror'].Url
+Check 'npmjs: the tarball of exactly this version' ($list['npmjs'].Url -ceq 'https://registry.npmjs.org/@agentnetwork/anet-shell-win32-arm64/-/anet-shell-win32-arm64-9.8.7.tgz' -and $list['npmjs'].MetaUrl -ceq 'https://registry.npmjs.org/@agentnetwork/anet-shell-win32-arm64/9.8.7')
+Check 'GitHub: the release of exactly this version, redirects to GitHub only' ($list['github'].Kind -eq 'files' -and $list['github'].Prefix -ceq 'https://github.com/ANetResearch/ANet/releases/download/v9.8.7/' -and $list['github'].Redirect -eq 'github')
+Check 'jsDelivr: dl/ of the npm package of exactly this version' ($list['jsdelivr'].Prefix -ceq 'https://cdn.jsdelivr.net/npm/@agentnetwork/anet-shell-win32-arm64@9.8.7/dl/')
+Check 'the project hosts: /dl/' ($list['host1'].Prefix -ceq 'https://agentnetwork.org.cn/dl/' -and $list['host2'].Prefix -ceq 'https://hub.agentnetwork.org.cn/dl/')
+Check 'the probe of npmmirror reads the metadata of the version' ((Get-AnetProbeUrl -Source $list['npmmirror']) -ceq $list['npmmirror'].MetaUrl)
+Check 'the probe of GitHub reads release.json of the version' ((Get-AnetProbeUrl -Source $list['github']) -ceq 'https://github.com/ANetResearch/ANet/releases/download/v9.8.7/release.json')
+$tail = @('registry.npmjs.org', 'jsDelivr', 'agentnetwork.org.cn', 'hub.agentnetwork.org.cn')
+foreach ($case in @(
+    @{ Name = 'both probed sources answered, GitHub first'; Reachable = @('github', 'npmmirror'); Want = @('GitHub', 'npmmirror') + $tail },
+    @{ Name = 'both probed sources answered, npmmirror first'; Reachable = @('npmmirror', 'github'); Want = @('npmmirror', 'GitHub') + $tail },
+    @{ Name = 'only npmmirror answered'; Reachable = @('npmmirror'); Want = @('npmmirror') + $tail },
+    @{ Name = 'only GitHub answered'; Reachable = @('github'); Want = @('GitHub') + $tail },
+    @{ Name = 'neither answered'; Reachable = @(); Want = $tail },
+    @{ Name = 'a name given twice or unknown is used once or not at all'; Reachable = @('github', 'github', 'host1', 'npmjs'); Want = @('GitHub') + $tail })) {
+  $got = @(Get-AnetSourceOrder -List $list -Probe @{ Reachable = $case.Reachable } | ForEach-Object { $_.Label })
+  Check ('source order: ' + $case.Name) (($got -join ' ') -ceq ($case.Want -join ' ')) ($got -join ' ')
+}
 $savedBase = $env:ANET_INSTALL_BASE
 $env:ANET_INSTALL_BASE = $null
-$b = @(Get-AnetBases -Options (Get-AnetOptions -Given @{ Controller = $aid }) -Arch 'arm64')
-$want = @('https://agentnetwork.org.cn', 'https://hub.agentnetwork.org.cn',
-          'https://registry.npmmirror.com/@agentnetwork/anet-shell-win32-arm64/latest/files',
-          'https://cdn.jsdelivr.net/npm/@agentnetwork/anet-shell-win32-arm64@latest',
-          'https://unpkg.com/@agentnetwork/anet-shell-win32-arm64@latest')
-Check 'bases: project hosts, then the npm mirrors (the order of anet update)' (($b -join ' ') -eq ($want -join ' ')) ($b -join ' ')
+$got = @(Get-AnetSources -Options (Get-AnetOptions -Given @{ Controller = $aid }) -Arch 'arm64' -Version '9.8.7' -Probe @{ Reachable = @('github') } | ForEach-Object { $_.Label })
+Check 'sources: the probe result, then the fixed order' (($got -join ' ') -ceq ((@('GitHub') + $tail) -join ' ')) ($got -join ' ')
 $env:ANET_INSTALL_BASE = 'https://mirror.example/anet/'
-$b = @(Get-AnetBases -Options (Get-AnetOptions -Given @{}) -Arch 'amd64')
-Check 'bases: ANET_INSTALL_BASE first' ($b.Count -eq 6 -and $b[0] -eq 'https://mirror.example/anet' -and $b[3] -like '*@agentnetwork/anet-win32-x64/latest/files') ($b -join ' ')
+$s = @(Get-AnetSources -Options (Get-AnetOptions -Given @{}) -Arch 'amd64' -Version '9.8.7' -Probe @{ Reachable = @('github') })
+Check 'sources: ANET_INSTALL_BASE replaces them' ($s.Count -eq 1 -and $s[0].Kind -eq 'files' -and $s[0].Prefix -ceq 'https://mirror.example/anet/dl/' -and $s[0].Label -ceq 'https://mirror.example/anet') (($s | ForEach-Object { $_.Label }) -join ' ')
 $env:ANET_INSTALL_BASE = 'http://mirror.example'
-Check 'bases: an ANET_INSTALL_BASE that is not https is refused' (Refuses { Get-AnetBases -Options (Get-AnetOptions -Given @{}) -Arch 'amd64' } 'ANET_INSTALL_BASE')
+Check 'sources: an ANET_INSTALL_BASE that is not https is refused' (Refuses { Get-AnetSources -Options (Get-AnetOptions -Given @{}) -Arch 'amd64' -Version '9.8.7' -Probe @{ Reachable = @() } } 'ANET_INSTALL_BASE')
+$env:ANET_INSTALL_BASE = 'https://mirror.example'
+$s = @(Get-AnetSources -Options (Get-AnetOptions -Given @{ Base = 'https://one.example/' }) -Arch 'amd64' -Version '9.8.7' -Probe @{ Reachable = @() })
+Check 'sources: -Base replaces them, and wins over ANET_INSTALL_BASE' ($s.Count -eq 1 -and $s[0].Prefix -ceq 'https://one.example/dl/') (($s | ForEach-Object { $_.Label }) -join ' ')
 $env:ANET_INSTALL_BASE = $savedBase
-$b = @(Get-AnetBases -Options (Get-AnetOptions -Given @{ Base = 'https://one.example/' }) -Arch 'amd64')
-Check 'bases: -Base replaces the list' ($b.Count -eq 1 -and $b[0] -eq 'https://one.example') ($b -join ' ')
+Check 'GitHub hosts' ((Test-AnetGitHubHost 'github.com') -and (Test-AnetGitHubHost 'release-assets.githubusercontent.com') -and (Test-AnetGitHubHost 'objects.githubusercontent.com') -and
+  -not (Test-AnetGitHubHost 'githubusercontent.com.evil.example') -and -not (Test-AnetGitHubHost 'evilgithub.com') -and -not (Test-AnetGitHubHost 'example.org'))
+# The probe in parallel: two sources that refuse the connection at once are
+# both unreachable, and the probe returns within its bound.
+if ($null -eq ('System.Net.Http.HttpClient' -as [type])) { Add-Type -AssemblyName System.Net.Http }
+$clock = [Diagnostics.Stopwatch]::StartNew()
+$p = Invoke-AnetProbe -Sources @(@{ Name = 'npmmirror'; Kind = 'tarball'; MetaUrl = 'https://127.0.0.1:9/x'; Redirect = '' }, @{ Name = 'github'; Kind = 'files'; Prefix = 'https://127.0.0.1:9/'; Redirect = 'github' }) -Version '9.8.7' -TimeoutMs 1500 -TotalMs 2000
+Check 'the probe of sources that do not answer finds none, within its bound' (@($p.Reachable).Count -eq 0 -and $clock.ElapsedMilliseconds -lt 6000) ('' + $clock.ElapsedMilliseconds + ' ms, ' + (@($p.Reachable) -join ','))
 
 # --- the published commands, argument quoting, rights ------------------------
 
@@ -313,20 +350,170 @@ Check 'a .gz that does not decompress is refused' (Refuses { Test-AnetPin -Gz $b
 $work = Join-Path ([IO.Path]::GetTempPath()) ('anet-install-test-' + [Guid]::NewGuid().ToString('N'))
 $null = [IO.Directory]::CreateDirectory($work)
 try {
+  # --- npm tarballs: what is read, and what is refused -----------------------
+
+  function New-TarHeader {
+    param([string]$Name, [long]$Size, [string]$Type = '0')
+    $h = New-Object byte[] 512
+    $nb = [Text.Encoding]::UTF8.GetBytes($Name)
+    if ($nb.Length -gt 100) { throw 'name too long for the test header' }
+    [Array]::Copy($nb, 0, $h, 0, $nb.Length)
+    foreach ($f in @(@(100, '0000644'), @(108, '0000000'), @(116, '0000000'), @(124, [Convert]::ToString($Size, 8).PadLeft(11, '0')), @(136, '00000000000'))) {
+      $b = [Text.Encoding]::ASCII.GetBytes([string]$f[1])
+      [Array]::Copy($b, 0, $h, [int]$f[0], $b.Length)
+    }
+    $h[156] = [byte][char]$Type
+    $magic = [Text.Encoding]::ASCII.GetBytes('ustar')
+    [Array]::Copy($magic, 0, $h, 257, $magic.Length)
+    $h[263] = 0x30; $h[264] = 0x30
+    for ($i = 148; $i -lt 156; $i++) { $h[$i] = 32 }
+    $sum = 0
+    foreach ($x in $h) { $sum += $x }
+    $c = [Text.Encoding]::ASCII.GetBytes([Convert]::ToString($sum, 8).PadLeft(6, '0'))
+    [Array]::Copy($c, 0, $h, 148, 6)
+    $h[154] = 0; $h[155] = 32
+    return ,$h
+  }
+  # New-Tar: entries are @(name, bytes[, type]); a type x entry's bytes are
+  # its pax records.
+  function New-Tar {
+    param([object[]]$Entries, [switch]$NoEnd)
+    $ms = New-Object System.IO.MemoryStream
+    foreach ($e in $Entries) {
+      $data = [byte[]]$e[1]
+      $type = '0'
+      if ($e.Count -gt 2) { $type = [string]$e[2] }
+      $h = New-TarHeader -Name ([string]$e[0]) -Size $data.Length -Type $type
+      $ms.Write($h, 0, 512)
+      $ms.Write($data, 0, $data.Length)
+      $pad = (512 - ($data.Length % 512)) % 512
+      if ($pad -gt 0) { $ms.Write((New-Object byte[] $pad), 0, $pad) }
+    }
+    if (-not $NoEnd) { $ms.Write((New-Object byte[] 1024), 0, 1024) }
+    return ,$ms.ToArray()
+  }
+  function New-Pax {
+    param([string]$Key, [string]$Value)
+    $rec = ' ' + $Key + '=' + $Value + "`n"
+    $n = $rec.Length + 2
+    if (($n.ToString() + $rec).Length -ne $n) { $n++ }
+    return ,([Text.Encoding]::UTF8.GetBytes($n.ToString() + $rec))
+  }
+  $manifest = [Text.Encoding]::ASCII.GetBytes('{"schema": "anet-release/1", "version": "9.8.7"}')
+  $signature = [Text.Encoding]::ASCII.GetBytes("-----BEGIN SSH SIGNATURE-----`nAAAA`n-----END SSH SIGNATURE-----`n")
+  $want = @('package/dl/release.json', 'package/dl/release.json.sig', 'package/dl/anet-windows-amd64.gz')
+  $goodEntries = @(@('package/package.json', [Text.Encoding]::ASCII.GetBytes('{"name":"x"}')), @('package/dl/release.json', $manifest),
+                   @('package/dl/release.json.sig', $signature), @('package/dl/anet-windows-amd64.gz', $f.Gz), @('package/README.md', [byte[]](65, 10)))
+  $goodTgz = New-Gzip -Bytes (New-Tar -Entries $goodEntries)
+  $files = Read-AnetTarball -Tgz $goodTgz -Want $want -Limit 10485760
+  Check 'an npm tarball gives exactly the wanted files' ($files.Count -eq 3 -and (Get-Hex $files['package/dl/anet-windows-amd64.gz']) -eq (Get-Hex $f.Gz) -and (Get-Hex $files['package/dl/release.json']) -eq (Get-Hex $manifest))
+  $files = Read-AnetTarball -Tgz (New-Gzip -Bytes (New-Tar -Entries @(@('PaxHeader/x', (New-Pax 'path' 'package/dl/release.json'), 'x'), @('short', $manifest)))) -Want $want -Limit 10485760
+  Check 'a pax header names the next entry' ($files.ContainsKey('package/dl/release.json') -and -not $files.ContainsKey('short'))
+  foreach ($bad in @('package/../../evil.txt', '../evil', '/etc/evil', 'package/dl/../../x', 'package\..\evil', 'C:evil', 'package/./dl/x', 'package//dl/x', ('package/dl/' + [char]1 + 'x'))) {
+    $tgz = New-Gzip -Bytes (New-Tar -Entries (@($goodEntries) + ,@($bad, [byte[]](1, 2, 3))))
+    Check ('a tarball with the entry ''' + ($bad -replace '[\x00-\x1f]', '?') + ''' is refused whole') (Refuses { Read-AnetTarball -Tgz $tgz -Want $want -Limit 10485760 } 'unsafe name')
+  }
+  foreach ($case in @(@{ Name = 'a pax path'; Entries = @(@('PaxHeader/x', (New-Pax 'path' '../../evil'), 'x'), @('ok', [byte[]](1))) },
+                      @{ Name = 'a GNU long name'; Entries = @(@('././@LongLink', [Text.Encoding]::ASCII.GetBytes("package/../../evil`0"), 'L'), @('ok', [byte[]](1))) })) {
+    $tgz = New-Gzip -Bytes (New-Tar -Entries $case.Entries)
+    Check ('a traversal in ' + $case.Name + ' is refused') (Refuses { Read-AnetTarball -Tgz $tgz -Want $want -Limit 10485760 } 'unsafe name')
+  }
+  $tgz = New-Gzip -Bytes (New-Tar -Entries (,@('package/dl/release.json', [byte[]]@(), '2')))
+  Check 'a wanted name that is a link is refused' (Refuses { Read-AnetTarball -Tgz $tgz -Want $want -Limit 10485760 } 'not a regular file')
+  $tgz = New-Gzip -Bytes (New-Tar -Entries @(@('package/dl/release.json', $manifest), @('package/dl/release.json', $manifest)))
+  Check 'a wanted name that comes twice is refused' (Refuses { Read-AnetTarball -Tgz $tgz -Want $want -Limit 10485760 } 'twice')
+  $tar = New-Tar -Entries $goodEntries -NoEnd
+  $tgz = New-Gzip -Bytes ([byte[]]$tar[0..($tar.Length - 700)])
+  Check 'a tarball that ends early is refused' (Refuses { Read-AnetTarball -Tgz $tgz -Want $want -Limit 10485760 } 'ends')
+  $tar = New-Tar -Entries $goodEntries
+  $tar[0] = $tar[0] -bxor 0x20
+  Check 'a header with a wrong checksum is refused' (Refuses { Read-AnetTarball -Tgz (New-Gzip -Bytes $tar) -Want $want -Limit 10485760 } 'checksum')
+  Check 'a tarball that is not gzip is refused' (Refuses { Read-AnetTarball -Tgz ([Text.Encoding]::ASCII.GetBytes('<html></html>')) -Want $want -Limit 10485760 } 'not a gzip')
+  Check 'a tarball that decompresses beyond the limit is refused' (Refuses { Read-AnetTarball -Tgz $goodTgz -Want $want -Limit 2048 } 'more than')
+  foreach ($ok in @('package/dl/release.json', 'package/dl/', 'a')) { Check ('a safe entry name: ' + $ok) (Test-AnetTarName $ok) }
+
+  # --- the sources in order: not serving moves on, a failed check ends -------
+
+  # Get-AnetHttpBytes is replaced by one that serves $served (URL to bytes)
+  # and answers anything else as not served, and records each request.
+  $realHttp = ${function:Get-AnetHttpBytes}
+  $served = @{}
+  $requested = New-Object System.Collections.Generic.List[string]
+  ${function:Get-AnetHttpBytes} = {
+    param([string]$Url, [long]$Limit, [int]$TimeoutSeconds, [string]$Redirect = '', [hashtable]$Progress = $null)
+    $requested.Add($Url)
+    if (-not $served.ContainsKey($Url)) { throw (New-AnetNotServing ('HTTP 404 from ' + ([Uri]$Url).Host)) }
+    $b = [byte[]]$served[$Url]
+    if ($b.Length -gt $Limit) { throw (New-AnetNotServing 'more than expected') }
+    if ($null -ne $Progress) { Update-AnetProgress -Progress $Progress -Done $b.Length }
+    return ,$b
+  }
+  $srcs = @(Get-AnetSourceOrder -List (Get-AnetSourceList -AssetPrefix 'anet' -Arch 'amd64' -Version '9.8.7') -Probe @{ Reachable = @('npmmirror', 'github') })
+  $mm = $srcs[0]; $gh = $srcs[1]; $h1 = $srcs[4]
+  function Set-Files { param([string]$Prefix, [byte[]]$M = $manifest, [byte[]]$Gz = $f.Gz) $served[$Prefix + 'release.json'] = $M; $served[$Prefix + 'release.json.sig'] = $signature; $served[$Prefix + 'anet-windows-amd64.gz'] = $Gz }
+  function Use { $requested.Clear(); return (Get-AnetRelease -Sources $srcs -Asset 'anet-windows-amd64' -Pin $pin -Platform 'windows-amd64' 6>$null) }
+
+  $served.Clear(); Set-Files $gh.Prefix
+  $rel = Use
+  Check 'npmmirror without the version: GitHub is used' ($rel.Source.Label -eq 'GitHub' -and (Get-Hex $rel.Binary) -eq (Get-Hex $f.Bin) -and $requested[0] -ceq $mm.MetaUrl) ($requested -join ' ')
+  $served.Clear()
+  $served[$mm.MetaUrl] = [Text.Encoding]::ASCII.GetBytes('{"name": "@agentnetwork/anet-win32-x64", "version": "9.8.7"}')
+  $served[$mm.Url] = $goodTgz
+  Set-Files $gh.Prefix
+  $rel = Use
+  Check 'npmmirror with the version: its tarball is used' ($rel.Source.Label -eq 'npmmirror' -and (Get-Hex $rel.Binary) -eq (Get-Hex $f.Bin) -and @($requested | Where-Object { $_ -like 'https://github.com/*' }).Count -eq 0) ($requested -join ' ')
+  $served[$mm.MetaUrl] = [Text.Encoding]::ASCII.GetBytes('{"version": "9.8.6"}')
+  $rel = Use
+  Check 'npmmirror that lags behind: the next source' ($rel.Source.Label -eq 'GitHub' -and -not ($requested -ccontains $mm.Url)) ($requested -join ' ')
+  $served[$mm.MetaUrl] = [Text.Encoding]::ASCII.GetBytes('{"version": "9.8.7"}')
+  $served[$mm.Url] = New-Gzip -Bytes (New-Tar -Entries (@($goodEntries) + ,@('package/../evil', [byte[]](1))))
+  $rel = Use
+  Check 'a tarball with an unsafe entry: the next source' ($rel.Source.Label -eq 'GitHub') ($requested -join ' ')
+  $served.Clear()
+  Set-Files $gh.Prefix -M ([Text.Encoding]::ASCII.GetBytes('<!doctype html><title>sign in</title>'))
+  Set-Files $h1.Prefix
+  $rel = Use
+  Check 'a page instead of release.json: the next source' ($rel.Source.Label -eq 'agentnetwork.org.cn') ($requested -join ' ')
+  $served.Clear()
+  Set-Files $gh.Prefix -M ([Text.Encoding]::ASCII.GetBytes('{"version": "9.9.0"}')) -Gz $other
+  Set-Files $h1.Prefix
+  $rel = Use
+  Check 'a source of another release: the next source, its .gz not read' ($rel.Source.Label -eq 'agentnetwork.org.cn' -and -not ($requested -ccontains ($gh.Prefix + 'anet-windows-amd64.gz'))) ($requested -join ' ')
+  $served.Clear()
+  Set-Files $gh.Prefix -Gz ([byte[]](0x3C, 0x68, 0x74, 0x6D, 0x6C))
+  Set-Files $h1.Prefix
+  $rel = Use
+  Check 'a .gz that is a page: the next source' ($rel.Source.Label -eq 'agentnetwork.org.cn') ($requested -join ' ')
+  $served.Clear()
+  Set-Files $gh.Prefix -Gz $other
+  Set-Files $h1.Prefix
+  Check 'a .gz of this release that fails the pins ends the installation' (Refuses { Use } 'release pins')
+  Check 'and no later source is asked' (-not ($requested -ccontains ($h1.Prefix + 'release.json'))) ($requested -join ' ')
+  $served.Clear()
+  $served[$mm.MetaUrl] = [Text.Encoding]::ASCII.GetBytes('{"version": "9.8.7"}')
+  $served[$mm.Url] = New-Gzip -Bytes (New-Tar -Entries @(@('package/dl/release.json', $manifest), @('package/dl/release.json.sig', $signature), @('package/dl/anet-windows-amd64.gz', $other)))
+  Set-Files $gh.Prefix
+  Check 'a tarball whose .gz fails the pins ends the installation' (Refuses { Use } 'release pins')
+  $served.Clear()
+  Check 'no source serves the release: refused, naming every source tried' (Refuses { Use } 'no download source served anet 9.8.7 (tried: npmmirror, GitHub, registry.npmjs.org, jsDelivr, agentnetwork.org.cn, hub.agentnetwork.org.cn)')
+  ${function:Get-AnetHttpBytes} = $realHttp
+
+  # A local release directory (-Base): the same checks.
   $dist = Join-Path $work 'dist'
   $null = [IO.Directory]::CreateDirectory($dist)
-  [IO.File]::WriteAllText((Join-Path $dist 'release.json'), '{"schema": "anet-release/1"}')
-  [IO.File]::WriteAllText((Join-Path $dist 'release.json.sig'), "-----BEGIN SSH SIGNATURE-----`nAAAA`n-----END SSH SIGNATURE-----`n")
+  [IO.File]::WriteAllBytes((Join-Path $dist 'release.json'), $manifest)
+  [IO.File]::WriteAllBytes((Join-Path $dist 'release.json.sig'), $signature)
   [IO.File]::WriteAllBytes((Join-Path $dist 'anet-windows-amd64.gz'), $f.Gz)
   $empty = Join-Path $work 'empty'
   $null = [IO.Directory]::CreateDirectory($empty)
-  $rel = Get-AnetRelease -Bases @($empty, $dist) -Asset 'anet-windows-amd64' -Pin $pin 6>$null
-  Check 'a base that serves nothing is skipped, the next one used' ($rel.Base -eq $dist -and (Get-Hex $rel.Binary) -eq (Get-Hex $f.Bin))
+  $rel = Get-AnetRelease -Sources @((New-AnetBaseSource $empty), (New-AnetBaseSource $dist)) -Asset 'anet-windows-amd64' -Pin $pin 6>$null
+  Check 'a directory that serves nothing is passed over, the next one used' ($rel.Source.Label -eq $dist -and (Get-Hex $rel.Binary) -eq (Get-Hex $f.Bin))
   [IO.File]::WriteAllBytes((Join-Path $dist 'anet-windows-amd64.gz'), $other)
-  Check 'a base whose .gz does not match the pins is not used' (Refuses { Get-AnetRelease -Bases @($dist) -Asset 'anet-windows-amd64' -Pin $pin 6>$null } 'no download base served release 9.8.7')
+  Check 'a directory whose .gz does not match the pins ends the installation' (Refuses { Get-AnetRelease -Sources @((New-AnetBaseSource $dist)) -Asset 'anet-windows-amd64' -Pin $pin 6>$null } 'release pins')
   [IO.File]::WriteAllText((Join-Path $dist 'release.json'), '<!doctype html>')
   [IO.File]::WriteAllBytes((Join-Path $dist 'anet-windows-amd64.gz'), $f.Gz)
-  Check 'a base that serves a page instead of a manifest is not used' (Refuses { Get-AnetRelease -Bases @($dist) -Asset 'anet-windows-amd64' -Pin $pin 6>$null } 'no download base')
+  Check 'a directory that holds a page instead of a manifest is not used' (Refuses { Get-AnetRelease -Sources @((New-AnetBaseSource $dist)) -Asset 'anet-windows-amd64' -Pin $pin 6>$null } 'no download source')
+  [IO.File]::WriteAllBytes((Join-Path $dist 'release.json'), $manifest)
 
   # --- earlier installations: npm prefixes and the data directory -----------
 
@@ -524,6 +711,172 @@ try {
   }
   $t = Invoke-AnetTakeover -InstallDir $inst -DataDir ([IO.Path]::Combine($work, 'none', '.anet')) -Elevation $plain 6>$null
   Check 'no data directory: nothing to do' (-not $t.Held -and @($t.Remaining).Count -eq 0)
+
+  # --- a daemon that holds the data directory --------------------------------
+
+  # A process ID in daemon.pid is a daemon of AgentNetwork 1.x only when its
+  # program carries the module path of 1.x: this test's own process (as a
+  # running anet 0.3 daemon, or a program that reused the ID of a stale
+  # daemon.pid) is not one, and the directory is not held.
+  $root = [IO.Path]::Combine($work, 'home-reused-pid', '.anet')
+  $null = [IO.Directory]::CreateDirectory($root)
+  Write-V1Layout $root
+  Write-Init034 $root
+  [IO.File]::WriteAllBytes((Join-Path $root 'identity.kel'), $kel03)
+  [IO.File]::WriteAllText((Join-Path $root 'daemon.pid'), [string]$PID)
+  $l = Get-AnetLegacyDaemons -Root $root
+  Check 'a daemon.pid that names a process of another program is no daemon of 1.x' (@($l.Daemons).Count -eq 0)
+  $t = Invoke-AnetTakeover -InstallDir $inst -DataDir $root -Elevation $plain 6>$null
+  Check 'a directory with a 0.3 identity and a process of 0.3 is not held; only the 1.x entries move' (-not $t.Held -and (Test-Path -LiteralPath (Join-Path $root 'identity.kel')) -and -not (Test-Path -LiteralPath (Join-Path $root 'api_token')) -and $null -ne $t.Taken -and $t.Taken.Aside -like '*.anet-legacy-1.x-*') ($t.Report -join ' | ')
+
+  # A program that carries the module path of 1.x and runs: a copy of a
+  # system program that waits, with the module path appended (the loader
+  # ignores what follows the image).
+  $sleeper = $null
+  $proc = $null
+  if (Test-IsWindows) {
+    $sleeper = Join-Path $work 'legacy-daemon.exe'
+    [IO.File]::Copy((Join-Path ([Environment]::SystemDirectory) 'PING.EXE'), $sleeper)
+    # Its messages, under the new name, for the languages Windows has them in.
+    foreach ($mui in @(Get-ChildItem -Path (Join-Path ([Environment]::SystemDirectory) '*\PING.EXE.mui') -ErrorAction SilentlyContinue)) {
+      $to = Join-Path $work $mui.Directory.Name
+      $null = [IO.Directory]::CreateDirectory($to)
+      [IO.File]::Copy($mui.FullName, (Join-Path $to 'legacy-daemon.exe.mui'), $true)
+    }
+    $args1 = @('-n', '120', '127.0.0.1')
+  } elseif (Test-Path -LiteralPath '/bin/sleep') {
+    $sleeper = Join-Path $work 'legacy-daemon'
+    [IO.File]::Copy('/bin/sleep', $sleeper)
+    & chmod 755 $sleeper
+    $args1 = @('120')
+  }
+  if ($null -ne $sleeper) {
+    $fs = [IO.File]::Open($sleeper, [IO.FileMode]::Append)
+    $mark = [Text.Encoding]::ASCII.GetBytes('github.com/ChatChatTech/AgentNetwork/cmd/anet.main')
+    $fs.Write($mark, 0, $mark.Length)
+    $fs.Dispose()
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = $sleeper
+    $psi.Arguments = ($args1 -join ' ')
+    $psi.UseShellExecute = $false
+    $psi.RedirectStandardOutput = $true
+    $psi.CreateNoWindow = $true
+    $proc = [System.Diagnostics.Process]::Start($psi)
+    try {
+      $root = [IO.Path]::Combine($work, 'home-held', '.anet')
+      $null = [IO.Directory]::CreateDirectory($root)
+      Write-V1Layout $root
+      [IO.File]::WriteAllText((Join-Path $root 'daemon.pid'), [string]$proc.Id)
+      $l = Get-AnetLegacyDaemons -Root $root
+      Check 'a running program of 1.x named by daemon.pid holds the directory' (@($l.Daemons).Count -eq 1 -and $l.Daemons[0].Pid -eq $proc.Id) (@($l.Daemons | ForEach-Object { $_.Pid }) -join ',')
+      $t = Invoke-AnetTakeover -InstallDir $inst -DataDir $root -Elevation $plain 6>$null
+      $proc.Refresh()
+      $aside = @(Get-Asides $root)
+      Check 'the takeover ends that daemon by its process ID and moves the data' ($proc.HasExited -and -not $t.Held -and $aside.Count -eq 1 -and $t.Taken.Label -eq 'AgentNetwork 1.x') ($t.Report -join ' | ')
+    } finally {
+      if (-not $proc.HasExited) { $proc.Kill() }
+      $proc.Dispose()
+    }
+  } else {
+    Write-Host 'skip  no program to stand in for a daemon of 1.x'
+  }
+
+  # --- the log of a run --------------------------------------------------------
+
+  Start-AnetLog
+  Write-AnetLine 'line one of the log'
+  $current = [IO.Path]::Combine($work, 'home-log', '.anet')
+  $null = [IO.Directory]::CreateDirectory($current)
+  Write-Init034 $current
+  [IO.File]::WriteAllBytes((Join-Path $current 'identity.kel'), $kel03)
+  $why = @{}
+  $log = Save-AnetLog -DataDir $current -Why $why
+  Check 'the log goes to logs\ of a data directory of this version' ($log -like ((Join-Path (Join-Path $current 'logs') 'install-') + '*.log') -and ([IO.File]::ReadAllText($log)).Contains('line one of the log')) ($log + ' ' + $why['Text'])
+  if (Test-IsWindows) { Check 'the logs directory is private to this user' ($null -eq (Get-AnetPrivacyProblem -Path (Join-Path $current 'logs'))) }
+  $log2 = Save-AnetLog -DataDir $current
+  Check 'a second log of the same second gets a new name' ($log2 -ne $log -and (Test-Path -LiteralPath $log2))
+  $legacyRoot = [IO.Path]::Combine($work, 'home-log-1x', '.anet')
+  $null = [IO.Directory]::CreateDirectory($legacyRoot)
+  Write-V1Layout $legacyRoot
+  $log = Save-AnetLog -DataDir $legacyRoot
+  Check 'with data of an earlier anet in the data directory, the log goes to the temporary directory' ($log -like ((Join-Path ([IO.Path]::GetTempPath()) 'anet-install') + '*') -and -not (Test-Path -LiteralPath (Join-Path $legacyRoot 'logs'))) $log
+  Remove-Item -LiteralPath $log -Force -ErrorAction SilentlyContinue
+  $AnetOut.Lines = $null
+
+  # --- the summary: golden output ----------------------------------------------
+
+  $node = 'bafyrei' + ('n' * 52)
+  $ctl = 'bafyrei' + ('c' * 26) + ('7' * 26)
+  $exe = 'C:\Users\ink\AppData\Local\Programs\anet\anet.exe'
+  $logPath = 'C:\Users\ink\.anet\logs\install-20261020T151644Z.log'
+  $saved = $env:ANET_LANG
+  $env:ANET_LANG = $null
+  $base = @{ Version = '0.3.6'; Running = $true; Aid = $node; Hub = 'https://hub.agentnetwork.org.cn'; JoinState = 'registered'; Error = '';
+             Taken = $null; Controller = ''; Notes = @(); Run = 'new'; Exe = $exe }
+  function Golden {
+    param([hashtable]$Change, [string[]]$Want, [string]$Name)
+    $facts = $base.Clone()
+    foreach ($k in $Change.Keys) { $facts[$k] = $Change[$k] }
+    $got = @(Get-AnetSummary -F $facts) + @(Get-AnetDetailsLine -Log $logPath -Why '')
+    Check ('summary: ' + $Name) (($got -join "`n") -ceq ($Want -join "`n")) ("`n" + ($got -join "`n"))
+    Check ('summary: ' + $Name + ', at most 10 lines') ($got.Count -le 10)
+  }
+  Golden -Name 'a fresh installation with -Controller' -Change @{ Controller = $ctl } -Want @(
+    'anet 0.3.6 is installed and running.',
+    ('  AID   ' + $node),
+    '  Hub   https://hub.agentnetwork.org.cn (joined)',
+    ('Remote control: allowed for ' + $ctl + ' only; revoke with: anet peers remove ' + $ctl),
+    "Run 'anet' in a new window to get started.",
+    ('Details: ' + $logPath))
+  Golden -Name 'an installation that takes over AgentNetwork 1.1.15' -Change @{ Taken = @{ Label = 'AgentNetwork 1.1.15'; Aside = 'C:\Users\ink\.anet-legacy-1.1.15-20261020T151644Z' } } -Want @(
+    'anet 0.3.6 is installed and running.',
+    ('  AID   ' + $node),
+    '  Hub   https://hub.agentnetwork.org.cn (joined)',
+    'Replaced AgentNetwork 1.1.15; its data is kept in C:\Users\ink\.anet-legacy-1.1.15-20261020T151644Z',
+    "Run 'anet' in a new window to get started.",
+    ('Details: ' + $logPath))
+  Golden -Name 'a hub that admits first, anet already on the PATH of this window' -Change @{ JoinState = 'pending_admission'; Run = 'here' } -Want @(
+    'anet 0.3.6 is installed and running.',
+    ('  AID   ' + $node),
+    ('  Hub   https://hub.agentnetwork.org.cn (waiting for admission; the operator runs: anet-hub admit ' + $node + ')'),
+    "Run 'anet' to get started.",
+    ('Details: ' + $logPath))
+  Golden -Name '-NoJoin' -Change @{ Hub = ''; JoinState = '' } -Want @(
+    'anet 0.3.6 is installed and running.',
+    ('  AID   ' + $node),
+    "Run 'anet' in a new window to get started.",
+    ('Details: ' + $logPath))
+  Golden -Name '-NoStart -NoPath, with an npm package left' -Change @{ Running = $false; Aid = ''; Hub = ''; JoinState = ''; Run = 'path'
+      Notes = @((Get-AnetText 'note_nostart'), (Get-AnetText 'note_npm' @{ version = '1.1.15'; command = 'npm uninstall -g @agentnetwork/anet' })) } -Want @(
+    'anet 0.3.6 is installed.',
+    'Note: the node was not started (-NoStart); start it with: anet up',
+    'Note: the npm package @agentnetwork/anet 1.1.15 is still installed; remove it with: npm uninstall -g @agentnetwork/anet',
+    ('Run "' + $exe + '" to get started; it is not on the PATH (-NoPath).'),
+    ('Details: ' + $logPath))
+  Golden -Name 'a hub that refused' -Change @{ Error = (Get-AnetText 'join_refused' @{ hub = 'https://hub.agentnetwork.org.cn'; reason = 'this hub needs anet 0.4.0 or later' }) } -Want @(
+    'anet 0.3.6 is installed and running.',
+    ('  AID   ' + $node),
+    'Error: the hub https://hub.agentnetwork.org.cn refused the registration: this hub needs anet 0.4.0 or later',
+    "Run 'anet' in a new window to get started.",
+    ('Details: ' + $logPath))
+  $env:ANET_LANG = 'zh_CN.UTF-8'
+  $zh = @(Get-AnetSummary -F ($base.Clone())) + @(Get-AnetDetailsLine -Log $logPath -Why '')
+  $wantZh = @([regex]::Unescape('anet 0.3.6 \u5df2\u5b89\u88c5\u5e76\u6b63\u5728\u8fd0\u884c\u3002'), ('  AID   ' + $node),
+              [regex]::Unescape('  Hub   https://hub.agentnetwork.org.cn\uff08\u5df2\u52a0\u5165\uff09'),
+              [regex]::Unescape("\u5728\u65b0\u7a97\u53e3\u4e2d\u8fd0\u884c 'anet' \u5f00\u59cb\u4f7f\u7528\u3002"),
+              ([regex]::Unescape('\u8be6\u7ec6\u4fe1\u606f\uff1a') + $logPath))
+  Check 'summary in Chinese with ANET_LANG=zh_CN.UTF-8' (($zh -join "`n") -ceq ($wantZh -join "`n")) ("`n" + ($zh -join "`n"))
+  foreach ($k in @($AnetMessages.Keys)) {
+    $text = [regex]::Unescape([string]$AnetMessages[$k][1])
+    $names = @([regex]::Matches([string]$AnetMessages[$k][0], '\{[a-z]+\}') | ForEach-Object { $_.Value } | Sort-Object -Unique)
+    $zhNames = @([regex]::Matches($text, '\{[a-z]+\}') | ForEach-Object { $_.Value } | Sort-Object -Unique)
+    Check ('message ' + $k + ': the Chinese text has the same arguments') (($names -join ',') -ceq ($zhNames -join ',')) (($names -join ',') + ' / ' + ($zhNames -join ','))
+  }
+  $env:ANET_LANG = $saved
+  Check 'sizes and times of the download line' ((Format-AnetMB 9437184) -eq '9.0' -and (Format-AnetMB 0) -eq '0.0' -and (Format-AnetDuration 125) -eq '2:05' -and (Format-AnetDuration -1) -eq '-:--')
+  $p = New-AnetProgress -Label 'anet 9.8.7 from x' -Total 100 -Show
+  Update-AnetProgress -Progress $p -Done 50
+  Check 'a download line is not drawn without an interactive console' (-not $p.Interactive -and $p.Done -eq 50 -and -not $p.Open)
 
   # --- private directories, and the replacement of a binary (Windows) ----------
 

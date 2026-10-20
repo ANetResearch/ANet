@@ -84,7 +84,7 @@ func TestInstallPS1FileRules(t *testing.T) {
 		t.Error("install.ps1 calls Install-Anet more than once")
 	}
 	if !strings.Contains(script, "\nparam(\n  [string]$Controller, [switch]$Shell, [string]$Hub, [string]$Name, [string]$Prefix,\n"+
-		"  [string[]]$Without, [string]$Base, [switch]$NoAutostart, [switch]$NoPath, [switch]$Elevated,\n  [switch]$NoJoin\n)\n") {
+		"  [string[]]$Without, [string]$Base, [switch]$NoAutostart, [switch]$NoPath, [switch]$Elevated,\n  [switch]$NoJoin, [switch]$NoStart\n)\n") {
 		t.Error("install.ps1 does not declare the parameters of the specification")
 	}
 	// Every program is started by the one helper, with an argument array.
@@ -123,6 +123,27 @@ func TestInstallPS1FileRules(t *testing.T) {
 	// An elevated window is not refused (v0.3.5): -Elevated is accepted and changes nothing.
 	if strings.Contains(code, "not elevated") || strings.Contains(code, "-not $Elevated") {
 		t.Error("install.ps1 still refuses an elevated window")
+	}
+	// The hub registration never asks for a passphrase (v0.3.6): every call of hub-register passes
+	// --passphrase-later.
+	if calls := regexp.MustCompile(`'hub-register'[^\n]*`).FindAllString(code, -1); len(calls) != 1 || !strings.Contains(calls[0], "'--passphrase-later'") {
+		t.Errorf("install.ps1 runs hub-register without --passphrase-later: %q", calls)
+	}
+	// A process is ended only by its ID, after its program was checked to be AgentNetwork 1.x
+	// (Stop-AnetLegacyDaemon), or as the tree of a program this script started (Stop-AnetProcessTree);
+	// never by name.
+	// (A command printed for the user, in quotes, is not a statement.)
+	if m := regexp.MustCompile(`(?i)(^|[;{]\s*)stop-process[^\n]*`).FindAllString(strings.ReplaceAll(code, "\n", "\n;"), -1); len(m) != 1 ||
+		!strings.HasSuffix(m[0], "Stop-Process -Id $d.Pid -Force -ErrorAction Stop") {
+		t.Errorf("install.ps1 ends processes other than by a checked ID: %q", m)
+	}
+	if regexp.MustCompile(`(?i)(get|stop)-process\s+-name|taskkill[^\n]*/im|\bkillall\b|\bpkill\b`).MatchString(code) {
+		t.Error("install.ps1 chooses a process by its name")
+	}
+	stop := code[strings.Index(code, "function Stop-AnetLegacyDaemon {"):]
+	stop = stop[:strings.Index(stop, "\n}\n")]
+	if i, j := strings.Index(stop, "(Get-AnetBinaryFamily -Exe $exe) -ne 'v1'"), strings.Index(stop, "Stop-Process -Id"); i < 0 || j < 0 || i > j {
+		t.Error("Stop-AnetLegacyDaemon does not check the program of a process before it ends it")
 	}
 	// The controller grant asks nothing: -Controller is the consent, passed on as --yes.
 	if !strings.Contains(code, "@('init', '--shell-controller', $o.Controller, '--yes')") {
@@ -209,29 +230,36 @@ func TestInstallPS1ReleaseKey(t *testing.T) {
 	}
 }
 
-// install.ps1 tries the same hosts in the same order as `anet update` on
-// Windows: the project's hosts, then the npm package of the build on the
-// npm mirrors.
-func TestInstallPS1BasesMatchUpdate(t *testing.T) {
+// install.ps1 fetches exactly the release it pins, from the sources of the download policy (v0.3.6,
+// the same as install.sh and `anet update`): npmmirror and GitHub, probed in parallel and tried in the
+// order they answered; then registry.npmjs.org, jsDelivr and the project's two hosts, in that order.
+// -Base, else ANET_INSTALL_BASE, replaces them. test-install.ps1 runs the order with fixed probe results.
+func TestInstallPS1SourcesFollowThePolicy(t *testing.T) {
 	code := strings.Join(codeLines(installPS1(t)), "\n")
-	var want []string
-	for _, b := range DefaultBases {
-		want = append(want, "$bases.Add('"+b+"')")
-	}
-	for _, m := range npmMirrors {
-		pre, post, _ := strings.Cut(m("PKG"), "PKG")
-		want = append(want, "$bases.Add('"+pre+"' + $pkg + '"+post+"')")
-	}
-	at := strings.Index(code, "$bases.Add((Get-AnetBaseValue -Text $env:ANET_INSTALL_BASE")
-	if at < 0 {
-		t.Fatal("install.ps1 does not put ANET_INSTALL_BASE first")
-	}
-	for _, w := range want {
-		i := strings.Index(code[at:], w)
-		if i < 0 {
-			t.Fatalf("install.ps1 does not add the base %s after the previous one", w)
+	for _, want := range []string{
+		"MetaUrl = ('https://registry.npmmirror.com/' + $pkg + '/' + $Version); Url = ('https://registry.npmmirror.com/' + $pkg + $tgz)",
+		"$AnetGitHubReleases = 'https://github.com/ANetResearch/ANet/releases/download/v'",
+		"Prefix = ($AnetGitHubReleases + $Version + '/'); Redirect = 'github'",
+		"MetaUrl = ('https://registry.npmjs.org/' + $pkg + '/' + $Version); Url = ('https://registry.npmjs.org/' + $pkg + $tgz)",
+		"Prefix = ('https://cdn.jsdelivr.net/npm/' + $pkg + '@' + $Version + '/dl/')",
+		"Prefix = 'https://agentnetwork.org.cn/dl/'",
+		"Prefix = 'https://hub.agentnetwork.org.cn/dl/'",
+		"$tgz = '/-/' + $leaf + '-' + $Version + '.tgz'",
+		"foreach ($n in @('npmjs', 'jsdelivr', 'host1', 'host2')) { $order.Add($List[$n]) }",
+		"if (($n -eq 'npmmirror' -or $n -eq 'github')",
+		"Invoke-AnetProbe -Sources @($list['npmmirror'], $list['github']) -Version $Version",
+		"[int]$TimeoutMs = 3000, [int]$TotalMs = 4000",
+		"if ($Options.Base -ne '') { return @(New-AnetBaseSource -Base $Options.Base) }",
+		"return @(New-AnetBaseSource -Base (Get-AnetBaseValue -Text $env:ANET_INSTALL_BASE -What 'ANET_INSTALL_BASE'))",
+		"$sources = @(Get-AnetSources -Options $o -Arch $arch -Version $version)",
+	} {
+		if !strings.Contains(code, want) {
+			t.Errorf("install.ps1 does not contain %q", want)
 		}
-		at += i
+	}
+	// The version asked of every source is the one the script pins.
+	if !strings.Contains(code, "$version = [string]$AnetRelease['Version']") {
+		t.Error("install.ps1 does not take the version of its sources from its pins")
 	}
 	if !strings.Contains(code, "return '@agentnetwork/' + $AssetPrefix + '-win32-' + $cpu") ||
 		NPMPackage("default", "windows", "amd64") != "@agentnetwork/anet-win32-x64" {

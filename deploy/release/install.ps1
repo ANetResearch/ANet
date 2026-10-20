@@ -10,13 +10,14 @@
 # Usage. The same line runs unchanged in cmd.exe, Windows PowerShell 5.1,
 # PowerShell 7, bash or zsh in WSL 1 and WSL 2 (through WSL interoperability,
 # which is on by default) and Git Bash. It contains no character that one of
-# these shells would interpret. Install only (the default build):
+# these shells would interpret. Install the default build, start the node,
+# register it at https://hub.agentnetwork.org.cn and start it at every logon:
 #
 #   powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol=3072; & ([scriptblock]::Create((irm -UseBasicParsing https://agentnetwork.org.cn/install.ps1)))"
 #
 # Install the shell build and give the agent CONTROLLER_AID (replace it with
-# that agent's AID) the right to run commands on this computer as this user,
-# start the node, register it at the hub and start it at every logon. Giving
+# that agent's AID) the right to run commands on this computer as this user;
+# the node is started, registered and started at every logon as above. Giving
 # -Controller on the command line is the consent; nothing else is asked:
 #
 #   powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol=3072; & ([scriptblock]::Create((irm -UseBasicParsing https://agentnetwork.org.cn/install.ps1))) -Controller CONTROLLER_AID"
@@ -36,15 +37,14 @@
 # does not end the window; $LASTEXITCODE holds the result.
 #
 # Parameters:
-#   -Controller AID  Install the shell build, give the agent with this AID the
-#                    right to run commands on this machine as this user, start
-#                    the node, register it at the hub and start it at every
-#                    logon.
+#   -Controller AID  Install the shell build and give the agent with this AID
+#                    the right to run commands on this machine as this user.
 #   -Shell           Install the shell build without giving anyone access.
-#   -Hub URL         Start the node and join this hub (default with
-#                    -Controller: https://hub.agentnetwork.org.cn).
-#   -NoJoin          Do not register at a hub (with -Controller, the node is
-#                    still started); register later with anet hub-register.
+#   -Hub URL         Join this hub instead of https://hub.agentnetwork.org.cn.
+#   -NoJoin          Start the node, but do not register it at a hub; register
+#                    later with anet hub-register.
+#   -NoStart         Neither start the node nor register it; start it later
+#                    with anet up.
 #   -Name NAME       The name to join under (default: the computer name).
 #   -Prefix DIR      Install into DIR instead of the directory the installer
 #                    chooses. No directory above DIR may let another account
@@ -52,10 +52,35 @@
 #                    contain ; or %.
 #   -Without LIST    Turn these modules off in config.json.
 #   -Base URL|DIR    Download base, https only, or a local copy of a release
-#                    directory; replaces the list of download hosts.
+#                    directory; replaces the download sources.
 #   -NoAutostart     Do not start the node at logon.
 #   -NoPath          Do not put the install directory on the user's PATH.
 #   -Elevated        Accepted for compatibility; it changes nothing.
+#
+# DOWNLOAD SOURCES. This script installs exactly the release it was published
+# with (its pins, below), so every source is asked for that version. The
+# npm mirror of China (registry.npmmirror.com, the npm package of the build
+# as a tarball) and the GitHub release of the project are probed in
+# parallel, for at most 3 seconds each and 4 seconds in all; those that
+# answered are tried first, the fastest first; then the npm registry
+# (registry.npmjs.org), jsDelivr, and last the project's hosts
+# (agentnetwork.org.cn and hub.agentnetwork.org.cn, under /dl/). A source
+# that does not serve the release (no answer, an HTTP error, a page instead
+# of a file, a missing file, another version) is passed over for the next.
+# A source decides only where the bytes come from: what it serves is
+# checked as below, and a file that fails a check ends the installation.
+# -Base, or else ANET_INSTALL_BASE, replaces the sources.
+#
+# OUTPUT. While it works, the script prints one line per phase, and on an
+# interactive console the download as one line that it updates (bar, size,
+# speed, time left); NO_COLOR turns its colours off. At the end it prints a
+# short summary and, last, the line Details: with the log of the run, which
+# holds everything else (the sources tried, each check, every takeover step,
+# the output of anet init, anet doctor and anet hub-register). The log is
+# <data directory>\logs\install-<UTC time>.log, in a directory with the
+# private access control list; when the data directory is not ready (a
+# refusal, or data of an earlier anet left in it), %TEMP%\anet-install\
+# instead. With ANET_LANG=zh..., the summary is in Chinese.
 #
 # THE INSTALL DIRECTORY, without -Prefix: the first of these that passes the
 # checks below; each one skipped is reported in one line, with the reason and
@@ -98,15 +123,22 @@
 # on the PATH is run only when it carries the Go module path of AgentNetwork
 # 1.x (ChatChatTech/AgentNetwork) or of this project; such an anet of the
 # earlier line, or its npm package @agentnetwork/anet 1.x in the global npm
-# prefix, is stopped with its own stop command, the installer waits for its
-# daemon to exit, its data in %USERPROFILE%\.anet is renamed aside (never
-# deleted; a directory whose identity file is this version's keeps it, and
-# only the 1.x entries move), and only then is the npm package removed with
-# npm uninstall -g @agentnetwork/anet; a data directory of an earlier anet
-# is moved the same way when no earlier installation was found, once no
-# daemon holds it. When the data cannot be moved (the daemon still runs, or
+# prefix, is stopped with its own stop command. A daemon of AgentNetwork 1.x
+# that still holds the data directory (the process of its daemon.pid, or the
+# process that listens on 127.0.0.1:3998, when its program carries the
+# module path of AgentNetwork 1.x) is then asked to shut down over its local
+# API, with the token from its data directory, and, when it has not exited
+# within 10 seconds, ended by its process ID; no other process is ever
+# ended, and none by name. A daemon of anet 0.3 or later never counts as
+# one of the earlier line. Then its data in %USERPROFILE%\.anet is renamed
+# aside (never deleted; a directory whose identity file is this version's
+# keeps it, and only the 1.x entries move), and only then is the npm
+# package removed with npm uninstall -g @agentnetwork/anet; a data directory
+# of an earlier anet is moved the same way when no earlier installation was
+# found. When the data cannot be moved (the daemon could not be stopped, or
 # the move failed), the installation stops before anet init with exit
-# status 3 and the exact commands, and the npm package stays. Another anet 0.3 or later is left in
+# status 3 and the exact commands, and the npm package stays. Another anet
+# 0.3 or later is left in
 # place; its directory is taken off the user's PATH only when it holds
 # nothing else. npm launchers of 0.3 or later, and files named anet.exe that
 # are not a program of either project, are left alone and never run.
@@ -118,7 +150,7 @@
 #      the four Windows builds of that release, and of the binary inside
 #      each (the release pins, written when the release is built). The
 #      downloaded .gz and the binary inside it must match them exactly; a
-#      download host that serves anything else is skipped.
+#      .gz that does not ends the installation.
 #   2. The pinned binary then verifies the signed release manifest itself
 #      (anet update --verify-dir), with the release key compiled into it:
 #      release.json is signed by the anet release key (namespace
@@ -167,13 +199,14 @@
 #
 # WHAT -Controller OPENS, exhaustively: the shell build of anet; in
 # config.json, modules.shell with allow = [AID], allow_arbitrary = true and
-# shell = powershell; the AID in peers.allow; the defaults of `anet init`
-# (inbound closed, no public capabilities, spending limits 0); the hub
-# registration (not with -NoJoin); the Run value AgentNetwork under
+# shell = powershell; the AID in peers.allow. Everything else is what every
+# installation does: the defaults of `anet init` (inbound closed, no public
+# capabilities, spending limits 0); the hub registration (not with -NoJoin
+# or -NoStart); the Run value AgentNetwork under
 # HKCU\Software\Microsoft\Windows\CurrentVersion\Run; the user's PATH. Nothing
 # else: no auto-reply, no other peer, no public capability, no listener beyond
-# the node's loopback ones. The installer prints what was granted, and how to
-# revoke it, at the end.
+# the node's loopback ones. The summary names the agent and how to revoke
+# its access; the log holds what was written.
 #
 # Everything below is a parameter block, the release pins and function
 # definitions; the last line calls Install-Anet. A download cut short does
@@ -184,7 +217,7 @@
 param(
   [string]$Controller, [switch]$Shell, [string]$Hub, [string]$Name, [string]$Prefix,
   [string[]]$Without, [string]$Base, [switch]$NoAutostart, [switch]$NoPath, [switch]$Elevated,
-  [switch]$NoJoin
+  [switch]$NoJoin, [switch]$NoStart
 )
 
 # BEGIN RELEASE PINS (written by deploy/release/build-release.sh; do not edit)
@@ -195,9 +228,143 @@ $AnetRelease = $null
 # verified the manifest with the key compiled into it.
 $AnetReleaseKeyFingerprint = 'SHA256:/4FMm/jgZcBII3z3O3r81Y8SxFfugdLRu3zj2gnclD4'
 
+# The output of a run. While it works, the script prints one short line per
+# phase (Write-AnetSay); everything else goes to the log of the run
+# (Write-AnetLine), which is written at the end (Save-AnetLog) and named on
+# the last line. Lines holds the log; Stamp is the UTC time of the run.
+$AnetOut = @{ Lines = $null; Stamp = '' }
+
+# Write-AnetLine adds a line to the log of the run (and prints nothing).
 function Write-AnetLine {
   param([string]$Text)
+  if ($null -ne $AnetOut.Lines) { $AnetOut.Lines.Add($Text) }
+}
+
+# Write-AnetSay prints a line on the console and adds it to the log.
+function Write-AnetSay {
+  param([string]$Text)
   Write-Host $Text
+  Write-AnetLine $Text
+}
+
+# Start-AnetLog starts the log of a run.
+function Start-AnetLog {
+  $AnetOut.Lines = New-Object System.Collections.Generic.List[string]
+  $AnetOut.Stamp = [DateTime]::UtcNow.ToString("yyyyMMdd'T'HHmmss'Z'", [Globalization.CultureInfo]::InvariantCulture)
+}
+
+# Test-AnetChinese: the summary is in Chinese when ANET_LANG begins with zh,
+# as for anet itself; in English otherwise.
+function Test-AnetChinese {
+  return ([string]$env:ANET_LANG).ToLowerInvariant().StartsWith('zh')
+}
+
+# The lines of the summary, in English and in Chinese. The Chinese text is
+# written with \u escapes, so that this file stays ASCII; Get-AnetText
+# decodes it. {name} is replaced by the argument of that name.
+$AnetMessages = @{
+  dl_label = @('anet {version} from {source}', 'anet {version}\uff08{source}\uff09')
+  dl_done = @('Downloaded anet {version} for {platform} from {source} ({size} MB in {secs} s)', '\u5df2\u4ece {source} \u4e0b\u8f7d anet {version}\uff08{platform}\uff0c{size} MB\uff0c\u7528\u65f6 {secs} \u79d2\uff09')
+  dl_dir = @('Read anet {version} for {platform} from {source}', '\u5df2\u4ece {source} \u8bfb\u53d6 anet {version}\uff08{platform}\uff09')
+  dl_skip = @('{source} did not serve anet {version} ({why}); trying the next source', '{source} \u672a\u63d0\u4f9b anet {version}\uff08{why}\uff09\uff1b\u6539\u7528\u4e0b\u4e00\u4e2a\u4e0b\u8f7d\u6e90')
+  installed = @('Installed {exe} (signature verified)', '\u5df2\u5b89\u88c5 {exe}\uff08\u7b7e\u540d\u5df2\u9a8c\u8bc1\uff09')
+  installed_up = @('Installed {exe} (signature verified; upgraded from {previous})', '\u5df2\u5b89\u88c5 {exe}\uff08\u7b7e\u540d\u5df2\u9a8c\u8bc1\uff1b\u7531 {previous} \u5347\u7ea7\uff09')
+  running = @('anet {version} is installed and running.', 'anet {version} \u5df2\u5b89\u88c5\u5e76\u6b63\u5728\u8fd0\u884c\u3002')
+  installed_only = @('anet {version} is installed.', 'anet {version} \u5df2\u5b89\u88c5\u3002')
+  hub_joined = @('  Hub   {hub} (joined)', '  Hub   {hub}\uff08\u5df2\u52a0\u5165\uff09')
+  hub_pending = @('  Hub   {hub} (waiting for admission; the operator runs: anet-hub admit {aid})', '  Hub   {hub}\uff08\u7b49\u5f85\u51c6\u5165\uff1b\u8bf7\u8fd0\u8425\u8005\u8fd0\u884c\uff1aanet-hub admit {aid}\uff09')
+  hub_retrying = @('  Hub   {hub} (not reachable yet; the node keeps trying)', '  Hub   {hub}\uff08\u6682\u65f6\u65e0\u6cd5\u8fde\u63a5\uff1b\u8282\u70b9\u4f1a\u7ee7\u7eed\u91cd\u8bd5\uff09')
+  hub_sent = @('  Hub   {hub} (registration sent)', '  Hub   {hub}\uff08\u5df2\u63d0\u4ea4\u6ce8\u518c\uff09')
+  takeover_kept = @('Replaced {label}; its data is kept in {aside}', '\u5df2\u66ff\u6362 {label}\uff1b\u5176\u6570\u636e\u4fdd\u7559\u5728 {aside}')
+  takeover = @('Replaced {label}.', '\u5df2\u66ff\u6362 {label}\u3002')
+  remote = @('Remote control: allowed for {aid} only; revoke with: anet peers remove {aid}', '\u8fdc\u7a0b\u63a7\u5236\uff1a\u4ec5\u5141\u8bb8 {aid}\uff1b\u64a4\u9500\uff1aanet peers remove {aid}')
+  run_here = @('Run ''anet'' to get started.', '\u8fd0\u884c ''anet'' \u5f00\u59cb\u4f7f\u7528\u3002')
+  run_new = @('Run ''anet'' in a new window to get started.', '\u5728\u65b0\u7a97\u53e3\u4e2d\u8fd0\u884c ''anet'' \u5f00\u59cb\u4f7f\u7528\u3002')
+  run_path = @('Run "{exe}" to get started; it is not on the PATH (-NoPath).', '\u8fd0\u884c "{exe}" \u5f00\u59cb\u4f7f\u7528\uff1b\u5b83\u4e0d\u5728 PATH \u4e2d\uff08-NoPath\uff09\u3002')
+  details = @('Details: {path}', '\u8be6\u7ec6\u4fe1\u606f\uff1a{path}')
+  details_none = @('Details: the log could not be written ({why})', '\u8be6\u7ec6\u4fe1\u606f\uff1a\u65e0\u6cd5\u5199\u5165\u65e5\u5fd7\uff08{why}\uff09')
+  note = @('Note: {text}', '\u6ce8\u610f\uff1a{text}')
+  note_nostart = @('the node was not started (-NoStart); start it with: anet up', '\u8282\u70b9\u672a\u542f\u52a8\uff08-NoStart\uff09\uff1b\u542f\u52a8\u547d\u4ee4\uff1aanet up')
+  note_old_daemon = @('a node of anet {old} is still running; restart it with: anet stop --all, then anet up --all', 'anet {old} \u7684\u8282\u70b9\u4ecd\u5728\u8fd0\u884c\uff1b\u91cd\u542f\u547d\u4ee4\uff1aanet stop --all\uff0c\u7136\u540e anet up --all')
+  note_path_other = @('a new window runs {other} for anet, because its directory comes first on the machine PATH; remove it, or run "{exe}"', '\u65b0\u7a97\u53e3\u4e2d\u7684 anet \u662f {other}\uff0c\u56e0\u4e3a\u5176\u76ee\u5f55\u5728\u7cfb\u7edf PATH \u4e2d\u9760\u524d\uff1b\u8bf7\u5220\u9664\u5b83\uff0c\u6216\u8fd0\u884c "{exe}"')
+  note_npm = @('the npm package @agentnetwork/anet {version} is still installed; remove it with: {command}', 'npm \u5305 @agentnetwork/anet {version} \u4ecd\u5df2\u5b89\u88c5\uff1b\u5220\u9664\u547d\u4ee4\uff1a{command}')
+  note_legacy_exe = @('{path} (AgentNetwork {version}) is no longer used; delete it with: {command}', '{path}\uff08AgentNetwork {version}\uff09\u5df2\u4e0d\u518d\u4f7f\u7528\uff1b\u5220\u9664\u547d\u4ee4\uff1a{command}')
+  note_run = @('run in a normal window of this account: {command}', '\u8bf7\u5728\u6b64\u8d26\u6237\u7684\u666e\u901a\u7a97\u53e3\u4e2d\u8fd0\u884c\uff1a{command}')
+  note_uac_off = @('the node runs with the rights of this elevated window, because User Account Control is off', '\u8282\u70b9\u4ee5\u6b64\u63d0\u5347\u6743\u9650\u7a97\u53e3\u7684\u6743\u9650\u8fd0\u884c\uff0c\u56e0\u4e3a\u7528\u6237\u8d26\u6237\u63a7\u5236\u5df2\u5173\u95ed')
+  note_builtin_admin = @('the node runs with the rights of this elevated window, because this is the built-in Administrator account', '\u8282\u70b9\u4ee5\u6b64\u63d0\u5347\u6743\u9650\u7a97\u53e3\u7684\u6743\u9650\u8fd0\u884c\uff0c\u56e0\u4e3a\u8fd9\u662f\u5185\u7f6e Administrator \u8d26\u6237')
+  note_record = @('the release record could not be written beside {exe}; anet doctor reports the signature as unknown', '\u65e0\u6cd5\u5728 {exe} \u65c1\u5199\u5165\u53d1\u5e03\u8bb0\u5f55\uff1banet doctor \u4f1a\u5c06\u7b7e\u540d\u62a5\u544a\u4e3a\u672a\u77e5')
+  note_grant = @('the grant could not be read back from {config}; check it with: anet doctor', '\u65e0\u6cd5\u4ece {config} \u8bfb\u56de\u6388\u6743\uff1b\u8bf7\u7528 anet doctor \u68c0\u67e5')
+  error = @('Error: {text}', '\u9519\u8bef\uff1a{text}')
+  nothing = @('Nothing was installed or changed.', '\u672a\u5b89\u88c5\u6216\u66f4\u6539\u4efb\u4f55\u5185\u5bb9\u3002')
+  stopped_at = @('anet {version} is installed at {exe}, but the installation stopped before its last step.', 'anet {version} \u5df2\u5b89\u88c5\u5728 {exe}\uff0c\u4f46\u5b89\u88c5\u5728\u6700\u540e\u4e00\u6b65\u4e4b\u524d\u505c\u6b62\u3002')
+  steps = @('Run in a normal window of this account, in this order:', '\u8bf7\u5728\u6b64\u8d26\u6237\u7684\u666e\u901a\u7a97\u53e3\u4e2d\u6309\u4ee5\u4e0b\u987a\u5e8f\u8fd0\u884c\uff1a')
+  held = @('{dir} still holds the data of {label}, whose daemon could not be stopped; nothing in it was changed', '{dir} \u4ecd\u4fdd\u5b58\u7740 {label} \u7684\u6570\u636e\uff0c\u4e14\u5176\u5b88\u62a4\u8fdb\u7a0b\u65e0\u6cd5\u505c\u6b62\uff1b\u5176\u4e2d\u7684\u5185\u5bb9\u672a\u4f5c\u4efb\u4f55\u66f4\u6539')
+  deferred = @('the node was not started: it is not started with the administrator rights of this window, and starting it with standard user rights failed ({why})', '\u8282\u70b9\u672a\u542f\u52a8\uff1a\u4e0d\u4f1a\u4ee5\u6b64\u7a97\u53e3\u7684\u7ba1\u7406\u5458\u6743\u9650\u542f\u52a8\uff0c\u800c\u4ee5\u6807\u51c6\u7528\u6237\u6743\u9650\u542f\u52a8\u5931\u8d25\uff08{why}\uff09')
+  deferred_logon = @('It starts at the next logon.', '\u5b83\u5c06\u5728\u4e0b\u6b21\u767b\u5f55\u65f6\u542f\u52a8\u3002')
+  join_refused = @('the hub {hub} refused the registration: {reason}', 'hub {hub} \u62d2\u7edd\u4e86\u6ce8\u518c\uff1a{reason}')
+  start_failed = @('the node did not start (exit status {code})', '\u8282\u70b9\u672a\u80fd\u542f\u52a8\uff08\u9000\u51fa\u72b6\u6001 {code}\uff09')
+  init_failed = @('anet init did not complete (exit status {code})', 'anet init \u672a\u5b8c\u6210\uff08\u9000\u51fa\u72b6\u6001 {code}\uff09')
+}
+
+# Get-AnetText is the message $Key in the language of the run, with its
+# arguments put in.
+function Get-AnetText {
+  param([Parameter(Mandatory = $true)][string]$Key, [hashtable]$Arg = @{})
+  $pair = $AnetMessages[$Key]
+  if ($null -eq $pair) { throw ('no message ' + $Key) }
+  $text = [string]$pair[0]
+  if (Test-AnetChinese) { $text = [regex]::Unescape([string]$pair[1]) }
+  foreach ($k in $Arg.Keys) { $text = $text.Replace('{' + $k + '}', [string]$Arg[$k]) }
+  return $text
+}
+
+# Test-AnetWindows: this is Windows (the tests also run on other systems).
+function Test-AnetWindows {
+  return ([Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT)
+}
+
+# New-AnetLogDirectory makes sure $Dir exists and, on Windows, is private
+# to this user: a directory it creates gets the private access control
+# list (Set-AnetPrivateAcl); an existing one must pass Get-AnetPrivacyProblem.
+function New-AnetLogDirectory {
+  param([Parameter(Mandatory = $true)][string]$Dir)
+  if (-not (Test-Path -LiteralPath $Dir -PathType Container)) {
+    $null = [IO.Directory]::CreateDirectory($Dir)
+    if (Test-AnetWindows) { Set-AnetPrivateAcl -Path $Dir }
+  }
+  if (Test-AnetWindows) {
+    $why = Get-AnetPrivacyProblem -Path $Dir
+    if ($null -ne $why) { throw ($Dir + ': ' + $why) }
+  }
+}
+
+# Save-AnetLog writes the log of the run to <data directory>\logs when the
+# data directory is this version's (Get-AnetDataDirKind current), else to
+# %TEMP%\anet-install, as install-<UTC time>.log, a new file. Returns its
+# path, or '' with the reason in Why.
+function Save-AnetLog {
+  param([string]$DataDir, [hashtable]$Why = @{})
+  $Why['Text'] = ''
+  if ($null -eq $AnetOut.Lines) { $Why['Text'] = 'no log was started'; return '' }
+  $dirs = New-Object System.Collections.Generic.List[string]
+  if ($DataDir -ne '' -and (Get-AnetDataDirKind -Root $DataDir) -eq 'current') { $dirs.Add((Join-Path $DataDir 'logs')) }
+  $dirs.Add((Join-Path ([IO.Path]::GetTempPath()) 'anet-install'))
+  $text = ($AnetOut.Lines.ToArray() -join "`r`n") + "`r`n"
+  $bytes = (New-Object System.Text.UTF8Encoding -ArgumentList $false).GetBytes($text)
+  foreach ($d in $dirs) {
+    try {
+      New-AnetLogDirectory -Dir $d
+      $path = Join-Path $d ('install-' + $AnetOut.Stamp + '.log')
+      $n = 1
+      while (Test-Path -LiteralPath $path) { $n++; $path = Join-Path $d ('install-' + $AnetOut.Stamp + '-' + $n + '.log') }
+      $fs = New-Object System.IO.FileStream -ArgumentList $path, ([IO.FileMode]::CreateNew), ([IO.FileAccess]::Write), ([IO.FileShare]::None)
+      try { $fs.Write($bytes, 0, $bytes.Length) } finally { $fs.Dispose() }
+      return $path
+    } catch {
+      $Why['Text'] = $_.Exception.Message
+    }
+  }
+  return ''
 }
 
 # New-AnetFailure is the exception every refusal throws: its message is the
@@ -236,13 +403,14 @@ function Assert-AnetReleased {
   }
 }
 
-# Invoke-AnetNative is the one place this script runs a program: anet.exe,
-# icacls.exe and taskkill.exe. The arguments are an array (no command line is assembled from
-# text), stderr is never redirected (Windows PowerShell 5.1 would turn its
-# lines into errors), and a non-zero exit status is reported in $Result.Code,
-# not thrown. With -Capture, stdout is returned as lines in $Result.Output;
-# without it, the program writes to the console directly. A caller that wants
-# the output on the console must not assign the call.
+# Invoke-AnetNative runs icacls.exe and taskkill.exe (every other program
+# runs through Invoke-AnetTimed). The arguments are an array (no command line
+# is assembled from text), stderr is never redirected (Windows PowerShell
+# 5.1 would turn its lines into errors), and a non-zero exit status is
+# reported in $Result.Code, not thrown. With -Capture, stdout is returned as
+# lines in $Result.Output; without it, the program writes to the console
+# directly. A caller that wants the output on the console must not assign
+# the call.
 function Invoke-AnetNative {
   param([Parameter(Mandatory = $true)][string]$FilePath, [string[]]$ArgumentList = @(),
         [Parameter(Mandatory = $true)][hashtable]$Result, [switch]$Capture)
@@ -296,6 +464,9 @@ function Test-AnetHttpsUrl {
 # installer refuses it by name.
 $AnetControllerPlaceholder = 'CONTROLLER_AID'
 
+# The hub a node joins unless -Hub, -NoJoin or -NoStart says otherwise.
+$AnetDefaultHub = 'https://hub.agentnetwork.org.cn'
+
 # Get-AnetOptions validates the parameters (a hashtable of what was given)
 # and returns what the install will do. Nothing is read from or written to
 # the machine except $env:COMPUTERNAME, ANET_INSTALL_BASE and, for -Base and
@@ -304,9 +475,10 @@ $AnetControllerPlaceholder = 'CONTROLLER_AID'
 function Get-AnetOptions {
   param([Parameter(Mandatory = $true)][hashtable]$Given)
   $o = @{
-    Controller = ''; Variant = 'default'; AssetPrefix = 'anet'; Hub = ''; Join = $false; Name = '';
+    Controller = ''; Variant = 'default'; AssetPrefix = 'anet'; Hub = ''; Join = $false; Start = $true; Name = '';
     Prefix = ''; PrefixGiven = $false; Without = @(); Base = ''; NoAutostart = [bool]$Given['NoAutostart'];
-    NoPath = [bool]$Given['NoPath']; Elevated = [bool]$Given['Elevated']; NoJoin = [bool]$Given['NoJoin']
+    NoPath = [bool]$Given['NoPath']; Elevated = [bool]$Given['Elevated']; NoJoin = [bool]$Given['NoJoin'];
+    NoStart = [bool]$Given['NoStart']
   }
   $controller = [string]$Given['Controller']
   if ($Given.ContainsKey('Controller')) {
@@ -325,14 +497,20 @@ function Get-AnetOptions {
   if ($o.NoJoin -and $Given.ContainsKey('Hub')) {
     throw (New-AnetFailure '-NoJoin and -Hub contradict each other; use one of them')
   }
+  if ($o.NoStart -and $Given.ContainsKey('Hub')) {
+    throw (New-AnetFailure '-NoStart and -Hub contradict each other (a node that is not started does not join); use one of them')
+  }
+  # The node is started and joins the official hub unless -NoStart (neither)
+  # or -NoJoin (no join) says otherwise.
+  $o.Start = (-not $o.NoStart)
   if ($Given.ContainsKey('Hub')) {
     $hub = [string]$Given['Hub']
     if (-not (Test-AnetHttpsUrl -Text $hub -AllowLoopbackHttp)) {
       throw (New-AnetFailure ('-Hub ' + $hub + ' is not an absolute https:// URL (http:// only for 127.0.0.1 or localhost)'))
     }
-    $o.Hub = $hub
-  } elseif ($o.Controller -ne '' -and -not $o.NoJoin) {
-    $o.Hub = 'https://hub.agentnetwork.org.cn'
+    $o.Hub = $hub.TrimEnd('/')
+  } elseif ($o.Start -and -not $o.NoJoin) {
+    $o.Hub = $AnetDefaultHub
   }
   $o.Join = ($o.Hub -ne '')
   $name = [string]$Given['Name']
@@ -396,26 +574,6 @@ function Get-AnetNpmPackage {
   return '@agentnetwork/' + $AssetPrefix + '-win32-' + $cpu
 }
 
-# Get-AnetBases is the list of download bases, in the order they are tried:
-# ANET_INSTALL_BASE, the project's two hosts, then the npm package of the
-# build on three content delivery networks for npm (the order of
-# release.MirrorBases in `anet update`). -Base replaces the list.
-function Get-AnetBases {
-  param([Parameter(Mandatory = $true)][hashtable]$Options, [Parameter(Mandatory = $true)][string]$Arch)
-  if ($Options.Base -ne '') { return @($Options.Base) }
-  $bases = New-Object System.Collections.Generic.List[string]
-  if (-not [string]::IsNullOrEmpty($env:ANET_INSTALL_BASE)) {
-    $bases.Add((Get-AnetBaseValue -Text $env:ANET_INSTALL_BASE -What 'ANET_INSTALL_BASE'))
-  }
-  $bases.Add('https://agentnetwork.org.cn')
-  $bases.Add('https://hub.agentnetwork.org.cn')
-  $pkg = Get-AnetNpmPackage -AssetPrefix $Options.AssetPrefix -Arch $Arch
-  $bases.Add('https://registry.npmmirror.com/' + $pkg + '/latest/files')
-  $bases.Add('https://cdn.jsdelivr.net/npm/' + $pkg + '@latest')
-  $bases.Add('https://unpkg.com/' + $pkg + '@latest')
-  return $bases.ToArray()
-}
-
 function Get-AnetSha256Hex {
   param([byte[]]$Bytes)
   $h = [System.Security.Cryptography.SHA256]::Create()
@@ -474,93 +632,640 @@ function Test-AnetPin {
   return ,$bin
 }
 
-# Get-AnetHttpBytes fetches an https URL and returns its body, at most $Limit
-# bytes (exactly $Limit when -Exact): redirects are followed by hand, at
-# most five, and only to https.
-function Get-AnetHttpBytes {
-  param([string]$Url, [long]$Limit, [switch]$Exact, [int]$TimeoutSeconds)
+# The download line. On an interactive console (output not redirected), a
+# download is one line that is rewritten about five times a second: the
+# label, a bar, megabytes done of the total, the speed and the time left;
+# when it ends, the line stays with the size, the average speed and the time
+# it took. The bar is the heavy horizontal line, red for the part done and
+# dark gray for the rest, or # and - when the console's code page cannot
+# show that character; NO_COLOR turns the colours off. Without an
+# interactive console (a CI job, an agent's tool call, a pipe), nothing is
+# shown while it runs, and one plain line when it is done.
+
+# Test-AnetInteractive: the console shows a line that is rewritten.
+function Test-AnetInteractive {
+  try {
+    return ($Host.Name -eq 'ConsoleHost' -and [Environment]::UserInteractive -and -not [Console]::IsOutputRedirected)
+  } catch {
+    return $false
+  }
+}
+
+# Get-AnetBarGlyphs is the pair of characters of the bar: done, to do.
+function Get-AnetBarGlyphs {
+  param([switch]$Color)
+  $heavy = [string][char]0x2501
+  $light = [string][char]0x2500
+  try {
+    $enc = [Console]::OutputEncoding
+    if ($enc.GetString($enc.GetBytes($heavy + $light)) -ceq ($heavy + $light)) {
+      if ($Color) { return @($heavy, $heavy) }
+      return @($heavy, $light)
+    }
+  } catch { }
+  return @('#', '-')
+}
+
+# Format-AnetMB is a size in megabytes with one decimal.
+function Format-AnetMB {
+  param([long]$Bytes)
+  return ([Math]::Round($Bytes / 1048576.0, 1)).ToString('0.0', [Globalization.CultureInfo]::InvariantCulture)
+}
+
+# Format-AnetDuration is m:ss.
+function Format-AnetDuration {
+  param([double]$Seconds)
+  if ($Seconds -lt 0 -or [double]::IsInfinity($Seconds) -or [double]::IsNaN($Seconds)) { return '-:--' }
+  $s = [long][Math]::Round($Seconds)
+  return ('{0}:{1:00}' -f [long][Math]::Floor($s / 60), ($s % 60))
+}
+
+# New-AnetProgress starts the line of one download. -Show:$false (a local
+# directory) shows nothing.
+function New-AnetProgress {
+  param([string]$Label, [long]$Total, [switch]$Show)
+  $interactive = $Show -and (Test-AnetInteractive)
+  $color = $interactive -and [string]::IsNullOrEmpty($env:NO_COLOR)
+  return @{ Label = $Label; Total = $Total; Done = [long]0; Interactive = $interactive; Color = $color;
+            Glyphs = (Get-AnetBarGlyphs -Color:$color); Clock = [Diagnostics.Stopwatch]::StartNew();
+            Last = [long]-1000; Width = 0; Open = $false; RateBytes = [long]0; RateAt = [long]0; Rate = 0.0;
+            FirstAt = [long]-1; FirstBytes = [long]0; Windowed = $false }
+}
+
+# Write-AnetProgressLine draws the line: the label, then the bar of $Width
+# characters, then $Tail.
+function Write-AnetProgressLine {
+  param([hashtable]$Progress, [double]$Fraction, [string]$Tail)
+  $cols = 80
+  try { $cols = [Console]::WindowWidth } catch { }
+  if ($cols -lt 20) { $cols = 80 }
+  # The bar keeps its width while the numbers after it change.
+  $bar = [Math]::Min(30, $cols - 1 - $Progress.Label.Length - [Math]::Max($Tail.Length, 34) - 4)
+  $text = $Progress.Label + '  '
+  [Console]::Write("`r" + $text)
+  $len = $text.Length
+  if ($bar -ge 5) {
+    $done = [int][Math]::Floor($bar * [Math]::Min(1.0, [Math]::Max(0.0, $Fraction)))
+    $previous = [Console]::ForegroundColor
+    if ($Progress.Color) { [Console]::ForegroundColor = [ConsoleColor]::Red }
+    [Console]::Write($Progress.Glyphs[0] * $done)
+    if ($Progress.Color) { [Console]::ForegroundColor = [ConsoleColor]::DarkGray }
+    [Console]::Write($Progress.Glyphs[1] * ($bar - $done))
+    if ($Progress.Color) { [Console]::ForegroundColor = $previous }
+    $len += $bar
+  }
+  [Console]::Write('  ' + $Tail)
+  $len += 2 + $Tail.Length
+  if ($len -lt $Progress.Width) { [Console]::Write(' ' * ($Progress.Width - $len)) }
+  $Progress.Width = $len
+  $Progress.Open = $true
+}
+
+# Update-AnetProgress records $Done bytes and redraws the line at most
+# every 200 milliseconds. The speed is that of the last second, and before
+# a second has passed, that since the first bytes arrived.
+function Update-AnetProgress {
+  param([hashtable]$Progress, [long]$Done)
+  $Progress.Done = $Done
+  if (-not $Progress.Interactive) { return }
+  $now = $Progress.Clock.ElapsedMilliseconds
+  if ($now - $Progress.Last -lt 200) { return }
+  $Progress.Last = $now
+  if ($Progress.FirstAt -lt 0) {
+    $Progress.FirstAt = $now
+    $Progress.FirstBytes = $Done
+    $Progress.RateAt = $now
+    $Progress.RateBytes = $Done
+  } elseif ($now - $Progress.RateAt -ge 1000) {
+    $Progress.Rate = ($Done - $Progress.RateBytes) * 1000.0 / ($now - $Progress.RateAt)
+    $Progress.RateBytes = $Done
+    $Progress.RateAt = $now
+    $Progress.Windowed = $true
+  } elseif (-not $Progress.Windowed -and $now -gt $Progress.FirstAt) {
+    $Progress.Rate = ($Done - $Progress.FirstBytes) * 1000.0 / ($now - $Progress.FirstAt)
+  }
+  $total = [Math]::Max($Progress.Total, $Done)
+  $eta = -1.0
+  if ($Progress.Rate -gt 0) { $eta = ($total - $Done) / $Progress.Rate }
+  $tail = (Format-AnetMB $Done) + '/' + (Format-AnetMB $total) + ' MB  ' + (Format-AnetMB ([long]$Progress.Rate)) + ' MB/s  eta ' + (Format-AnetDuration $eta)
+  $fraction = 0.0
+  if ($total -gt 0) { $fraction = $Done / [double]$total }
+  try { Write-AnetProgressLine -Progress $Progress -Fraction $fraction -Tail $tail } catch { $Progress.Interactive = $false }
+}
+
+# Complete-AnetProgress ends the line of a download that succeeded: on an
+# interactive console the full bar with the size, the average speed and the
+# time it took; otherwise the line $Plain. Both go to the log as $Plain.
+function Complete-AnetProgress {
+  param([hashtable]$Progress, [long]$Done, [string]$Plain)
+  $secs = $Progress.Clock.Elapsed.TotalSeconds
+  if ($Progress.Interactive) {
+    $avg = 0.0
+    if ($secs -gt 0) { $avg = $Done / $secs }
+    $tail = (Format-AnetMB $Done) + ' MB  ' + (Format-AnetMB ([long]$avg)) + ' MB/s  ' + (Format-AnetDuration $secs)
+    try {
+      Write-AnetProgressLine -Progress $Progress -Fraction 1.0 -Tail $tail
+      [Console]::WriteLine()
+      $Progress.Open = $false
+      Write-AnetLine $Plain
+      return
+    } catch { }
+  }
+  Stop-AnetProgress -Progress $Progress
+  Write-AnetSay $Plain
+}
+
+# Stop-AnetProgress ends a line that is still open (a download that failed),
+# so that the next line starts at the left.
+function Stop-AnetProgress {
+  param([hashtable]$Progress)
+  if ($null -ne $Progress -and $Progress.Open) {
+    try { [Console]::WriteLine() } catch { }
+    $Progress.Open = $false
+  }
+}
+
+# The download sources of a release (DOWNLOAD SOURCES in the header). A
+# source is a hashtable: Name (npmmirror, github, npmjs, jsdelivr, host,
+# base), Label (as the summary names it), Kind, and where it reads from:
+#   tarball  the npm package of the build: MetaUrl, its metadata for the
+#            version (JSON with that version), and Url, its tarball, which
+#            holds package/dl/release.json, release.json.sig and <asset>.gz;
+#   files    the three files at Prefix + <name>;
+#   dir      the three files in the local directory Dir.
+# GitHub sets Redirect = 'github': redirects only to github.com and
+# *.githubusercontent.com. The release version is part of every address
+# except the project's hosts, which serve the current release under /dl/.
+$AnetGitHubReleases = 'https://github.com/ANetResearch/ANet/releases/download/v'
+
+# New-AnetBaseSource is the source of -Base or ANET_INSTALL_BASE: an https
+# base (<base>/dl/<name>) or a local release directory.
+function New-AnetBaseSource {
+  param([string]$Base)
+  if ($Base -like 'https://*') { return @{ Name = 'base'; Label = $Base; Kind = 'files'; Prefix = ($Base + '/dl/'); Redirect = '' } }
+  return @{ Name = 'base'; Label = $Base; Kind = 'dir'; Dir = $Base }
+}
+
+# Get-AnetSourceList is every source of the build, by name: the two that are
+# probed, npmmirror and github, and the four that follow them in this order:
+# npmjs, jsdelivr, then the project's two hosts.
+function Get-AnetSourceList {
+  param([Parameter(Mandatory = $true)][string]$AssetPrefix, [Parameter(Mandatory = $true)][string]$Arch, [Parameter(Mandatory = $true)][string]$Version)
+  $pkg = Get-AnetNpmPackage -AssetPrefix $AssetPrefix -Arch $Arch
+  $leaf = $pkg.Substring($pkg.IndexOf('/') + 1)
+  $tgz = '/-/' + $leaf + '-' + $Version + '.tgz'
+  return @{
+    npmmirror = @{ Name = 'npmmirror'; Label = 'npmmirror'; Kind = 'tarball'; MetaUrl = ('https://registry.npmmirror.com/' + $pkg + '/' + $Version); Url = ('https://registry.npmmirror.com/' + $pkg + $tgz); Redirect = '' }
+    github = @{ Name = 'github'; Label = 'GitHub'; Kind = 'files'; Prefix = ($AnetGitHubReleases + $Version + '/'); Redirect = 'github' }
+    npmjs = @{ Name = 'npmjs'; Label = 'registry.npmjs.org'; Kind = 'tarball'; MetaUrl = ('https://registry.npmjs.org/' + $pkg + '/' + $Version); Url = ('https://registry.npmjs.org/' + $pkg + $tgz); Redirect = '' }
+    jsdelivr = @{ Name = 'jsdelivr'; Label = 'jsDelivr'; Kind = 'files'; Prefix = ('https://cdn.jsdelivr.net/npm/' + $pkg + '@' + $Version + '/dl/'); Redirect = '' }
+    host1 = @{ Name = 'host'; Label = 'agentnetwork.org.cn'; Kind = 'files'; Prefix = 'https://agentnetwork.org.cn/dl/'; Redirect = '' }
+    host2 = @{ Name = 'host'; Label = 'hub.agentnetwork.org.cn'; Kind = 'files'; Prefix = 'https://hub.agentnetwork.org.cn/dl/'; Redirect = '' }
+  }
+}
+
+# Get-AnetProbeUrl is the small file a probe of a source fetches: the
+# metadata of the version for an npm registry, release.json for GitHub.
+function Get-AnetProbeUrl {
+  param([hashtable]$Source)
+  if ($Source.Kind -eq 'tarball') { return $Source.MetaUrl }
+  return ($Source.Prefix + 'release.json')
+}
+
+# Get-AnetSourceOrder puts the sources in the order they are tried, from
+# the result of the probe: Reachable lists the names of the probed sources
+# (npmmirror, github) that answered, in the order they answered; those come
+# first, and a probed source that did not answer is left out. Then npmjs,
+# jsdelivr and the project's two hosts, always.
+function Get-AnetSourceOrder {
+  param([Parameter(Mandatory = $true)][hashtable]$List, [Parameter(Mandatory = $true)][hashtable]$Probe)
+  $order = New-Object System.Collections.Generic.List[hashtable]
+  foreach ($n in @($Probe['Reachable'])) {
+    if (($n -eq 'npmmirror' -or $n -eq 'github') -and @($order | Where-Object { $_.Name -eq $n }).Count -eq 0) { $order.Add($List[$n]) }
+  }
+  foreach ($n in @('npmjs', 'jsdelivr', 'host1', 'host2')) { $order.Add($List[$n]) }
+  return $order.ToArray()
+}
+
+# Get-AnetSources is the list of sources, in the order they are tried: the
+# source of -Base, else of ANET_INSTALL_BASE, alone; otherwise
+# Get-AnetSourceOrder after a probe of npmmirror and GitHub (Invoke-AnetProbe;
+# a test passes its result as $Probe).
+function Get-AnetSources {
+  param([Parameter(Mandatory = $true)][hashtable]$Options, [Parameter(Mandatory = $true)][string]$Arch,
+        [Parameter(Mandatory = $true)][string]$Version, [hashtable]$Probe = $null)
+  if ($Options.Base -ne '') { return @(New-AnetBaseSource -Base $Options.Base) }
+  if (-not [string]::IsNullOrEmpty($env:ANET_INSTALL_BASE)) {
+    return @(New-AnetBaseSource -Base (Get-AnetBaseValue -Text $env:ANET_INSTALL_BASE -What 'ANET_INSTALL_BASE'))
+  }
+  $list = Get-AnetSourceList -AssetPrefix $Options.AssetPrefix -Arch $Arch -Version $Version
+  if ($null -eq $Probe) { $Probe = Invoke-AnetProbe -Sources @($list['npmmirror'], $list['github']) -Version $Version }
+  $order = @(Get-AnetSourceOrder -List $list -Probe $Probe)
+  Write-AnetLine ('download sources, in order: ' + (@($order | ForEach-Object { $_.Label }) -join ', '))
+  return $order
+}
+
+# New-AnetHttpClient is an HttpClient that follows no redirect by itself (a
+# caller follows them, https only), with a connection timeout of 5 seconds
+# where .NET has one (PowerShell 7) and $TimeoutSeconds for the answer.
+function New-AnetHttpClient {
+  param([int]$TimeoutSeconds, [switch]$Redirects)
   $socketsHandler = 'System.Net.Http.SocketsHttpHandler' -as [type]
   if ($null -ne $socketsHandler) {
     $handler = New-Object System.Net.Http.SocketsHttpHandler
-    $handler.ConnectTimeout = [TimeSpan]::FromSeconds(15)
+    $handler.ConnectTimeout = [TimeSpan]::FromSeconds([Math]::Min(5, $TimeoutSeconds))
   } else {
     $handler = New-Object System.Net.Http.HttpClientHandler
   }
-  $handler.AllowAutoRedirect = $false
+  $handler.AllowAutoRedirect = [bool]$Redirects
+  if ($Redirects) { $handler.MaxAutomaticRedirections = 5 }
   $client = New-Object System.Net.Http.HttpClient -ArgumentList $handler
+  $client.Timeout = [TimeSpan]::FromSeconds($TimeoutSeconds)
+  return $client
+}
+
+# Invoke-AnetProbe asks the sources (npmmirror and GitHub) at the same time
+# for their probe file (Get-AnetProbeUrl), each for at most $TimeoutMs, and
+# waits at most $TotalMs in all. A source answers when it returns that file
+# for this version: npm metadata whose version is $Version, or a
+# release.json. Returns Reachable, the names of those that answered, the
+# first to answer first. What a probe returns is used for nothing else.
+function Invoke-AnetProbe {
+  param([hashtable[]]$Sources, [string]$Version, [int]$TimeoutMs = 3000, [int]$TotalMs = 4000)
+  $reachable = New-Object System.Collections.Generic.List[string]
+  $client = New-AnetHttpClient -TimeoutSeconds ([Math]::Max(1, [int][Math]::Ceiling($TimeoutMs / 1000))) -Redirects
+  $client.MaxResponseContentBufferSize = 1048576
+  $cts = New-Object System.Threading.CancellationTokenSource
+  $cts.CancelAfter($TimeoutMs)
+  $clock = [Diagnostics.Stopwatch]::StartNew()
+  $pending = New-Object System.Collections.Generic.List[object]
   try {
-    $client.Timeout = [TimeSpan]::FromSeconds($TimeoutSeconds)
-    $client.MaxResponseContentBufferSize = $Limit
-    $uri = New-Object System.Uri $Url
-    for ($hop = 0; $hop -le 5; $hop++) {
-      if ($uri.Scheme -cne 'https') { throw ('refusing ' + $uri.AbsoluteUri + ': downloads are https only') }
-      $req = New-Object System.Net.Http.HttpRequestMessage -ArgumentList ([System.Net.Http.HttpMethod]::Get), $uri
+    foreach ($s in $Sources) {
+      $req = New-Object System.Net.Http.HttpRequestMessage -ArgumentList ([System.Net.Http.HttpMethod]::Get), (Get-AnetProbeUrl -Source $s)
       $req.Headers.Add('Cache-Control', 'no-cache')
-      $resp = $client.SendAsync($req, [System.Net.Http.HttpCompletionOption]::ResponseContentRead).GetAwaiter().GetResult()
+      $pending.Add(@{ Source = $s; Task = $client.SendAsync($req, [System.Net.Http.HttpCompletionOption]::ResponseContentRead, $cts.Token) })
+    }
+    while ($pending.Count -gt 0) {
+      $left = $TotalMs - [int]$clock.ElapsedMilliseconds
+      if ($left -le 0) { break }
+      $tasks = [System.Threading.Tasks.Task[]]@($pending | ForEach-Object { $_.Task })
+      $i = [System.Threading.Tasks.Task]::WaitAny($tasks, $left)
+      if ($i -lt 0) { break }
+      $p = $pending[$i]
+      $pending.RemoveAt($i)
+      $name = $p.Source.Name
+      $ms = [int]$clock.ElapsedMilliseconds
+      if ($p.Task.Status -ne [System.Threading.Tasks.TaskStatus]::RanToCompletion) {
+        $why = 'no answer'
+        if ($null -ne $p.Task.Exception) { $why = $p.Task.Exception.GetBaseException().Message }
+        Write-AnetLine ('probe ' + $name + ': not reachable (' + $why + ')')
+        continue
+      }
+      $resp = $p.Task.Result
       try {
         $code = [int]$resp.StatusCode
-        if ($code -eq 301 -or $code -eq 302 -or $code -eq 303 -or $code -eq 307 -or $code -eq 308) {
-          if ($null -eq $resp.Headers.Location) { throw ('HTTP ' + $code + ' without a Location') }
-          $uri = New-Object System.Uri -ArgumentList $uri, $resp.Headers.Location
-          continue
+        $final = $resp.RequestMessage.RequestUri
+        $ok = ($code -eq 200 -and $final.Scheme -ceq 'https')
+        if ($ok -and $p.Source.Redirect -eq 'github') { $ok = (Test-AnetGitHubHost -HostName $final.Host) }
+        if ($ok) {
+          $body = $resp.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+          if ($p.Source.Kind -eq 'tarball') {
+            $ok = ([string](($body | ConvertFrom-Json).version) -ceq $Version)
+          } else {
+            $ok = $body.TrimStart().StartsWith('{')
+          }
         }
-        if ($code -ne 200) { throw ('HTTP ' + $code) }
-        $body = $resp.Content.ReadAsByteArrayAsync().GetAwaiter().GetResult()
-        if ($body.Length -gt $Limit -or ($Exact -and $body.Length -ne $Limit)) {
-          throw ($body.Length.ToString() + ' bytes, expected ' + $(if ($Exact) { 'exactly ' } else { 'at most ' }) + $Limit)
+        if ($ok) {
+          $reachable.Add($name)
+          Write-AnetLine ('probe ' + $name + ': reachable in ' + $ms + ' ms')
+        } else {
+          Write-AnetLine ('probe ' + $name + ': does not serve ' + $Version + ' (HTTP ' + $code + ' from ' + $final.Host + ')')
         }
-        return ,$body
+      } catch {
+        Write-AnetLine ('probe ' + $name + ': does not serve ' + $Version + ' (' + $_.Exception.Message + ')')
       } finally {
         $resp.Dispose()
       }
     }
-    throw 'more than 5 redirects'
+    foreach ($p in $pending) { Write-AnetLine ('probe ' + $p.Source.Name + ': no answer within ' + $TotalMs + ' ms') }
+  } finally {
+    $cts.Cancel()
+    $client.Dispose()
+    $cts.Dispose()
+  }
+  return @{ Reachable = $reachable.ToArray() }
+}
+
+# Test-AnetGitHubHost: a host a GitHub download may be redirected to.
+function Test-AnetGitHubHost {
+  param([string]$HostName)
+  $h = $HostName.ToLowerInvariant()
+  return ($h -ceq 'github.com' -or $h.EndsWith('.githubusercontent.com'))
+}
+
+# New-AnetNotServing is the exception of a source that does not serve the
+# release: Get-AnetRelease passes over it for the next source.
+function New-AnetNotServing {
+  param([string]$Message)
+  $e = New-Object System.Exception $Message
+  $e.Data['AnetNotServing'] = $true
+  return $e
+}
+
+# Get-AnetHttpBytes fetches an https URL and returns its body, at most
+# $Limit bytes: redirects are followed by hand, at most five, only to https
+# (and with -Redirect github only to GitHub's hosts). $TimeoutSeconds bounds
+# the wait for the answer; the body must then keep coming (no 30 seconds
+# without data). $Progress, when given, is updated as the body arrives
+# (Update-AnetProgress). Every failure is New-AnetNotServing.
+function Get-AnetHttpBytes {
+  param([string]$Url, [long]$Limit, [int]$TimeoutSeconds, [string]$Redirect = '', [hashtable]$Progress = $null)
+  $client = New-AnetHttpClient -TimeoutSeconds $TimeoutSeconds
+  try {
+    $uri = New-Object System.Uri $Url
+    for ($hop = 0; $hop -le 5; $hop++) {
+      if ($uri.Scheme -cne 'https') { throw (New-AnetNotServing ('redirected to ' + $uri.Scheme + '://' + $uri.Host + ': downloads are https only')) }
+      if ($Redirect -eq 'github' -and -not (Test-AnetGitHubHost -HostName $uri.Host)) {
+        throw (New-AnetNotServing ('redirected to ' + $uri.Host + ', which is not a host of GitHub'))
+      }
+      $req = New-Object System.Net.Http.HttpRequestMessage -ArgumentList ([System.Net.Http.HttpMethod]::Get), $uri
+      $req.Headers.Add('Cache-Control', 'no-cache')
+      try {
+        $resp = $client.SendAsync($req, [System.Net.Http.HttpCompletionOption]::ResponseHeadersRead).GetAwaiter().GetResult()
+      } catch {
+        throw (New-AnetNotServing ($uri.Host + ': ' + $_.Exception.GetBaseException().Message))
+      }
+      try {
+        $code = [int]$resp.StatusCode
+        if ($code -eq 301 -or $code -eq 302 -or $code -eq 303 -or $code -eq 307 -or $code -eq 308) {
+          if ($null -eq $resp.Headers.Location) { throw (New-AnetNotServing ('HTTP ' + $code + ' without a Location')) }
+          $uri = New-Object System.Uri -ArgumentList $uri, $resp.Headers.Location
+          continue
+        }
+        if ($code -ne 200) { throw (New-AnetNotServing ('HTTP ' + $code + ' from ' + $uri.Host)) }
+        $declared = $resp.Content.Headers.ContentLength
+        if ($null -ne $declared -and $declared -gt $Limit) { throw (New-AnetNotServing ('' + $declared + ' bytes, more than the ' + $Limit + ' expected')) }
+        if ($null -ne $Progress -and $null -ne $declared -and $declared -gt 0) { $Progress.Total = [long]$declared }
+        $stream = $resp.Content.ReadAsStreamAsync().GetAwaiter().GetResult()
+        $out = New-Object System.IO.MemoryStream
+        try {
+          $buf = New-Object byte[] 65536
+          $total = [long]0
+          while ($true) {
+            $t = $stream.ReadAsync($buf, 0, $buf.Length)
+            try {
+              if (-not $t.Wait(30000)) { throw (New-AnetNotServing ('no data for 30 seconds from ' + $uri.Host)) }
+            } catch {
+              if ($_.Exception.Data['AnetNotServing']) { throw }
+              throw (New-AnetNotServing ($uri.Host + ': ' + $_.Exception.GetBaseException().Message))
+            }
+            $n = $t.Result
+            if ($n -le 0) { break }
+            $total += $n
+            if ($total -gt $Limit) { throw (New-AnetNotServing ('more than the ' + $Limit + ' bytes expected')) }
+            $out.Write($buf, 0, $n)
+            if ($null -ne $Progress) { Update-AnetProgress -Progress $Progress -Done $total }
+          }
+          return ,$out.ToArray()
+        } finally {
+          $stream.Dispose()
+          $out.Dispose()
+        }
+      } finally {
+        $resp.Dispose()
+      }
+    }
+    throw (New-AnetNotServing 'more than 5 redirects')
   } finally {
     $client.Dispose()
   }
 }
 
-# Get-AnetBaseFile reads one release file from a base: <base>/dl/<name> for
-# an https base, <dir>\<name> for a local release directory.
-function Get-AnetBaseFile {
-  param([string]$Base, [string]$Name, [long]$Limit, [switch]$Exact, [int]$TimeoutSeconds)
-  if ($Base -like 'https://*') {
-    return ,(Get-AnetHttpBytes -Url ($Base + '/dl/' + $Name) -Limit $Limit -Exact:$Exact -TimeoutSeconds $TimeoutSeconds)
-  }
-  $path = Join-Path $Base $Name
-  $item = Get-Item -LiteralPath $path -Force -ErrorAction Stop
-  if ($item.PSIsContainer) { throw ($path + ' is a directory') }
-  if ($item.Length -gt $Limit -or ($Exact -and $item.Length -ne $Limit)) {
-    throw ($path + ' is ' + $item.Length + ' bytes, expected ' + $(if ($Exact) { 'exactly ' } else { 'at most ' }) + $Limit)
-  }
+# Read-AnetLocalFile reads one file of a local release directory, at most
+# $Limit bytes.
+function Read-AnetLocalFile {
+  param([string]$Dir, [string]$Name, [long]$Limit)
+  $path = Join-Path $Dir $Name
+  if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw (New-AnetNotServing ($path + ' does not exist')) }
+  $item = Get-Item -LiteralPath $path -Force
+  if ($item.Length -gt $Limit) { throw (New-AnetNotServing ($path + ' is ' + $item.Length + ' bytes, more than the ' + $Limit + ' expected')) }
   return ,([IO.File]::ReadAllBytes($path))
 }
 
-# Get-AnetRelease tries the bases in order and returns the first that serves
-# release.json, its signature and a .gz that matches the pins.
-function Get-AnetRelease {
-  param([string[]]$Bases, [string]$Asset, [hashtable]$Pin)
-  $tried = New-Object System.Collections.Generic.List[string]
-  foreach ($b in $Bases) {
-    Write-AnetLine ('-> download base: ' + $b)
-    try {
-      $manifest = Get-AnetBaseFile -Base $b -Name 'release.json' -Limit 1048576 -TimeoutSeconds 15
-      if ($manifest.Length -eq 0 -or $manifest[0] -ne 0x7B) { throw 'release.json is not a manifest' }
-      $sig = Get-AnetBaseFile -Base $b -Name 'release.json.sig' -Limit 16384 -TimeoutSeconds 15
-      $first = ([Text.Encoding]::ASCII.GetString($sig) -split "`r?`n", 2)[0]
-      if ($first -cne '-----BEGIN SSH SIGNATURE-----') { throw 'release.json.sig is not an SSH signature' }
-      $gz = Get-AnetBaseFile -Base $b -Name ($Asset + '.gz') -Limit ([long]$Pin['GzSize']) -Exact -TimeoutSeconds 600
-      $bin = Test-AnetPin -Gz $gz -Pin $Pin
-      Write-AnetLine ('OK ' + $Asset + '.gz and the binary inside it match the release pins (SHA-256 and size)')
-      return @{ Base = $b; Manifest = $manifest; Signature = $sig; Binary = $bin }
-    } catch {
-      $why = $_.Exception.Message
-      if ($null -ne $_.Exception.InnerException) { $why = $_.Exception.InnerException.Message }
-      Write-AnetLine ('   not used: ' + $why)
-      $tried.Add($b)
+# Test-AnetTarName: an entry name of an npm tarball that is safe to read: a
+# relative path with / between its parts, no empty part, no . or .., no
+# backslash, colon or control character. A tarball with any other name is
+# refused whole (nothing of it is used, and nothing is ever written under
+# the name of an entry).
+function Test-AnetTarName {
+  param([string]$Name)
+  if ([string]::IsNullOrEmpty($Name) -or $Name.Length -gt 1024) { return $false }
+  if ($Name -match '[\\:\x00-\x1f]' -or $Name.StartsWith('/')) { return $false }
+  foreach ($part in $Name.TrimEnd('/').Split('/')) {
+    if ($part -eq '' -or $part -eq '.' -or $part -eq '..') { return $false }
+  }
+  return $true
+}
+
+# Get-AnetTarField reads a NUL-terminated text field of a tar header.
+function Get-AnetTarField {
+  param([byte[]]$Bytes, [int]$Offset, [int]$Length)
+  $end = $Offset
+  while ($end -lt $Offset + $Length -and $Bytes[$end] -ne 0) { $end++ }
+  return [Text.Encoding]::UTF8.GetString($Bytes, $Offset, $end - $Offset)
+}
+
+# Read-AnetTarball reads an npm package tarball (a gzip of a ustar archive)
+# in memory and returns the regular files whose names are in $Want, by
+# name. The archive is refused (New-AnetNotServing) when it is not a gzip
+# of a tar archive, when it decompresses to more than $Limit bytes, when an
+# entry name is not safe (Test-AnetTarName), when a wanted name is not a
+# regular file or comes twice, or when it ends early. Extended headers (pax
+# x, GNU L) give the next entry its name and size; pax g is skipped.
+function Read-AnetTarball {
+  param([byte[]]$Tgz, [string[]]$Want, [long]$Limit)
+  if ($null -eq $Tgz -or $Tgz.Length -lt 2 -or $Tgz[0] -ne 0x1F -or $Tgz[1] -ne 0x8B) { throw (New-AnetNotServing 'the package is not a gzip file') }
+  $in = New-Object System.IO.MemoryStream -ArgumentList (,$Tgz)
+  $z = New-Object System.IO.Compression.GZipStream -ArgumentList $in, ([System.IO.Compression.CompressionMode]::Decompress)
+  $ms = New-Object System.IO.MemoryStream
+  try {
+    $buf = New-Object byte[] 65536
+    while ($true) {
+      $n = $z.Read($buf, 0, $buf.Length)
+      if ($n -le 0) { break }
+      if ($ms.Length + $n -gt $Limit) { throw (New-AnetNotServing ('the package decompresses to more than ' + $Limit + ' bytes')) }
+      $ms.Write($buf, 0, $n)
+    }
+  } catch {
+    if ($_.Exception.Data['AnetNotServing']) { throw }
+    throw (New-AnetNotServing ('the package does not decompress: ' + $_.Exception.Message))
+  } finally {
+    $z.Dispose()
+    $in.Dispose()
+  }
+  $tar = $ms.ToArray()
+  $ms.Dispose()
+  $out = @{}
+  $pos = 0
+  $nextName = ''
+  $nextSize = [long]-1
+  while ($true) {
+    if ($pos + 512 -gt $tar.Length) { throw (New-AnetNotServing 'the package ends before the end of its archive') }
+    $zero = $true
+    for ($i = 0; $i -lt 512; $i++) { if ($tar[$pos + $i] -ne 0) { $zero = $false; break } }
+    if ($zero) { break }
+    $sum = 0
+    for ($i = 0; $i -lt 512; $i++) { if ($i -ge 148 -and $i -lt 156) { $sum += 32 } else { $sum += $tar[$pos + $i] } }
+    $check = (Get-AnetTarField -Bytes $tar -Offset ($pos + 148) -Length 8).Trim()
+    if (-not ($check -match '^[0-7]{1,7}$') -or [Convert]::ToInt32($check, 8) -ne $sum) { throw (New-AnetNotServing 'the package is not a tar archive (header checksum)') }
+    $sizeText = (Get-AnetTarField -Bytes $tar -Offset ($pos + 124) -Length 12).Trim()
+    if (-not ($sizeText -match '^[0-7]{1,11}$')) { throw (New-AnetNotServing 'the package has an entry of unreadable size') }
+    $size = [Convert]::ToInt64($sizeText, 8)
+    $type = [char]$tar[$pos + 156]
+    $name = Get-AnetTarField -Bytes $tar -Offset $pos -Length 100
+    if ((Get-AnetTarField -Bytes $tar -Offset ($pos + 257) -Length 6) -eq 'ustar') {
+      $prefix = Get-AnetTarField -Bytes $tar -Offset ($pos + 345) -Length 155
+      if ($prefix -ne '') { $name = $prefix + '/' + $name }
+    }
+    $data = $pos + 512
+    if ($type -eq 'x' -or $type -eq 'L' -or $type -eq 'g') {
+      if ($size -gt 65536 -or $data + $size -gt $tar.Length) { throw (New-AnetNotServing 'the package has an extended header that does not read') }
+      $ext = [Text.Encoding]::UTF8.GetString($tar, $data, [int]$size)
+      if ($type -eq 'L') {
+        $nextName = $ext.TrimEnd([char]0)
+      } elseif ($type -eq 'x') {
+        foreach ($m in [regex]::Matches($ext, '(?m)^[0-9]+ (path|size)=(.*)$')) {
+          if ($m.Groups[1].Value -eq 'path') { $nextName = $m.Groups[2].Value }
+          elseif ($m.Groups[2].Value -match '^[0-9]{1,15}$') { $nextSize = [long]$m.Groups[2].Value }
+          else { throw (New-AnetNotServing 'the package has an extended header that does not read') }
+        }
+      }
+      $pos = $data + [long][Math]::Ceiling($size / 512) * 512
+      continue
+    }
+    if ($nextName -ne '') { $name = $nextName }
+    if ($nextSize -ge 0) { $size = $nextSize }
+    $nextName = ''
+    $nextSize = [long]-1
+    if (-not (Test-AnetTarName -Name $name)) { throw (New-AnetNotServing ('the package has an entry with an unsafe name: ' + ($name -replace '[\x00-\x1f]', '?'))) }
+    if ($data + $size -gt $tar.Length) { throw (New-AnetNotServing ('the package ends inside ' + $name)) }
+    if (@($Want) -ccontains $name) {
+      if ($type -ne '0' -and $type -ne [char]0) { throw (New-AnetNotServing ($name + ' in the package is not a regular file')) }
+      if ($out.ContainsKey($name)) { throw (New-AnetNotServing ($name + ' is in the package twice')) }
+      $bytes = New-Object byte[] $size
+      [Array]::Copy($tar, $data, $bytes, 0, $size)
+      $out[$name] = $bytes
+    }
+    $pos = $data + [long][Math]::Ceiling($size / 512) * 512
+  }
+  return $out
+}
+
+# Get-AnetSourceFiles reads release.json, its signature and <asset>.gz from
+# a source. Anything that keeps the source from serving them is
+# New-AnetNotServing; the contents are checked by the caller.
+function Get-AnetSourceFiles {
+  param([hashtable]$Source, [string]$Asset, [hashtable]$Pin, [string]$Version, [hashtable]$Progress)
+  $gzName = $Asset + '.gz'
+  $gzLimit = [long]$Pin['GzSize'] + 1
+  if ($Source.Kind -eq 'dir') {
+    return @{
+      Manifest = (Read-AnetLocalFile -Dir $Source.Dir -Name 'release.json' -Limit 1048576)
+      Signature = (Read-AnetLocalFile -Dir $Source.Dir -Name 'release.json.sig' -Limit 16384)
+      Gz = (Read-AnetLocalFile -Dir $Source.Dir -Name $gzName -Limit $gzLimit)
     }
   }
-  throw (New-AnetFailure ('no download base served release ' + $AnetRelease['Version'] + ' (tried: ' + ($tried -join ', ') + ')'))
+  if ($Source.Kind -eq 'files') {
+    $manifest = Get-AnetHttpBytes -Url ($Source.Prefix + 'release.json') -Limit 1048576 -TimeoutSeconds 5 -Redirect $Source.Redirect
+    Assert-AnetManifestServes -Manifest $manifest -Version $Version
+    $sig = Get-AnetHttpBytes -Url ($Source.Prefix + 'release.json.sig') -Limit 16384 -TimeoutSeconds 15 -Redirect $Source.Redirect
+    $Progress.Total = [long]$Pin['GzSize']
+    $gz = Get-AnetHttpBytes -Url ($Source.Prefix + $gzName) -Limit $gzLimit -TimeoutSeconds 15 -Redirect $Source.Redirect -Progress $Progress
+    return @{ Manifest = $manifest; Signature = $sig; Gz = $gz }
+  }
+  $meta = Get-AnetHttpBytes -Url $Source.MetaUrl -Limit 1048576 -TimeoutSeconds 5
+  try {
+    $v = [string](([Text.Encoding]::UTF8.GetString($meta)) | ConvertFrom-Json).version
+  } catch {
+    throw (New-AnetNotServing 'its package metadata does not read')
+  }
+  if (-not ($v -ceq $Version)) { throw (New-AnetNotServing ('it has no package of version ' + $Version)) }
+  $Progress.Total = [long]$Pin['GzSize']
+  $tgz = Get-AnetHttpBytes -Url $Source.Url -Limit ([long]$Pin['GzSize'] + 8388608) -TimeoutSeconds 15 -Progress $Progress
+  $files = Read-AnetTarball -Tgz $tgz -Want @('package/dl/release.json', 'package/dl/release.json.sig', ('package/dl/' + $gzName)) -Limit ([long]$Pin['GzSize'] + 16777216)
+  foreach ($n in @('release.json', 'release.json.sig', $gzName)) {
+    if (-not $files.ContainsKey('package/dl/' + $n)) { throw (New-AnetNotServing ('the package has no dl/' + $n)) }
+  }
+  return @{ Manifest = $files['package/dl/release.json']; Signature = $files['package/dl/release.json.sig']; Gz = $files['package/dl/' + $gzName] }
+}
+
+# Get-AnetManifestVersion is the version a release.json names, without
+# checking anything else ('' when it does not read): a source that serves
+# another release than this script's is passed over before its files are
+# compared with the pins.
+function Get-AnetManifestVersion {
+  param([byte[]]$Manifest)
+  try {
+    $v = [string](([Text.Encoding]::UTF8.GetString($Manifest)) | ConvertFrom-Json).version
+    if (Test-AnetVersion $v) { return $v }
+  } catch { }
+  return ''
+}
+
+# Assert-AnetManifestServes passes over a source (New-AnetNotServing) whose
+# release.json is not a manifest (a page, say) or names another release.
+function Assert-AnetManifestServes {
+  param([byte[]]$Manifest, [string]$Version)
+  if ($null -eq $Manifest -or $Manifest.Length -eq 0 -or $Manifest[0] -ne 0x7B) { throw (New-AnetNotServing 'release.json is not a manifest') }
+  $v = Get-AnetManifestVersion -Manifest $Manifest
+  if (-not ($v -ceq $Version)) { throw (New-AnetNotServing ('it serves release ' + $(if ($v -eq '') { '(unreadable)' } else { $v }) + ', not ' + $Version)) }
+}
+
+# Get-AnetRelease tries the sources in order and returns the first that
+# serves release.json of this release, its signature and the .gz, with
+# the binary inside it. A source that does not serve them (no answer, an
+# HTTP error, a page instead of a file, a missing file, another release) is
+# passed over for the next one, in one line. A .gz that does not match the
+# release pins ends the installation (New-AnetFailure from Test-AnetPin):
+# a source only decides where the bytes come from.
+function Get-AnetRelease {
+  param([hashtable[]]$Sources, [string]$Asset, [hashtable]$Pin, [string]$Platform = '')
+  $version = [string]$AnetRelease['Version']
+  $tried = New-Object System.Collections.Generic.List[string]
+  foreach ($s in $Sources) {
+    Write-AnetLine ('source ' + $s.Label + ' (' + $s.Kind + ')')
+    $progress = New-AnetProgress -Label (Get-AnetText 'dl_label' @{ version = $version; source = $s.Label }) -Total ([long]$Pin['GzSize']) -Show:($s.Kind -ne 'dir')
+    try {
+      $f = Get-AnetSourceFiles -Source $s -Asset $Asset -Pin $Pin -Version $version -Progress $progress
+      Assert-AnetManifestServes -Manifest $f.Manifest -Version $version
+      $first = ([Text.Encoding]::ASCII.GetString($f.Signature) -split "`r?`n", 2)[0]
+      if ($first -cne '-----BEGIN SSH SIGNATURE-----') { throw (New-AnetNotServing 'release.json.sig is not an SSH signature') }
+      if ($f.Gz.Length -lt 2 -or $f.Gz[0] -ne 0x1F -or $f.Gz[1] -ne 0x8B) { throw (New-AnetNotServing ($Asset + '.gz is not a gzip file')) }
+    } catch {
+      Stop-AnetProgress -Progress $progress
+      if ($_.Exception.Data['AnetFailure']) { throw }
+      $why = $_.Exception.Message
+      if (-not $_.Exception.Data['AnetNotServing'] -and $null -ne $_.Exception.InnerException) { $why = $_.Exception.GetBaseException().Message }
+      Write-AnetSay (Get-AnetText 'dl_skip' @{ source = $s.Label; version = $version; why = $why })
+      $tried.Add($s.Label)
+      continue
+    }
+    try {
+      $bin = Test-AnetPin -Gz $f.Gz -Pin $Pin
+    } catch {
+      Stop-AnetProgress -Progress $progress
+      throw
+    }
+    if ($s.Kind -eq 'dir') {
+      Write-AnetSay (Get-AnetText 'dl_dir' @{ version = $version; platform = $Platform; source = $s.Label })
+    } else {
+      Complete-AnetProgress -Progress $progress -Done ([long]$progress.Done) -Plain (Get-AnetText 'dl_done' @{ version = $version; platform = $Platform; source = $s.Label;
+        size = (Format-AnetMB ([long]$progress.Done)); secs = ([Math]::Round($progress.Clock.Elapsed.TotalSeconds, 1)).ToString([Globalization.CultureInfo]::InvariantCulture) })
+    }
+    Write-AnetLine ('OK ' + $Asset + '.gz and the binary inside it match the release pins (SHA-256 and size)')
+    return @{ Source = $s; Manifest = $f.Manifest; Signature = $f.Signature; Binary = $bin }
+  }
+  throw (New-AnetFailure ('no download source served anet ' + $version + ' (tried: ' + ($tried -join ', ') + ')'))
 }
 
 # Get-AnetAccountName names an account for a message: DOMAIN\Name, or the
@@ -873,12 +1578,13 @@ function Confirm-AnetStaged {
   $argv = @('update', '--verify-dir', $TmpDir)
   if ($Installed -ne '') { $argv += @('--installed', $Installed) }
   Write-AnetLine '-> anet update --verify-dir (the downloaded binary verifies the signed release manifest)'
-  $r = @{}
-  Invoke-AnetNative -FilePath $Staged -ArgumentList $argv -Capture -Result $r
+  $r = Invoke-AnetCommand -Exe $Staged -ArgumentList $argv -TimeoutSeconds 120
   if ($r['Code'] -ne 0) {
-    throw (New-AnetFailure ('the downloaded binary did not verify the release (exit status ' + $r['Code'] + '); its reason is above'))
+    $reason = ''
+    if (@($r['Stderr']).Count -gt 0) { $reason = ': ' + [string]@($r['Stderr'])[-1] }
+    throw (New-AnetFailure ('the downloaded binary did not verify the release (exit status ' + $r['Code'] + ')' + $reason))
   }
-  $lines = @($r['Output'] | Where-Object { ([string]$_).Trim() -ne '' })
+  $lines = @($r['Stdout'])
   if ($lines.Count -ne 1) { throw (New-AnetFailure 'the verification printed no single answer line') }
   try {
     $v = [string]$lines[0] | ConvertFrom-Json
@@ -953,7 +1659,8 @@ function Install-AnetStaged {
 # Save-AnetRecord keeps release.json and its signature beside the binary,
 # where `anet doctor` verifies them again. The signature goes first: a
 # failure between the two leaves a record that fails verification, which is
-# reported, rather than one that is believed.
+# reported, rather than one that is believed. Returns whether both were
+# written.
 function Save-AnetRecord {
   param([string]$Exe, [string]$TmpDir)
   foreach ($pair in @(@('release.json.sig', '.release.json.sig'), @('release.json', '.release.json'))) {
@@ -963,9 +1670,10 @@ function Save-AnetRecord {
       [IO.File]::Copy((Join-Path $TmpDir $pair[0]), $dst, $false)
     } catch {
       Write-AnetLine ('Warning: could not write ' + $dst + '; anet doctor will report the release signature as unknown')
-      return
+      return $false
     }
   }
+  return $true
 }
 
 # ConvertTo-AnetArgument quotes one argument for a Windows command line the
@@ -980,18 +1688,22 @@ function ConvertTo-AnetArgument {
   return '"' + $quoted + '"'
 }
 
-# Invoke-AnetTimed runs a program that is not the anet this script installs
-# (an earlier anet, npm, a fresh powershell.exe): its standard input is
-# closed at once, so it cannot wait for the console; its output is
-# captured; and after $TimeoutSeconds it is ended, with every process it
-# started in turn (Stop-AnetProcessTree), and reported as timed out. With
-# $PathVariable, the program gets that PATH instead of this session's. A
-# program that cannot start sets Code to -1.
+# Invoke-AnetTimed runs a program other than icacls.exe and taskkill.exe:
+# the anet this script installs, an earlier anet, npm, a fresh
+# powershell.exe. Its standard input is closed at once, so it cannot wait
+# for the console; its standard output and standard error are captured
+# (Stdout, Stderr, and both in Output), for the log; and after
+# $TimeoutSeconds it is ended, with every process it started in turn
+# (Stop-AnetProcessTree), and reported as timed out. With $PathVariable, the
+# program gets that PATH instead of this session's. A program that cannot
+# start sets Code to -1.
 function Invoke-AnetTimed {
   param([Parameter(Mandatory = $true)][string]$FilePath, [string[]]$ArgumentList = @(), [int]$TimeoutSeconds = 30,
         [string]$PathVariable = '', [Parameter(Mandatory = $true)][hashtable]$Result)
   $Result['Code'] = -1
   $Result['Output'] = @()
+  $Result['Stdout'] = @()
+  $Result['Stderr'] = @()
   $Result['TimedOut'] = $false
   $psi = New-Object System.Diagnostics.ProcessStartInfo
   $psi.FileName = $FilePath
@@ -1022,10 +1734,13 @@ function Invoke-AnetTimed {
     }
     $p.WaitForExit()
     $Result['Code'] = $p.ExitCode
-    $text = ''
-    if ($out.Wait(5000)) { $text = [string]$out.Result }
-    if ($err.Wait(1000)) { $text += "`n" + [string]$err.Result }
-    $Result['Output'] = @($text -split "`r?`n" | Where-Object { ([string]$_).Trim() -ne '' })
+    $stdout = ''
+    $stderr = ''
+    if ($out.Wait(5000)) { $stdout = [string]$out.Result }
+    if ($err.Wait(1000)) { $stderr = [string]$err.Result }
+    $Result['Stdout'] = @($stdout -split "`r?`n" | Where-Object { ([string]$_).Trim() -ne '' })
+    $Result['Stderr'] = @($stderr -split "`r?`n" | Where-Object { ([string]$_).Trim() -ne '' })
+    $Result['Output'] = @($Result['Stdout']) + @($Result['Stderr'])
   } finally {
     $p.Dispose()
   }
@@ -1048,6 +1763,23 @@ function Stop-AnetProcessTree {
     if ($r['Code'] -eq 0) { return }
   }
   try { $Process.Kill() } catch { }
+}
+
+# Invoke-AnetCommand runs an anet.exe (the one this script installs, or the
+# staged one) through Invoke-AnetTimed and puts the command line, its output
+# and its exit status in the log. Returns the result of Invoke-AnetTimed.
+function Invoke-AnetCommand {
+  param([Parameter(Mandatory = $true)][string]$Exe, [string[]]$ArgumentList = @(), [int]$TimeoutSeconds = 120)
+  $r = @{}
+  Invoke-AnetTimed -FilePath $Exe -ArgumentList $ArgumentList -TimeoutSeconds $TimeoutSeconds -Result $r
+  Write-AnetLine ('$ anet ' + (@($ArgumentList | ForEach-Object { ConvertTo-AnetArgument -Text ([string]$_) }) -join ' '))
+  foreach ($l in @($r['Output'])) { Write-AnetLine ('  ' + $l) }
+  if ($r['TimedOut']) {
+    Write-AnetLine ('  (ended after ' + $TimeoutSeconds + ' seconds)')
+  } else {
+    Write-AnetLine ('  (exit status ' + $r['Code'] + ')')
+  }
+  return $r
 }
 
 # Test-AnetOneShotHost reports whether this PowerShell process was started
@@ -1506,26 +2238,79 @@ function Test-AnetLoopbackListens {
   }
 }
 
-# Test-AnetDataDirBusy: the daemon of AgentNetwork 1.x may still hold the
-# data directory. 1.x writes its process ID to daemon.pid and serves
-# 127.0.0.1:3998; the directory is busy while that process runs under a name
-# that contains anet, or while that address accepts connections. Any doubt
-# counts as busy.
-function Test-AnetDataDirBusy {
+# Get-AnetProcessPath is the program file of the process $Id, or '' when it
+# cannot be read (no such process, or one of another account).
+function Get-AnetProcessPath {
+  param([int]$Id)
+  try {
+    $p = Get-Process -Id $Id -ErrorAction Stop
+  } catch {
+    return ''
+  }
+  $path = ''
+  try { $path = [string]$p.Path } catch { }
+  if ($path -eq '' -and $null -ne (Get-Command -Name 'Get-CimInstance' -ErrorAction SilentlyContinue)) {
+    try {
+      $c = Get-CimInstance -ClassName Win32_Process -Filter ('ProcessId = ' + $Id) -ErrorAction Stop
+      if ($null -ne $c) { $path = [string]$c.ExecutablePath }
+    } catch { }
+  }
+  return $path
+}
+
+# Get-AnetPortOwner is the process ID that listens on TCP port $Port: 0
+# when none does, -1 when Windows cannot be asked (no Get-NetTCPConnection).
+function Get-AnetPortOwner {
+  param([int]$Port)
+  if ($null -eq (Get-Command -Name 'Get-NetTCPConnection' -ErrorAction SilentlyContinue)) { return -1 }
+  try {
+    $c = @(Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction Stop)
+    if ($c.Count -gt 0) { return [int]$c[0].OwningProcess }
+  } catch { }
+  return 0
+}
+
+# Get-AnetLegacyDaemons lists the daemons of AgentNetwork 1.x that may hold
+# the data directory $Root: the process of its daemon.pid, and the process
+# that listens on 127.0.0.1:3998, each only when its program carries the
+# module path of AgentNetwork 1.x (Get-AnetBinaryFamily v1). A process of
+# anet 0.3 or later, a process of another program that reuses the ID in a
+# stale daemon.pid, and a process this account cannot read (another
+# account's) are not such daemons. Unknown is set when something answers on
+# 127.0.0.1:3998 and Windows cannot say which process it is.
+function Get-AnetLegacyDaemons {
   param([string]$Root)
+  $found = New-Object System.Collections.Generic.List[hashtable]
+  $ids = New-Object System.Collections.Generic.List[int]
   $pidFile = Join-Path $Root 'daemon.pid'
   if (Test-Path -LiteralPath $pidFile -PathType Leaf) {
     try {
       $text = [IO.File]::ReadAllText($pidFile)
       if ($text.Length -gt 32) { $text = $text.Substring(0, 32) }
       $digits = $text -replace '[^0-9]', ''
-      if ($digits.Length -gt 0 -and $digits.Length -le 9) {
-        $proc = Get-Process -Id ([int]$digits) -ErrorAction SilentlyContinue
-        if ($null -ne $proc -and $proc.ProcessName -match 'anet') { return $true }
-      }
+      if ($digits.Length -gt 0 -and $digits.Length -le 9) { $ids.Add([int]$digits) }
     } catch { }
   }
-  return (Test-AnetLoopbackListens -Port $AnetV1Port)
+  $unknown = $false
+  if (Test-AnetLoopbackListens -Port $AnetV1Port) {
+    $owner = Get-AnetPortOwner -Port $AnetV1Port
+    if ($owner -lt 0) { $unknown = $true } elseif ($owner -gt 0 -and -not $ids.Contains($owner)) { $ids.Add($owner) }
+  }
+  foreach ($id in $ids) {
+    if ($id -le 0) { continue }
+    $exe = Get-AnetProcessPath -Id $id
+    if ($exe -ne '' -and (Get-AnetBinaryFamily -Exe $exe) -eq 'v1') { $found.Add(@{ Pid = $id; Exe = $exe }) }
+  }
+  return @{ Daemons = $found.ToArray(); Unknown = $unknown }
+}
+
+# Test-AnetDataDirBusy: a daemon of AgentNetwork 1.x may still hold the
+# data directory (Get-AnetLegacyDaemons found one, or cannot tell who
+# answers on 127.0.0.1:3998).
+function Test-AnetDataDirBusy {
+  param([string]$Root)
+  $l = Get-AnetLegacyDaemons -Root $Root
+  return (@($l.Daemons).Count -gt 0 -or $l.Unknown)
 }
 
 # Wait-AnetDataDirFree waits, at most $Seconds, until Test-AnetDataDirBusy
@@ -1538,6 +2323,78 @@ function Wait-AnetDataDirFree {
     Start-Sleep -Seconds 1
   }
   return $true
+}
+
+# Get-AnetLegacyToken is the API token AgentNetwork 1.x keeps in its data
+# directory (api_token, or anet\api_token), as its own stop command reads
+# it; '' when there is none that reads. It is sent to 127.0.0.1 only and
+# never written to the log.
+function Get-AnetLegacyToken {
+  param([string]$Root)
+  foreach ($rel in @('api_token', 'anet\api_token')) {
+    $f = Join-AnetPath $Root $rel
+    try {
+      if (-not (Test-Path -LiteralPath $f -PathType Leaf) -or (Get-Item -LiteralPath $f -Force).Length -gt 4096) { continue }
+      $t = ([IO.File]::ReadAllText($f)).Trim()
+      if ($t -cmatch '^[\x21-\x7e]{1,4096}$') { return $t }
+    } catch { }
+  }
+  return ''
+}
+
+# Invoke-AnetLegacyShutdown asks the daemon of AgentNetwork 1.x on
+# 127.0.0.1:3998 to shut down (POST /api/shutdown, what its stop command
+# sends), with its token when there is one. Returns what it answered.
+function Invoke-AnetLegacyShutdown {
+  param([string]$Token)
+  $client = New-AnetHttpClient -TimeoutSeconds 5
+  try {
+    $req = New-Object System.Net.Http.HttpRequestMessage -ArgumentList ([System.Net.Http.HttpMethod]::Post), ('http://127.0.0.1:' + $AnetV1Port + '/api/shutdown')
+    if ($Token -ne '') { $req.Headers.Authorization = New-Object System.Net.Http.Headers.AuthenticationHeaderValue -ArgumentList 'Bearer', $Token }
+    $req.Content = New-Object System.Net.Http.StringContent -ArgumentList '{}', ([Text.Encoding]::UTF8), 'application/json'
+    $resp = $client.SendAsync($req).GetAwaiter().GetResult()
+    try { return ('HTTP ' + [int]$resp.StatusCode) } finally { $resp.Dispose() }
+  } catch {
+    return $_.Exception.GetBaseException().Message
+  } finally {
+    $client.Dispose()
+  }
+}
+
+# Stop-AnetLegacyDaemon stops a daemon of AgentNetwork 1.x that still holds
+# the data directory $Root after the stop commands of the earlier
+# installations ran (or none was found): first over its local API with the
+# token from $Root, then, when it has not exited within 10 seconds, by its
+# process ID, each ID checked again just before (its program carries the
+# module path of AgentNetwork 1.x). No other process is ended, and none by
+# name. Returns whether the directory is then free.
+function Stop-AnetLegacyDaemon {
+  param([string]$Root)
+  $l = Get-AnetLegacyDaemons -Root $Root
+  if (@($l.Daemons).Count -eq 0 -and -not $l.Unknown) { return $true }
+  foreach ($d in @($l.Daemons)) { Write-AnetLine ('a daemon of AgentNetwork 1.x still holds ' + $Root + ': process ' + $d.Pid + ' (' + $d.Exe + ')') }
+  if ($l.Unknown) { Write-AnetLine ('something answers on 127.0.0.1:' + $AnetV1Port + ', and Windows cannot say which process it is') }
+  if (Test-AnetLoopbackListens -Port $AnetV1Port) {
+    $token = Get-AnetLegacyToken -Root $Root
+    if ($token -ne '') {
+      $answer = Invoke-AnetLegacyShutdown -Token $token
+      Write-AnetLine ('asked it to shut down (POST http://127.0.0.1:' + $AnetV1Port + '/api/shutdown with the token of ' + $Root + '): ' + $answer)
+    } else {
+      Write-AnetLine ($Root + ' holds no API token of AgentNetwork 1.x; its local API was not asked')
+    }
+  }
+  if (Wait-AnetDataDirFree -Root $Root -Seconds 10) { return $true }
+  foreach ($d in @((Get-AnetLegacyDaemons -Root $Root).Daemons)) {
+    $exe = Get-AnetProcessPath -Id $d.Pid
+    if ($exe -eq '' -or (Get-AnetBinaryFamily -Exe $exe) -ne 'v1') { continue }
+    try {
+      Stop-Process -Id $d.Pid -Force -ErrorAction Stop
+      Write-AnetLine ('ended process ' + $d.Pid + ' (' + $exe + '), the daemon of AgentNetwork 1.x')
+    } catch {
+      Write-AnetLine ('could not end process ' + $d.Pid + ' (' + $exe + '): ' + $_.Exception.Message)
+    }
+  }
+  return (Wait-AnetDataDirFree -Root $Root -Seconds 5)
 }
 
 # Get-AnetLegacyAside names the directory the data of an earlier anet is
@@ -1625,24 +2482,30 @@ function Move-AnetLegacyData {
 # Invoke-AnetTakeover takes over from the other anet installations of this
 # user (Find-AnetOthers), without asking, in an order that leaves a
 # consistent state when a step fails: an earlier anet (AgentNetwork 1.x) is
-# stopped with its own stop command; the data directory $DataDir, when it is
-# an earlier anet's and its daemon has exited, is moved aside
+# stopped with its own stop command; a daemon of 1.x that still holds the
+# data directory $DataDir is stopped (Stop-AnetLegacyDaemon); the data
+# directory, when it is an earlier anet's, is moved aside
 # (Move-AnetLegacyData); only then is the npm package of 1.x uninstalled.
 # A data directory of an earlier anet is moved whether or not an earlier
-# installation was found, as install.sh does, once it is free. When it
-# cannot be moved (its daemon still runs, or the move failed), Held is set,
-# the package stays, and Remaining lists the exact commands to run. Another anet 0.3 or later
-# outside npm is reported, for its directory to be taken off the PATH; an
-# npm launcher of 0.3 or later, and anything that is not an anet of either
-# line, are left alone. From a Restricted window (elevated, while Windows has
-# a standard token for the account), nothing found on the machine is run:
-# the stop and npm commands go to Remaining instead, and the data is moved
-# only when its daemon is not running.
+# installation was found, as install.sh does. When it cannot be moved (its
+# daemon could not be stopped, or the move failed), Held is set, the
+# package stays, and Remaining lists the exact commands to run. Another anet
+# 0.3 or later outside npm is reported, for its directory to be taken off
+# the PATH; an npm launcher of 0.3 or later, and anything that is not an
+# anet of either line, are left alone. From a Restricted window (elevated,
+# while Windows has a standard token for the account), nothing found on the
+# machine is run: the stop and npm commands go to Remaining instead.
+#
+# Returns Report (lines for the log), Current, Held, Remaining, Taken (the
+# summary line of the takeover: Label, and Aside when data was moved; $null
+# when nothing was taken over), Label (what the earlier anet is called) and
+# Notes (lines of the summary for what is left to the user).
 function Invoke-AnetTakeover {
   param([string]$InstallDir, [string]$DataDir, [hashtable]$Elevation)
   $report = New-Object System.Collections.Generic.List[string]
   $current = New-Object System.Collections.Generic.List[string]
   $remaining = New-Object System.Collections.Generic.List[string]
+  $notes = New-Object System.Collections.Generic.List[string]
   $restricted = [bool]$Elevation.Restricted
   $npm = Find-AnetNpm
   $npmPrefix = ''
@@ -1651,7 +2514,7 @@ function Invoke-AnetTakeover {
   } elseif ($npm -ne '') {
     $r = @{}
     Invoke-AnetTimed -FilePath $npm -ArgumentList @('prefix', '-g') -TimeoutSeconds 60 -Result $r
-    $lines = @($r['Output'])
+    $lines = @($r['Stdout'])
     if ($r['Code'] -eq 0 -and $lines.Count -gt 0 -and [IO.Path]::IsPathRooted(([string]$lines[0]).Trim())) {
       $npmPrefix = ([string]$lines[0]).Trim()
     }
@@ -1659,6 +2522,7 @@ function Invoke-AnetTakeover {
   $others = @(Find-AnetOthers -InstallDir $InstallDir -NpmPrefix $npmPrefix -Elevation $Elevation)
   $legacy = New-Object System.Collections.Generic.List[hashtable]
   $legacyVersion = ''
+  $acted = $false
   foreach ($e in $others) {
     $what = $e.Dir + '\' + ($e.Names -join ', ')
     if ($e.Class -eq 'Current') {
@@ -1677,14 +2541,14 @@ function Invoke-AnetTakeover {
     if ($legacyVersion -eq '' -and $e.Version -ne '') { $legacyVersion = $e.Version }
     $label = $e.Version
     if ($label -eq '') { $label = '1.x' }
-    Write-AnetLine ('-> taking over from anet ' + $label + ' in ' + $e.Dir)
+    $report.Add('taking over from AgentNetwork ' + $label + ' in ' + $e.Dir)
     if ($e.StopExe -eq '') {
-      $note = 'anet ' + $label + ' in ' + $e.Dir + ' has no binary of AgentNetwork 1.x this installer can run to stop it'
+      $note = 'AgentNetwork ' + $label + ' in ' + $e.Dir + ' has no binary of AgentNetwork 1.x this installer can run to stop it'
       if ($e.StopNote -ne '') { $note += ' (' + $e.StopNote + ')' }
       $report.Add($note)
       continue
     }
-    $stopCommand = '& ''' + $e.StopExe + ''' stop'
+    $stopCommand = '& ' + (ConvertTo-AnetPSLiteral $e.StopExe) + ' stop'
     if ($restricted) {
       $report.Add('not run from this elevated window: ' + $e.StopExe + ' stop')
       $remaining.Add($stopCommand)
@@ -1692,35 +2556,50 @@ function Invoke-AnetTakeover {
     }
     $r = @{}
     Invoke-AnetTimed -FilePath $e.StopExe -ArgumentList @('stop') -TimeoutSeconds 30 -Result $r
+    foreach ($l in @($r['Output'])) { $report.Add('  ' + $l) }
     if ($r['TimedOut']) {
       $report.Add('Warning: ' + $e.StopExe + ' stop did not finish within 30 seconds and was ended')
-      $remaining.Add($stopCommand)
     } elseif ($r['Code'] -ne 0) {
       $report.Add('Warning: ' + $e.StopExe + ' stop ended with exit status ' + $r['Code'])
     } else {
-      $report.Add('stopped anet ' + $label + ' with its own stop command (' + $e.StopExe + ' stop)')
+      $report.Add('stopped AgentNetwork ' + $label + ' with its own stop command (' + $e.StopExe + ' stop)')
+      $acted = $true
     }
   }
 
   # The data directory, after the daemon that may hold it has exited;
   # found or not, an earlier anet's data is moved as install.sh moves it.
   $held = $false
+  $aside = ''
   $kind = Get-AnetDataDirKind -Root $DataDir
   $version = $legacyVersion
   if ($kind -eq 'older') { $version = '0.2' } elseif ($version -eq '') { $version = '1.x' }
+  $takenLabel = 'AgentNetwork ' + $version
+  if ($kind -eq 'older') { $takenLabel = 'anet 0.2' }
+  $report.Add('data directory ' + $DataDir + ': ' + $kind)
   if ($kind -eq 'older' -or $kind -eq 'v1' -or $kind -eq 'mixed') {
-    $aside = Get-AnetLegacyAside -Root $DataDir -Version $version
-    $moveCommand = Get-AnetMoveCommand -Root $DataDir -Aside $aside -Kind $kind
-    if (-not (Wait-AnetDataDirFree -Root $DataDir -Seconds 15)) {
+    $target = Get-AnetLegacyAside -Root $DataDir -Version $version
+    $moveCommand = Get-AnetMoveCommand -Root $DataDir -Aside $target -Kind $kind
+    $free = Wait-AnetDataDirFree -Root $DataDir -Seconds 5
+    if (-not $free) {
+      foreach ($l in @(Get-AnetLegacyDaemonLog -Root $DataDir)) { $report.Add($l) }
+      $free = Stop-AnetLegacyDaemon -Root $DataDir
+      if ($free) { $acted = $true }
+    }
+    if (-not $free) {
       $held = $true
-      $report.Add('Warning: ' + $DataDir + ' is still in use by the daemon of the earlier anet (the process of its daemon.pid runs, or 127.0.0.1:' + $AnetV1Port + ' answers), so it was not moved; the new anet does not start on it')
+      $report.Add('Warning: ' + $DataDir + ' is still in use by a daemon of AgentNetwork 1.x, which could not be stopped, so it was not moved; the new anet does not start on it')
+      foreach ($d in @((Get-AnetLegacyDaemons -Root $DataDir).Daemons)) { $remaining.Add('Stop-Process -Id ' + $d.Pid) }
       $remaining.Add($moveCommand)
     } else {
-      $m = Move-AnetLegacyData -Root $DataDir -Version $version -Kind $kind -Aside $aside
+      $m = Move-AnetLegacyData -Root $DataDir -Version $version -Kind $kind -Aside $target
       $report.Add($m.Line)
       if ($m.Held) {
         $held = $true
         $remaining.Add($moveCommand)
+      } else {
+        $aside = $target
+        $acted = $true
       }
     }
   } elseif ($kind -eq 'newer') {
@@ -1739,22 +2618,50 @@ function Invoke-AnetTakeover {
       $typed = 'npm ' + (@($argv | ForEach-Object { ConvertTo-AnetArgument -Text $_ }) -join ' ')
       if ($held -or $restricted -or $npm -eq '' -or @($argv | Where-Object { -not (Test-AnetBatchSafe $_) }).Count -gt 0) {
         $report.Add('the npm package @agentnetwork/anet ' + $e.Version + ' was not removed; run: ' + $typed)
-        $remaining.Add($typed)
+        if ($held) { $remaining.Add($typed) } else { $notes.Add((Get-AnetText 'note_npm' @{ version = $e.Version; command = $typed })) }
         continue
       }
       $r = @{}
       Invoke-AnetTimed -FilePath $npm -ArgumentList $argv -TimeoutSeconds 180 -Result $r
+      foreach ($l in @($r['Output'])) { $report.Add('  ' + $l) }
       if ($r['Code'] -eq 0 -and -not (Test-Path -LiteralPath (Join-AnetPath $e.Dir 'node_modules\@agentnetwork\anet\package.json'))) {
         $report.Add('removed the npm package @agentnetwork/anet ' + $e.Version + ' (' + $typed + ')')
+        $acted = $true
       } else {
         $report.Add('Warning: ' + $typed + ' did not remove the package (exit status ' + $r['Code'] + ')')
-        $remaining.Add($typed)
+        $notes.Add((Get-AnetText 'note_npm' @{ version = $e.Version; command = $typed }))
       }
     } else {
-      $report.Add('left in place: ' + $e.Dir + '\anet.exe (anet ' + $e.Version + '); the new anet comes before it on your PATH unless that directory is on the machine PATH')
+      $exe = Join-Path $e.Dir 'anet.exe'
+      $report.Add('left in place: ' + $exe + ' (AgentNetwork ' + $e.Version + ')')
+      if (-not $held) {
+        $v = $e.Version
+        if ($v -eq '') { $v = '1.x' }
+        $notes.Add((Get-AnetText 'note_legacy_exe' @{ path = $exe; version = $v; command = ('Remove-Item -LiteralPath ' + (ConvertTo-AnetPSLiteral $exe)) }))
+      }
     }
   }
-  return @{ Report = $report.ToArray(); Current = $current.ToArray(); Held = $held; Remaining = $remaining.ToArray() }
+  # From a restricted window, a stop command that was not run is left to a
+  # normal window (when the takeover is complete; otherwise it is a step).
+  if (-not $held) {
+    foreach ($c in @($remaining)) { $notes.Add((Get-AnetText 'note_run' @{ command = $c })) }
+    $remaining.Clear()
+  }
+  $taken = $null
+  if ($acted -and -not $held) { $taken = @{ Label = $takenLabel; Aside = $aside } }
+  return @{ Report = $report.ToArray(); Current = $current.ToArray(); Held = $held; Remaining = $remaining.ToArray();
+            Taken = $taken; Label = $takenLabel; Notes = $notes.ToArray() }
+}
+
+# Get-AnetLegacyDaemonLog says in lines for the log which daemons of
+# AgentNetwork 1.x hold the data directory.
+function Get-AnetLegacyDaemonLog {
+  param([string]$Root)
+  $l = Get-AnetLegacyDaemons -Root $Root
+  $out = @()
+  foreach ($d in @($l.Daemons)) { $out += ('daemon of AgentNetwork 1.x on ' + $Root + ': process ' + $d.Pid + ' (' + $d.Exe + ')') }
+  if ($l.Unknown) { $out += ('127.0.0.1:' + $AnetV1Port + ' answers; Windows cannot say which process listens') }
+  return $out
 }
 
 # Set-AnetUserPath puts the install directory first in the user's PATH in
@@ -1815,7 +2722,8 @@ function Set-AnetUserPath {
 
 # Test-AnetPathOrder asks a new powershell.exe, started with the PATH a new
 # window gets (the machine's PATH, then the user's, from the registry), which
-# anet it runs, and reports in one line whether that is $Exe.
+# anet it runs, and says in the log whether that is $Exe. Returns the other
+# anet a new window runs, or ''.
 function Test-AnetPathOrder {
   param([string]$Exe)
   $machine = [string][Environment]::GetEnvironmentVariable('Path', 'Machine')
@@ -1829,11 +2737,31 @@ function Test-AnetPathOrder {
   if ($r['Code'] -eq 0 -and $lines.Count -gt 0) { $got = ([string]$lines[0]).Trim() }
   if ($got -ne '' -and $got -ieq $Exe) {
     Write-AnetLine ('OK a new window runs ' + $Exe + ' for anet')
-  } elseif ($got -ne '') {
-    Write-AnetLine ('Warning: a new window runs ' + $got + ' for anet, not ' + $Exe + '; its directory comes first on the machine PATH: remove that anet, or run ' + $Exe + ' by its full path')
-  } else {
-    Write-AnetLine ('Warning: a new powershell.exe could not say which anet it runs; check with: (Get-Command anet).Source')
+    return ''
   }
+  if ($got -ne '') {
+    Write-AnetLine ('Warning: a new window runs ' + $got + ' for anet, not ' + $Exe + '; its directory comes first on the machine PATH')
+    return $got
+  }
+  Write-AnetLine ('Warning: a new powershell.exe could not say which anet it runs; check with: (Get-Command anet).Source')
+  return ''
+}
+
+# Test-AnetPathHere reports whether the PATH this process started with (that
+# of the window that ran the command) already finds $Exe as anet: the first
+# directory of it that holds an anet program is the install directory.
+function Test-AnetPathHere {
+  param([string]$PathText, [string]$Exe)
+  $dir = Split-Path -Parent $Exe
+  foreach ($e in ([string]$PathText).Split(';')) {
+    $d = $e.Trim().Trim('"')
+    if ($d -eq '') { continue }
+    try { $d = [Environment]::ExpandEnvironmentVariables($d).TrimEnd('\') } catch { continue }
+    foreach ($n in @('anet.exe', 'anet.cmd', 'anet.bat', 'anet.ps1', 'anet.com')) {
+      if (Test-Path -LiteralPath (Join-Path $d $n) -PathType Leaf) { return (Test-AnetSameDir $d $dir) }
+    }
+  }
+  return $false
 }
 
 # Get-AnetSessionOwner is the account that owns explorer.exe in the session
@@ -1982,7 +2910,7 @@ function Start-AnetStandardUser {
 # node runs with the rights of this window, said in one line.
 function Start-AnetNode {
   param([string]$Exe, [hashtable]$Elevation)
-  $res = @{ Code = 0; Deferred = $false; Why = '' }
+  $res = @{ Code = 0; Deferred = $false; Why = ''; Note = '' }
   if ($Elevation.Elevated) {
     if ($Elevation.Restricted) {
       $why = Start-AnetStandardUser -Exe $Exe -Account $Elevation.Account
@@ -1995,39 +2923,42 @@ function Start-AnetNode {
       return $res
     }
     Write-AnetLine ('   This window is elevated and ' + $Elevation.NoStandardToken + ', so Windows has no standard user token for this account: the node runs with the rights of this window.')
+    $res.Note = 'note_builtin_admin'
+    if ($Elevation.NoStandardToken -eq 'User Account Control is off') { $res.Note = 'note_uac_off' }
   }
-  # The lines of anet up go to the console, not into the value returned.
-  $r = @{}
-  Invoke-AnetNative -FilePath $Exe -ArgumentList @('up') -Result $r | Out-Host
+  $r = Invoke-AnetCommand -Exe $Exe -ArgumentList @('up') -TimeoutSeconds 120
   $res.Code = $r['Code']
   return $res
 }
 
-# Write-AnetGrant prints what -Controller granted, read back from the data
-# directory, and the two steps that revoke it.
+# Write-AnetGrant puts in the log what -Controller granted, read back from
+# the data directory, and the two steps that revoke it. Returns whether the
+# grant read back as written.
 function Write-AnetGrant {
   param([string]$DataDir, [string]$Aid)
   $config = Join-Path $DataDir 'config.json'
   $allowFile = Join-Path $DataDir 'peers.allow'
   $shellText = '(config.json could not be read)'
+  $ok = $false
   try {
     $cfg = [IO.File]::ReadAllText($config) | ConvertFrom-Json
     $sh = $cfg.modules.shell
-    $parts = @('allow = [' + (@($sh.allow) -join ', ') + ']', ('allow_arbitrary = ' + ([string]$sh.allow_arbitrary).ToLowerInvariant()))
+    $parts = @(('allow = [' + (@($sh.allow) -join ', ') + ']'), ('allow_arbitrary = ' + ([string]$sh.allow_arbitrary).ToLowerInvariant()))
     if (@($sh.PSObject.Properties.Name) -contains 'shell') { $parts += ('shell = ' + [string]$sh.shell) }
     $shellText = $parts -join ', '
+    $ok = ((@($sh.allow) -join ',') -ceq $Aid)
   } catch { }
-  $listed = 'no'
+  $listed = $false
   try {
-    if (@([IO.File]::ReadAllLines($allowFile) | Where-Object { $_.Trim() -ceq $Aid }).Count -gt 0) { $listed = 'yes' }
+    if (@([IO.File]::ReadAllLines($allowFile) | Where-Object { $_.Trim() -ceq $Aid }).Count -gt 0) { $listed = $true }
   } catch { }
-  Write-AnetLine ''
-  Write-AnetLine ('Granted, as -Controller on the command line requested (that parameter is the consent; nothing was asked):')
+  Write-AnetLine 'Granted, as -Controller on the command line requested (that parameter is the consent; nothing was asked):'
   Write-AnetLine ('  modules.shell in ' + $config + ': ' + $shellText)
-  Write-AnetLine ('  peers.allow in ' + $allowFile + ': ' + $Aid + ' (listed: ' + $listed + ')')
+  Write-AnetLine ('  peers.allow in ' + $allowFile + ': ' + $Aid + ' (listed: ' + $(if ($listed) { 'yes' } else { 'no' }) + ')')
   Write-AnetLine ('The agent ' + $Aid + ' can run any command on this computer as this user. To revoke it:')
   Write-AnetLine ('  1. anet peers remove ' + $Aid)
   Write-AnetLine ('  2. remove the modules.shell block from ' + $config + ', then restart the node: anet stop, then anet up')
+  return ($ok -and $listed)
 }
 
 # Set-AnetAutostart starts the node at every logon of this user.
@@ -2044,16 +2975,18 @@ function Set-AnetAutostart {
   Write-AnetLine ('   to stop that: Remove-ItemProperty -Path ''HKCU:\' + $runKey + ''' -Name AgentNetwork')
 }
 
-# Write-AnetInstalledFailure ends a run after the binary is installed: what
-# went wrong, what is installed, and the commands that remain, in order.
-function Write-AnetInstalledFailure {
+# Get-AnetInstalledFailure is what a run that ends after the binary is
+# installed prints: what went wrong, what is installed, and the commands
+# that remain, in order.
+function Get-AnetInstalledFailure {
   param([hashtable]$State, [string]$Message, [string[]]$Steps = @())
-  Write-AnetLine ('Error: ' + $Message)
-  Write-AnetLine ('anet ' + $AnetRelease['Version'] + ' is installed at ' + $State.Exe + '.')
+  $out = @((Get-AnetText 'error' @{ text = $Message }),
+           (Get-AnetText 'stopped_at' @{ version = $AnetRelease['Version']; exe = $State.Exe }))
   if (@($Steps).Count -gt 0) {
-    Write-AnetLine 'Run by hand, in a normal window of this account, in this order:'
-    foreach ($s in @($Steps)) { Write-AnetLine ('  ' + $s) }
+    $out += (Get-AnetText 'steps')
+    foreach ($s in @($Steps)) { $out += ('  ' + $s) }
   }
+  return $out
 }
 
 # Open-AnetGuard opens the binary at $Path for reading and shares it for
@@ -2103,9 +3036,8 @@ function Get-AnetInstalledVersion {
     Write-AnetLine ('Warning: the version of the existing ' + $Exe + ' is not read from an elevated window; it will be replaced')
     return ''
   }
-  $r = @{}
-  Invoke-AnetNative -FilePath $Exe -ArgumentList @('version') -Capture -Result $r
-  $lines = @($r['Output'])
+  $r = Invoke-AnetCommand -Exe $Exe -ArgumentList @('version') -TimeoutSeconds 30
+  $lines = @($r['Stdout'])
   if ($r['Code'] -eq 0 -and $lines.Count -gt 0 -and ([string]$lines[0]) -cmatch '^anet (\S+) ') {
     if (Test-AnetVersion $Matches[1]) { return $Matches[1] }
   }
@@ -2113,11 +3045,105 @@ function Get-AnetInstalledVersion {
   return ''
 }
 
+# Get-AnetNodeStatus asks the node for its status (anet status --json):
+# Running, Aid and Version. -Quiet keeps the answer out of the log.
+function Get-AnetNodeStatus {
+  param([string]$Exe, [switch]$Quiet)
+  $st = @{ Running = $false; Aid = ''; Version = '' }
+  if ($Quiet) {
+    $r = @{}
+    Invoke-AnetTimed -FilePath $Exe -ArgumentList @('status', '--json') -TimeoutSeconds 30 -Result $r
+  } else {
+    $r = Invoke-AnetCommand -Exe $Exe -ArgumentList @('status', '--json') -TimeoutSeconds 30
+  }
+  if ($r['Code'] -ne 0) { return $st }
+  $st.Running = $true
+  try {
+    $j = (@($r['Stdout']) -join "`n") | ConvertFrom-Json
+    if ([string]$j.aid -cmatch '^bafyrei[a-z2-7]{52}$') { $st.Aid = [string]$j.aid }
+    if (Test-AnetVersion ([string]$j.version)) { $st.Version = [string]$j.version }
+  } catch { }
+  return $st
+}
+
+# Read-AnetJoinState is the state of the join of $Hub as the node keeps it
+# in hub_join.json (registered, pending_admission, retrying, refused), or ''.
+function Read-AnetJoinState {
+  param([string]$DataDir, [string]$Hub)
+  try {
+    $j = [IO.File]::ReadAllText((Join-Path $DataDir 'hub_join.json')) | ConvertFrom-Json
+    if (([string]$j.hub).TrimEnd('/') -ieq $Hub.TrimEnd('/')) { return [string]$j.state }
+  } catch { }
+  return ''
+}
+
+# Get-AnetLastLine is the last line a command printed that says why, for a
+# message: of its standard error when it wrote there, else of its standard
+# output; a line that gives the next command (it starts with an arrow) is
+# left out. '' when there is none.
+function Get-AnetLastLine {
+  param([hashtable]$Result)
+  $lines = @($Result['Stdout'])
+  if (@($Result['Stderr']).Count -gt 0) { $lines = @($Result['Stderr']) }
+  $lines = @($lines | Where-Object { $t = ([string]$_).Trim(); $t -ne '' -and -not $t.StartsWith([string][char]0x2192) -and -not $t.StartsWith('->') })
+  if ($lines.Count -eq 0) { return '' }
+  return ([string]$lines[-1]).Trim()
+}
+
+# Get-AnetSummary is the summary of a run that completed (OUTPUT in the
+# header), from its facts: Version; Running; Aid; Hub and JoinState
+# (registered, pending_admission, retrying, or '' when not known); Error
+# (a reason for the line Error:, or ''); Taken (@{ Label; Aside } or
+# $null); Controller; Notes (lines); Run (here, new or path) and Exe. The
+# line Details: follows it (Get-AnetDetailsLine).
+function Get-AnetSummary {
+  param([Parameter(Mandatory = $true)][hashtable]$F)
+  $out = New-Object System.Collections.Generic.List[string]
+  if ($F.Running) {
+    $out.Add((Get-AnetText 'running' @{ version = $F.Version }))
+  } else {
+    $out.Add((Get-AnetText 'installed_only' @{ version = $F.Version }))
+  }
+  if ($F.Running -and $F.Aid -ne '') { $out.Add('  AID   ' + $F.Aid) }
+  if ($F.Running -and $F.Hub -ne '' -and $F.Error -eq '') {
+    $key = 'hub_sent'
+    switch -exact ([string]$F.JoinState) {
+      'registered' { $key = 'hub_joined' }
+      'pending_admission' { $key = 'hub_pending' }
+      'retrying' { $key = 'hub_retrying' }
+    }
+    $out.Add((Get-AnetText $key @{ hub = $F.Hub; aid = $F.Aid }))
+  }
+  if ($F.Error -ne '') { $out.Add((Get-AnetText 'error' @{ text = $F.Error })) }
+  if ($null -ne $F.Taken) {
+    if ($F.Taken.Aside -ne '') {
+      $out.Add((Get-AnetText 'takeover_kept' @{ label = $F.Taken.Label; aside = $F.Taken.Aside }))
+    } else {
+      $out.Add((Get-AnetText 'takeover' @{ label = $F.Taken.Label }))
+    }
+  }
+  if ($F.Controller -ne '') { $out.Add((Get-AnetText 'remote' @{ aid = $F.Controller })) }
+  foreach ($n in @($F.Notes)) { $out.Add((Get-AnetText 'note' @{ text = $n })) }
+  switch -exact ([string]$F.Run) {
+    'here' { $out.Add((Get-AnetText 'run_here')) }
+    'path' { $out.Add((Get-AnetText 'run_path' @{ exe = $F.Exe })) }
+    default { $out.Add((Get-AnetText 'run_new')) }
+  }
+  return $out.ToArray()
+}
+
+# Get-AnetDetailsLine is the last line of every run: where its log is.
+function Get-AnetDetailsLine {
+  param([string]$Log, [string]$Why)
+  if ($Log -ne '') { return (Get-AnetText 'details' @{ path = $Log }) }
+  return (Get-AnetText 'details_none' @{ why = $Why })
+}
+
 function Install-Anet {
   param(
     [string]$Controller, [switch]$Shell, [string]$Hub, [string]$Name, [string]$Prefix,
     [string[]]$Without, [string]$Base, [switch]$NoAutostart, [switch]$NoPath, [switch]$Elevated,
-    [switch]$NoJoin
+    [switch]$NoJoin, [switch]$NoStart
   )
   $previousEAP = $ErrorActionPreference
   $previousProgress = $ProgressPreference
@@ -2126,8 +3152,15 @@ function Install-Anet {
   $ProgressPreference = 'SilentlyContinue'
   $given = @{}
   foreach ($k in $PSBoundParameters.Keys) { $given[$k] = $PSBoundParameters[$k] }
-  $S = @{ Installed = $false; Exe = ''; Tmp = ''; Staged = ''; Guard = $null }
+  $S = @{ Installed = $false; Exe = ''; Tmp = ''; Staged = ''; Guard = $null; DataDir = ''; Lines = @(); Error = $false }
   $global:LASTEXITCODE = 0
+  $startPath = [string]$env:Path
+  Start-AnetLog
+  $relVersion = '(unreleased template)'
+  if ($AnetRelease -is [hashtable]) { $relVersion = [string]$AnetRelease['Version'] }
+  Write-AnetLine ('install.ps1 of anet ' + $relVersion + ', run at ' + $AnetOut.Stamp + ' (UTC)')
+  Write-AnetLine ('PowerShell ' + $PSVersionTable.PSVersion + ' ' + [string]$PSVersionTable.PSEdition + ', ' + [Environment]::OSVersion.VersionString)
+  Write-AnetLine ('parameters: ' + ((@($given.Keys | Sort-Object) | ForEach-Object { '-' + $_ + ' ' + (@($given[$_]) -join ',') }) -join ' '))
   try {
     Assert-AnetReleased
 
@@ -2148,7 +3181,7 @@ function Install-Anet {
     $arch = Get-AnetArch
     # An elevated window is not refused (-Elevated changes nothing): anet is
     # installed for this account as in any other window, and the node is
-    # started with standard user rights when Windows has them (step 13). An
+    # started with standard user rights when Windows has them (step 14). An
     # elevated window of another account than the one logged on to this
     # session is refused: anet would be installed for that other account,
     # and its node would run as it in this user's session.
@@ -2160,28 +3193,35 @@ function Install-Anet {
     # 2. Parameters.
     $o = Get-AnetOptions -Given $given
     $asset = $o.AssetPrefix + '-windows-' + $arch
+    $platform = 'windows-' + $arch
     $pin = $AnetRelease['Assets'][$asset]
-    Write-AnetLine ('-> Installing anet ' + $AnetRelease['Version'] + ' (' + $o.Variant + ' build, windows-' + $arch + ') for ' + $elevation.Account)
+    $version = [string]$AnetRelease['Version']
+    Write-AnetLine ('installing anet ' + $version + ' (' + $o.Variant + ' build, ' + $platform + ') for ' + $elevation.Account)
     if ($elevation.Elevated) {
-      Write-AnetLine '   This window is elevated. anet is installed for this account all the same: its own directories, PATH and Run value.'
+      Write-AnetLine 'This window is elevated. anet is installed for this account all the same: its own directories, PATH and Run value.'
       if ($elevation.Restricted) {
-        Write-AnetLine '   Programs already on this computer are not run from this window; the commands that need one are printed instead.'
+        Write-AnetLine 'Programs already on this computer are not run from this window; the commands that need one are listed instead.'
       }
     }
     if ($o.Variant -eq 'shell') {
-      Write-AnetLine '   The shell build CAN run commands on this machine for the agents its configuration allows.'
+      Write-AnetLine 'The shell build CAN run commands on this machine for the agents its configuration allows.'
     }
+    $profileDir = [Environment]::GetFolderPath('UserProfile')
+    $dataDir = [string]$env:ANET_DATA_DIR
+    if ($dataDir -eq '') { $dataDir = Join-Path $profileDir '.anet' }
+    $S.DataDir = $dataDir
+    $notes = New-Object System.Collections.Generic.List[string]
 
-    # 3. and 4. Bases, download and pin check.
+    # 3. and 4. Sources, download and pin check.
     if ($PSVersionTable.PSEdition -ne 'Core') {
       # Windows PowerShell 5.1: add TLS 1.2 to what the session allows.
       [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor 3072
     }
     if ($null -eq ('System.Net.Http.HttpClient' -as [type])) { Add-Type -AssemblyName System.Net.Http }
-    $bases = @(Get-AnetBases -Options $o -Arch $arch)
+    $sources = @(Get-AnetSources -Options $o -Arch $arch -Version $version)
     $S.Tmp = Join-Path ([IO.Path]::GetTempPath()) ('anet-install-' + [Guid]::NewGuid().ToString('N'))
     $null = [IO.Directory]::CreateDirectory($S.Tmp)
-    $rel = Get-AnetRelease -Bases $bases -Asset $asset -Pin $pin
+    $rel = Get-AnetRelease -Sources $sources -Asset $asset -Pin $pin -Platform $platform
     [IO.File]::WriteAllBytes((Join-Path $S.Tmp 'release.json'), $rel.Manifest)
     [IO.File]::WriteAllBytes((Join-Path $S.Tmp 'release.json.sig'), $rel.Signature)
 
@@ -2190,13 +3230,13 @@ function Install-Anet {
     if ($o.PrefixGiven) {
       $why = Get-AnetDirectoryProblem -Dir $o.Prefix
       if ($null -ne $why) {
-        Write-AnetLine ('   ' + $why)
-        throw (New-AnetFailure ('-Prefix ' + $o.Prefix + ' cannot be used: it is not private to this user; choose another directory, or leave -Prefix out and let the installer choose'))
+        Write-AnetLine $why
+        throw (New-AnetFailure ('-Prefix ' + $o.Prefix + ' cannot be used: ' + $why + '; choose a directory that is private to this user, or leave -Prefix out'))
       }
     } else {
       $o.Prefix = Select-AnetInstallDir -Existing $existing
     }
-    Write-AnetLine ('-> install directory: ' + $o.Prefix)
+    Write-AnetLine ('install directory: ' + $o.Prefix)
     Initialize-AnetDirectory -Dir $o.Prefix
     $S.Exe = Join-Path $o.Prefix 'anet.exe'
 
@@ -2208,13 +3248,10 @@ function Install-Anet {
     $S.Guard = Open-AnetGuard -Path $S.Staged -Sha256 ([string]$pin['Sha256'])
     $installed = Get-AnetInstalledVersion -Exe $S.Exe -Elevation $elevation
     $mods = Confirm-AnetStaged -Staged $S.Staged -TmpDir $S.Tmp -Installed $installed -Variant $o.Variant -Asset $asset
-    if ($installed -ne '') {
-      Write-AnetLine ('   ' + $S.Exe + ': ' + $installed + ' -> ' + $AnetRelease['Version'])
-    }
 
     # 7. -Without: the names are checked against the verified module set
     # here, and config.json is changed only after the binary is installed
-    # (step 9), so that a failure before then leaves the machine unchanged.
+    # (step 11), so that a failure before then leaves the machine unchanged.
     foreach ($m in @($o.Without)) {
       if ($m -ne 'shell' -and @($mods) -notcontains $m) {
         throw (New-AnetFailure ('-Without ' + $m + ': the ' + $o.Variant + ' build has no module of that name (its modules: ' + (@($mods) -join ',') + ')'))
@@ -2229,26 +3266,26 @@ function Install-Anet {
     $S.Installed = $true
     $S.Guard = Open-AnetGuard -Path $S.Exe -Sha256 ([string]$pin['Sha256'])
     Remove-AnetAsides -Dir $o.Prefix -Keep $aside
-    Save-AnetRecord -Exe $S.Exe -TmpDir $S.Tmp
-    Write-AnetLine ''
-    Write-AnetLine ('OK Installed anet ' + $AnetRelease['Version'] + ' -> ' + $S.Exe)
-    if ($aside -ne '') {
-      Write-AnetLine ('   The previous binary is ' + $aside + ' until it is no longer in use; a node still running it keeps it until restarted.')
+    if (-not (Save-AnetRecord -Exe $S.Exe -TmpDir $S.Tmp)) { $notes.Add((Get-AnetText 'note_record' @{ exe = $S.Exe })) }
+    if ($installed -ne '' -and $installed -ne $version) {
+      Write-AnetSay (Get-AnetText 'installed_up' @{ exe = $S.Exe; previous = $installed })
+    } else {
+      Write-AnetSay (Get-AnetText 'installed' @{ exe = $S.Exe })
     }
+    if ($aside -ne '') { Write-AnetLine ('the previous binary is ' + $aside + ' until it is no longer in use') }
 
-    # 9. Earlier installations: stop an earlier anet, move its data aside,
-    # remove its npm package, and find other installations of 0.3 or later,
-    # before the data directory is initialized for this one.
-    $profileDir = [Environment]::GetFolderPath('UserProfile')
-    $dataDir = [string]$env:ANET_DATA_DIR
-    if ($dataDir -eq '') { $dataDir = Join-Path $profileDir '.anet' }
+    # 9. Earlier installations: stop an earlier anet and a daemon of it that
+    # still holds the data directory, move its data aside, remove its npm
+    # package, and find other installations of 0.3 or later, before the
+    # data directory is initialized for this one.
     $takeover = Invoke-AnetTakeover -InstallDir $o.Prefix -DataDir $dataDir -Elevation $elevation
+    foreach ($line in @($takeover.Report)) { Write-AnetLine $line }
+    foreach ($n in @($takeover.Notes)) { $notes.Add($n) }
     $otherCurrent = New-Object System.Collections.Generic.List[string]
     foreach ($d in @($takeover.Current)) { $otherCurrent.Add($d) }
     foreach ($e in $existing) {
       if (-not (Test-AnetSameDir $e.Dir $o.Prefix) -and @($otherCurrent | Where-Object { Test-AnetSameDir $_ $e.Dir }).Count -eq 0) { $otherCurrent.Add($e.Dir) }
     }
-    foreach ($line in @($takeover.Report)) { Write-AnetLine ('   ' + $line) }
 
     # 10. PATH: this directory first; another 0.3 installation off it when
     # its directory holds nothing else; a new powershell.exe asked which
@@ -2258,15 +3295,16 @@ function Install-Anet {
       if (Test-AnetDedicatedDir -Dir $d) {
         $removable.Add($d)
       } else {
-        Write-AnetLine ('   ' + $d + ' stays on your PATH: it holds another anet 0.3 installation beside other files; the new anet comes before it')
+        Write-AnetLine ($d + ' stays on your PATH: it holds another anet 0.3 installation beside other files; the new anet comes before it')
       }
     }
     if (-not $o.NoPath) {
       Set-AnetUserPath -Dir $o.Prefix -Remove $removable.ToArray()
-      Test-AnetPathOrder -Exe $S.Exe
+      $other = Test-AnetPathOrder -Exe $S.Exe
+      if ($other -ne '') { $notes.Add((Get-AnetText 'note_path_other' @{ other = $other; exe = $S.Exe })) }
     }
     foreach ($d in $otherCurrent) {
-      Write-AnetLine ('   Another anet 0.3 installation stays in ' + $d + '; delete that directory when no node runs from it.')
+      Write-AnetLine ('Another anet 0.3 installation stays in ' + $d + '; delete that directory when no node runs from it.')
     }
 
     # The commands that complete the installation when it stops here.
@@ -2274,10 +3312,11 @@ function Install-Anet {
     if (@($o.Without).Count -gt 0) { $completion.Add('anet init --without ' + ($o.Without -join ',')) }
     $completion.Add('anet init')
     if ($o.Controller -ne '') { $completion.Add('anet init --shell-controller ' + $o.Controller + ' --yes') }
-    if ($o.Join -or $o.Controller -ne '') { $completion.Add('anet up') }
+    if ($o.Start) { $completion.Add('anet up') }
     if ($o.Join) { $completion.Add('anet hub-register ' + $o.Hub + ' --name ' + (ConvertTo-AnetArgument -Text $o.Name) + ' --passphrase-later') }
     if ($takeover.Held) {
-      Write-AnetInstalledFailure -State $S -Message ('the data directory ' + $dataDir + ' still holds the data of an earlier anet (the lines above say why); the new anet does not start on it, so the installation stops here and nothing in that directory was changed') -Steps (@($takeover.Remaining) + $completion.ToArray())
+      $S.Lines = Get-AnetInstalledFailure -State $S -Message (Get-AnetText 'held' @{ dir = $dataDir; label = $takeover.Label }) -Steps (@($takeover.Remaining) + $completion.ToArray())
+      $S.Error = $true
       $global:LASTEXITCODE = $AnetExitRemaining
       return
     }
@@ -2285,52 +3324,50 @@ function Install-Anet {
     # 11. -Without.
     if (@($o.Without).Count -gt 0) {
       $list = $o.Without -join ','
-      Write-AnetLine ('-> anet init --without ' + $list)
-      $r = @{}
-      Invoke-AnetNative -FilePath $S.Exe -ArgumentList @('init', '--without', $list) -Result $r
+      $r = Invoke-AnetCommand -Exe $S.Exe -ArgumentList @('init', '--without', $list) -TimeoutSeconds 120
       if ($r['Code'] -ne 0) {
-        Write-AnetInstalledFailure -State $S -Message ('anet init --without ' + $list + ' refused (exit status ' + $r['Code'] + '); its reason is above') -Steps $completion.ToArray()
+        $S.Lines = Get-AnetInstalledFailure -State $S -Message ('anet init --without ' + $list + ' refused (exit status ' + $r['Code'] + '): ' + (Get-AnetLastLine $r)) -Steps $completion.ToArray()
+        $S.Error = $true
         $global:LASTEXITCODE = $r['Code']
         return
       }
       $completion.RemoveAt(0)
     }
 
-    # 12. Defaults.
-    Write-AnetLine ''
-    Write-AnetLine '-> anet init (explicit safe defaults: inbound closed, no public capabilities, spending limits 0)'
-    $r = @{}
-    Invoke-AnetNative -FilePath $S.Exe -ArgumentList @('init') -Result $r
+    # 12. Defaults: inbound closed, no public capabilities, spending limits 0.
+    $r = Invoke-AnetCommand -Exe $S.Exe -ArgumentList @('init') -TimeoutSeconds 120
     if ($r['Code'] -ne 0) {
-      Write-AnetInstalledFailure -State $S -Message ('anet init did not complete (exit status ' + $r['Code'] + ')') -Steps $completion.ToArray()
+      $S.Lines = Get-AnetInstalledFailure -State $S -Message (Get-AnetText 'init_failed' @{ code = $r['Code'] }) -Steps $completion.ToArray()
+      $S.Error = $true
       $global:LASTEXITCODE = $r['Code']
       return
     }
     $completion.RemoveAt(0)
 
-    # 13. Controller: -Controller on the command line is the consent, given
-    # to anet init with --yes; nothing is asked.
-    $stopped = $false
-    if ($o.Controller -ne '') {
-      $r = @{}
-      Invoke-AnetNative -FilePath $S.Exe -ArgumentList @('status') -Capture -Result $r
-      if ($r['Code'] -eq 0) {
-        Write-AnetLine '-> stopping the running node to change its configuration'
-        $r = @{}
-        Invoke-AnetNative -FilePath $S.Exe -ArgumentList @('stop') -Result $r
-        if ($r['Code'] -ne 0) {
-          Write-AnetInstalledFailure -State $S -Message ('anet stop did not complete (exit status ' + $r['Code'] + ')') -Steps (@('anet stop') + $completion.ToArray())
-          $global:LASTEXITCODE = $r['Code']
-          return
-        }
-        $stopped = $true
-      }
-      Write-AnetLine ('-> anet init --shell-controller ' + $o.Controller + ' --yes')
-      $r = @{}
-      Invoke-AnetNative -FilePath $S.Exe -ArgumentList @('init', '--shell-controller', $o.Controller, '--yes') -Result $r
+    # 13. A node that runs: stopped to change its configuration (-Controller)
+    # or to run the new binary (when it is started again below).
+    # -Controller on the command line is the consent, given to anet init
+    # with --yes; nothing is asked.
+    $st = Get-AnetNodeStatus -Exe $S.Exe
+    $restart = $st.Running -and ($o.Controller -ne '' -or ($o.Start -and $st.Version -ne $version))
+    if ($restart) {
+      $r = Invoke-AnetCommand -Exe $S.Exe -ArgumentList @('stop') -TimeoutSeconds 120
       if ($r['Code'] -ne 0) {
-        Write-AnetInstalledFailure -State $S -Message ('anet init --shell-controller refused (exit status ' + $r['Code'] + '); its reason is above; the controller was not given access') -Steps @()
-        if ($stopped) { Write-AnetLine 'The node was stopped to change its configuration; start it again with: anet up' }
+        $S.Lines = Get-AnetInstalledFailure -State $S -Message ('anet stop did not complete (exit status ' + $r['Code'] + '): ' + (Get-AnetLastLine $r)) -Steps (@('anet stop') + $completion.ToArray())
+        $S.Error = $true
+        $global:LASTEXITCODE = $r['Code']
+        return
+      }
+    } elseif ($st.Running -and -not $o.Start -and $st.Version -ne '' -and $st.Version -ne $version) {
+      $notes.Add((Get-AnetText 'note_old_daemon' @{ old = $st.Version }))
+    }
+    if ($o.Controller -ne '') {
+      $r = Invoke-AnetCommand -Exe $S.Exe -ArgumentList @('init', '--shell-controller', $o.Controller, '--yes') -TimeoutSeconds 120
+      if ($r['Code'] -ne 0) {
+        $steps = @()
+        if ($restart) { $steps = @('anet up') }
+        $S.Lines = Get-AnetInstalledFailure -State $S -Message ('anet init --shell-controller refused (exit status ' + $r['Code'] + '): ' + (Get-AnetLastLine $r) + '; the controller was not given access') -Steps $steps
+        $S.Error = $true
         $global:LASTEXITCODE = $r['Code']
         return
       }
@@ -2339,85 +3376,86 @@ function Install-Anet {
 
     # 14. Start.
     $started = $false
-    if ($o.Join -or $o.Controller -ne '') {
-      Write-AnetLine ''
-      Write-AnetLine '-> Starting the node'
+    if ($o.Start) {
       $start = Start-AnetNode -Exe $S.Exe -Elevation $elevation
+      if ($start.Note -ne '') { $notes.Add((Get-AnetText $start.Note)) }
       if ($start.Deferred) {
         # Not started with the rights of this window: it starts at the next
         # logon through the Run value, or now by hand in a normal window.
         $autostart = (-not $o.NoAutostart)
         if ($autostart) { Set-AnetAutostart -Exe $S.Exe }
-        $message = 'the node was not started with standard user rights (' + $start.Why + '), and it is not started with the administrator rights of this window.'
-        if ($autostart) { $message += ' It starts at the next logon of ' + $elevation.Account + '.' }
-        Write-AnetInstalledFailure -State $S -Message $message -Steps $completion.ToArray()
+        $message = Get-AnetText 'deferred' @{ why = $start.Why }
+        if ($autostart) { $message += ' ' + (Get-AnetText 'deferred_logon') }
+        $S.Lines = Get-AnetInstalledFailure -State $S -Message $message -Steps $completion.ToArray()
+        $S.Error = $true
         $global:LASTEXITCODE = $AnetExitRemaining
         return
       }
       if ($start.Code -ne 0) {
-        Write-AnetInstalledFailure -State $S -Message ('the node did not start (exit status ' + $start.Code + ')') -Steps $completion.ToArray()
+        $S.Lines = Get-AnetInstalledFailure -State $S -Message (Get-AnetText 'start_failed' @{ code = $start.Code }) -Steps $completion.ToArray()
+        $S.Error = $true
         $global:LASTEXITCODE = $start.Code
         return
       }
       $started = $true
       $completion.RemoveAt(0)
       for ($i = 0; $i -lt 20; $i++) {
-        $r = @{}
-        Invoke-AnetNative -FilePath $S.Exe -ArgumentList @('status') -Capture -Result $r
-        if ($r['Code'] -eq 0) { break }
+        if ((Get-AnetNodeStatus -Exe $S.Exe -Quiet).Running) { break }
         Start-Sleep -Seconds 1
+      }
+      $st = Get-AnetNodeStatus -Exe $S.Exe
+    } else {
+      $notes.Add((Get-AnetText 'note_nostart'))
+    }
+
+    # 15. Autostart. A Run value an earlier installation wrote is pointed
+    # at this one.
+    if (-not $o.NoAutostart -and ($started -or (Get-AnetRunValueExe) -ne '')) { Set-AnetAutostart -Exe $S.Exe }
+
+    # 16. What the node is set up to do, and what -Controller granted, for
+    # the log.
+    $null = Invoke-AnetCommand -Exe $S.Exe -ArgumentList @('doctor') -TimeoutSeconds 120
+    if ($o.Controller -ne '' -and -not (Write-AnetGrant -DataDir $dataDir -Aid $o.Controller)) {
+      $notes.Add((Get-AnetText 'note_grant' @{ config = (Join-Path $dataDir 'config.json') }))
+    }
+
+    # 17. Join, last. --passphrase-later: nothing is asked; the passphrase
+    # is set later with anet identity protect.
+    $joinState = ''
+    $joinError = ''
+    $code = 0
+    if ($o.Join -and $started) {
+      $r = Invoke-AnetCommand -Exe $S.Exe -ArgumentList @('hub-register', $o.Hub, '--name', $o.Name, '--passphrase-later') -TimeoutSeconds 300
+      $code = $r['Code']
+      if ($code -ne 0) {
+        $reason = Get-AnetLastLine $r
+        if ($r['TimedOut']) { $reason = 'no answer within 300 seconds' }
+        $joinError = Get-AnetText 'join_refused' @{ hub = $o.Hub; reason = $reason }
+        $S.Error = $true
+      } else {
+        $joinState = Read-AnetJoinState -DataDir $dataDir -Hub $o.Hub
       }
     }
 
-    # 15. Autostart.
-    # A Run value an earlier installation wrote is pointed at this one.
-    if (-not $o.NoAutostart -and ($started -or (Get-AnetRunValueExe) -ne '')) { Set-AnetAutostart -Exe $S.Exe }
-
-    # 16. Report.
-    Write-AnetLine ''
-    $r = @{}
-    Invoke-AnetNative -FilePath $S.Exe -ArgumentList @('doctor') -Result $r
-    Write-AnetLine ''
-    Write-AnetLine 'Next:'
-    if (-not $started) {
-      Write-AnetLine '  anet up                      start the node in the background'
-    }
-    if (-not $o.Join) {
-      Write-AnetLine '  anet hub-register https://hub.agentnetwork.org.cn --name NAME'
-    }
-    Write-AnetLine '  anet status                  this node''s identity (AID), data directory and console address'
-    Write-AnetLine '  anet doctor                  check again later: signature, hub, what this node lets in'
-    Write-AnetLine '  anet update                  update in place, checked against the release key'
-    if ($o.Controller -ne '') {
-      Write-AnetLine '  anet audit                   every command the controller ran, and every refusal, is on the evidence chain'
-      Write-AnetLine '  anet identity protect        set a recovery passphrase for this node''s identity'
-      Write-AnetGrant -DataDir $dataDir -Aid $o.Controller
-    }
-    if ($o.NoPath) {
-      Write-AnetLine ''
-      Write-AnetLine ('  ' + $o.Prefix + ' is not on your PATH (-NoPath); run anet as "' + $S.Exe + '"')
-    }
-
-    # 17. Join, last: its lines as they are, and its exit status.
-    if ($o.Join) {
-      Write-AnetLine ''
-      Write-AnetLine ('-> anet hub-register ' + $o.Hub + ' --name ' + $o.Name)
-      $r = @{}
-      Invoke-AnetNative -FilePath $S.Exe -ArgumentList @('hub-register', $o.Hub, '--name', $o.Name, '--passphrase-later') -Result $r
-      $global:LASTEXITCODE = $r['Code']
-      return
-    }
-    $global:LASTEXITCODE = 0
+    $run = 'new'
+    if ($o.NoPath) { $run = 'path' } elseif (Test-AnetPathHere -PathText $startPath -Exe $S.Exe) { $run = 'here' }
+    $hubShown = ''
+    if ($o.Join -and $started) { $hubShown = $o.Hub }
+    $S.Lines = Get-AnetSummary -F @{ Version = $version; Running = $st.Running; Aid = $st.Aid; Hub = $hubShown; JoinState = $joinState;
+      Error = $joinError; Taken = $takeover.Taken; Controller = $o.Controller; Notes = $notes.ToArray(); Run = $run; Exe = $S.Exe }
+    $global:LASTEXITCODE = $code
   } catch {
     $e = $_.Exception
     $code = 1
     if ($e.Data['AnetFailure']) { $code = [int]$e.Data['AnetCode'] }
+    Write-AnetLine ('failure: ' + $e.Message)
+    if (-not $e.Data['AnetFailure']) { Write-AnetLine ([string]$_.ScriptStackTrace) }
     if ($S.Installed) {
-      Write-AnetInstalledFailure -State $S -Message $e.Message -Steps @()
+      $S.Lines = Get-AnetInstalledFailure -State $S -Message $e.Message -Steps @()
     } else {
-      Write-AnetLine ('Error: ' + $e.Message)
-      Write-AnetLine 'Nothing was installed or changed.'
+      $S.Lines = @((Get-AnetText 'error' @{ text = $e.Message }), (Get-AnetText 'nothing'))
     }
+    $S.Error = $true
     $global:LASTEXITCODE = $code
   } finally {
     Close-AnetGuard -State $S
@@ -2427,6 +3465,18 @@ function Install-Anet {
     if ($S.Tmp -ne '' -and (Test-Path -LiteralPath $S.Tmp)) {
       Remove-Item -LiteralPath $S.Tmp -Recurse -Force -ErrorAction SilentlyContinue
     }
+    Write-AnetLine ''
+    foreach ($l in @($S.Lines)) { Write-AnetLine $l }
+    Write-AnetLine ('exit status ' + $global:LASTEXITCODE)
+    $why = @{}
+    $log = ''
+    try { $log = Save-AnetLog -DataDir $S.DataDir -Why $why } catch { $why['Text'] = $_.Exception.Message }
+    $errorPrefix = (Get-AnetText 'error' @{ text = '' })
+    $red = (Test-AnetInteractive) -and [string]::IsNullOrEmpty($env:NO_COLOR)
+    foreach ($l in @($S.Lines)) {
+      if ($red -and ([string]$l).StartsWith($errorPrefix)) { Write-Host $l -ForegroundColor Red } else { Write-Host $l }
+    }
+    Write-Host (Get-AnetDetailsLine -Log $log -Why ([string]$why['Text']))
     $ProgressPreference = $previousProgress
     $ErrorActionPreference = $previousEAP
   }
