@@ -73,6 +73,8 @@ import (
 	"github.com/ANetResearch/ANetCore/coredet"
 	"github.com/ANetResearch/ANetCore/identity"
 	"github.com/ANetResearch/ANetCore/seal"
+
+	"github.com/ANetResearch/ANet/internal/fsperm"
 )
 
 // EncKeysPath is the key ring file.
@@ -964,7 +966,11 @@ func (r *encKeyRing) writeRingFile(data []byte) error {
 		_ = zeroAndRemove(tmp)
 		return err
 	}
-	if err := os.Rename(tmp, r.path); err != nil {
+	if err := protectTemp(tmp); err != nil {
+		_ = zeroAndRemove(tmp)
+		return err
+	}
+	if err := fsperm.ReplaceFile(tmp, r.path); err != nil {
 		_ = zeroAndRemove(tmp)
 		return err
 	}
@@ -1024,16 +1030,6 @@ func zeroAndRemove(path string) error {
 	return nil
 }
 
-// syncDir fsyncs the directory dir, so a rename in it is durable.
-func syncDir(dir string) error {
-	d, err := os.Open(dir)
-	if err != nil {
-		return err
-	}
-	defer d.Close()
-	return d.Sync()
-}
-
 // writeFileSync is writeFileAtomic with fsync of the file and of its
 // directory.
 func writeFileSync(path string, data []byte, perm os.FileMode) error {
@@ -1060,7 +1056,13 @@ func writeFileSync(path string, data []byte, perm os.FileMode) error {
 		_ = os.Remove(tmp)
 		return err
 	}
-	if err := os.Rename(tmp, path); err != nil {
+	if perm&0o077 == 0 {
+		if err := protectTemp(tmp); err != nil {
+			_ = os.Remove(tmp)
+			return err
+		}
+	}
+	if err := fsperm.ReplaceFile(tmp, path); err != nil {
 		_ = os.Remove(tmp)
 		return err
 	}

@@ -30,9 +30,9 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 
 	"github.com/ANetResearch/ANet/internal/anethome"
+	"github.com/ANetResearch/ANet/internal/fsperm"
 	"github.com/ANetResearch/ANet/internal/localpeer"
 	"github.com/ANetResearch/ANet/internal/loopguard"
 )
@@ -80,7 +80,7 @@ func listen(dir string) (ln net.Listener, fresh bool, err error) {
 		if err == nil {
 			return ln, false, nil
 		}
-		if errors.Is(err, syscall.EADDRINUSE) {
+		if loopguard.IsAddrInUse(err) {
 			return nil, false, &portTakenError{addr: addr, err: err}
 		}
 		return nil, false, err
@@ -219,7 +219,7 @@ func loadOrCreateToken(dir string) (string, error) {
 			if len(tok) < 32 || strings.ContainsAny(tok, " \t\r\n\"'\\") {
 				return "", fmt.Errorf("%s does not hold a token; delete it to have a new one made", path)
 			}
-			if err := os.Chmod(path, 0o600); err != nil {
+			if err := keepPrivate(path); err != nil {
 				return "", err
 			}
 			return tok, nil
@@ -299,6 +299,10 @@ func writePrivateFile(path string, b []byte) error {
 		tmp.Close()
 		return err
 	}
+	if err := protectTemp(tmp.Name()); err != nil {
+		tmp.Close()
+		return err
+	}
 	if _, err := tmp.Write(b); err != nil {
 		tmp.Close()
 		return err
@@ -306,5 +310,5 @@ func writePrivateFile(path string, b []byte) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	return os.Rename(tmp.Name(), path)
+	return fsperm.ReplaceFile(tmp.Name(), path)
 }

@@ -44,9 +44,9 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
+	"github.com/ANetResearch/ANet/internal/fsperm"
 	"github.com/ANetResearch/ANet/internal/localpeer"
 	"github.com/ANetResearch/ANet/internal/loopguard"
 )
@@ -182,7 +182,7 @@ func (c *consoleSessions) writeLauncher(t, consoleURL string) (string, error) {
 		return "", err
 	}
 	p := filepath.Join(dir, launcherPrefix+name+launcherSuffix)
-	f, err := os.OpenFile(p, os.O_WRONLY|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW, 0o600)
+	f, err := fsperm.OpenNoFollow(p, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return "", err
 	}

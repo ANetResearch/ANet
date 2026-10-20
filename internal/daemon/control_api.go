@@ -18,14 +18,15 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/ANetResearch/ANetCore/delegation"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
 	"github.com/ANetResearch/ANet/internal/anethome"
+	"github.com/ANetResearch/ANet/internal/fsperm"
 	"github.com/ANetResearch/ANet/internal/localpeer"
+	"github.com/ANetResearch/ANet/internal/loopguard"
 	"github.com/ANetResearch/ANet/internal/pathsafe"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 	"github.com/ANetResearch/ANet/module"
@@ -94,7 +95,10 @@ func writeSecretFile(path string, data []byte) error {
 		err = cerr
 	}
 	if err == nil {
-		err = os.Rename(tmp, path)
+		err = protectTemp(tmp)
+	}
+	if err == nil {
+		err = fsperm.ReplaceFile(tmp, path)
 	}
 	if err != nil {
 		_ = os.Remove(tmp)
@@ -444,7 +448,7 @@ func (d *Daemon) listenControl() (net.Listener, error) {
 	if err == nil {
 		return ln, nil
 	}
-	if !errors.Is(err, syscall.EADDRINUSE) || !autoAssignedControlAddr(addr) {
+	if !loopguard.IsAddrInUse(err) || !autoAssignedControlAddr(addr) {
 		return nil, err
 	}
 	moved, port, aerr := AllocControlListener()
@@ -520,7 +524,7 @@ func (d *Daemon) ServeControl(ctx context.Context) error {
 	// holder that is provably this user (another identity's daemon) is not a boundary.
 	from := d.config().ControlAddr
 	ln, err := d.listenControl()
-	taken := errors.Is(err, syscall.EADDRINUSE) || (err == nil && d.config().ControlAddr != from)
+	taken := loopguard.IsAddrInUse(err) || (err == nil && d.config().ControlAddr != from)
 	if taken && !portHeldByThisUser(from, token) {
 		tok, rerr := newControlToken(d.layout)
 		if rerr != nil {

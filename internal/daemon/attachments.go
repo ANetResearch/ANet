@@ -17,12 +17,12 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
 
 	"github.com/ANetResearch/ANetCore/anetcid"
 	"github.com/ANetResearch/ANetCore/delegation"
 
 	"github.com/ANetResearch/ANet/internal/execwork"
+	"github.com/ANetResearch/ANet/internal/fsperm"
 	"github.com/ANetResearch/ANet/internal/pathsafe"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 )
@@ -272,12 +272,15 @@ func pullInto(real, interactionID string, atts []*interactions.Attachment) ([]Pu
 	defer parent.Close()
 	name := "anet-" + pathsafe.SafeName(prefix(interactionID, 12))
 	sub := filepath.Join(real, name)
+	if err := createPullSubdir(parent, sub, name); err != nil {
+		return nil, fmt.Errorf("pull: %s: %w; refusing to write into it", sub, err)
+	}
 	dir, opened, err := openDirIn(parent, name, 0o700)
 	if err != nil {
 		return nil, fmt.Errorf("pull: %s: %w; refusing to write into it", sub, err)
 	}
 	defer dir.Close()
-	if why := pullDirTrouble(opened, os.Getuid()); why != "" {
+	if why := pullSubdirTrouble(opened, sub); why != "" {
 		return nil, fmt.Errorf("pull: %s %s; refusing to write into it (pull into a directory of your own with --out)", sub, why)
 	}
 	used := map[string]bool{}
@@ -396,24 +399,6 @@ func openDirIn(parent *os.Root, name string, mode fs.FileMode) (*os.Root, fs.Fil
 	return dir, opened, nil
 }
 
-// pullDirTrouble says what disqualifies fi as the pull subdirectory, or "" when it qualifies: it must be
-// a directory, not a symbolic link, owned by uid, and not writable by group or others. Anything else
-// could be, or be changed by, another local user.
-func pullDirTrouble(fi fs.FileInfo, uid int) string {
-	switch {
-	case fi.Mode()&fs.ModeSymlink != 0:
-		return "is a symbolic link"
-	case !fi.IsDir():
-		return "exists and is not a directory"
-	case fi.Mode().Perm()&0o022 != 0:
-		return fmt.Sprintf("is writable by others (mode %04o)", fi.Mode().Perm())
-	}
-	if st, ok := fi.Sys().(*syscall.Stat_t); ok && int(st.Uid) != uid {
-		return fmt.Sprintf("belongs to uid %d, not to this user (uid %d)", st.Uid, uid)
-	}
-	return ""
-}
-
 // checkPullOutDir validates the out_dir of a pull and returns it resolved through symbolic links.
 func (d *Daemon) checkPullOutDir(outDir string) (string, error) {
 	if strings.TrimSpace(outDir) == "" {
@@ -443,7 +428,7 @@ func pullOne(dir *os.Root, subPath, name string, a *interactions.Attachment, use
 			continue
 		}
 		p := filepath.Join(subPath, cand)
-		f, err := dir.OpenFile(cand, os.O_CREATE|os.O_EXCL|os.O_WRONLY|syscall.O_NOFOLLOW, 0o600)
+		f, err := dir.OpenFile(cand, os.O_CREATE|os.O_EXCL|os.O_WRONLY|fsperm.NoFollow, 0o600)
 		if err == nil {
 			_, werr := f.Write(a.Data)
 			cerr := f.Close()
@@ -452,6 +437,10 @@ func pullOne(dir *os.Root, subPath, name string, a *interactions.Attachment, use
 			}
 			if cerr != nil {
 				return PullResult{}, cerr
+			}
+			if perr := protectPulled(p); perr != nil {
+				_ = dir.Remove(cand)
+				return PullResult{}, perr
 			}
 			used[cand] = true
 			return PullResult{Name: cand, Path: p, Mime: a.Mime, Size: a.Size, CID: a.CID}, nil
@@ -474,7 +463,7 @@ func regularFileHasCID(dir *os.Root, name, cid string) bool {
 	if err != nil || !fi.Mode().IsRegular() || fi.Size() > pathsafe.MaxAttachmentBytes {
 		return false
 	}
-	f, err := dir.OpenFile(name, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
+	f, err := dir.OpenFile(name, os.O_RDONLY|fsperm.NoFollow, 0)
 	if err != nil {
 		return false
 	}
