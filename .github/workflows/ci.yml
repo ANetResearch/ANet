@@ -336,10 +336,13 @@ jobs:
       - name: the Windows tests
         shell: bash
         run: |
+          # Both runs always happen, so that one failing package does not hide the other's results.
+          rc=0
           go test -count=1 -run Windows ./internal/fsperm ./internal/procgroup ./internal/pathsafe ./internal/anethome \
             ./internal/loopguard ./internal/localpeer ./internal/agentwire ./internal/backendconn ./internal/daemon \
-            ./module/autoreply ./module/p2p ./module/service ./internal/release ./cmd/anet ./cmd/anet-official
-          go test -count=1 -tags shell -run Windows ./module/shell ./cmd/anet
+            ./module/autoreply ./module/p2p ./module/service ./internal/release ./cmd/anet ./cmd/anet-official || rc=1
+          go test -count=1 -tags shell -run Windows ./module/shell ./cmd/anet || rc=1
+          exit $rc
       - name: install.ps1 in Windows PowerShell 5.1
         shell: powershell
         run: |

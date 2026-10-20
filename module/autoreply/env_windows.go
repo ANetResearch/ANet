@@ -12,8 +12,9 @@ var execEnvBase = []string{
 	"HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "ALL_PROXY",
 	"http_proxy", "https_proxy", "no_proxy", "all_proxy",
 	"SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS", "REQUESTS_CA_BUNDLE",
-	"PATHEXT", "SystemRoot", "windir", "ComSpec", "TEMP", "TMP",
-	"ProgramData", "ProgramFiles", "ProgramFiles(x86)", "ProgramW6432",
+	"PATHEXT", "SystemRoot", "SystemDrive", "windir", "ComSpec", "TEMP", "TMP",
+	"ProgramData", "ProgramFiles", "ProgramFiles(x86)", "ProgramW6432", "ALLUSERSPROFILE",
+	"CommonProgramFiles", "CommonProgramFiles(x86)", "CommonProgramW6432",
 	"PROCESSOR_ARCHITECTURE", "NUMBER_OF_PROCESSORS", "OS",
 }
 
