@@ -29,7 +29,7 @@ python3 deploy/plugins/test_generator.py                                 # unit 
 
 `--out DIR` writes `DIR/<key>/`, the plugin of each target, and the files that a target places at the root of the output (catalogues, manifests that a host reads from the root of a repository). When every target is built it also writes `README.md` and `LICENSE` at the root, so that the tree is complete as the root of a repository. `--force` is required to replace existing files, and `--prune` (full build only) also deletes files that the generator no longer produces, such as the files of a removed target. A module whose file name starts with an underscore (`targets/_example.py`) is built only when named with `--target`.
 
-The Go tests of `internal/agentwire` run `--check`, the unit tests, the tests of every target and a build into a temporary directory, verify that every generated skill and command names the guide and only topics that the guide has, and run the POSIX runner of every generated target against the shared rules. `tests/test_windows_runner.py` runs the Windows runner of every target with PowerShell (`ANET_PWSH=<path of pwsh>`; skipped without it). Run them after every change of a source:
+The Go tests of `internal/agentwire` run `--check`, the unit tests, the tests of every target and a build into a temporary directory, verify that every generated skill and command names the guide and only topics that the guide has, and run the POSIX runner of every generated target against the shared rules. `tests/test_windows_runner.py` runs the Windows runner of every target with PowerShell (`ANET_PWSH=<path of pwsh>`; skipped without it or with `ANET_PWSH=off`). Run them after every change of a source:
 
 ```sh
 go test ./internal/agentwire ./cmd/anet

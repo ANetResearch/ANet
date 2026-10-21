@@ -9,7 +9,7 @@ treats an absolute POSIX path as absolute and searches for "anet" instead of
 "anet.exe"; every other rule is the same as on Windows.
 
 The tests need pwsh. They use the program named by ANET_PWSH, or pwsh on PATH,
-and are skipped without one. The .cmd files themselves need cmd.exe and are
+and are skipped without one or when ANET_PWSH is "off". The .cmd files themselves need cmd.exe and are
 checked statically by test_generator.py.
 """
 
@@ -28,7 +28,7 @@ sys.path.insert(0, str(PLUGINS))
 
 import generator as g  # noqa: E402
 
-PWSH = os.environ.get("ANET_PWSH") or shutil.which("pwsh")
+PWSH = None if os.environ.get("ANET_PWSH") == "off" else os.environ.get("ANET_PWSH") or shutil.which("pwsh")
 SCRIPT = '& ([scriptblock]::Create([IO.File]::ReadAllText($env:ANET_RUN_SCRIPT)))'
 
 

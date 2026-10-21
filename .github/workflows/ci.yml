@@ -29,7 +29,7 @@ jobs:
       - name: vet
         run: go vet ./...
       - name: tests
-        run: go test ./...
+        run: go test -timeout 30m ./...
       # SI-38 at run time: TestDaemonNeverOpensRecoveryFile watches every
       # open of the recovery files with inotify, which only Linux has, and
       # skips that half elsewhere. This job runs on Linux, so here a skip is
@@ -131,6 +131,9 @@ jobs:
     runs-on: ubuntu-latest
     env:
       CGO_ENABLED: "0"
+      # The PowerShell runner tests of the plugins take minutes and do not
+      # depend on build tags; the test job runs them.
+      ANET_PWSH: "off"
     strategy:
       fail-fast: false
       matrix:
@@ -182,7 +185,7 @@ jobs:
           go build -tags "${{ matrix.tags }}" ./...
           go vet -tags "${{ matrix.tags }}" ./...
       - name: test without the module
-        run: go test -tags "${{ matrix.tags }}" ./...
+        run: go test -tags "${{ matrix.tags }}" -timeout 30m ./...
       # Without the service module no provider takes files (CUX-F15): the
       # file admission, discard and allow_only tests run on their own here.
       - name: files without the service module
