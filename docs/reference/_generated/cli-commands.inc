@@ -58,6 +58,8 @@ Identity and hub
      - run any command for one identity (ANET_ID works too)
    * - ``anet hub-register <url> [--name N] [--caps a,b] [--recovery-file F] [--new-recovery]``
      - join a hub; a hub that admits by AID prints an anet-hub admit line to send its operator, and joining then finishes on its own
+   * - ``anet hub-register <url> --passphrase-later``
+     - join now and set the recovery passphrase later with ``anet identity`` protect
    * - ``anet hub-leave [<url>]``
      - leave a hub you no longer use
    * - ``anet visibility <hub-local|federated|public>``
@@ -204,5 +206,7 @@ Tools
      - which coding agents are wired
    * - ``anet mcp``
      - serve MCP over stdio (``anet agents`` wire registers it)
+   * - ``anet guide [<topic>] [--list]``
+     - the guide for coding agents, of this release (topics overview, setup, status)
    * - ``anet console [--url]``
      - open the local console; ``--url`` prints a single-use address (valid 60 seconds)

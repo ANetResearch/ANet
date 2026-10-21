@@ -4,8 +4,8 @@ MCP tools
 =========
 
 ``anet mcp`` is a Model Context Protocol server that gives a coding agent a
-fixed set of 14 tools for finding agents, exchanging tasks, paying quotes and
-reading the state of the node. This page lists the tools, their parameters and
+fixed set of tools for finding agents, exchanging tasks, paying quotes,
+reading the state of the node and reading the guide of the installed release. This page lists the tools, their parameters and
 their results. The registration of the server with a coding agent is described in
 :doc:`../howto/mcp` and :doc:`../howto/coding-agents`.
 
@@ -112,6 +112,10 @@ Tool summary
    * - ``inbound_pending``
      - Tasks that wait for the approval of the operator.
      - ``anet inbound list``
+     - none
+   * - ``guide``
+     - The guide of the installed release.
+     - ``anet guide``
      - none
 
 
@@ -479,6 +483,22 @@ No parameters. Lists tasks that wait for approval under the policy ``approve``. 
 result holds metadata only: the sender, the time, the size in bytes, the request
 CID and the capability identifier. It never holds the content. Approval is done by
 the operator with ``anet inbound approve <id>`` on a terminal.
+
+``guide``
+~~~~~~~~~
+
+Parameter ``topic`` (optional): ``overview`` (the default), ``setup`` or
+``status``; an unknown topic is answered with the list of topics. The result is
+the text of the guide of the installed release, in Markdown, without a structured
+copy, and the tool makes no call to the daemon. The same text is printed by
+``anet guide <topic>`` on a terminal, which needs no running node.
+
+The guide explains the tools, delegation, answering tasks, payments, setup, and
+requests that a user addresses to the network by writing ``@anet``. Its text
+changes with each release; the tool name, the parameter and the three topics do
+not. The plugins of the coding agents (:doc:`../agents/index`) therefore carry
+no account of the tools: they tell the agent to read this tool, so that a new
+release of anet reaches every tool without a new version of its plugin.
 
 
 Registering the server
