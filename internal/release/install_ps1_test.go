@@ -84,7 +84,7 @@ func TestInstallPS1FileRules(t *testing.T) {
 		t.Error("install.ps1 calls Install-Anet more than once")
 	}
 	if !strings.Contains(script, "\nparam(\n  [string]$Controller, [switch]$Shell, [string]$Hub, [string]$Name, [string]$Prefix,\n"+
-		"  [string[]]$Without, [string]$Base, [switch]$NoAutostart, [switch]$NoPath, [switch]$Elevated,\n  [switch]$NoJoin, [switch]$NoStart\n)\n") {
+		"  [string[]]$Without, [string]$Base, [switch]$NoAutostart, [switch]$NoPath, [switch]$Elevated,\n  [switch]$NoJoin, [switch]$NoStart, [switch]$Agents, [string[]]$AgentList\n)\n") {
 		t.Error("install.ps1 does not declare the parameters of the specification")
 	}
 	// Every program is started by the one helper, with an argument array.
