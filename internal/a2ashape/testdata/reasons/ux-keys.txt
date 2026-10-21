@@ -443,6 +443,10 @@ wire.change.hermes_drop_a2a
 wire.change.hermes_drop_both
 wire.change.hermes_drop_entries
 wire.change.token_mode
+wire.change.rule_write
+wire.change.rule_drop
+wire.change.zcode_install
+wire.change.zcode_uninstall
 wire.note.not_detected
 wire.note.a2a_skipped
 wire.note.hermes_toolset
@@ -451,6 +455,10 @@ wire.note.workbuddy_docs
 wire.note.foreign_entry
 wire.note.foreign_toml
 wire.note.a2a_absent
+wire.note.trae_space
+wire.note.zcode_desktop
+wire.note.zcode_desktop_remove
+wire.note.cli_output
 wire_tools_failed
 wire_home_not_found
 wire_path_not_absolute.bin
@@ -467,6 +475,7 @@ wire_conflict.yaml_entry
 wire_conflict.yaml_top
 wire_conflict.yaml_inline
 wire_conflict.yaml_shape
+wire_conflict.rule_file
 wire_json_invalid
 wire_not_plain_json
 wire_json_shape
@@ -479,8 +488,11 @@ wire_backup_failed
 wire_backup_limit
 wire_io_failed
 wire_cli_failed
+wire_cli_failed.zcode_missing
 wire_verify_failed.add
 wire_verify_failed.remove
+wire_verify_failed.zcode_add
+wire_verify_failed.zcode_remove
 wire_a2a_not_started
 wire_a2a_addr_invalid
 wire_a2a_token_invalid

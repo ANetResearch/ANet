@@ -2,8 +2,8 @@
 
 // Package agentwire registers this node's MCP server, and the short
 // operating guide that goes with it, in the coding agents installed on this
-// machine: Claude Code, Codex, Cursor, opencode, Hermes and WorkBuddy
-// (A2A-DESIGN §13.1, `anet agents wire|unwire`).
+// machine: Claude Code, Codex, Cursor, opencode, Hermes, WorkBuddy, Trae
+// and ZCode (A2A-DESIGN §13.1, `anet agents wire|unwire`).
 //
 // Everything it writes points at `anet mcp`, so it carries the same build
 // tag as internal/mcpserv: a -tags no_mcp binary has nothing to register and
@@ -52,6 +52,10 @@ const (
 	ToolHermes   = "hermes"
 	// ToolWorkBuddy is Tencent's WorkBuddy desktop app.
 	ToolWorkBuddy = "workbuddy"
+	// ToolTrae is ByteDance's Trae and Trae CN (trae.go).
+	ToolTrae = "trae"
+	// ToolZCode is Z.ai's ZCode, wired through its own plugin CLI (zcode.go).
+	ToolZCode = "zcode"
 )
 
 // A2AAddrFile and A2ATokenFile are the local A2A interface's state files,
@@ -188,7 +192,7 @@ func (r Result) OK() bool { return r.Status != Conflict && r.Status != Failed }
 
 // Tools lists the supported tools in the order results are reported.
 func Tools() []string {
-	return []string{ToolClaude, ToolCodex, ToolCursor, ToolOpenCode, ToolHermes, ToolWorkBuddy}
+	return []string{ToolClaude, ToolCodex, ToolCursor, ToolOpenCode, ToolHermes, ToolWorkBuddy, ToolTrae, ToolZCode}
 }
 
 // tool is one supported coding agent.
@@ -213,6 +217,13 @@ type noter interface {
 	wireNotes(o *Options, st Status) []Msg
 }
 
+// skipNoter is implemented by a tool that has something to tell the
+// operator when wire --all skips it as not installed: ZCode's desktop
+// application without its command-line program can be wired by hand only.
+type skipNoter interface {
+	skipNotes(o *Options) []Msg
+}
+
 func toolByName(name string) (tool, bool) {
 	switch name {
 	case ToolClaude:
@@ -227,6 +238,10 @@ func toolByName(name string) (tool, bool) {
 		return hermesTool{}, true
 	case ToolWorkBuddy:
 		return workbuddyTool{}, true
+	case ToolTrae:
+		return traeTool{}, true
+	case ToolZCode:
+		return zcodeTool{}, true
 	}
 	return nil, false
 }
@@ -291,10 +306,13 @@ func Wire(o Options, names []string, all bool) ([]Result, error) {
 			if t.name() == ToolHermes && len(o.A2A) > 0 {
 				r.Notes = append(r.Notes, msg("wire.note.a2a_skipped"))
 			}
+			if n, ok := t.(skipNoter); ok {
+				r.Notes = append(r.Notes, n.skipNotes(&o)...)
+			}
 			out = append(out, r)
 			continue
 		}
-		if !implicit && !t.detected(&o) {
+		if _, viaCLI := t.(cliTool); !implicit && !viaCLI && !t.detected(&o) {
 			r.Notes = append(r.Notes, msg("wire.note.not_detected"))
 		}
 		changes, err := t.planWire(&o)
@@ -398,6 +416,9 @@ func finish(o *Options, r Result, changes []change, notes []Msg, err error, chan
 		bak, err := c.apply(o)
 		if bak != "" {
 			r.Backups = append(r.Backups, short(o, bak))
+		}
+		if c.output != nil {
+			r.Notes = append(r.Notes, *c.output...)
 		}
 		if err != nil {
 			r.Status, r.Err = Failed, err

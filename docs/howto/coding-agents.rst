@@ -83,10 +83,23 @@ column. ``claude-code`` is accepted as an alias of ``claude``.
      - Member ``mcpServers.anet`` in ``~/.workbuddy/mcp.json``
      - None; the MCP server sends its own instructions on connect
      -
+   * - ``trae``
+     - Member ``mcpServers.anet`` in ``mcp.json`` of the user data directory
+       of Trae and of Trae CN (see `Trae`_)
+     - Rule ``~/.trae/user_rules/anet.md`` (Trae CN: ``~/.trae-cn``)
+     - ``APPDATA``, ``XDG_CONFIG_HOME``
+   * - ``zcode``
+     - The plugin ``anet@agentnetwork``, installed with the ``zcode``
+       command-line program
+     - The skills of the plugin
+     -
 
 A tool counts as present when its executable is on ``PATH`` or its
 configuration directory exists. WorkBuddy is a desktop application without a
-command-line program, so it counts as present when ``~/.workbuddy`` exists. Without a tool argument, or with ``--all``,
+command-line program, so it counts as present when ``~/.workbuddy`` exists.
+Trae counts as present when ``~/.trae``, ``~/.trae-cn`` or its user data
+directory exists. ZCode counts as present only when the ``zcode`` program is on
+``PATH``, because it is wired through that program. Without a tool argument, or with ``--all``,
 the command wires every supported tool that is present and reports the
 others as not installed. A tool that is named explicitly is wired even when it
 is not detected.
@@ -148,6 +161,54 @@ operating guide in ``SOUL.md`` uses these names. On native Windows the
 default home directory of Hermes differs from ``~/.hermes``; set
 ``HERMES_HOME`` to the directory in use. The timeouts are ``timeout: 900`` and ``connect_timeout: 30``. Optional
 ``a2a_agents`` entries are described in :ref:`howto-coding-agents-hermes-a2a`.
+
+Trae
+~~~~
+
+Trae and Trae CN read a user-level ``mcp.json`` next to their user settings,
+in the user data directory of the product: ``%APPDATA%\Trae\User`` on
+Windows, ``~/Library/Application Support/Trae/User`` on macOS, and
+``~/.config/Trae/User`` on Linux (or the directory named by
+``XDG_CONFIG_HOME``); Trae CN uses ``Trae CN`` in place of ``Trae``. The entry
+has the stdio form of Cursor. The operating guide is written as the user rule
+``user_rules/anet.md`` in ``~/.trae`` (Trae CN: ``~/.trae-cn``), with
+``alwaysApply: true``, so that it applies to every session. When both products
+are present, both are wired; ``unwire`` removes the entries and the rules of
+both.
+
+Trae documents that the command of an MCP server must not contain spaces.
+The entry names the ``anet`` binary by its absolute path; when that path
+contains a space, ``wire`` writes the entry and adds a note. The plugin bundle
+for Trae (:doc:`/agents/trae`) registers its own entry ``anet``; ``wire``
+reports that entry as a conflict and does not replace it.
+
+ZCode
+~~~~~
+
+ZCode reads MCP servers from plugins and from the parameters of a session,
+not from a user-level file. ``wire zcode`` therefore installs the ``anet``
+plugin from the ANet marketplace for ZCode with the ``zcode`` command-line
+program:
+
+.. code-block:: console
+
+   $ zcode plugins marketplace add https://agentnetwork.org.cn/zcode/marketplace.json
+   $ zcode plugins install anet@agentnetwork
+
+The marketplace is added only when it is not configured yet. ``unwire zcode``
+runs ``zcode plugins uninstall anet@agentnetwork --force``. The state is read
+with ``zcode plugins list --json``; a plugin named ``anet`` from ZCode's
+official marketplace counts as the same plugin. The output of each command is
+reported, and every command runs with a time limit. ``anet`` never reads or
+writes a file under ``~/.zcode``, because the configuration there holds the
+credentials of the models.
+
+Without the ``zcode`` program nothing is written. ``wire zcode`` then ends with
+an error that names the two steps in the desktop application (add the
+marketplace under **Plugin Marketplace**, then install **AgentNetwork (anet)**),
+and ``wire --all`` reports ZCode as not installed, with the same steps as a
+note when ``~/.zcode`` exists. On Windows the program may be ``zcode.cmd``; it
+is run with fixed arguments only.
 
 
 Wiring and unwiring
@@ -293,7 +354,7 @@ The following examples show the entries for a binary at
 ``/usr/local/bin/anet`` and a data directory ``/home/operator/.anet``.
 The paths are replaced by the actual values on each machine.
 
-Claude Code, Cursor and WorkBuddy use the same stdio form:
+Claude Code, Cursor, WorkBuddy and Trae use the same stdio form:
 
 .. code-block:: json
 
@@ -308,7 +369,7 @@ Claude Code, Cursor and WorkBuddy use the same stdio form:
      }
    }
 
-The Cursor and WorkBuddy entries have no ``type`` member. For Claude Code the equivalent
+The Cursor, WorkBuddy and Trae entries have no ``type`` member. For Claude Code the equivalent
 command is:
 
 .. code-block:: console

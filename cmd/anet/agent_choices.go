@@ -8,4 +8,4 @@ const fixedAgentChoices = "cursor|claude|codex|opencode|openclaw|hermes"
 // wireAgentChoices is the list of coding agents `anet agents wire` writes to. It is not the auto-reply
 // list: openclaw is an auto-reply backend only, and wire does not support it. TestWireAgentChoicesMatchAgentwire
 // keeps this copy equal to agentwire.Tools() in the builds that have the MCP module.
-const wireAgentChoices = "claude|codex|cursor|opencode|hermes|workbuddy"
+const wireAgentChoices = "claude|codex|cursor|opencode|hermes|workbuddy|trae|zcode"

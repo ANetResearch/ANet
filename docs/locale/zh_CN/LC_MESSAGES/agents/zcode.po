@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ANet 0.3\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-21 15:12+0000\n"
+"POT-Creation-Date: 2026-10-21 16:02+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: Agent Network Research\n"
 "Language: zh_Hans_CN\n"
@@ -98,7 +98,8 @@ msgstr "用途"
 msgid "MCP server"
 msgstr "MCP 服务器"
 
-#: ../../agents/zcode.rst:51 ../../agents/zcode.rst:56
+#: ../../agents/zcode.rst:51
+#: ../../agents/zcode.rst:56
 msgid "``anet``"
 msgstr "``anet``"
 
@@ -111,7 +112,8 @@ msgstr ""
 "为所选身份运行已安装 ``anet`` 的 ``anet mcp``。ZCode 将该服务器命名为 "
 "``plugin:anet:anet``。其工具 ``guide`` 返回 ANet 的最新指南。"
 
-#: ../../agents/zcode.rst:55 ../../agents/zcode.rst:60
+#: ../../agents/zcode.rst:55
+#: ../../agents/zcode.rst:60
 msgid "Skill"
 msgstr "技能"
 
@@ -134,7 +136,8 @@ msgid ""
 "user agrees, and follows the setup guide of the installed ``anet``."
 msgstr "查找 ``anet`` 可执行文件，在其缺失且用户同意时安装 ANet，并按已安装 ``anet`` 的设置指南执行。"
 
-#: ../../agents/zcode.rst:64 ../../agents/zcode.rst:69
+#: ../../agents/zcode.rst:64
+#: ../../agents/zcode.rst:69
 msgid "Command"
 msgstr "命令"
 
@@ -293,25 +296,37 @@ msgstr ""
 "[\"plugin:anet:anet\"]``\\ 、两个技能，且没有诊断信息。插件的 MCP "
 "服务器随会话启动，因此安装之后新开的会话才会出现这些工具。"
 
-#: ../../agents/zcode.rst:143
+#: ../../agents/zcode.rst:141
+msgid ""
+"``anet agents wire zcode`` runs the same two commands when the ``zcode`` "
+"program is on ``PATH``; the marketplace is added only when it is not "
+"configured yet, and the output of each command is reported. Without the "
+"program, the command changes nothing, names the two steps in the desktop "
+"application and exits with the status 1. See :ref:`howto-coding-agents`."
+msgstr ""
+"``zcode`` 程序位于 ``PATH`` 中时，``anet agents wire zcode`` "
+"会执行上述两条命令；仅在插件市场尚未配置时才添加它，并报告每条命令的输出。没有该程序时，该命令不做任何改动，给出桌面应用中的两个步骤，并以状态 1"
+" 退出。参见 :ref:`howto-coding-agents`。"
+
+#: ../../agents/zcode.rst:149
 msgid "Setting up the node from ZCode"
 msgstr "在 ZCode 中配置节点"
 
-#: ../../agents/zcode.rst:145
+#: ../../agents/zcode.rst:151
 msgid "If ``anet`` is not installed or not running, ask in a session:"
 msgstr "如果 ``anet`` 未安装或未运行，在会话中输入："
 
-#: ../../agents/zcode.rst:151
+#: ../../agents/zcode.rst:157
 msgid "The agent follows the ``anet-setup`` skill:"
 msgstr "Agent 按照 ``anet-setup`` 技能执行："
 
-#: ../../agents/zcode.rst:153
+#: ../../agents/zcode.rst:159
 msgid ""
 "It runs the runner with ``--resolve``, which reports the executable, its "
 "version and the identity."
 msgstr "以 ``--resolve`` 运行运行脚本，报告可执行文件、其版本和身份。"
 
-#: ../../agents/zcode.rst:155
+#: ../../agents/zcode.rst:161
 msgid ""
 "When ``anet`` is missing, it states what the installer does and runs it "
 "only after the user agrees, through ``bin/anet-install.sh`` on Linux and "
@@ -325,7 +340,7 @@ msgstr ""
 "install.cmd``。官方安装程序校验已签名的发布清单，安装到用户自己的目录，并按安全默认值创建身份：入站任务关闭、不发布任何内容、支出限额为"
 " 0。"
 
-#: ../../agents/zcode.rst:161
+#: ../../agents/zcode.rst:167
 msgid ""
 "It prints the setup guide of the installed ``anet`` with ``<runner> guide"
 " setup`` and follows it, running every ``anet`` command through the "
@@ -335,7 +350,7 @@ msgstr ""
 "用 ``<runner> guide setup`` 输出已安装 ``anet`` 的设置指南并按其执行，每条 ``anet`` "
 "命令均经由运行脚本运行。口令从不在对话中索取，由用户在终端中输入。"
 
-#: ../../agents/zcode.rst:166
+#: ../../agents/zcode.rst:172
 msgid ""
 "The commands that change who may reach the machine or what it may spend "
 "(``anet peers``, ``anet inbound``, ``anet autoreply set``, the spending "
@@ -346,15 +361,15 @@ msgstr ""
 "``anet autoreply set``\\ 、支付额度以及 ``anet pay``\\ ）需在终端中确认。技能要求 Agent "
 "只给出这些命令，交由用户执行。"
 
-#: ../../agents/zcode.rst:171
+#: ../../agents/zcode.rst:177
 msgid "Start a new session after the setup, so that the MCP server starts."
 msgstr "配置完成后新开一个会话，使 MCP 服务器启动。"
 
-#: ../../agents/zcode.rst:175
+#: ../../agents/zcode.rst:181
 msgid "Verification"
 msgstr "验证"
 
-#: ../../agents/zcode.rst:177
+#: ../../agents/zcode.rst:183
 msgid ""
 "In a new session, run ``/anet-status``. The agent reads the topic "
 "``status`` of the guide and reports the state of the node as that topic "
@@ -368,13 +383,13 @@ msgstr ""
 "在每个工具首次调用前请求确认（``mcp__plugin_anet_anet__<tool>``）：**允许** "
 "仅放行这一次调用，**始终允许本项目** 在本项目中放行该工具。"
 
-#: ../../agents/zcode.rst:183
+#: ../../agents/zcode.rst:189
 msgid ""
 "Ask for a task with ``/anet`` or with a request that begins with "
 "``@anet``, for example:"
 msgstr "使用 ``/anet`` 或以 ``@anet`` 开头的请求提出任务，例如："
 
-#: ../../agents/zcode.rst:192
+#: ../../agents/zcode.rst:198
 msgid ""
 "The agent loads the ``anet`` skill, reads the guide and calls the tools "
 "that it names, for example ``list_agents`` and ``send_message``, and "
@@ -385,11 +400,11 @@ msgstr ""
 "``send_message``，任务仍在进行时再调用 ``wait_task``。报告按工具返回的原样给出任务状态与 "
 "``anet.effect_status``。"
 
-#: ../../agents/zcode.rst:199
+#: ../../agents/zcode.rst:205
 msgid "Settings"
 msgstr "设置项"
 
-#: ../../agents/zcode.rst:201
+#: ../../agents/zcode.rst:207
 msgid ""
 "The plugin has two optional settings. ZCode keeps them in "
 "``~/.zcode/cli/config.json`` (``%USERPROFILE%\\.zcode\\cli\\config.json``"
@@ -403,43 +418,43 @@ msgstr ""
 "``plugins.options.\"anet@agentnetwork\"`` 下；ZCode 3.15.3 "
 "的插件页面没有对应的输入项，因此在该文件中设置。在 MCP 服务器之外，运行脚本只从该文件读取这两项，不读取其他任何值："
 
-#: ../../agents/zcode.rst:212
+#: ../../agents/zcode.rst:218
 msgid "Setting"
 msgstr "设置项"
 
-#: ../../agents/zcode.rst:213
+#: ../../agents/zcode.rst:219
 msgid "Meaning"
 msgstr "含义"
 
-#: ../../agents/zcode.rst:214
+#: ../../agents/zcode.rst:220
 msgid "``identity``"
 msgstr "``identity``"
 
-#: ../../agents/zcode.rst:215
+#: ../../agents/zcode.rst:221
 msgid ""
 "A named identity (``anet id ls``). Empty selects the default identity. "
 "The server then runs ``anet --id <name> mcp``."
 msgstr "具名身份（``anet id ls``）。为空时选用默认身份。此时服务器运行 ``anet --id <name> mcp``。"
 
-#: ../../agents/zcode.rst:217
+#: ../../agents/zcode.rst:223
 msgid "``anetPath``"
 msgstr "``anetPath``"
 
-#: ../../agents/zcode.rst:218
+#: ../../agents/zcode.rst:224
 msgid ""
 "The absolute path of the ``anet`` executable (``anet.exe`` on Windows). "
 "Empty searches the locations named above."
 msgstr "``anet`` 可执行文件的绝对路径（Windows 上为 ``anet.exe``）。为空时在上文列出的位置中查找。"
 
-#: ../../agents/zcode.rst:231
+#: ../../agents/zcode.rst:237
 msgid "A changed setting applies to sessions that start afterwards."
 msgstr "修改后的设置项对之后新开的会话生效。"
 
-#: ../../agents/zcode.rst:235
+#: ../../agents/zcode.rst:241
 msgid "Updating and removing"
 msgstr "更新与移除"
 
-#: ../../agents/zcode.rst:237
+#: ../../agents/zcode.rst:243
 msgid ""
 "Version 0.2.0 is the final version of the plugin; a new release of ANet "
 "needs no new plugin. ``zcode plugins update anet@agentnetwork`` installs "
@@ -449,32 +464,34 @@ msgstr ""
 "0.2.0 是该插件的最终版本；ANet 发布新版本时无需新的插件。``zcode plugins update "
 "anet@agentnetwork`` 安装市场所列的版本。``anet update`` 更新 ANet 本身，与插件相互独立。"
 
-#: ../../agents/zcode.rst:242
+#: ../../agents/zcode.rst:248
 msgid ""
 "``zcode plugins uninstall anet@agentnetwork`` removes the plugin after a "
-"confirmation; a shell without a terminal needs ``--force``. In the "
-"desktop application, the menu **···** on the page of the plugin has "
-"**Uninstall**. ``zcode plugins marketplace remove agentnetwork`` removes "
-"the marketplace. None of these changes the node: the identity in "
-"``~/.anet`` and the running daemon remain. :doc:`../intro/install` "
-"describes how to stop the node and remove ANet."
+"confirmation; a shell without a terminal needs ``--force``. ``anet agents"
+" unwire zcode`` runs it with ``--force``. In the desktop application, the"
+" menu **···** on the page of the plugin has **Uninstall**. ``zcode "
+"plugins marketplace remove agentnetwork`` removes the marketplace. None "
+"of these changes the node: the identity in ``~/.anet`` and the running "
+"daemon remain. :doc:`../intro/install` describes how to stop the node and"
+" remove ANet."
 msgstr ""
 "``zcode plugins uninstall anet@agentnetwork`` 经确认后移除插件；没有终端的 shell 中需加 "
-"``--force``\\ 。在桌面应用中，插件页面的 **···** 菜单提供 **卸载**\\ 。\\ ``zcode plugins "
-"marketplace remove agentnetwork`` 移除插件市场。这些操作都不会改变节点：\\ ``~/.anet`` "
-"中的身份与运行中的守护进程保持不变。\\ :doc:`../intro/install` 说明如何停止节点并移除 ANet。"
+"``--force``。``anet agents unwire zcode`` 以 ``--force`` 执行该命令。在桌面应用中，插件页面的"
+" **···** 菜单提供 **卸载**。``zcode plugins marketplace remove agentnetwork`` "
+"移除插件市场。这些操作都不会改变节点：``~/.anet`` 中的身份与运行中的守护进程保持不变。:doc:`../intro/install` "
+"说明如何停止节点并移除 ANet。"
 
-#: ../../agents/zcode.rst:252
+#: ../../agents/zcode.rst:259
 msgid "Not tested"
 msgstr "未经测试"
 
-#: ../../agents/zcode.rst:254
+#: ../../agents/zcode.rst:261
 msgid ""
 "The plugin on macOS. The script uses only ``sh`` and the locations of the"
 " ANet installer and of Homebrew; the run on macOS has not been verified."
 msgstr "macOS 上的插件。脚本只使用 ``sh`` 以及 ANet 安装程序和 Homebrew 的安装位置；在 macOS 上的运行尚未验证。"
 
-#: ../../agents/zcode.rst:256
+#: ../../agents/zcode.rst:263
 msgid ""
 "The plugin on Windows. The launch through ``bin/windows/sh.cmd`` and "
 "``bin/anet-mcp.cmd`` follows from the bundle of ZCode, and the Windows "
@@ -485,23 +502,23 @@ msgstr ""
 "的启动方式依据 ZCode 的程序包得出，Windows 运行脚本已用 PowerShell 测试；该插件未在 Windows 上的 ZCode "
 "中安装。"
 
-#: ../../agents/zcode.rst:263
+#: ../../agents/zcode.rst:270
 msgid "Troubleshooting"
 msgstr "故障排查"
 
-#: ../../agents/zcode.rst:269
+#: ../../agents/zcode.rst:276
 msgid "Symptom"
 msgstr "现象"
 
-#: ../../agents/zcode.rst:270
+#: ../../agents/zcode.rst:277
 msgid "Action"
 msgstr "处理"
 
-#: ../../agents/zcode.rst:271
+#: ../../agents/zcode.rst:278
 msgid "The session has no anet tools."
 msgstr "会话中没有 anet 工具。"
 
-#: ../../agents/zcode.rst:272
+#: ../../agents/zcode.rst:279
 msgid ""
 "Run ``anet status`` in a terminal. ``[daemon_not_running]``: run ``anet "
 "up``. ``anet`` not found: set ``anetPath`` or ask the agent to run the "
@@ -511,43 +528,43 @@ msgstr ""
 "。找不到 ``anet``\\ ：设置 ``anetPath``\\ ，或请 Agent 运行 ``anet-setup`` "
 "技能。然后新开一个会话。"
 
-#: ../../agents/zcode.rst:275
+#: ../../agents/zcode.rst:282
 msgid "``Plugin zip sha256 mismatch`` during the installation."
 msgstr "安装时出现 ``Plugin zip sha256 mismatch``\\ 。"
 
-#: ../../agents/zcode.rst:276
+#: ../../agents/zcode.rst:283
 msgid ""
 "The archive that was downloaded is not the published one. Do not install "
 "it; retry later, and report the error if it persists."
 msgstr "下载到的安装包不是已发布的那一个。不要安装；稍后重试，若持续出现请报告该错误。"
 
-#: ../../agents/zcode.rst:278
+#: ../../agents/zcode.rst:285
 msgid "``wait_task`` ends while the task is still working."
 msgstr "任务仍在进行时 ``wait_task`` 已结束。"
 
-#: ../../agents/zcode.rst:279
+#: ../../agents/zcode.rst:286
 msgid ""
 "This is normal for long tasks. Call ``wait_task`` again and do not send "
 "the task again."
 msgstr "长任务属正常情况。再次调用 ``wait_task``\\ ，不要重新发送任务。"
 
-#: ../../agents/zcode.rst:281
+#: ../../agents/zcode.rst:288
 msgid "A refusal ends with a code in brackets."
 msgstr "拒绝信息末尾带有方括号中的代码。"
 
-#: ../../agents/zcode.rst:282
+#: ../../agents/zcode.rst:289
 msgid "See :doc:`../reference/reason-codes`."
 msgstr "参见 :doc:`../reference/reason-codes`\\ 。"
 
-#: ../../agents/zcode.rst:286
+#: ../../agents/zcode.rst:293
 msgid "References"
 msgstr "参考"
 
-#: ../../agents/zcode.rst:288
+#: ../../agents/zcode.rst:295
 msgid "ZCode: https://zcode.z.ai"
 msgstr "ZCode：https://zcode.z.ai"
 
-#: ../../agents/zcode.rst:289
+#: ../../agents/zcode.rst:296
 msgid ""
 "ZCode plugin development guide, with the plugin and marketplace format: "
 "https://github.com/zai-org/zcode-"
@@ -556,7 +573,7 @@ msgstr ""
 "ZCode 插件开发指南（含插件与插件市场格式）：https://github.com/zai-org/zcode-"
 "plugins/blob/main/docs/PLUGIN_DEVELOPMENT.md"
 
-#: ../../agents/zcode.rst:291
+#: ../../agents/zcode.rst:298
 msgid ""
 "Source of the plugin: ``deploy/plugins`` in the ANet repository (target "
 "``zcode`` of the plugin generator; the generated plugin is "

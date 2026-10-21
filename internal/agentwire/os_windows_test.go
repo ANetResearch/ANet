@@ -153,3 +153,40 @@ func TestWindowsRewriteKeepsAPrivateACL(t *testing.T) {
 		t.Errorf("a configuration others could read was narrowed: %+v, %v", i, err)
 	}
 }
+
+// Trae on Windows: the entry goes into %APPDATA%\Trae\User\mcp.json with the
+// drive path of anet, the rule into %USERPROFILE%\.trae\user_rules, and
+// unwire takes both out again.
+func TestWindowsTraeWireAndUnwire(t *testing.T) {
+	setTraeGOOS(t, "windows")
+	h := newHost(t)
+	appData := filepath.Join(h.home, "AppData", "Roaming")
+	h.env["APPDATA"] = appData
+	o := h.opts()
+	o.Bin = filepath.Join(h.home, "AppData", "Local", "Programs", "anet", "anet.exe")
+	r := one(t, h.wireWith(o, ToolTrae), Written)
+	if len(r.Changes) != 2 || !h.exists(`AppData/Roaming/Trae/User/mcp.json`) || !h.exists(".trae/user_rules/anet.md") {
+		t.Fatalf("changes %v", r.Changes)
+	}
+	one(t, h.wireWith(o, ToolTrae), UpToDate)
+	one(t, h.unwireWith(o, ToolTrae), Removed)
+	if got := h.snapshot(); len(got) != 0 {
+		t.Fatalf("unwire left %v", keys(got))
+	}
+}
+
+// ZCode's program is run with fixed arguments only, so a zcode.cmd found on
+// PATH is run as it is (unlike the batch shims toolCLI refuses).
+func TestWindowsZCodeBatchFileIsUsed(t *testing.T) {
+	o := &Options{LookPath: func(string) (string, error) { return `C:\Users\A B\AppData\Roaming\npm\zcode.cmd`, nil }}
+	if got := zcodeCLI(o); got != `C:\Users\A B\AppData\Roaming\npm\zcode.cmd` {
+		t.Fatalf("zcodeCLI = %q", got)
+	}
+	for _, argv := range [][]string{{"plugins", "marketplace", "add", zcodeMarketplaceURL}, {"plugins", "install", zcodePluginID}} {
+		for _, a := range argv {
+			if strings.ContainsAny(a, "&|<>^%!\"() ") {
+				t.Fatalf("argument %q holds a character cmd.exe reads", a)
+			}
+		}
+	}
+}

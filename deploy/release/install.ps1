@@ -44,7 +44,9 @@
 #                    computer the tools and guide of anet (anet agents wire
 #                    --all); every file it edits is backed up first.
 #   -AgentList LIST  As -Agents, for these agents only (comma-separated, such
-#                    as claude,codex).
+#                    as claude,codex). The names: claude, codex, cursor,
+#                    opencode, hermes, workbuddy, trae (Trae and Trae CN) and
+#                    zcode (through the zcode command-line program).
 #   -Hub URL         Join this hub instead of https://hub.agentnetwork.org.cn.
 #   -NoJoin          Start the node, but do not register it at a hub; register
 #                    later with anet hub-register.

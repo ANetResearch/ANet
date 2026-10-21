@@ -18,7 +18,9 @@ within the limits of the node (``submit_payment``, ``reject_payment``,
 ``get_balance``), reads the local evidence chain (``audit``) and reports the
 state of the node (``node_status``).
 
-The bundle is the only supported route for Trae: ``anet agents wire`` does not register Trae.
+As an alternative to the bundle, ``anet agents wire trae`` registers ``anet mcp`` in the user-level
+MCP file of Trae and of Trae CN and writes a short operating guide as a user rule (see
+:ref:`howto-coding-agents`). Use one of the two routes, not both.
 
 .. contents::
    :local:

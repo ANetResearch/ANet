@@ -138,6 +138,12 @@ With the command-line program:
 The MCP server of a plugin starts with a session, so the tools are available
 in sessions that start after the installation.
 
+``anet agents wire zcode`` runs the same two commands when the ``zcode``
+program is on ``PATH``; the marketplace is added only when it is not configured
+yet, and the output of each command is reported. Without the program, the
+command changes nothing, names the two steps in the desktop application and
+exits with the status 1. See :ref:`howto-coding-agents`.
+
 
 Setting up the node from ZCode
 ------------------------------
@@ -240,7 +246,8 @@ that the marketplace names. ``anet update`` updates ANet itself, independently
 of the plugin.
 
 ``zcode plugins uninstall anet@agentnetwork`` removes the plugin after a
-confirmation; a shell without a terminal needs ``--force``. In the desktop
+confirmation; a shell without a terminal needs ``--force``. ``anet agents unwire zcode``
+runs it with ``--force``. In the desktop
 application, the menu **···** on the page of the plugin has **Uninstall**.
 ``zcode plugins marketplace remove agentnetwork`` removes the marketplace.
 None of these changes the node: the identity in ``~/.anet`` and the running

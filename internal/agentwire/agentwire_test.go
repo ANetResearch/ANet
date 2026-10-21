@@ -205,6 +205,9 @@ var seeds = map[string]map[string]string{
 	ToolWorkBuddy: {
 		".workbuddy/mcp.json": "{\n  \"mcpServers\": {\n    \"other\": {\n      \"command\": \"other-mcp\",\n      \"args\": []\n    }\n  }\n}\n",
 	},
+	ToolTrae: {
+		".config/Trae/User/mcp.json": "{\n  \"mcpServers\": {\n    \"other\": {\n      \"command\": \"other-mcp\",\n      \"args\": []\n    }\n  }\n}\n",
+	},
 	ToolHermes: {
 		".hermes/config.yaml": "model:\n  default: claude-sonnet\n\nmcp_servers:\n  filesystem:\n    command: \"npx\"\n" +
 			"    args: [\"-y\", \"@modelcontextprotocol/server-filesystem\", \"/tmp\"]\n\ndisplay:\n  compact: true\n",
@@ -220,6 +223,7 @@ var wiredFiles = map[string][]string{
 	ToolOpenCode:  {".config/opencode/opencode.json", ".config/opencode/AGENTS.md"},
 	ToolHermes:    {".hermes/config.yaml", ".hermes/SOUL.md"},
 	ToolWorkBuddy: {".workbuddy/mcp.json"},
+	ToolTrae:      {".config/Trae/User/mcp.json", ".trae/user_rules/anet.md"},
 }
 
 // Every tool, from the operator's existing configuration: wire writes an
@@ -228,6 +232,9 @@ var wiredFiles = map[string][]string{
 func TestWireRoundTripsEveryTool(t *testing.T) {
 	for _, tool := range Tools() {
 		t.Run(tool, func(t *testing.T) {
+			if tool == ToolZCode {
+				t.Skip("ZCode is wired through its own CLI and no file; see zcode_test.go")
+			}
 			h := newHost(t)
 			for rel, content := range seeds[tool] {
 				h.write(rel, content, 0o644)
@@ -271,6 +278,9 @@ func TestWireRoundTripsEveryTool(t *testing.T) {
 func TestWireFromNothingAndBack(t *testing.T) {
 	for _, tool := range Tools() {
 		t.Run(tool, func(t *testing.T) {
+			if tool == ToolZCode {
+				t.Skip("ZCode is wired through its own CLI and no file; see zcode_test.go")
+			}
 			h := newHost(t)
 			r := one(t, h.wire(tool), Written)
 			if len(r.Backups) != 0 {
@@ -349,6 +359,22 @@ func checkWired(t *testing.T, h *host, tool string) {
 			t.Fatalf("opencode entry: %+v", e)
 		}
 		checkPersona(t, h.read(".config/opencode/AGENTS.md"))
+	case ToolTrae:
+		var f struct {
+			MCPServers map[string]stdioEntry `json:"mcpServers"`
+		}
+		mustJSON(t, h.read(".config/Trae/User/mcp.json"), &f)
+		e := f.MCPServers["anet"]
+		if e.Command != testBin || !sameStrings(e.Args, []string{"mcp"}) || e.Env["ANET_DATA_DIR"] != h.data {
+			t.Fatalf("trae entry: %+v", e)
+		}
+		rule := h.read(".trae/user_rules/anet.md")
+		if !strings.HasPrefix(rule, "---\nalwaysApply: true\n---\n\n") {
+			t.Fatalf("the Trae rule does not apply to every session:\n%s", rule)
+		}
+		if rule != traeRule || !strings.Contains(rule, "The tool `guide`") {
+			t.Fatalf("the Trae rule is not the short guide:\n%s", rule)
+		}
 	case ToolHermes:
 		cfg := h.read(".hermes/config.yaml")
 		for _, want := range []string{"  anet:\n", `    command: "` + testBin + `"`, `    args: ["mcp"]`,
@@ -423,7 +449,7 @@ func TestWireAllSkipsToolsThatAreNotInstalled(t *testing.T) {
 		got[r.Tool] = r.Status
 	}
 	want := map[string]Status{ToolClaude: Skipped, ToolCodex: Written, ToolCursor: Skipped,
-		ToolOpenCode: Written, ToolHermes: Skipped, ToolWorkBuddy: Skipped}
+		ToolOpenCode: Written, ToolHermes: Skipped, ToolWorkBuddy: Skipped, ToolTrae: Skipped, ToolZCode: Skipped}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("statuses %v, want %v", got, want)
 	}

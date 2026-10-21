@@ -3315,6 +3315,30 @@ Output of ``anet agents``, ``anet agents wire`` and ``anet agents unwire``: the 
      - {path} holds the local A2A token; its permissions are tightened to 0600
      - {path} 含本机 A2A 令牌，权限收紧为 0600
      - 
+   * - ``wire.change.rule_write``
+     - 
+     - I
+     - Trae user rule → {path}
+     - Trae 用户规则 → {path}
+     - 
+   * - ``wire.change.rule_drop``
+     - 
+     - I
+     - remove the Trae user rule: {path}
+     - 删除 Trae 用户规则：{path}
+     - 
+   * - ``wire.change.zcode_install``
+     - 
+     - I
+     - zcode plugins install {name} (the ``anet`` plugin of the ANet marketplace for ZCode)
+     - zcode plugins install {name}（ZCode 的 ANet 插件市场中的 ``anet`` 插件）
+     - 
+   * - ``wire.change.zcode_uninstall``
+     - 
+     - I
+     - zcode plugins uninstall {name}
+     - zcode plugins uninstall {name}
+     - 
    * - ``wire.note.not_detected``
      - 
      - I
@@ -3362,6 +3386,30 @@ Output of ``anet agents``, ``anet agents wire`` and ``anet agents unwire``: the 
      - I
      - a2a_agents has none of these entries written by ``anet``
      - a2a_agents 里没有 ``anet`` 写的这些条目
+     - 
+   * - ``wire.note.trae_space``
+     - 
+     - I
+     - The path {path} contains a space, and Trae documents that the command of an MCP server must not contain one; if Trae does not start the server, install ``anet`` under a path without spaces and run wire again
+     - 路径 {path} 含空格，而 Trae 文档要求 MCP 服务的命令不含空格；若 Trae 无法启动该服务，请把 ``anet`` 安装到不含空格的路径后重新运行 wire
+     - 
+   * - ``wire.note.zcode_desktop``
+     - 
+     - I
+     - The zcode command-line program was not found, so ZCode was not wired. In the ZCode desktop application, open Plugin Marketplace, add the marketplace {url}, then install AgentNetwork (``anet``) under agentnetwork
+     - 未找到 zcode 命令行程序，因此未接入 ZCode。请在 ZCode 桌面应用中打开“插件市场”，添加插件市场 {url}，再在 agentnetwork 下安装 AgentNetwork（\ ``anet``\ ）
+     - 
+   * - ``wire.note.zcode_desktop_remove``
+     - 
+     - I
+     - The zcode command-line program was not found, so ``anet`` cannot check ZCode; if the ``anet`` plugin was installed in the desktop application, uninstall it there
+     - 未找到 zcode 命令行程序，\ ``anet`` 无法检查 ZCode；如果曾在桌面应用中安装 ``anet`` 插件，请在桌面应用中卸载它
+     - 
+   * - ``wire.note.cli_output``
+     - 
+     - I
+     - {command} printed: {detail}
+     - {command} 输出：{detail}
      - 
    * - .. _reason-code-wire-tools-failed:
 
@@ -3473,6 +3521,12 @@ Output of ``anet agents``, ``anet agents wire`` and ``anet agents unwire``: the 
      - {key} at {path}:{line} is not a mapping that ``anet`` can add entries to; use the block mapping form, then run wire again.
      - {path} 第 {line} 行的 {key} 不是 ``anet`` 能加入条目的映射；请改用块映射写法后再运行 wire。
      - change input
+   * - ``wire_conflict.rule_file``
+     - 0.3.3
+     - C
+     - {path} exists and was not written by ``anet``; remove or rename it, then run wire again.
+     - {path} 已存在，且不是 ``anet`` 写的；请删除或改名后再运行 wire。
+     - change input
    * - .. _reason-code-wire-json-invalid:
 
        ``wire_json_invalid``
@@ -3565,6 +3619,12 @@ Output of ``anet agents``, ``anet agents wire`` and ``anet agents unwire``: the 
      - {command} failed ({error}); fix what that command reports and try again.
      - {command} 执行失败（{error}）；请排除该命令报告的问题后重试。
      - change input
+   * - ``wire_cli_failed.zcode_missing``
+     - 0.3.3
+     - C
+     - The zcode program was not found, so nothing was changed. In the ZCode desktop application, add the marketplace {url} under Plugin Marketplace and install AgentNetwork (``anet``), or install the zcode program and try again.
+     - 未找到 zcode 命令行程序，未做任何改动。请在 ZCode 桌面应用中打开“插件市场”，添加插件市场 {url}，再在 agentnetwork 下安装 AgentNetwork（\ ``anet``\ ）；或安装 zcode 命令行程序后重试。
+     - change input
    * - .. _reason-code-wire-verify-failed:
 
        ``wire_verify_failed.add``
@@ -3578,6 +3638,18 @@ Output of ``anet agents``, ``anet agents wire`` and ``anet agents unwire``: the 
      - C
      - The claude command reported success, but {path} still has mcpServers.``anet`` afterwards; try again.
      - claude 命令报告成功，但 {path} 里仍有 mcpServers.``anet``\ ；请检查该文件后重试。
+     - change input
+   * - ``wire_verify_failed.zcode_add``
+     - 0.3.3
+     - C
+     - The zcode command reported success, but zcode plugins list shows no enabled ``anet`` plugin afterwards; try again.
+     - zcode 命令报告成功，但之后 zcode plugins list 中没有已启用的 ``anet`` 插件；请稍后重试。
+     - change input
+   * - ``wire_verify_failed.zcode_remove``
+     - 0.3.3
+     - C
+     - The zcode command reported success, but zcode plugins list still shows the ``anet`` plugin afterwards; try again.
+     - zcode 命令报告成功，但之后 zcode plugins list 中仍有 ``anet`` 插件；请稍后重试。
      - change input
    * - .. _reason-code-wire-a2a-not-started:
 

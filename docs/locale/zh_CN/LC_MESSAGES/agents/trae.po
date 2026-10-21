@@ -5,7 +5,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ANet 0.3\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-21 15:12+0000\n"
+"POT-Creation-Date: 2026-10-21 16:02+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: Agent Network Research\n"
 "Language: zh_CN\n"
@@ -49,15 +49,20 @@ msgstr ""
 
 #: ../../agents/trae.rst:21
 msgid ""
-"The bundle is the only supported route for Trae: ``anet agents wire`` "
-"does not register Trae."
-msgstr "该安装包是 Trae 唯一受支持的接入方式：``anet agents wire`` 不会登记 Trae。"
+"As an alternative to the bundle, ``anet agents wire trae`` registers "
+"``anet mcp`` in the user-level MCP file of Trae and of Trae CN and writes"
+" a short operating guide as a user rule (see :ref:`howto-coding-agents`)."
+" Use one of the two routes, not both."
+msgstr ""
+"除本安装包外，也可以用 ``anet agents wire trae`` 把 ``anet mcp`` 登记到 Trae 与 Trae CN "
+"的用户级 MCP 文件中，并以用户规则的形式写入简短的操作指南（参见 :ref:`howto-coding-"
+"agents`）。两种方式只能选用其一，不要同时使用。"
 
-#: ../../agents/trae.rst:29
+#: ../../agents/trae.rst:31
 msgid "Prerequisites"
 msgstr "前提条件"
 
-#: ../../agents/trae.rst:31
+#: ../../agents/trae.rst:33
 msgid ""
 "Trae or Trae CN with support for MCP servers, skills and commands. The "
 "Trae documentation states no minimum version, and the steps on this page "
@@ -66,7 +71,7 @@ msgstr ""
 "支持 MCP 服务器、技能和命令的 Trae 或 Trae CN。Trae 文档未给出最低版本，且本页所述步骤尚未在该应用中运行（参见 "
 "`未经测试`_\\ ）。"
 
-#: ../../agents/trae.rst:34
+#: ../../agents/trae.rst:36
 msgid ""
 "Operating systems. ANet and the bundle run on Linux, macOS and Windows "
 "(amd64 and arm64). On Linux and macOS the bundle runs POSIX shell "
@@ -77,15 +82,15 @@ msgstr ""
 " 上，安装包运行 POSIX shell 脚本；在 Windows 上，安装包运行 ``.cmd`` 脚本和 Windows 自带的 "
 "Windows PowerShell 5.1。"
 
-#: ../../agents/trae.rst:38
+#: ../../agents/trae.rst:40
 msgid "The bundle, from one of two sources:"
 msgstr "安装包，来源有以下两种："
 
-#: ../../agents/trae.rst:40
+#: ../../agents/trae.rst:42
 msgid "the directory ``deploy/plugins/dist/trae`` of the ANet repository, or"
 msgstr "ANet 代码仓库中的目录 ``deploy/plugins/dist/trae``\\ ，或"
 
-#: ../../agents/trae.rst:41
+#: ../../agents/trae.rst:43
 msgid ""
 "the archive ``anet-trae-<version>.zip`` at "
 "``https://agentnetwork.org.cn/plugins/trae/``, together with its SHA-256 "
@@ -98,7 +103,7 @@ msgstr ""
 "``https://agentnetwork.org.cn/plugins/trae/trae.json``\\ "
 "。解压前，请将所下载压缩包的摘要与 ``trae.json`` 中的值进行比对。"
 
-#: ../../agents/trae.rst:47
+#: ../../agents/trae.rst:49
 msgid ""
 "``anet`` does not have to be installed first: the ``anet-setup`` skill of"
 " the bundle installs it after the user agrees. A node that is already "
@@ -108,31 +113,33 @@ msgstr ""
 "无需预先安装 ``anet``\\ ：安装包中的 ``anet-setup`` 技能会在用户同意后安装它。已安装并已在 hub 注册的节点（\\ "
 ":doc:`../intro/install`\\ 、\\ :doc:`../intro/tutorial`\\ ）将直接沿用。"
 
-#: ../../agents/trae.rst:54
+#: ../../agents/trae.rst:56
 msgid "The plugin"
 msgstr "插件"
 
-#: ../../agents/trae.rst:60
+#: ../../agents/trae.rst:62
 msgid "Component"
 msgstr "组件"
 
-#: ../../agents/trae.rst:61
+#: ../../agents/trae.rst:63
 msgid "Name"
 msgstr "名称"
 
-#: ../../agents/trae.rst:62 ../../agents/trae.rst:158
+#: ../../agents/trae.rst:64
+#: ../../agents/trae.rst:160
 msgid "Purpose"
 msgstr "用途"
 
-#: ../../agents/trae.rst:63
+#: ../../agents/trae.rst:65
 msgid "MCP server"
 msgstr "MCP 服务器"
 
-#: ../../agents/trae.rst:64 ../../agents/trae.rst:70
+#: ../../agents/trae.rst:66
+#: ../../agents/trae.rst:72
 msgid "``anet``"
 msgstr "``anet``"
 
-#: ../../agents/trae.rst:65
+#: ../../agents/trae.rst:67
 msgid ""
 "Runs ``anet mcp`` of the installed ``anet`` for the selected identity. On"
 " Linux and macOS, Trae starts ``anet/bin/anet-mcp.sh`` as ``/bin/sh "
@@ -143,11 +150,12 @@ msgstr ""
 "<script>`` 启动 ``anet/bin/anet-mcp.sh``；在 Windows 上，Trae 启动 ``anet/bin"
 "/anet-mcp.cmd``。其工具 ``guide`` 返回 ANet 的最新指南。"
 
-#: ../../agents/trae.rst:69 ../../agents/trae.rst:74
+#: ../../agents/trae.rst:71
+#: ../../agents/trae.rst:76
 msgid "Skill"
 msgstr "技能"
 
-#: ../../agents/trae.rst:71
+#: ../../agents/trae.rst:73
 msgid ""
 "Directs the agent to the guide of the installed ``anet`` before the first"
 " ANet action of a session and on every ``@anet`` request, and holds the "
@@ -156,40 +164,41 @@ msgstr ""
 "在会话中首次执行 ANet 操作之前以及每次收到 ``@anet`` 请求时，引导 agent 阅读已安装 ``anet`` "
 "的指南，并包含始终适用的规则。"
 
-#: ../../agents/trae.rst:75
+#: ../../agents/trae.rst:77
 msgid "``anet-setup``"
 msgstr "``anet-setup``"
 
-#: ../../agents/trae.rst:76
+#: ../../agents/trae.rst:78
 msgid ""
 "Finds the ``anet`` executable, installs ANet when it is missing and the "
 "user agrees, and follows the setup guide of the installed ``anet``."
 msgstr "查找 ``anet`` 可执行文件，在其缺失且用户同意时安装 ANet，并按已安装 ``anet`` 的设置指南执行。"
 
-#: ../../agents/trae.rst:78 ../../agents/trae.rst:83
+#: ../../agents/trae.rst:80
+#: ../../agents/trae.rst:85
 msgid "Command"
 msgstr "命令"
 
-#: ../../agents/trae.rst:79
+#: ../../agents/trae.rst:81
 msgid "``/anet``"
 msgstr "``/anet``"
 
-#: ../../agents/trae.rst:80
+#: ../../agents/trae.rst:82
 msgid ""
 "The entry point: carries out an ``@anet`` request as the guide describes."
 " Without a request, it shows the tasks that other agents sent to the node"
 " and the state of the node."
 msgstr "入口：按指南所述执行 ``@anet`` 请求。未给出请求时，显示其他 agent 发给本节点的任务以及节点状态。"
 
-#: ../../agents/trae.rst:84
+#: ../../agents/trae.rst:86
 msgid "``/anet-status``"
 msgstr "``/anet-status``"
 
-#: ../../agents/trae.rst:85
+#: ../../agents/trae.rst:87
 msgid "Reports the state of the node as the guide describes."
 msgstr "按指南所述报告节点状态。"
 
-#: ../../agents/trae.rst:87
+#: ../../agents/trae.rst:89
 msgid ""
 "The bundle has the version 0.2.0. It carries no list of tools, no ANet "
 "version and no setup steps. The installed ``anet`` provides them through "
@@ -201,7 +210,7 @@ msgstr ""
 "``guide`` 和命令 ``anet guide [<topic>]`` 提供。因此，ANet 的新版本仅凭可执行文件即可作用于 "
 "Trae，安装包无需更新。"
 
-#: ../../agents/trae.rst:92
+#: ../../agents/trae.rst:94
 msgid ""
 "The bundle has no hooks and opens no network connection. The node "
 "connects to the hub it has joined. The installer helper of the bundle, "
@@ -213,7 +222,7 @@ msgstr ""
 "/anet-install.sh``，Windows 上为 ``anet/bin/anet-install.cmd``）在用户同意后运行 "
 "``agentnetwork.org.cn`` 的官方安装程序。"
 
-#: ../../agents/trae.rst:98
+#: ../../agents/trae.rst:100
 msgid ""
 "Every ``anet`` command of the bundle runs through the runner of the "
 "bundle, ``anet/bin/anet-run.sh`` on Linux and macOS and ``anet/bin/anet-"
@@ -244,15 +253,15 @@ msgstr ""
 "上使用的 shell 是 PowerShell，因此各技能和命令把 Windows 运行脚本写成由 PowerShell 以 ``&`` "
 "启动的路径。"
 
-#: ../../agents/trae.rst:116
+#: ../../agents/trae.rst:118
 msgid "Installing the plugin"
 msgstr "安装插件"
 
-#: ../../agents/trae.rst:118
+#: ../../agents/trae.rst:120
 msgid "On Linux and macOS, run the script ``install.sh`` of the bundle:"
 msgstr "在 Linux 和 macOS 上，运行安装包中的脚本 ``install.sh``："
 
-#: ../../agents/trae.rst:126
+#: ../../agents/trae.rst:128
 msgid ""
 "On Windows, run ``install.cmd`` of the bundle in ``cmd`` or PowerShell. "
 "It starts ``install.ps1`` with Windows PowerShell 5.1 from "
@@ -262,7 +271,7 @@ msgstr ""
 "``%SystemRoot%\\System32`` 中 Windows 自带的 Windows PowerShell 5.1 启动 "
 "``install.ps1``："
 
-#: ../../agents/trae.rst:136
+#: ../../agents/trae.rst:138
 msgid ""
 "The options of ``install.cmd`` are ``-Project DIR``, ``-Cn``, ``-Identity"
 " NAME``, ``-ClearIdentity``, ``-Anet PATH``, ``-ClearAnet`` and "
@@ -272,7 +281,7 @@ msgstr ""
 "NAME``、``-ClearIdentity``、``-Anet PATH``、``-ClearAnet`` 和 "
 "``-Remove``；``install.cmd -Help`` 给出其说明。"
 
-#: ../../agents/trae.rst:140
+#: ../../agents/trae.rst:142
 msgid ""
 "The installer copies the skills, the commands, the runners and the "
 "launchers of the MCP server into the configuration directory, writes the "
@@ -293,47 +302,47 @@ msgstr ""
 "的文档规定 MCP 服务器的命令不得包含空格。因此，在 Linux 和 macOS 上，主目录路径含空格时 ``install.sh`` "
 "拒绝安装；在 Windows 上，``install.cmd`` 以短路径（8.3 格式）替换含空格的路径，所在卷不提供短路径时则拒绝安装。"
 
-#: ../../agents/trae.rst:156
+#: ../../agents/trae.rst:158
 msgid "Installed file"
 msgstr "安装的文件"
 
-#: ../../agents/trae.rst:157
+#: ../../agents/trae.rst:159
 msgid "Location"
 msgstr "位置"
 
-#: ../../agents/trae.rst:159
+#: ../../agents/trae.rst:161
 msgid "``skills/anet/SKILL.md``, ``skills/anet-setup/SKILL.md``"
 msgstr "``skills/anet/SKILL.md``\\ 、\\ ``skills/anet-setup/SKILL.md``"
 
-#: ../../agents/trae.rst:160
+#: ../../agents/trae.rst:162
 msgid "``<trae-dir>/skills/``"
 msgstr "``<trae-dir>/skills/``"
 
-#: ../../agents/trae.rst:161
+#: ../../agents/trae.rst:163
 msgid "The operating guide of the node and the setup procedure"
 msgstr "节点操作指南与配置流程"
 
-#: ../../agents/trae.rst:162
+#: ../../agents/trae.rst:164
 msgid "``commands/anet.md``, ``commands/anet-status.md``"
 msgstr "``commands/anet.md``、``commands/anet-status.md``"
 
-#: ../../agents/trae.rst:163
+#: ../../agents/trae.rst:165
 msgid "``<trae-dir>/commands/``"
 msgstr "``<trae-dir>/commands/``"
 
-#: ../../agents/trae.rst:164
+#: ../../agents/trae.rst:166
 msgid "The commands ``/anet`` and ``/anet-status``"
 msgstr "命令 ``/anet`` 和 ``/anet-status``"
 
-#: ../../agents/trae.rst:165
+#: ../../agents/trae.rst:167
 msgid "``anet/bin/``"
 msgstr "``anet/bin/``"
 
-#: ../../agents/trae.rst:166
+#: ../../agents/trae.rst:168
 msgid "``<trae-dir>/anet/bin/``"
 msgstr "``<trae-dir>/anet/bin/``"
 
-#: ../../agents/trae.rst:167
+#: ../../agents/trae.rst:169
 msgid ""
 "The runners and the launchers of the MCP server: ``anet-run.sh`` and "
 "``anet-mcp.sh`` on Linux and macOS, ``anet-run.cmd``, ``anet-run.ps1`` "
@@ -342,19 +351,19 @@ msgstr ""
 "运行脚本与 MCP 服务器的启动脚本：Linux 和 macOS 上为 ``anet-run.sh`` 和 ``anet-"
 "mcp.sh``，Windows 上为 ``anet-run.cmd``、``anet-run.ps1`` 和 ``anet-mcp.cmd``"
 
-#: ../../agents/trae.rst:170
+#: ../../agents/trae.rst:172
 msgid "``anet/settings``"
 msgstr "``anet/settings``"
 
-#: ../../agents/trae.rst:171
+#: ../../agents/trae.rst:173
 msgid "``<trae-dir>/anet/``"
 msgstr "``<trae-dir>/anet/``"
 
-#: ../../agents/trae.rst:172
+#: ../../agents/trae.rst:174
 msgid "The two settings, when one is given"
 msgstr "两项设置（给出任一项时才写入）"
 
-#: ../../agents/trae.rst:174
+#: ../../agents/trae.rst:176
 msgid ""
 "``<trae-dir>`` is ``~/.trae``, ``~/.trae-cn`` or ``<project>/.trae`` "
 "(``%USERPROFILE%\\.trae``, ``%USERPROFILE%\\.trae-cn`` or "
@@ -365,11 +374,11 @@ msgstr ""
 "（Windows 上为 ``%USERPROFILE%\\.trae``、``%USERPROFILE%\\.trae-cn`` 或 "
 "``<project>\\.trae``）。如需手动安装，请把安装包中的各目录复制到相同位置。"
 
-#: ../../agents/trae.rst:181
+#: ../../agents/trae.rst:183
 msgid "Register the MCP server"
 msgstr "注册 MCP 服务器"
 
-#: ../../agents/trae.rst:183
+#: ../../agents/trae.rst:185
 msgid ""
 "On Linux and macOS, the MCP entry starts the launcher with ``/bin/sh``, "
 "so that the command is a name without spaces and the launcher is an "
@@ -380,7 +389,7 @@ msgstr ""
 "在 Linux 和 macOS 上，MCP 条目以 ``/bin/sh`` 启动启动脚本，使命令为不含空格的名称，启动脚本作为参数传入。在 "
 "Windows 上，条目的命令为 ``anet-mcp.cmd`` 的完整路径，路径含空格时采用其短路径（8.3 格式），条目不带参数。"
 
-#: ../../agents/trae.rst:189
+#: ../../agents/trae.rst:191
 #, python-brace-format
 msgid ""
 "Project level. The installer writes ``.trae/mcp.json`` when the project "
@@ -391,20 +400,20 @@ msgstr ""
 "项目级。项目尚无 ``.trae/mcp.json`` 时，安装程序会写入该文件。在 Linux 和 macOS 上，其参数以 "
 "``${workspaceFolder}`` 开头；在 Windows 上，命令为启动脚本的完整路径："
 
-#: ../../agents/trae.rst:205
+#: ../../agents/trae.rst:207
 msgid ""
 "If the project already has a ``.trae/mcp.json``, the script leaves it "
 "unchanged and prints the member ``anet`` to add."
 msgstr "若项目已有 ``.trae/mcp.json``\\ ，脚本保持其不变，并输出需要添加的成员 ``anet``\\ 。"
 
-#: ../../agents/trae.rst:208
+#: ../../agents/trae.rst:210
 msgid ""
 "User level. The script prints the entry for the user level and does not "
 "write a file of Trae, because the location of the global MCP file is not "
 "documented consistently:"
 msgstr "用户级。脚本输出用户级的条目，不写入 Trae 的文件，因为全局 MCP 文件的位置在文档中的说法并不一致："
 
-#: ../../agents/trae.rst:224
+#: ../../agents/trae.rst:226
 msgid ""
 "For Trae, the installer also prints an install link of the form "
 "``trae://trae.ai-ide/mcp-import?type=stdio&name=anet&config=<Base64>``; "
@@ -416,7 +425,7 @@ msgstr ""
 "import?type=stdio&name=anet&config=<Base64>`` 的安装链接；其中的 Base64 "
 "文本可解码为所输出的条目。使用 ``--cn`` 或 ``-Cn`` 时不输出链接。Trae 如何登记该条目，参见 `未经测试`_。"
 
-#: ../../agents/trae.rst:230
+#: ../../agents/trae.rst:232
 msgid ""
 "Do not keep two servers named ``anet`` in the same project, for example "
 "one from ``anet agents wire`` and one from this bundle. Remove the "
@@ -425,19 +434,19 @@ msgstr ""
 "不要在同一项目中保留两个名为 ``anet`` 的服务器，例如一个来自 ``anet agents wire``\\ "
 "，另一个来自本安装包。请先移除较早的条目。"
 
-#: ../../agents/trae.rst:236
+#: ../../agents/trae.rst:238
 msgid "Setting up the node from Trae"
 msgstr "在 Trae 中配置节点"
 
-#: ../../agents/trae.rst:238
+#: ../../agents/trae.rst:240
 msgid "If ``anet`` is not installed or not running, ask in a session:"
 msgstr "若 ``anet`` 尚未安装或未运行，请在会话中提出："
 
-#: ../../agents/trae.rst:245
+#: ../../agents/trae.rst:247
 msgid "The agent follows the ``anet-setup`` skill:"
 msgstr "Agent 按照 ``anet-setup`` 技能执行："
 
-#: ../../agents/trae.rst:247
+#: ../../agents/trae.rst:249
 msgid ""
 "It runs the runner with ``--resolve``, which reports the executable, the "
 "version and the identity, or ``not found``. When ``anet`` is missing, it "
@@ -454,7 +463,7 @@ msgstr ""
 "install.cmd``。官方安装程序校验已签名的发布清单，安装到用户自己的目录，并按安全默认值创建身份：入站任务关闭、不发布任何内容、支出限额为"
 " 0。"
 
-#: ../../agents/trae.rst:255
+#: ../../agents/trae.rst:257
 msgid ""
 "It prints the setup guide of the installed ``anet`` with ``<runner> guide"
 " setup`` and follows it through the runner. When the hub admits by AID, "
@@ -465,7 +474,7 @@ msgstr ""
 "它用 ``<runner> guide setup`` 输出已安装 ``anet`` 的设置指南，并经由运行脚本按其执行。hub 按 AID "
 "准入，或当日注册名额已用完时，注册保持待处理；agent 把需交给 hub 运营方的那一行提供给用户，并且不据此采取行动。"
 
-#: ../../agents/trae.rst:261
+#: ../../agents/trae.rst:263
 msgid ""
 "The commands that change who may reach the machine or what it may spend "
 "(``anet peers``, ``anet inbound``, ``anet autoreply set``, the spending "
@@ -478,28 +487,28 @@ msgstr ""
 "``anet autoreply set``\\ 、支出限额以及 ``anet pay``\\ ）需在终端确认。技能要求 agent "
 "仅指明这些命令，并交由用户执行。技能还要求 agent 不读取 ``~/.anet``\\ ，也不读取或修改 Trae 的配置。"
 
-#: ../../agents/trae.rst:267
+#: ../../agents/trae.rst:269
 msgid "Start a new session after the setup, so that the MCP server starts."
 msgstr "配置完成后请开启新会话，使 MCP 服务器启动。"
 
-#: ../../agents/trae.rst:271
+#: ../../agents/trae.rst:273
 msgid "Verification"
 msgstr "验证"
 
-#: ../../agents/trae.rst:273
+#: ../../agents/trae.rst:275
 msgid ""
 "In a new session, run ``/anet-status``. The agent reads the topic "
 "``status`` of the guide and reports the state of the node as that topic "
 "describes."
 msgstr "在新会话中运行 ``/anet-status``。agent 阅读指南的主题 ``status``，并按该主题所述报告节点状态。"
 
-#: ../../agents/trae.rst:276
+#: ../../agents/trae.rst:278
 msgid ""
 "Ask for a task with ``/anet`` or with a request that begins with "
 "``@anet``, for example:"
 msgstr "使用 ``/anet`` 或以 ``@anet`` 开头的请求提出任务，例如："
 
-#: ../../agents/trae.rst:285
+#: ../../agents/trae.rst:287
 msgid ""
 "The agent reads the guide and calls the tools that it names, for example "
 "``list_agents``, ``get_agent_card`` and ``send_message``, and "
@@ -512,11 +521,11 @@ msgstr ""
 "``wait_task``。报告按工具返回的内容给出任务状态（``TASK_STATE_COMPLETED``）和 "
 "``anet.effect_status``。"
 
-#: ../../agents/trae.rst:291
+#: ../../agents/trae.rst:293
 msgid "On a shell, the runner shows what the bundle selects:"
 msgstr "在 shell 中，运行脚本可显示安装包所选定的内容："
 
-#: ../../agents/trae.rst:301
+#: ../../agents/trae.rst:303
 msgid ""
 "On Windows, the same check is ``& \"$env:USERPROFILE\\.trae\\anet\\bin"
 "\\anet-run.cmd\" --resolve`` in PowerShell."
@@ -524,36 +533,36 @@ msgstr ""
 "在 Windows 上，相同的检查是在 PowerShell 中运行 ``& "
 "\"$env:USERPROFILE\\.trae\\anet\\bin\\anet-run.cmd\" --resolve``。"
 
-#: ../../agents/trae.rst:305
+#: ../../agents/trae.rst:307
 msgid ""
 "The steps in the list above were run with an earlier version of the "
 "bundle and a stand-in for Trae, not with Trae. `Not tested`_ states what "
 "that leaves open."
 msgstr "上述列表中的步骤是用安装包的较早版本和 Trae 的替代程序运行的，并非在 Trae 中运行。其遗留的未决事项见 `未经测试`_。"
 
-#: ../../agents/trae.rst:311
+#: ../../agents/trae.rst:313
 msgid "Settings"
 msgstr "设置项"
 
-#: ../../agents/trae.rst:313
+#: ../../agents/trae.rst:315
 msgid ""
 "The bundle has two optional settings, given to the installer (the options"
 " of ``install.cmd`` in parentheses):"
 msgstr "安装包有两个可选设置项，通过安装程序给出（括号中为 ``install.cmd`` 的选项）："
 
-#: ../../agents/trae.rst:320
+#: ../../agents/trae.rst:322
 msgid "Option"
 msgstr "选项"
 
-#: ../../agents/trae.rst:321
+#: ../../agents/trae.rst:323
 msgid "Meaning"
 msgstr "含义"
 
-#: ../../agents/trae.rst:322
+#: ../../agents/trae.rst:324
 msgid "``--identity NAME`` (``-Identity NAME``)"
 msgstr "``--identity NAME``\\ （``-Identity NAME``）"
 
-#: ../../agents/trae.rst:323
+#: ../../agents/trae.rst:325
 msgid ""
 "A named identity (``anet id ls``). ``--identity ''`` (``-ClearIdentity``)"
 " selects the default identity again. The server then runs ``anet --id "
@@ -562,11 +571,11 @@ msgstr ""
 "具名身份（``anet id ls``）。``--identity ''``\\ "
 "（``-ClearIdentity``）将重新选用默认身份。服务器随后运行 ``anet --id <name> mcp``。"
 
-#: ../../agents/trae.rst:326
+#: ../../agents/trae.rst:328
 msgid "``--anet PATH`` (``-Anet PATH``)"
 msgstr "``--anet PATH``\\ （``-Anet PATH``）"
 
-#: ../../agents/trae.rst:327
+#: ../../agents/trae.rst:329
 msgid ""
 "The absolute path of the ``anet`` executable (``anet.exe`` on Windows). "
 "``--anet ''`` (``-ClearAnet``) searches the locations named above again. "
@@ -575,7 +584,7 @@ msgstr ""
 "``anet`` 可执行文件的绝对路径（Windows 上为 ``anet.exe``）。``--anet ''``\\ "
 "（``-ClearAnet``）将重新在上述位置中查找。若路径不是可执行文件，则视为错误，不会改用其他副本。"
 
-#: ../../agents/trae.rst:332
+#: ../../agents/trae.rst:334
 msgid ""
 "An option that is not given keeps the value of the earlier installation. "
 "The installer keeps the values in two places. The file ``anet/settings`` "
@@ -593,11 +602,11 @@ msgstr ""
 "``.trae/mcp.json``，用户级则只输出条目。更改后，请让已登记条目的 ``env`` 与之保持一致，并开启新会话；否则 shell "
 "命令与 MCP 服务器可能使用不同的身份。"
 
-#: ../../agents/trae.rst:343
+#: ../../agents/trae.rst:345
 msgid "Updating and removing"
 msgstr "更新与移除"
 
-#: ../../agents/trae.rst:345
+#: ../../agents/trae.rst:347
 msgid ""
 "Version 0.2.0 is the final version of the bundle; a new release of ANet "
 "needs no new bundle. To replace an earlier version, run the installer of "
@@ -607,7 +616,7 @@ msgstr ""
 "0.2.0 是该安装包的最终版本；ANet 发布新版本时无需新的安装包。如需替换较早的版本，请以相同范围再次运行 0.2.0 "
 "版本的安装程序。安装程序是幂等的。``anet update`` 更新 ANet 本身，与安装包相互独立。"
 
-#: ../../agents/trae.rst:354
+#: ../../agents/trae.rst:356
 msgid ""
 "On Windows, ``install.cmd -Remove`` removes the bundle, with ``-Cn`` or "
 "``-Project DIR`` as installed. The command deletes the files that the "
@@ -622,11 +631,11 @@ msgstr ""
 "``anet``，或删除 ``.trae/mcp.json`` 中的成员 ``anet``，并开启新会话。移除不会改变节点：``~/.anet``"
 " 中的身份和运行中的守护进程均保持不变。停止节点和移除 ANet 的方法见 :doc:`../intro/install`。"
 
-#: ../../agents/trae.rst:364
+#: ../../agents/trae.rst:366
 msgid "Not tested"
 msgstr "未经测试"
 
-#: ../../agents/trae.rst:366
+#: ../../agents/trae.rst:368
 msgid ""
 "Trae is a graphical application without a command line or a headless "
 "mode, and it was not run. The steps on this page were run on Linux with a"
@@ -640,7 +649,7 @@ msgstr ""
 "``.trae/skills`` 加载技能，展开命令文件，按 Trae 文档所述的参数和精简的 ``PATH`` 从 "
 "``.trae/mcp.json`` 启动 MCP 服务器，并为语言模型提供 shell 工具。该替代程序并非 Trae。因此以下事项尚未验证："
 
-#: ../../agents/trae.rst:374
+#: ../../agents/trae.rst:376
 msgid ""
 "That Trae or Trae CN loads skills from ``~/.trae/skills``, ``~/.trae-"
 "cn/skills`` and ``.trae/skills``, and commands from the corresponding "
@@ -649,7 +658,7 @@ msgstr ""
 "Trae 或 Trae CN 是否从 ``~/.trae/skills``\\ 、\\ ``~/.trae-cn/skills`` 和 "
 "``.trae/skills`` 加载技能，并从相应的 ``commands`` 目录加载命令。"
 
-#: ../../agents/trae.rst:377
+#: ../../agents/trae.rst:379
 msgid ""
 "Whether Trae accepts the ``description`` front matter of the command "
 "files, and under which names it lists ``/anet`` and ``/anet-status``."
@@ -657,7 +666,7 @@ msgstr ""
 "Trae 是否接受命令文件中的 ``description`` 前置元数据，以及它以何种名称列出 ``/anet`` 和 ``/anet-"
 "status``。"
 
-#: ../../agents/trae.rst:379
+#: ../../agents/trae.rst:381
 #, python-brace-format
 msgid ""
 "That Trae expands ``${workspaceFolder}`` in ``args`` and starts ``/bin/sh"
@@ -667,7 +676,7 @@ msgstr ""
 "Trae 是否展开 ``args`` 中的 ``${workspaceFolder}`` 并启动 ``/bin/sh <script>``\\ "
 "；项目条目是否需要在设置中开启 **Project MCP**\\ ；以及全局 MCP 文件的位置。"
 
-#: ../../agents/trae.rst:382
+#: ../../agents/trae.rst:384
 msgid ""
 "The registration of the printed entry through **Settings**, **MCP**, "
 "**Add**, **Create Manually**, and through the install link, and the "
@@ -676,11 +685,11 @@ msgstr ""
 "通过 **Settings**\\ 、\\ **MCP**\\ 、\\ **Add**\\ 、\\ **Create Manually** "
 "以及通过安装链接登记所输出条目的过程，以及 Trae CN 的安装链接方案。"
 
-#: ../../agents/trae.rst:385
+#: ../../agents/trae.rst:387
 msgid "The environment of the graphical application, in particular its ``PATH``."
 msgstr "图形应用的运行环境，尤其是其 ``PATH``\\ 。"
 
-#: ../../agents/trae.rst:386
+#: ../../agents/trae.rst:388
 msgid ""
 "The behaviour of a client that reads tool schemas strictly. The property "
 "``accept`` of the tool ``submit_payment`` has no ``type``. The open-"
@@ -690,11 +699,11 @@ msgstr ""
 "严格解析工具模式的客户端的行为。工具 ``submit_payment`` 的属性 ``accept`` 没有 ``type``\\ "
 "。开源的字节跳动程序 ``trae-agent``\\ （与 Trae 是不同的程序）会拒绝该属性。Trae 是否接受尚不明确。"
 
-#: ../../agents/trae.rst:390
+#: ../../agents/trae.rst:392
 msgid "macOS. ``install.sh`` was run on Linux with ``dash``, ``bash`` and ``sh``."
 msgstr "macOS。\\ ``install.sh`` 仅在 Linux 上以 ``dash``\\ 、\\ ``bash`` 和 ``sh`` 运行过。"
 
-#: ../../agents/trae.rst:391
+#: ../../agents/trae.rst:393
 msgid ""
 "Windows. ``install.cmd`` and the Windows runner are tested with "
 "PowerShell. Whether Trae starts a ``.cmd`` file as the command of an MCP "
@@ -703,31 +712,31 @@ msgstr ""
 "Windows。``install.cmd`` 和 Windows 运行脚本已用 PowerShell 测试。Trae 是否会把 ``.cmd``"
 " 文件作为 MCP 服务器的命令启动，Trae 的文档未作说明，也未经观察。"
 
-#: ../../agents/trae.rst:397
+#: ../../agents/trae.rst:399
 msgid "Troubleshooting"
 msgstr "故障排查"
 
-#: ../../agents/trae.rst:403
+#: ../../agents/trae.rst:405
 msgid "Observation"
 msgstr "现象"
 
-#: ../../agents/trae.rst:404
+#: ../../agents/trae.rst:406
 msgid "Cause"
 msgstr "原因"
 
-#: ../../agents/trae.rst:405
+#: ../../agents/trae.rst:407
 msgid "Action"
 msgstr "处理"
 
-#: ../../agents/trae.rst:406
+#: ../../agents/trae.rst:408
 msgid "The session has no anet tools."
 msgstr "会话中没有 anet 工具。"
 
-#: ../../agents/trae.rst:407
+#: ../../agents/trae.rst:409
 msgid "``anet`` is missing, or its daemon is not running."
 msgstr "``anet`` 缺失，或其守护进程未运行。"
 
-#: ../../agents/trae.rst:408
+#: ../../agents/trae.rst:410
 msgid ""
 "Run ``sh ~/.trae/anet/bin/anet-run.sh status``. ``[daemon_not_running]``:"
 " run ``sh ~/.trae/anet/bin/anet-run.sh up``, which applies the identity "
@@ -738,94 +747,94 @@ msgstr ""
 " ``sh ~/.trae/anet/bin/anet-run.sh up``，它会应用设置中的身份和可执行文件。找不到 ``anet``：请 "
 "agent 运行技能 ``anet-setup``。然后启动新会话。"
 
-#: ../../agents/trae.rst:412
+#: ../../agents/trae.rst:414
 msgid "``executable: invalid setting anetPath=...``"
 msgstr "``executable: invalid setting anetPath=...``"
 
-#: ../../agents/trae.rst:413
+#: ../../agents/trae.rst:415
 msgid "The setting names a file that is not an executable."
 msgstr "该设置指向的文件不是可执行文件。"
 
-#: ../../agents/trae.rst:414
+#: ../../agents/trae.rst:416
 msgid ""
 "Run ``install.sh --anet ''`` (``install.cmd -ClearAnet``) or give the "
 "correct path."
 msgstr "运行 ``install.sh --anet ''``\\ （``install.cmd -ClearAnet``）或给出正确的路径。"
 
-#: ../../agents/trae.rst:416
+#: ../../agents/trae.rst:418
 msgid "The installer refuses the installation."
 msgstr "安装程序拒绝安装。"
 
-#: ../../agents/trae.rst:417
+#: ../../agents/trae.rst:419
 msgid ""
 "The home directory contains a space (Linux and macOS) or has no short "
 "form without one (Windows), or a skill or command of the same name exists"
 " that the installer did not install."
 msgstr "主目录含有空格（Linux 和 macOS），或没有不含空格的短路径（Windows），或存在并非由安装程序安装的同名技能或命令。"
 
-#: ../../agents/trae.rst:420
+#: ../../agents/trae.rst:422
 msgid ""
 "Use ``--project`` (``-Project``) with a path without spaces, or move the "
 "other file."
 msgstr "使用 ``--project``\\ （``-Project``）并指定不含空格的路径，或移走另一个文件。"
 
-#: ../../agents/trae.rst:422
+#: ../../agents/trae.rst:424
 msgid "The agent reports another identity than expected."
 msgstr "Agent 报告的身份与预期不同。"
 
-#: ../../agents/trae.rst:423
+#: ../../agents/trae.rst:425
 msgid "``anet/settings`` and the ``env`` of the MCP entry differ."
 msgstr "``anet/settings`` 与 MCP 条目的 ``env`` 不一致。"
 
-#: ../../agents/trae.rst:424
+#: ../../agents/trae.rst:426
 msgid ""
 "Make ``ANET_PLUGIN_IDENTITY`` in the entry equal to the identity in "
 "``anet/settings``."
 msgstr "使条目中的 ``ANET_PLUGIN_IDENTITY`` 与 ``anet/settings`` 中的身份相同。"
 
-#: ../../agents/trae.rst:426
+#: ../../agents/trae.rst:428
 msgid ""
 "The hub reports that today's sign-ups are used up, and the registration "
 "stays pending."
 msgstr "hub 提示当日注册名额已用完，注册保持待处理。"
 
-#: ../../agents/trae.rst:428
+#: ../../agents/trae.rst:430
 msgid "The hub limits sign-ups from a network."
 msgstr "hub 对同一网络的注册数量设有限制。"
 
-#: ../../agents/trae.rst:429
+#: ../../agents/trae.rst:431
 msgid "Give the line that the agent prints to the hub operator."
 msgstr "把 agent 输出的那一行交给 hub 运营方。"
 
-#: ../../agents/trae.rst:430
+#: ../../agents/trae.rst:432
 msgid "``wait_task`` ends while the task is still working."
 msgstr "任务仍在进行时 ``wait_task`` 已结束。"
 
-#: ../../agents/trae.rst:431
+#: ../../agents/trae.rst:433
 msgid "This is normal for long tasks."
 msgstr "这在长时间任务中属于正常现象。"
 
-#: ../../agents/trae.rst:432
+#: ../../agents/trae.rst:434
 msgid "Call ``wait_task`` again and do not send the task again."
 msgstr "再次调用 ``wait_task``\\ ，不要重新发送任务。"
 
-#: ../../agents/trae.rst:433
+#: ../../agents/trae.rst:435
 msgid "A refusal ends with a code in brackets."
 msgstr "拒绝信息末尾带有方括号中的代码。"
 
-#: ../../agents/trae.rst:435
+#: ../../agents/trae.rst:437
 msgid "See :doc:`../reference/reason-codes`."
 msgstr "参见 :doc:`../reference/reason-codes`\\ 。"
 
-#: ../../agents/trae.rst:437
+#: ../../agents/trae.rst:439
 msgid "For other failures, see :doc:`../howto/troubleshooting`."
 msgstr "其他故障参见 :doc:`../howto/troubleshooting`\\ 。"
 
-#: ../../agents/trae.rst:441
+#: ../../agents/trae.rst:443
 msgid "References"
 msgstr "参考"
 
-#: ../../agents/trae.rst:443
+#: ../../agents/trae.rst:445
 msgid ""
 "Trae documentation: MCP servers (``https://docs.trae.ai/ide/add-mcp-"
 "servers``), MCP install links (``https://docs.trae.ai/ide/mcp-server-"
@@ -837,19 +846,19 @@ msgstr ""
 "``https://docs.trae.ai/ide/skills``\\ ）和命令（\\ ``https://docs.trae.ai/ide"
 "/slash-commands``\\ ）。"
 
-#: ../../agents/trae.rst:447
+#: ../../agents/trae.rst:449
 msgid ":doc:`../howto/coding-agents`"
 msgstr ":doc:`../howto/coding-agents`"
 
-#: ../../agents/trae.rst:448
+#: ../../agents/trae.rst:450
 msgid ":doc:`../howto/mcp`"
 msgstr ":doc:`../howto/mcp`"
 
-#: ../../agents/trae.rst:449
+#: ../../agents/trae.rst:451
 msgid ":doc:`../reference/mcp-tools`"
 msgstr ":doc:`../reference/mcp-tools`"
 
-#: ../../agents/trae.rst:450
+#: ../../agents/trae.rst:452
 msgid ""
 "Source of the bundle: ``deploy/plugins`` in the ANet repository (target "
 "``trae`` of the plugin generator; the generated bundle is "

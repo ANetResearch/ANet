@@ -45,7 +45,15 @@ type change struct {
 	// that still holds exactly that is not backed up: the copy would add
 	// nothing, and in the skill directory it would be left behind.
 	generated []byte
-	note      Msg
+	// cliOnly marks a change made entirely through a tool's own CLI, with
+	// no file of the tool read or written by anet (ZCode: its configuration
+	// holds the user's model credentials). path is empty, run lists the
+	// commands, confirm checks the outcome through the CLI, and output
+	// collects one note per command with what the command printed.
+	cliOnly bool
+	confirm func(ctx context.Context) error
+	output  *[]Msg
+	note    Msg
 }
 
 // readMaybe returns the file's content, or nil when it does not exist.
@@ -75,6 +83,9 @@ func realPath(path string) string {
 
 // apply makes the change and returns the backup it made, if any.
 func (c change) apply(o *Options) (string, error) {
+	if c.cliOnly {
+		return "", c.applyCLI(o)
+	}
 	path := realPath(c.path)
 	cur, err := readMaybe(path)
 	if err != nil {
@@ -156,6 +167,67 @@ func (c change) apply(o *Options) (string, error) {
 	}
 	return bak, nil
 }
+
+// applyCLI runs the commands of a CLI-only change, one after another, with
+// one time limit for all of them, and records what each printed.
+func (c change) applyCLI(o *Options) error {
+	ctx, cancel := context.WithTimeout(context.Background(), cliChangeTimeout)
+	defer cancel()
+	for _, argv := range c.run {
+		out, err := o.Run(ctx, argv[0], argv[1:]...)
+		if c.output != nil {
+			*c.output = append(*c.output, msg("wire.note.cli_output", "command", cliCommand(argv), "detail", cliOutput(out)))
+		}
+		if err != nil {
+			return fail("wire_cli_failed", "command", cliCommand(argv), "error", cliError(err, out))
+		}
+	}
+	if c.confirm != nil {
+		return c.confirm(ctx)
+	}
+	return nil
+}
+
+// cliChangeTimeout bounds the commands of one CLI-only change: a plugin
+// install downloads an archive.
+const cliChangeTimeout = 3 * time.Minute
+
+// cliCommand is a command line as the operator would type it: the program by
+// its base name, then the arguments.
+func cliCommand(argv []string) string {
+	if len(argv) == 0 {
+		return ""
+	}
+	return strings.Join(append([]string{filepath.Base(argv[0])}, argv[1:]...), " ")
+}
+
+// cliOutput is what a tool's CLI printed, as one bounded line: lines joined
+// with " | ", control characters dropped.
+func cliOutput(out []byte) string {
+	var lines []string
+	for _, l := range strings.Split(string(out), "\n") {
+		l = strings.Map(func(r rune) rune {
+			if unicode.IsControl(r) {
+				return -1
+			}
+			return r
+		}, l)
+		if l = strings.TrimSpace(l); l != "" {
+			lines = append(lines, l)
+		}
+	}
+	s := strings.Join(lines, " | ")
+	if s == "" {
+		s = "-"
+	}
+	if r := []rune(s); len(r) > cliOutputMax {
+		s = string(r[:cliOutputMax]) + "..."
+	}
+	return s
+}
+
+// cliOutputMax bounds the output of a tool's CLI that anet repeats.
+const cliOutputMax = 400
 
 func sameContent(a, b []byte) bool {
 	if (a == nil) != (b == nil) {

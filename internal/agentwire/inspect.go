@@ -63,6 +63,12 @@ func Inspect(o Options) ([]State, error) {
 	for _, name := range Tools() {
 		t, _ := toolByName(name)
 		st := State{Tool: name, Detected: t.detected(&o), Config: t.configPath(&o)}
+		if _, ok := t.(cliTool); ok && !st.Detected {
+			// Nothing to plan without the tool's CLI, and nothing of the
+			// tool is read in its place.
+			out = append(out, st)
+			continue
+		}
 		st.Mode = fileMode(realPath(st.Config))
 		changes, err := t.planWire(&o)
 		var ce *ConflictError

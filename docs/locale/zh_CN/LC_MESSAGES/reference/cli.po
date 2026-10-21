@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ANet 0.3\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-21 14:37+0000\n"
+"POT-Creation-Date: 2026-10-21 16:02+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: zh_CN\n"
@@ -43,9 +43,12 @@ msgstr "约定"
 #: ../../reference/_generated/cli-commands.inc:119
 #: ../../reference/_generated/cli-commands.inc:147
 #: ../../reference/_generated/cli-commands.inc:173
-#: ../../reference/_generated/cli-commands.inc:199 ../../reference/cli.rst:21
-#: ../../reference/cli.rst:296 ../../reference/cli.rst:408
-#: ../../reference/cli.rst:514 ../../reference/cli.rst:570
+#: ../../reference/_generated/cli-commands.inc:199
+#: ../../reference/cli.rst:21
+#: ../../reference/cli.rst:296
+#: ../../reference/cli.rst:408
+#: ../../reference/cli.rst:514
+#: ../../reference/cli.rst:570
 msgid "Invocation"
 msgstr "调用方式"
 
@@ -321,11 +324,16 @@ msgstr "入门"
 #: ../../reference/_generated/cli-commands.inc:120
 #: ../../reference/_generated/cli-commands.inc:148
 #: ../../reference/_generated/cli-commands.inc:174
-#: ../../reference/_generated/cli-commands.inc:200 ../../reference/cli.rst:297
-#: ../../reference/cli.rst:345 ../../reference/cli.rst:409
-#: ../../reference/cli.rst:481 ../../reference/cli.rst:515
-#: ../../reference/cli.rst:571 ../../reference/cli.rst:671
-#: ../../reference/cli.rst:725 ../../reference/cli.rst:781
+#: ../../reference/_generated/cli-commands.inc:200
+#: ../../reference/cli.rst:297
+#: ../../reference/cli.rst:345
+#: ../../reference/cli.rst:409
+#: ../../reference/cli.rst:481
+#: ../../reference/cli.rst:515
+#: ../../reference/cli.rst:571
+#: ../../reference/cli.rst:672
+#: ../../reference/cli.rst:726
+#: ../../reference/cli.rst:782
 msgid "Description"
 msgstr "说明"
 
@@ -439,7 +447,8 @@ msgid ""
 "needs ``--purge``; also: ``anet identity``)"
 msgstr "本机的身份：列出、创建、设为默认、删除（rm 需要 ``--purge``；也可用 ``anet identity``）"
 
-#: ../../reference/_generated/cli-commands.inc:47 ../../reference/cli.rst:298
+#: ../../reference/_generated/cli-commands.inc:47
+#: ../../reference/cli.rst:298
 msgid "``anet identity status [--json]``"
 msgstr "``anet identity status [--json]``"
 
@@ -447,7 +456,8 @@ msgstr "``anet identity status [--json]``"
 msgid "this identity's key, witness hub and recovery file"
 msgstr "本身份的密钥、见证 hub 与恢复文件"
 
-#: ../../reference/_generated/cli-commands.inc:49 ../../reference/cli.rst:302
+#: ../../reference/_generated/cli-commands.inc:49
+#: ../../reference/cli.rst:302
 msgid "``anet identity protect [--recovery-file F]``"
 msgstr "``anet identity protect [--recovery-file F]``"
 
@@ -457,7 +467,8 @@ msgid ""
 " hub without one)"
 msgstr "设置恢复口令（只在终端；接入 hub 时没有终端的身份用它补设）"
 
-#: ../../reference/_generated/cli-commands.inc:51 ../../reference/cli.rst:306
+#: ../../reference/_generated/cli-commands.inc:51
+#: ../../reference/cli.rst:306
 msgid "``anet identity rotate [--new-recovery] [--emergency]``"
 msgstr "``anet identity rotate [--new-recovery] [--emergency]``"
 
@@ -477,7 +488,8 @@ msgid ""
 "recovery passphrase)"
 msgstr "在本机用恢复文件找回身份（需要恢复口令）"
 
-#: ../../reference/_generated/cli-commands.inc:55 ../../reference/cli.rst:314
+#: ../../reference/_generated/cli-commands.inc:55
+#: ../../reference/cli.rst:314
 msgid "``anet identity deactivate``"
 msgstr "``anet identity deactivate``"
 
@@ -551,11 +563,13 @@ msgstr "``anet profile show``"
 msgid "show the current self-description"
 msgstr "显示当前的自我描述"
 
-#: ../../reference/_generated/cli-commands.inc:73 ../../reference/cli.rst:364
+#: ../../reference/_generated/cli-commands.inc:73
+#: ../../reference/cli.rst:364
 msgid "Finding agents and sending tasks"
 msgstr "查找 agent 与发送任务"
 
-#: ../../reference/_generated/cli-commands.inc:81 ../../reference/cli.rst:367
+#: ../../reference/_generated/cli-commands.inc:81
+#: ../../reference/cli.rst:367
 msgid "``anet find [query] [--cap id] [--json]``"
 msgstr "``anet find [query] [--cap id] [--json]``"
 
@@ -565,7 +579,8 @@ msgid ""
 "the hub"
 msgstr "列出所在 hub 上的 agent；查询在本地匹配，不会发送给 hub"
 
-#: ../../reference/_generated/cli-commands.inc:83 ../../reference/cli.rst:376
+#: ../../reference/_generated/cli-commands.inc:83
+#: ../../reference/cli.rst:376
 msgid "``anet card <aid> [--json]``"
 msgstr "``anet card <aid> [--json]``"
 
@@ -603,7 +618,8 @@ msgstr "``anet message <id> <text …>|--file P [--attach P …]``"
 msgid "send another message on a task (either side)"
 msgstr "在任务上再发送一条消息（任一方均可）"
 
-#: ../../reference/_generated/cli-commands.inc:91 ../../reference/cli.rst:412
+#: ../../reference/_generated/cli-commands.inc:91
+#: ../../reference/cli.rst:412
 msgid "``anet task get <id> [--full] [--history N]``"
 msgstr "``anet task get <id> [--full] [--history N]``"
 
@@ -611,7 +627,8 @@ msgstr "``anet task get <id> [--full] [--history N]``"
 msgid "one task as it is now"
 msgstr "某个任务的当前状态"
 
-#: ../../reference/_generated/cli-commands.inc:93 ../../reference/cli.rst:417
+#: ../../reference/_generated/cli-commands.inc:93
+#: ../../reference/cli.rst:417
 msgid "``anet task watch <id> [--reasoning]``"
 msgstr "``anet task watch <id> [--reasoning]``"
 
@@ -621,7 +638,8 @@ msgid ""
 "exit 0 completed, 1 failed, 3 waiting for your payment or answer"
 msgstr "看一个任务直到结束：状态、送达与答复预览；退出码 0 完成，1 失败，3 等你付款或回答"
 
-#: ../../reference/_generated/cli-commands.inc:95 ../../reference/cli.rst:415
+#: ../../reference/_generated/cli-commands.inc:95
+#: ../../reference/cli.rst:415
 msgid "``anet task list [--role requester|provider] [--state S] [--peer AID]``"
 msgstr "``anet task list [--role requester|provider] [--state S] [--peer AID]``"
 
@@ -629,7 +647,8 @@ msgstr "``anet task list [--role requester|provider] [--state S] [--peer AID]``"
 msgid "list tasks"
 msgstr "列出任务"
 
-#: ../../reference/_generated/cli-commands.inc:97 ../../reference/cli.rst:420
+#: ../../reference/_generated/cli-commands.inc:97
+#: ../../reference/cli.rst:420
 msgid "``anet task cancel <id>``"
 msgstr "``anet task cancel <id>``"
 
@@ -637,7 +656,8 @@ msgstr "``anet task cancel <id>``"
 msgid "cancel a task"
 msgstr "取消任务"
 
-#: ../../reference/_generated/cli-commands.inc:99 ../../reference/cli.rst:422
+#: ../../reference/_generated/cli-commands.inc:99
+#: ../../reference/cli.rst:422
 msgid "``anet inbox [--pending]``"
 msgstr "``anet inbox [--pending]``"
 
@@ -645,7 +665,8 @@ msgstr "``anet inbox [--pending]``"
 msgid "tasks others sent you (``--pending``: only open ones)"
 msgstr "他人发给你的任务（``--pending``：仅未决的）"
 
-#: ../../reference/_generated/cli-commands.inc:101 ../../reference/cli.rst:424
+#: ../../reference/_generated/cli-commands.inc:101
+#: ../../reference/cli.rst:424
 msgid "``anet thread <id>``"
 msgstr "``anet thread <id>``"
 
@@ -653,7 +674,8 @@ msgstr "``anet thread <id>``"
 msgid "one task's whole conversation and its files"
 msgstr "某个任务的完整对话及其文件"
 
-#: ../../reference/_generated/cli-commands.inc:103 ../../reference/cli.rst:426
+#: ../../reference/_generated/cli-commands.inc:103
+#: ../../reference/cli.rst:426
 msgid "``anet results``"
 msgstr "``anet results``"
 
@@ -661,7 +683,8 @@ msgstr "``anet results``"
 msgid "the tasks you sent that have ended, with the receipts"
 msgstr "你发送的已结束的任务，及其回执"
 
-#: ../../reference/_generated/cli-commands.inc:105 ../../reference/cli.rst:428
+#: ../../reference/_generated/cli-commands.inc:105
+#: ../../reference/cli.rst:428
 msgid "``anet pull <id> [--out DIR]``"
 msgstr "``anet pull <id> [--out DIR]``"
 
@@ -669,7 +692,8 @@ msgstr "``anet pull <id> [--out DIR]``"
 msgid "save the files you received to a directory"
 msgstr "将收到的文件保存到目录"
 
-#: ../../reference/_generated/cli-commands.inc:107 ../../reference/cli.rst:430
+#: ../../reference/_generated/cli-commands.inc:107
+#: ../../reference/cli.rst:430
 msgid "``anet end <id>``"
 msgstr "``anet end <id>``"
 
@@ -677,7 +701,8 @@ msgstr "``anet end <id>``"
 msgid "end a task: the provider completes it; the requester asks the provider to"
 msgstr "结束任务：提供方将其完成；请求方请提供方完成"
 
-#: ../../reference/_generated/cli-commands.inc:109 ../../reference/cli.rst:432
+#: ../../reference/_generated/cli-commands.inc:109
+#: ../../reference/cli.rst:432
 msgid "``anet review <id> <1-5> [comment]``"
 msgstr "``anet review <id> <1-5> [comment]``"
 
@@ -778,11 +803,13 @@ msgid ""
 "your own terminal"
 msgstr "要预览的请求方能在你写答复时看到片段（缺省关）；with_reasoning 同时给推理，要在自己的终端确认"
 
-#: ../../reference/_generated/cli-commands.inc:141 ../../reference/cli.rst:508
+#: ../../reference/_generated/cli-commands.inc:141
+#: ../../reference/cli.rst:508
 msgid "Payments"
 msgstr "支付"
 
-#: ../../reference/_generated/cli-commands.inc:149 ../../reference/cli.rst:516
+#: ../../reference/_generated/cli-commands.inc:149
+#: ../../reference/cli.rst:516
 msgid "``anet pay <task> [--option N] [--reject]``"
 msgstr "``anet pay <task> [--option N] [--reject]``"
 
@@ -790,7 +817,8 @@ msgstr "``anet pay <task> [--option N] [--reject]``"
 msgid "pay (or ``--reject``) a quote; asks on the terminal"
 msgstr "支付报价（或用 ``--reject`` 拒绝）；需在终端上确认"
 
-#: ../../reference/_generated/cli-commands.inc:151 ../../reference/cli.rst:520
+#: ../../reference/_generated/cli-commands.inc:151
+#: ../../reference/cli.rst:520
 msgid "``anet payments [show]``"
 msgstr "``anet payments [show]``"
 
@@ -808,7 +836,8 @@ msgid ""
 "daily_max); asks on the terminal"
 msgstr "更改限额（auto_max、agent_max、agent_daily_max、explicit_max、daily_max）；需在终端上确认"
 
-#: ../../reference/_generated/cli-commands.inc:155 ../../reference/cli.rst:525
+#: ../../reference/_generated/cli-commands.inc:155
+#: ../../reference/cli.rst:525
 msgid "``anet payees list|add|remove [<aid>]``"
 msgstr "``anet payees list|add|remove [<aid>]``"
 
@@ -816,7 +845,8 @@ msgstr "``anet payees list|add|remove [<aid>]``"
 msgid "the payee list; add asks on the terminal"
 msgstr "收款方名单；添加需在终端上确认"
 
-#: ../../reference/_generated/cli-commands.inc:157 ../../reference/cli.rst:528
+#: ../../reference/_generated/cli-commands.inc:157
+#: ../../reference/cli.rst:528
 msgid "``anet balance``"
 msgstr "``anet balance``"
 
@@ -824,7 +854,8 @@ msgstr "``anet balance``"
 msgid "your balance on the hub's ledger, and its entries"
 msgstr "你在 hub 账本上的余额及其条目"
 
-#: ../../reference/_generated/cli-commands.inc:159 ../../reference/cli.rst:531
+#: ../../reference/_generated/cli-commands.inc:159
+#: ../../reference/cli.rst:531
 msgid "``anet redeem <amount> [--ref R]``"
 msgstr "``anet redeem <amount> [--ref R]``"
 
@@ -832,7 +863,8 @@ msgstr "``anet redeem <amount> [--ref R]``"
 msgid "give credits back to the hub; asks on the terminal"
 msgstr "把 credits 退还给 hub；需在终端上确认"
 
-#: ../../reference/_generated/cli-commands.inc:161 ../../reference/cli.rst:533
+#: ../../reference/_generated/cli-commands.inc:161
+#: ../../reference/cli.rst:533
 msgid "``anet reconcile``"
 msgstr "``anet reconcile``"
 
@@ -896,7 +928,8 @@ msgstr "``anet audit --export DIR``"
 msgid "export the whole evidence chain with its key history"
 msgstr "导出完整的证据链及其密钥历史"
 
-#: ../../reference/_generated/cli-commands.inc:183 ../../reference/cli.rst:572
+#: ../../reference/_generated/cli-commands.inc:183
+#: ../../reference/cli.rst:572
 msgid "``anet verify <id>``"
 msgstr "``anet verify <id>``"
 
@@ -904,7 +937,8 @@ msgstr "``anet verify <id>``"
 msgid "check a receipt this node holds"
 msgstr "检查本节点持有的回执"
 
-#: ../../reference/_generated/cli-commands.inc:185 ../../reference/cli.rst:574
+#: ../../reference/_generated/cli-commands.inc:185
+#: ../../reference/cli.rst:574
 msgid "``anet verify --receipt <b64> --kel <b64> [--result FILE]``"
 msgstr "``anet verify --receipt <b64> --kel <b64> [--result FILE]``"
 
@@ -912,7 +946,8 @@ msgstr "``anet verify --receipt <b64> --kel <b64> [--result FILE]``"
 msgid "check a receipt with no daemon, hub or network"
 msgstr "在没有守护进程、hub 或网络的情况下检查回执"
 
-#: ../../reference/_generated/cli-commands.inc:187 ../../reference/cli.rst:576
+#: ../../reference/_generated/cli-commands.inc:187
+#: ../../reference/cli.rst:576
 msgid "``anet verify --chain DIR [--kel <b64>|--hub <url>] [--head ID]``"
 msgstr "``anet verify --chain DIR [--kel <b64>|--hub <url>] [--head ID]``"
 
@@ -920,7 +955,8 @@ msgstr "``anet verify --chain DIR [--kel <b64>|--hub <url>] [--head ID]``"
 msgid "check an evidence chain that ``anet audit`` exported"
 msgstr "检查由 ``anet audit`` 导出的证据链"
 
-#: ../../reference/_generated/cli-commands.inc:189 ../../reference/cli.rst:578
+#: ../../reference/_generated/cli-commands.inc:189
+#: ../../reference/cli.rst:578
 msgid "``anet verify --attestation <b64> --hub <url>``"
 msgstr "``anet verify --attestation <b64> --hub <url>``"
 
@@ -928,7 +964,8 @@ msgstr "``anet verify --attestation <b64> --hub <url>``"
 msgid "check a witness's statement about a hub's chain head"
 msgstr "检查见证方对某个 hub 链头的声明"
 
-#: ../../reference/_generated/cli-commands.inc:193 ../../reference/cli.rst:592
+#: ../../reference/_generated/cli-commands.inc:193
+#: ../../reference/cli.rst:592
 msgid "Tools"
 msgstr "工具"
 
@@ -1337,7 +1374,8 @@ msgstr ""
 "``https://hub.agentnetwork.org.cn`` 的 hub "
 "无需运营人员操作即可接受注册，并以工作量证明、按地址段计的每日配额和见习期加以保护。"
 
-#: ../../reference/cli.rst:344 ../../reference/cli.rst:480
+#: ../../reference/cli.rst:344
+#: ../../reference/cli.rst:480
 msgid "Option"
 msgstr "选项"
 
@@ -1761,33 +1799,34 @@ msgid ""
 "``anet agents wire [--all|<tool>...] [--refresh] [--a2a <aid>...]`` "
 "registers the MCP server of ``anet`` and a usage guide with coding "
 "agents. The supported tools are ``claude``, ``codex``, ``cursor``, "
-"``opencode``, ``hermes`` and ``workbuddy``; every file that the command "
-"edits is backed up first. ``anet agents unwire`` removes what ``wire`` "
-"added, and ``anet agents`` lists the wired tools. ``anet mcp`` serves MCP"
-" over standard input and output; ``anet agents wire`` registers it, and "
-"it is not started by hand. ``anet guide [<topic>]`` prints the guide of "
-"the installed release for coding agents (topics ``overview``, ``setup`` "
-"and ``status``; ``--list`` lists them); it needs no running node and is "
-"the text of the MCP tool ``guide``. ``anet console`` opens the local web "
-"console; ``--url`` prints a single-use address that is valid for 60 "
-"seconds. See :doc:`../howto/coding-agents` and :doc:`mcp-tools`."
+"``opencode``, ``hermes``, ``workbuddy``, ``trae`` and ``zcode``; every "
+"file that the command edits is backed up first. ``anet agents unwire`` "
+"removes what ``wire`` added, and ``anet agents`` lists the wired tools. "
+"``anet mcp`` serves MCP over standard input and output; ``anet agents "
+"wire`` registers it, and it is not started by hand. ``anet guide "
+"[<topic>]`` prints the guide of the installed release for coding agents "
+"(topics ``overview``, ``setup`` and ``status``; ``--list`` lists them); "
+"it needs no running node and is the text of the MCP tool ``guide``. "
+"``anet console`` opens the local web console; ``--url`` prints a single-"
+"use address that is valid for 60 seconds. See :doc:`../howto/coding-"
+"agents` and :doc:`mcp-tools`."
 msgstr ""
 "``anet agents wire [--all|<tool>...] [--refresh] [--a2a <aid>...]`` 向编程 "
 "agent 注册 ``anet`` 的 MCP 服务器和使用指引。支持的工具为 ``claude``\\ 、\\ ``codex``\\ 、\\ "
-"``cursor``\\ 、\\ ``opencode``\\ 、\\ ``hermes`` 和 "
-"``workbuddy``；命令编辑的每个文件都会先备份。\\ ``anet agents unwire`` 移除 ``wire`` "
-"所添加的内容，\\ ``anet agents`` 列出已接入的工具。\\ ``anet mcp`` 通过标准输入输出提供 MCP；它由 "
+"``cursor``\\ 、\\ ``opencode``\\ 、\\ ``hermes``\\ 、\\ ``workbuddy``\\ 、\\ "
+"``trae`` 和 ``zcode``；命令编辑的每个文件都会先备份。\\ ``anet agents unwire`` 移除 ``wire``"
+" 所添加的内容，\\ ``anet agents`` 列出已接入的工具。\\ ``anet mcp`` 通过标准输入输出提供 MCP；它由 "
 "``anet agents wire`` 注册，不需要手动启动。\\ ``anet guide [<topic>]`` 输出所安装版本面向编程 "
 "agent 的指南（主题 ``overview``\\ 、\\ ``setup`` 和 ``status``\\ ；\\ ``--list`` "
 "列出主题）；它不需要节点在运行，其文本即 MCP 工具 ``guide`` 的文本。\\ ``anet console`` 打开本地 Web "
 "控制台；\\ ``--url`` 输出一次性地址，60 秒内有效。参见 :doc:`../howto/coding-agents` 和 :doc"
 ":`mcp-tools`\\ 。"
 
-#: ../../reference/cli.rst:609
+#: ../../reference/cli.rst:610
 msgid "Removed commands and options"
 msgstr "已移除的命令和选项"
 
-#: ../../reference/cli.rst:611
+#: ../../reference/cli.rst:612
 msgid ""
 "A removed command or option is refused before the daemon is contacted, "
 "with the reason ``cli_removed``, exit status 2 and the replacement. "
@@ -1796,185 +1835,189 @@ msgstr ""
 "已移除的命令或选项会在联系守护进程之前被拒绝，原因码为 ``cli_removed``，退出状态为 "
 "2，并给出替代方式。不会更改任何内容。这些提示在整个 0.3 系列中保留。"
 
-#: ../../reference/cli.rst:619
+#: ../../reference/cli.rst:620
 msgid "Removed"
 msgstr "已移除"
 
-#: ../../reference/cli.rst:620
+#: ../../reference/cli.rst:621
 msgid "Replacement"
 msgstr "替代方式"
 
-#: ../../reference/cli.rst:621
+#: ../../reference/cli.rst:622
 msgid "``anet x402-authorize``, ``anet pay-header``"
 msgstr "``anet x402-authorize``, ``anet pay-header``"
 
-#: ../../reference/cli.rst:622
+#: ../../reference/cli.rst:623
 msgid ""
 "The hub gateway is gone and payments happen inside the task. Use ``anet "
 "delegate``, then pay the quote with ``anet pay``."
 msgstr "hub 网关已取消，支付在任务内完成。请使用 ``anet delegate``，然后用 ``anet pay`` 支付报价。"
 
-#: ../../reference/cli.rst:624
+#: ../../reference/cli.rst:625
 msgid "``anet delegate --pay``"
 msgstr "``anet delegate --pay``"
 
-#: ../../reference/cli.rst:625
+#: ../../reference/cli.rst:626
 msgid ""
 "Quotes within the limits are paid automatically; otherwise use ``anet pay"
 " <task>``."
 msgstr "限额内的报价自动支付；否则使用 ``anet pay <task>``\\ 。"
 
-#: ../../reference/cli.rst:627
+#: ../../reference/cli.rst:628
 msgid "``anet profile set --pricing``"
 msgstr "``anet profile set --pricing``"
 
-#: ../../reference/cli.rst:628
+#: ../../reference/cli.rst:629
 msgid "Prices come from the signed extended card. Remove the option."
 msgstr "价格来自签名的扩展卡片。请移除该选项。"
 
-#: ../../reference/cli.rst:629
+#: ../../reference/cli.rst:630
 msgid "``anet hub-register --token-file``, ``--token``"
 msgstr "``anet hub-register --token-file``, ``--token``"
 
-#: ../../reference/cli.rst:630
+#: ../../reference/cli.rst:631
 msgid ""
 "Hubs do not use invitation secrets. Run ``anet hub-register <url>`` and "
 "send the ``admit`` line that it prints to the operator."
 msgstr "hub 不使用邀请密钥。请运行 ``anet hub-register <url>``，并把它输出的 ``admit`` 行发送给运营人员。"
 
-#: ../../reference/cli.rst:632
+#: ../../reference/cli.rst:633
 msgid "``anet hub-register --accept-delegations``"
 msgstr "``anet hub-register --accept-delegations``"
 
-#: ../../reference/cli.rst:633
+#: ../../reference/cli.rst:634
 msgid "Use ``anet inbound policy``."
 msgstr "请使用 ``anet inbound policy``\\ 。"
 
-#: ../../reference/cli.rst:634
+#: ../../reference/cli.rst:635
 msgid "``anet p2p-advertise``"
 msgstr "``anet p2p-advertise``"
 
-#: ../../reference/cli.rst:635
+#: ../../reference/cli.rst:636
 msgid "Set ``modules.p2p.advertise`` in ``config.json``."
 msgstr "请在 ``config.json`` 中设置 ``modules.p2p.advertise``\\ 。"
 
-#: ../../reference/cli.rst:636
+#: ../../reference/cli.rst:637
 msgid "``anet accept``"
 msgstr "``anet accept``"
 
-#: ../../reference/cli.rst:637
+#: ../../reference/cli.rst:638
 msgid "Use ``anet inbound policy closed|approve|open``."
 msgstr "请使用 ``anet inbound policy closed|approve|open``\\ 。"
 
-#: ../../reference/cli.rst:638
+#: ../../reference/cli.rst:639
 msgid "``anet accept-end``"
 msgstr "``anet accept-end``"
 
-#: ../../reference/cli.rst:639
+#: ../../reference/cli.rst:640
 msgid "Use ``anet end <id>``."
 msgstr "请使用 ``anet end <id>``\\ 。"
 
-#: ../../reference/cli.rst:640
+#: ../../reference/cli.rst:641
 msgid "``anet install``"
 msgstr "``anet install``"
 
-#: ../../reference/cli.rst:641
+#: ../../reference/cli.rst:642
 msgid "Use ``anet agents wire <tool>``."
 msgstr "请使用 ``anet agents wire <tool>``\\ 。"
 
-#: ../../reference/cli.rst:642
+#: ../../reference/cli.rst:643
 msgid "``anet evidence``"
 msgstr "``anet evidence``"
 
-#: ../../reference/cli.rst:643
+#: ../../reference/cli.rst:644
 msgid "Use ``anet audit``; ``--type`` filters by event type."
 msgstr "请使用 ``anet audit``；``--type`` 按事件类型过滤。"
 
-#: ../../reference/cli.rst:644
+#: ../../reference/cli.rst:645
 msgid "``anet payments set --payees-file``"
 msgstr "``anet payments set --payees-file``"
 
-#: ../../reference/cli.rst:645
+#: ../../reference/cli.rst:646
 msgid ""
 "The payee list is ``payees.allow`` in the data directory. Use ``anet "
 "payees``."
 msgstr "收款方名单是数据目录中的 ``payees.allow``\\ 。请使用 ``anet payees``\\ 。"
 
-#: ../../reference/cli.rst:646
+#: ../../reference/cli.rst:647
 msgid "``anet autoreply set --api-key``"
 msgstr "``anet autoreply set --api-key``"
 
-#: ../../reference/cli.rst:647
+#: ../../reference/cli.rst:648
 msgid "Reported as ``api_key_on_argv``. Use ``--api-key-stdin``."
 msgstr "报告为 ``api_key_on_argv``\\ 。请使用 ``--api-key-stdin``\\ 。"
 
-#: ../../reference/cli.rst:648
+#: ../../reference/cli.rst:649
 msgid "``anet autoreply set --require-image``"
 msgstr "``anet autoreply set --require-image``"
 
-#: ../../reference/cli.rst:649
+#: ../../reference/cli.rst:650
 msgid ""
 "The vision service is a public capability that takes files. Use ``files``"
 " in ``public_capabilities``."
 msgstr "视觉服务是接受文件的公开能力。请在 ``public_capabilities`` 中使用 ``files``\\ 。"
 
-#: ../../reference/cli.rst:652
+#: ../../reference/cli.rst:653
 msgid ""
 "See also :ref:`reference-config-removed` for configuration keys that were"
 " removed."
 msgstr "另请参阅 :ref:`reference-config-removed`，了解已移除的配置键。"
 
-#: ../../reference/cli.rst:656
+#: ../../reference/cli.rst:657
 msgid "anet-hub"
 msgstr "anet-hub"
 
-#: ../../reference/cli.rst:658
+#: ../../reference/cli.rst:659
 msgid ""
 "``anet-hub`` runs a hub and provides the operator subcommands. Without a "
 "subcommand it serves the hub."
 msgstr "``anet-hub`` 运行 hub，并提供运营人员子命令。不带子命令时，它提供 hub 服务。"
 
-#: ../../reference/cli.rst:669 ../../reference/cli.rst:779
+#: ../../reference/cli.rst:670
+#: ../../reference/cli.rst:780
 msgid "Flag"
 msgstr "标志"
 
-#: ../../reference/cli.rst:670 ../../reference/cli.rst:780
+#: ../../reference/cli.rst:671
+#: ../../reference/cli.rst:781
 msgid "Default"
 msgstr "默认值"
 
-#: ../../reference/cli.rst:672 ../../reference/cli.rst:782
+#: ../../reference/cli.rst:673
+#: ../../reference/cli.rst:783
 msgid "``--addr``"
 msgstr "``--addr``"
 
-#: ../../reference/cli.rst:673
+#: ../../reference/cli.rst:674
 msgid "``:8088``"
 msgstr "``:8088``"
 
-#: ../../reference/cli.rst:674
+#: ../../reference/cli.rst:675
 msgid "HTTP listen address."
 msgstr "HTTP 监听地址。"
 
-#: ../../reference/cli.rst:675 ../../reference/cli.rst:788
+#: ../../reference/cli.rst:676
+#: ../../reference/cli.rst:789
 msgid "``--data``"
 msgstr "``--data``"
 
-#: ../../reference/cli.rst:676
+#: ../../reference/cli.rst:677
 msgid "``./.anet-hub``"
 msgstr "``./.anet-hub``"
 
-#: ../../reference/cli.rst:677
+#: ../../reference/cli.rst:678
 msgid "Data directory (SQLite store and hub identity)."
 msgstr "数据目录（SQLite 存储和 hub 身份）。"
 
-#: ../../reference/cli.rst:678
+#: ../../reference/cli.rst:679
 msgid "``--public-url``"
 msgstr "``--public-url``"
 
-#: ../../reference/cli.rst:679
+#: ../../reference/cli.rst:680
 msgid "empty"
 msgstr "空"
 
-#: ../../reference/cli.rst:680
+#: ../../reference/cli.rst:681
 msgid ""
 "Public base URL of the hub. It is reported as ``homeHub`` in "
 "``/a2a/v1/agents`` and checked against the relay URL of admitted A2A "
@@ -1983,25 +2026,26 @@ msgstr ""
 "hub 的公开基础 URL。它在 ``/a2a/v1/agents`` 中以 ``homeHub`` 报告，并用于核对已准入的 A2A 卡片的中继"
 " URL。为空时使用每个请求的来源。"
 
-#: ../../reference/cli.rst:683 ../../reference/cli.rst:806
+#: ../../reference/cli.rst:684
+#: ../../reference/cli.rst:807
 msgid "``--version``"
 msgstr "``--version``"
 
-#: ../../reference/cli.rst:685
+#: ../../reference/cli.rst:686
 msgid ""
 "Prints the release, the wire version and the first ``anet`` release that "
 "speaks it, and exits."
 msgstr "输出发布版本、线路版本以及首个支持它的 ``anet`` 版本，然后退出。"
 
-#: ../../reference/cli.rst:687
+#: ../../reference/cli.rst:688
 msgid "``--relay-max-envelope``"
 msgstr "``--relay-max-envelope``"
 
-#: ../../reference/cli.rst:688
+#: ../../reference/cli.rst:689
 msgid "96 MiB"
 msgstr "96 MiB"
 
-#: ../../reference/cli.rst:689
+#: ../../reference/cli.rst:690
 msgid ""
 "Largest sealed envelope that ``/relay/send`` accepts, in bytes (413 "
 "above). The ``client_max_body_size`` of a reverse proxy must be at least "
@@ -2010,84 +2054,84 @@ msgstr ""
 "``/relay/send`` 接受的最大密封信封，单位为字节（超过则返回 413）。反向代理的 ``client_max_body_size``"
 " 至少要同样大。"
 
-#: ../../reference/cli.rst:692
+#: ../../reference/cli.rst:693
 msgid "``--relay-mailbox-messages``"
 msgstr "``--relay-mailbox-messages``"
 
-#: ../../reference/cli.rst:693
+#: ../../reference/cli.rst:694
 msgid "5000"
 msgstr "5000"
 
-#: ../../reference/cli.rst:694
+#: ../../reference/cli.rst:695
 msgid "Undelivered envelopes that one recipient may have queued (507 above)."
 msgstr "一个接收方可排队的未投递信封数量（超过则返回 507）。"
 
-#: ../../reference/cli.rst:695
+#: ../../reference/cli.rst:696
 msgid "``--relay-mailbox-bytes``"
 msgstr "``--relay-mailbox-bytes``"
 
-#: ../../reference/cli.rst:696
+#: ../../reference/cli.rst:697
 msgid "1 GiB"
 msgstr "1 GiB"
 
-#: ../../reference/cli.rst:697
+#: ../../reference/cli.rst:698
 msgid "Undelivered envelope bytes that one recipient may have queued (507 above)."
 msgstr "一个接收方可排队的未投递信封字节数（超过则返回 507）。"
 
-#: ../../reference/cli.rst:698
+#: ../../reference/cli.rst:699
 msgid "``--relay-ttl``"
 msgstr "``--relay-ttl``"
 
-#: ../../reference/cli.rst:699
+#: ../../reference/cli.rst:700
 msgid "14 days"
 msgstr "14 天"
 
-#: ../../reference/cli.rst:700
+#: ../../reference/cli.rst:701
 msgid ""
 "How long an undelivered envelope is kept. The maximum is 14 days 22 hours"
 " 55 minutes, bound to the message lifetime; a longer value stops the "
 "start."
 msgstr "未投递信封的保留时间。最大值为 14 天 22 小时 55 分钟，受消息生存期限制；更大的值会使启动失败。"
 
-#: ../../reference/cli.rst:702
+#: ../../reference/cli.rst:703
 msgid "``--relay-poll-budget``"
 msgstr "``--relay-poll-budget``"
 
-#: ../../reference/cli.rst:703
+#: ../../reference/cli.rst:704
 msgid "48 MiB"
 msgstr "48 MiB"
 
-#: ../../reference/cli.rst:704
+#: ../../reference/cli.rst:705
 msgid "Cumulative envelope bytes that one ``/relay/poll`` response returns."
 msgstr "一个 ``/relay/poll`` 响应返回的信封字节数上限（累计）。"
 
-#: ../../reference/cli.rst:705
+#: ../../reference/cli.rst:706
 msgid "``--register-rate``"
 msgstr "``--register-rate``"
 
-#: ../../reference/cli.rst:706
+#: ../../reference/cli.rst:707
 msgid "10"
 msgstr "10"
 
-#: ../../reference/cli.rst:707
+#: ../../reference/cli.rst:708
 msgid ""
 "Per-address refill of the ``/register`` token bucket, per minute (429 "
 "when empty)."
 msgstr "``/register`` 令牌桶按地址每分钟的补充量（桶空时返回 429）。"
 
-#: ../../reference/cli.rst:709
+#: ../../reference/cli.rst:710
 msgid "``--register-burst``"
 msgstr "``--register-burst``"
 
-#: ../../reference/cli.rst:710
+#: ../../reference/cli.rst:711
 msgid "20"
 msgstr "20"
 
-#: ../../reference/cli.rst:711
+#: ../../reference/cli.rst:712
 msgid "Size of the per-address ``/register`` bucket."
 msgstr "按地址计的 ``/register`` 令牌桶的容量。"
 
-#: ../../reference/cli.rst:713
+#: ../../reference/cli.rst:714
 msgid ""
 "The action flags of 0.2 (``-grant``, ``-due``, ``-clear``, ``-invite-*``,"
 " ``-amount``, ``-payee``, ``-peer-endpoint``, ``-reason``, ``-repair-"
@@ -2103,65 +2147,65 @@ msgstr ""
 "rate``\\ 、\\ ``-keys-lookup-burst``）会以 ``hub_flag_removed`` 拒绝，退出状态为 "
 "2。语句会指出应改用的子命令。"
 
-#: ../../reference/cli.rst:724
+#: ../../reference/cli.rst:725
 msgid "Subcommand"
 msgstr "子命令"
 
-#: ../../reference/cli.rst:726
+#: ../../reference/cli.rst:727
 msgid "``anet-hub admit <AID> [--grant N] [--label L]``"
 msgstr "``anet-hub admit <AID> [--grant N] [--label L]``"
 
-#: ../../reference/cli.rst:727
+#: ../../reference/cli.rst:728
 msgid ""
 "Admits one AID. ``--grant`` is the number of credits paid when the AID "
 "first registers."
 msgstr "准入一个 AID。\\ ``--grant`` 是该 AID 首次注册时发放的 credits 数量。"
 
-#: ../../reference/cli.rst:729
+#: ../../reference/cli.rst:730
 msgid "``anet-hub admit --file F [--grant N]``"
 msgstr "``anet-hub admit --file F [--grant N]``"
 
-#: ../../reference/cli.rst:730
+#: ../../reference/cli.rst:731
 msgid "Admits every AID in a file, one per line."
 msgstr "准入文件中的每个 AID，每行一个。"
 
-#: ../../reference/cli.rst:731
+#: ../../reference/cli.rst:732
 msgid "``anet-hub admit --window <duration> --max N [--label L]``"
 msgstr "``anet-hub admit --window <duration> --max N [--label L]``"
 
-#: ../../reference/cli.rst:732
+#: ../../reference/cli.rst:733
 msgid ""
 "Opens a sign-up window for at most 7 days that admits at most ``N`` AIDs."
 " ``--window off`` closes it."
 msgstr "开放一个最长 7 天、最多准入 ``N`` 个 AID 的注册窗口。\\ ``--window off`` 关闭窗口。"
 
-#: ../../reference/cli.rst:734
+#: ../../reference/cli.rst:735
 msgid "``anet-hub admissions [--json]``"
 msgstr "``anet-hub admissions [--json]``"
 
-#: ../../reference/cli.rst:735
+#: ../../reference/cli.rst:736
 msgid ""
 "Lists admissions. ``anet-hub admissions revoke <AID>`` revokes one; the "
 "hub also deregisters the agent."
 msgstr "列出准入记录。\\ ``anet-hub admissions revoke <AID>`` 撤销一条；hub 同时注销该 agent。"
 
-#: ../../reference/cli.rst:737
+#: ../../reference/cli.rst:738
 msgid "``anet-hub admission [open|closed]``"
 msgstr "``anet-hub admission [open|closed]``"
 
-#: ../../reference/cli.rst:738
+#: ../../reference/cli.rst:739
 msgid "Shows or sets the registration mode. A new hub is ``closed``."
 msgstr "显示或设置注册模式。新 hub 为 ``closed``\\ 。"
 
-#: ../../reference/cli.rst:739
+#: ../../reference/cli.rst:740
 msgid "``anet-hub grant <AID> --amount N [--reason R]``"
 msgstr "``anet-hub grant <AID> --amount N [--reason R]``"
 
-#: ../../reference/cli.rst:740
+#: ../../reference/cli.rst:741
 msgid "Issues credits from the hub account; the reason is written to the ledger."
 msgstr "从 hub 账户发行 credits；原因写入账本。"
 
-#: ../../reference/cli.rst:741
+#: ../../reference/cli.rst:742
 msgid ""
 "``anet-hub quota <AID> [--first-contacts-per-min N] [--non-contact-msgs "
 "N] [--non-contact-mib N]``"
@@ -2169,7 +2213,7 @@ msgstr ""
 "``anet-hub quota <AID> [--first-contacts-per-min N] [--non-contact-msgs "
 "N] [--non-contact-mib N]``"
 
-#: ../../reference/cli.rst:742
+#: ../../reference/cli.rst:743
 msgid ""
 "Raises the quota of one recipient for first contacts and for messages "
 "from senders that are not its contacts. A value must be a whole number "
@@ -2179,46 +2223,46 @@ msgstr ""
 "提高一个接收方对首次联系以及非联系人发送的消息的配额。取值必须是 1 至 2147483647 的整数，且不低于默认值（每分钟 30 次、500 "
 "条消息、64 MiB）。"
 
-#: ../../reference/cli.rst:746
+#: ../../reference/cli.rst:747
 msgid "``anet-hub supply``"
 msgstr "``anet-hub supply``"
 
-#: ../../reference/cli.rst:747
+#: ../../reference/cli.rst:748
 msgid ""
 "Prints the latest supply epoch, the outstanding, issued and redeemed "
 "totals and the amounts due to and owed by peer hubs, one value per line, "
 "tab-separated."
 msgstr "输出最新的供应纪元、未偿付、已发行和已赎回的总额，以及应付给对端 hub 和对端 hub 应付的金额，每行一个值，以制表符分隔。"
 
-#: ../../reference/cli.rst:750
+#: ../../reference/cli.rst:751
 msgid "``anet-hub due [--json]``"
 msgstr "``anet-hub due [--json]``"
 
-#: ../../reference/cli.rst:751
+#: ../../reference/cli.rst:752
 msgid "Lists the credits that the hub owes to each peer hub, one peer per line."
 msgstr "列出 hub 欠各对端 hub 的 credits，每行一个对端。"
 
-#: ../../reference/cli.rst:752
+#: ../../reference/cli.rst:753
 msgid "``anet-hub clear <peer-aid> --amount N [--peer-endpoint URL]``"
 msgstr "``anet-hub clear <peer-aid> --amount N [--peer-endpoint URL]``"
 
-#: ../../reference/cli.rst:753
+#: ../../reference/cli.rst:754
 msgid "Records the discharge of an amount that the hub owes to a peer hub."
 msgstr "记录 hub 欠对端 hub 的某笔金额已清偿。"
 
-#: ../../reference/cli.rst:754
+#: ../../reference/cli.rst:755
 msgid "``anet-hub redemptions [--json]``"
 msgstr "``anet-hub redemptions [--json]``"
 
-#: ../../reference/cli.rst:755
+#: ../../reference/cli.rst:756
 msgid "Lists the redemptions of the last 14 days."
 msgstr "列出最近 14 天的赎回记录。"
 
-#: ../../reference/cli.rst:756
+#: ../../reference/cli.rst:757
 msgid "``anet-hub identity status|setup-recovery|rotate``"
 msgstr "``anet-hub identity status|setup-recovery|rotate``"
 
-#: ../../reference/cli.rst:757
+#: ../../reference/cli.rst:758
 msgid ""
 "Manages the identity of the hub: ``status [--recovery-file F]``, ``setup-"
 "recovery [--recovery-file F]`` and ``rotate [--new-recovery] "
@@ -2228,123 +2272,118 @@ msgstr ""
 "[--recovery-file F]`` 和 ``rotate [--new-recovery] [--emergency] "
 "[--recovery-file F]``\\ 。这些命令在终端上运行。"
 
-#: ../../reference/cli.rst:760
+#: ../../reference/cli.rst:761
 msgid "``anet-hub restore [--data DIR] <backup>``"
 msgstr "``anet-hub restore [--data DIR] <backup>``"
 
-#: ../../reference/cli.rst:761
+#: ../../reference/cli.rst:762
 msgid ""
 "Restores a hub database from a backup file, or from the directory that "
 "holds ``hub-backup-YYYYMMDD.db`` files. Refused while a hub is running."
 msgstr "从备份文件，或从保存 ``hub-backup-YYYYMMDD.db`` 文件的目录恢复 hub 数据库。hub 运行期间会被拒绝。"
 
-#: ../../reference/cli.rst:764
+#: ../../reference/cli.rst:765
 msgid ""
 "Every subcommand accepts ``--data DIR``. A directory that does not hold a"
 " hub database is refused with ``data.missing``, and nothing is created."
 msgstr "每个子命令都接受 ``--data DIR``\\ 。不含 hub 数据库的目录会以 ``data.missing`` 拒绝，且不会创建任何内容。"
 
-#: ../../reference/cli.rst:767
+#: ../../reference/cli.rst:768
 msgid "The sentences of ``anet-hub`` are listed in :ref:`reference-reason-codes`."
 msgstr "``anet-hub`` 的语句列于 :ref:`reference-reason-codes`\\ 。"
 
-#: ../../reference/cli.rst:770
+#: ../../reference/cli.rst:771
 msgid "anet-hub-admin"
 msgstr "anet-hub-admin"
 
-#: ../../reference/cli.rst:772
+#: ../../reference/cli.rst:773
 msgid ""
 "``anet-hub-admin`` serves the operator console of a hub. It listens on a "
 "loopback address and is meant to run behind a reverse proxy."
 msgstr "``anet-hub-admin`` 提供 hub 的运营控制台。它监听回环地址，应运行在反向代理之后。"
 
-#: ../../reference/cli.rst:783
+#: ../../reference/cli.rst:784
 msgid "``127.0.0.1:8078``"
 msgstr "``127.0.0.1:8078``"
 
-#: ../../reference/cli.rst:784
+#: ../../reference/cli.rst:785
 msgid "HTTP listen address. Keep it on the loopback interface."
 msgstr "HTTP 监听地址。请保持在回环接口上。"
 
-#: ../../reference/cli.rst:785
+#: ../../reference/cli.rst:786
 msgid "``--hub-data``"
 msgstr "``--hub-data``"
 
-#: ../../reference/cli.rst:786 ../../reference/cli.rst:789
+#: ../../reference/cli.rst:787
+#: ../../reference/cli.rst:790
 msgid "build default"
 msgstr "构建默认值"
 
-#: ../../reference/cli.rst:787
+#: ../../reference/cli.rst:788
 msgid "Data directory of the public hub (``hub.db``)."
 msgstr "公开 hub 的数据目录（``hub.db``）。"
 
-#: ../../reference/cli.rst:790
+#: ../../reference/cli.rst:791
 msgid "Data directory of the console (``admin.db``)."
 msgstr "控制台的数据目录（``admin.db``）。"
 
-#: ../../reference/cli.rst:791
+#: ../../reference/cli.rst:792
 msgid "``--base``"
 msgstr "``--base``"
 
-#: ../../reference/cli.rst:792
+#: ../../reference/cli.rst:793
 msgid "``/admin``"
 msgstr "``/admin``"
 
-#: ../../reference/cli.rst:793
+#: ../../reference/cli.rst:794
 msgid "URL base path."
 msgstr "URL 基础路径。"
 
-#: ../../reference/cli.rst:794
+#: ../../reference/cli.rst:795
 msgid "``--snapshot-every``"
 msgstr "``--snapshot-every``"
 
-#: ../../reference/cli.rst:795
+#: ../../reference/cli.rst:796
 msgid "``5m``"
 msgstr "``5m``"
 
-#: ../../reference/cli.rst:796
+#: ../../reference/cli.rst:797
 msgid "Interval between statistics snapshots; ``0`` turns them off."
 msgstr "统计快照的间隔；``0`` 表示关闭。"
 
-#: ../../reference/cli.rst:797
+#: ../../reference/cli.rst:798
 msgid "``--harvest-every``"
 msgstr "``--harvest-every``"
 
-#: ../../reference/cli.rst:798
+#: ../../reference/cli.rst:799
 msgid "``30m``"
 msgstr "``30m``"
 
-#: ../../reference/cli.rst:799
+#: ../../reference/cli.rst:800
 msgid ""
 "Interval of the harvest run. The run has no sources and does nothing; "
 "``0`` turns it off."
 msgstr "harvest 运行的间隔。该运行没有任何来源，什么也不做；``0`` 将其关闭。"
 
-#: ../../reference/cli.rst:801
+#: ../../reference/cli.rst:802
 msgid "``--check-token``"
 msgstr "``--check-token``"
 
-#: ../../reference/cli.rst:803
+#: ../../reference/cli.rst:804
 msgid ""
 "Checks ``$ADMIN_TOKEN`` against the start-up rules and exits with status "
 "0 when the console would start with it, and 1 otherwise. The value is not"
 " printed."
 msgstr "按启动规则检查 ``$ADMIN_TOKEN``；控制台可用它启动时以状态 0 退出，否则以状态 1 退出。不会输出该值。"
 
-#: ../../reference/cli.rst:808
+#: ../../reference/cli.rst:809
 msgid "Prints the version and exits."
 msgstr "输出版本并退出。"
 
-#: ../../reference/cli.rst:810
+#: ../../reference/cli.rst:811
 msgid ""
 "The environment variable ``ADMIN_TOKEN`` is the credential of the "
 "console. The program refuses to start without a token that satisfies the "
 "start-up rules."
 msgstr "环境变量 ``ADMIN_TOKEN`` 是控制台的凭据。没有满足启动规则的令牌时，程序拒绝启动。"
-
-#~ msgid "this node's state"
-#~ msgstr "本节点的状态"
-
-#~ msgid "send a task, and get the task back at once"
-#~ msgstr "发送任务，并立即返回该任务"
 

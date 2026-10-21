@@ -81,7 +81,9 @@
 #                   Written before anything is installed, only ever added to.
 #   --agents        After installing, wire anet into the coding agents found on
 #                   this machine (`anet agents wire --all`). --agents=claude,codex
-#                   wires only those.
+#                   wires only those. The names: claude, codex, cursor, opencode,
+#                   hermes, workbuddy, trae (Trae and Trae CN) and zcode (through
+#                   the zcode command-line program).
 #   --hub URL       The hub to join (default https://hub.agentnetwork.org.cn).
 #                   On a hub that admits by AID, the summary names the
 #                   `anet-hub admit <AID>` command for the hub's operator, and
