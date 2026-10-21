@@ -54,7 +54,8 @@ class BundleTests(unittest.TestCase):
 
     def test_file_set(self):
         self.assertEqual(sorted(self.ctx.files), sorted([
-            "LICENSE", "README.md", "README_CN.md", "bin/anet-install.sh", "bin/anet-mcp.sh", "bin/anet-run.sh", "cordis.patch.yml",
+            "LICENSE", "README.md", "README_CN.md", "bin/anet-install.cmd", "bin/anet-install.sh", "bin/anet-mcp", "bin/anet-mcp.cmd",
+            "bin/anet-mcp.sh", "bin/anet-run.cmd", "bin/anet-run.ps1", "bin/anet-run.sh", "cordis.patch.yml",
             "index.js", "package.json", "skills.js", "skills/anet-setup/SKILL.md", "skills/anet-status/SKILL.md",
             "skills/anet/SKILL.md",
         ]))
@@ -89,8 +90,10 @@ class BundleTests(unittest.TestCase):
         self.assertIn("serverName: anet\n", patch)
         self.assertRegex("anet", r"^[A-Za-z0-9_-]{1,32}$")
         self.assertIn("transport: stdio", patch)
-        self.assertIn("command: sh\n", patch)
-        self.assertIn("ctx.anetPlugin.root + '/bin/anet-mcp.sh'", patch)
+        # bin/anet-mcp on Linux and macOS (pnpm keeps the mode), bin/anet-mcp.cmd on Windows (PATHEXT).
+        self.assertIn("command: !!js \"ctx.anetPlugin.root + '/bin/anet-mcp'\"\n", patch)
+        self.assertIn("args: []", patch)
+        self.assertTrue(self.ctx.files["bin/anet-mcp"].executable)
         self.assertIn(f"toolCallTimeoutMs: {self.ctx.meta['mcp']['timeout_ms']}", patch)
         for s in self.ctx.meta["settings"]:
             self.assertRegex(patch, rf"{s['env']}: !!js \"ctx\.anetPlugin\.settings\.{s['key']}\"")
@@ -133,7 +136,8 @@ class BundleTests(unittest.TestCase):
             body = f.data.decode("utf-8")
             for line in body.splitlines():
                 if token in line:
-                    self.assertTrue(f'"{token}/bin/anet-run.sh"' in line or f'"{token}/bin/anet-install.sh"' in line, (path, line))
+                    self.assertTrue(any(f'"{token}/bin/{name}"' in line for name in
+                                        ("anet-run.sh", "anet-install.sh", "anet-run.cmd", "anet-install.cmd")), (path, line))
                     self.assertEqual(line.count(token), 1, path)
 
     def test_no_foreign_host_syntax(self):
@@ -147,9 +151,8 @@ class BundleTests(unittest.TestCase):
     def test_status_skill(self):
         body = text(self.ctx, "skills/anet-status/SKILL.md")
         fields, rest = g.split_frontmatter(body)
-        self.assertIn("node_status", rest)
-        self.assertIn("get_balance", rest)
-        self.assertIn("--resolve", rest)
+        self.assertIn("topic `status`", rest)
+        self.assertIn("<runner> guide status", rest)
         self.assertIn("DSH_HOME", rest)  # the agent must not read the DSH configuration
         self.assertIn("anet-setup", rest)
         self.assertIn("Use when", fields["description"])
@@ -158,8 +161,9 @@ class BundleTests(unittest.TestCase):
         body = text(self.ctx, "skills/anet-setup/SKILL.md")
         self.assertIn("bin/anet-install.sh", body)
         self.assertNotIn("$(", body)
-        self.assertIn("Do not run them on the user's behalf", body)
-        self.assertIn("Never read, print or copy files under `~/.anet`", body)
+        self.assertIn("bin/anet-install.cmd", body)
+        self.assertIn("not run them on the user's behalf", body)
+        self.assertIn("Never read, print or copy the files of the anet data directory (`~/.anet`", body)
         self.assertIn("Never read or edit the DeepSeek Harness configuration", body)
         self.assertIn("Windows", body)
         self.assertNotIn("ZCode", body)
@@ -169,12 +173,12 @@ class BundleTests(unittest.TestCase):
         # must not promise that the node keeps running and must hand over `anet up`.
         body = text(self.ctx, "skills/anet-setup/SKILL.md")
         self.assertNotIn("keeps running after this session", body)
-        self.assertIn("ends every process it started when the session ends", body)
-        self.assertIn("run `anet up` and then `anet status` in a terminal of their own", body)
-        self.assertLess(body.index("run `anet up` and then `anet status` in a terminal of their own"), body.index("start a new\nDeepSeek Harness session"))
+        self.assertIn("ends every process that its shell tool started when the session ends", body)
+        self.assertIn("to start the node again in a terminal of their own", body)
+        self.assertLess(body.index("to start the node again in a terminal of their own"), body.index("start a new DeepSeek\nHarness session"))
         for name in ("README.md", "README_CN.md"):
             readme = text(self.ctx, name)
-            self.assertGreaterEqual(readme.count("`anet up`"), 3, name)
+            self.assertGreaterEqual(readme.count("`anet up`"), 2, name)
 
     def test_readmes(self):
         en, cn = text(self.ctx, "README.md"), text(self.ctx, "README_CN.md")
@@ -185,7 +189,7 @@ class BundleTests(unittest.TestCase):
             self.assertIn("anet-plugin", body)
             self.assertIn("ANET_PLUGIN_BIN", body)
             self.assertNotIn("{{", body)
-        self.assertIn("anet runs on Linux, macOS and Windows", en)
+        self.assertIn("Linux, macOS or Windows", en)
         self.assertIn("Skill | `anet-status`", en)
         self.assertIn("Skill | `anet-status`", cn)
         # the installation and settings sections come from the target, once each

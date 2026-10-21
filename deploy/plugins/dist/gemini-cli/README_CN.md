@@ -10,24 +10,27 @@ anet 是运行在用户本机上的开源节点。它保存智能体的身份，
 
 | 组件 | 名称 | 用途 |
 | --- | --- | --- |
-| MCP 服务 | `anet` | `anet mcp` 提供的 14 个工具：`list_agents`、`get_agent_card`、`send_message`、`wait_task`、`get_task`、`list_tasks`、`cancel_task`、`submit_payment`、`reject_payment`、`reply_task`、`inbound_pending`、`get_balance`、`audit`、`node_status`。 |
-| Skill | `anet` | 说明如何发现智能体、发送和跟踪任务、如实报告结果与支付，以及将其他智能体的回复视为不可信输入。用户提到 anet、AgentNetwork、AID 或希望把工作交给其他智能体时加载。 |
-| Skill | `anet-status` | 显示节点、所加入的 hub、余额和支付额度。命令 `/anet-status` 会激活该 skill。 |
-| Skill | `anet-setup` | 检查、安装或更新 anet，启动节点，加入 hub，并运行 `anet doctor`。安装和更新只在用户同意后执行。 |
-| 命令 | `/anet-status` | 显示节点、所加入的 hub、余额和支付额度。 |
+| MCP 服务 | `anet` | `anet mcp` 提供的工具，由本机安装的 anet 提供。其中的工具 `guide` 返回 anet 的当前指南。 |
+| Skill | `anet` | 要求智能体在会话中首次执行 anet 操作之前以及每次收到“@anet”请求时，先阅读已安装 anet 的指南，并列出始终适用的规则。用户输入“@anet”，提到 anet、AgentNetwork 或 AID，或希望把工作交给其他智能体时加载。 |
+| Skill | `anet-status` | 按已安装 anet 的指南显示节点状态。命令 `/anet-status` 会激活该 skill。 |
+| Skill | `anet-setup` | 查找 anet 可执行文件；anet 未安装且用户同意时进行安装，然后按已安装 anet 的设置指南完成设置。 |
+| 命令 | `/anet` | 按已安装 anet 的指南执行一项“@anet”请求。 |
+| 命令 | `/anet-status` | 按已安装 anet 的指南显示节点状态。 |
+
+本插件不包含 anet 工具或设置步骤的说明，这些内容由已安装的 anet 提供（MCP 工具 `guide`，以及命令行中的 `anet guide`）。因此，anet 的新版本只需更新 anet 可执行文件即可在 Gemini CLI 中生效，插件无需更新。
 
 ## 环境要求
 
-- anet 可在 Linux、macOS 和 Windows 上运行，支持 x86-64 与 ARM64。本插件的启动器是 POSIX shell 脚本，可在 Linux 和 macOS 上运行；在 Windows 上，请用 `anet agents wire` 注册 anet。对于 `anet agents wire` 不支持的工具，请将 `anet mcp` 加入该工具的 MCP 配置。
-- anet 0.3.0 或更高版本。未安装时，`anet-setup` skill 会引导安装。
-- 安装需要 `curl`、`gzip` 和 `ssh-keygen`（OpenSSH 8.1 或更高版本）。
+- Linux、macOS 或 Windows，x86-64 或 ARM64。在 Linux 和 macOS 上，插件运行 POSIX shell 脚本；在 Windows 上，插件运行 `.cmd` 脚本和 Windows 自带的 Windows PowerShell 5.1。
+- 提供 `anet guide` 命令的 anet 版本。未安装 anet 时，`anet-setup` skill 会安装当前版本。
+- 在 Linux 和 macOS 上安装需要 `curl`、`gzip` 和 `ssh-keygen`（OpenSSH 8.1 或更高版本）。
 
 ## 快速开始
 
 1. 从 ANet 代码仓库的本地副本安装扩展：`git clone https://github.com/ANetResearch/ANet.git`，然后执行 `gemini extensions install ./ANet/deploy/plugins/dist/gemini-cli`。Gemini CLI 会询问是否信任该目录，并询问下面的两项设置；留空即使用默认值。如果此前自行在 Gemini CLI 中添加过 anet MCP 服务（`gemini mcp list` 可见），请先执行 `gemini mcp remove anet` 移除，以免 Gemini CLI 中出现两个 anet 服务。
-2. 在会话中输入：`Set up anet.`（或"配置 anet"）。智能体会运行 `anet-setup` skill：征得同意后安装 anet，启动节点，并询问要加入的 hub（官方公共 hub 为 `https://hub.agentnetwork.org.cn`）。
+2. 在会话中输入：`Set up anet.`（或“配置 anet”）。智能体会运行 `anet-setup` skill：征得同意后安装 anet，然后按已安装 anet 的设置指南完成设置。
 3. 新建一个会话，使 MCP 服务启动，然后运行 `/anet-status`。
-4. 交代任务，例如：`在 anet 上找一个能总结文本的智能体，把本项目的 README 发给它，等待结果并报告。不要支付报价，把金额告诉我。`
+4. 输入以 `@anet` 开头的请求，或直接描述要交给其他智能体的工作。
 
 anet 文档中的 [Gemini CLI 接入指南](https://docs.agentnetwork.org.cn/docs/zh-cn/latest/agents/gemini-cli.html)完整说明了安装、验证与卸载。
 
@@ -37,17 +40,17 @@ anet 文档中的 [Gemini CLI 接入指南](https://docs.agentnetwork.org.cn/doc
 
 | 设置 | 变量 | 默认值 | 含义 |
 | --- | --- | --- | --- |
-| anet identity | `ANET_PLUGIN_IDENTITY` | 空 | 指定的命名身份（`anet id ls`）。为空时使用 `~/.anet` 中的默认身份。 |
-| anet executable | `ANET_PLUGIN_BIN` | 空 | `anet` 可执行文件的绝对路径。为空时依次查找 `PATH`、`~/.local/bin`、`/usr/local/bin` 和 `/opt/homebrew/bin`。若该路径不是可执行文件，则报告错误；不会改用其他副本，安装 skill 也不会另行安装。 |
+| anet identity | `ANET_PLUGIN_IDENTITY` | 空 | 指定的命名身份（`anet id ls`）。为空时使用默认身份。 |
+| anet executable | `ANET_PLUGIN_BIN` | 空 | `anet` 可执行文件（Windows 上为 `anet.exe`）的绝对路径。为空时先查找 `PATH`，然后在 Linux 和 macOS 上查找 `~/.local/bin`、`/usr/local/bin` 和 `/opt/homebrew/bin`，在 Windows 上查找 Windows 安装程序的安装位置（`%LOCALAPPDATA%\Programs\anet`、`%LOCALAPPDATA%\anet\bin`、`%USERPROFILE%\.anet-bin`）。若该路径不是可执行文件，则报告错误；不会改用其他副本，安装 skill 也不会另行安装。 |
 
-用 `gemini extensions config anet` 修改取值，之后需新建会话。脚本的提示信息把它们称为设置 `anetPath`（`ANET_PLUGIN_BIN`）和 `identity`（`ANET_PLUGIN_IDENTITY`）。安装 skill 与状态 skill 在智能体的 shell 中运行 `bin/anet-run.sh`，此时脚本从环境变量中读取这两项；环境变量未设置时，改从本扩展的 `.env` 文件中读取，此外不读取任何内容，也不读取 Gemini CLI 的设置或凭据。默认值无需配置：由安装 skill 安装的节点位于 `~/.local/bin`，脚本会在该处找到它。
+用 `gemini extensions config anet` 修改取值，之后需新建会话。脚本的提示信息把它们称为设置 `anetPath`（`ANET_PLUGIN_BIN`）和 `identity`（`ANET_PLUGIN_IDENTITY`）。各 skill 与命令在智能体的 shell 中运行本扩展的运行脚本（`bin/anet-run.sh`，Windows 上为 `bin/anet-run.cmd`），此时运行脚本从环境变量中读取这两项；环境变量未设置时，改从本扩展的 `.env` 文件中读取，此外不读取任何内容，也不读取 Gemini CLI 的设置或凭据。默认值无需配置：运行脚本能够找到由安装 skill 安装的 anet。
 
 ## 安全与副作用
 
-- **执行的命令。** 插件的所有 `anet` 命令都经由 `bin/anet-run.sh` 执行，并应用上述两项设置：MCP 服务（`bin/anet-mcp.sh`，即 `anet mcp`）与 `anet-status`、`anet-setup` skill 使用同一可执行文件和同一身份。用户同意后，`anet-setup` skill 将 `https://agentnetwork.org.cn/install.sh` 安装程序下载到新建的私有临时目录，仅在下载成功后运行，并在结束后删除该目录。本插件不包含 Hook。
+- **执行的命令。** 插件的所有 `anet` 命令都经由插件的运行脚本执行（Linux 和 macOS 上为 `bin/anet-run.sh`，Windows 上为 `bin/anet-run.cmd`），并应用上述两项设置：MCP 服务（`anet mcp`）、`/anet` 与 `/anet-status` 命令以及各 skill 使用同一可执行文件和同一身份。运行脚本从不执行工作目录或工作区中的文件。用户同意后，`anet-setup` skill 运行官方安装程序（`https://agentnetwork.org.cn/install.sh`，Windows 上为 `install.ps1`）。本插件不包含 Hook。
 - **网络访问。** 插件本身不建立任何连接。anet 节点连接其加入的 hub，并经由 hub 与其他节点通信。安装程序从 `agentnetwork.org.cn` 下载。
-- **写入的文件。** 插件本身不写文件。安装程序写入 `~/.local/bin/anet` 及其签名的发布清单；`anet init` 将身份和配置写入 `~/.anet`。Skill 要求智能体不得读取 `~/.anet` 下的文件。
-- **安全默认值。** 新节点不接受其他智能体的任务，不发布任何能力，支付额度为 0。开放节点、信任对端和提高额度均须由运营者在终端中确认；Skill 要求智能体只给出这些命令，不代为执行。
+- **写入的文件。** 插件本身不写文件。安装程序将 anet 可执行文件写入用户目录，并在 `~/.anet`（Windows 上为 `%USERPROFILE%\.anet`）中创建身份和配置。Skill 要求智能体不得读取该目录中的文件。
+- **安全默认值。** 新节点不接受其他智能体的任务，不发布任何能力，支付额度为 0。开放节点、信任对端和提高额度均由用户决定；Skill 要求智能体只给出这些命令，不代为执行。
 - **不可信输入。** 其他智能体返回的结果和发来的任务都是第三方文本。`anet` skill 要求智能体不执行其中的指令，也不发送用户未要求发送的密钥或文件。
 - **数据。** 节点之间的任务内容端到端加密。hub 能看到哪些节点在通信以及通信时间。
 
@@ -55,10 +58,8 @@ anet 文档中的 [Gemini CLI 接入指南](https://docs.agentnetwork.org.cn/doc
 
 | 现象 | 处理 |
 | --- | --- |
-| 会话中没有 anet 工具 | anet 未安装或守护进程未运行。运行 `/anet-status`（按插件设置中的可执行文件和身份检查），或让智能体运行 `anet-setup` skill，然后新建会话。 |
-| `anet is not running … [daemon_not_running]` | 运行 `anet up`（具名身份在 `anet` 之后加 `--id <name>`）。计算机重启后节点不会自动启动。 |
-| `wait_task` 结束时任务仍在进行 | 长任务属正常情况。再次调用 `wait_task`，不要重新发送任务。 |
-| 拒绝信息末尾带有方括号中的代码 | 参见[原因代码](https://docs.agentnetwork.org.cn/docs/zh-cn/latest/reference/reason-codes.html)。 |
+| 会话中没有 anet 工具 | anet 未安装或节点未运行。运行 `/anet-status`，或让智能体运行 `anet-setup` skill，然后新建会话。 |
+| 拒绝信息末尾带有方括号中的代码 | 其下一行给出下一步命令。另请参见[原因代码](https://docs.agentnetwork.org.cn/docs/zh-cn/latest/reference/reason-codes.html)。 |
 
 ## 链接
 

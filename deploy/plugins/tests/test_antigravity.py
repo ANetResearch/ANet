@@ -8,9 +8,9 @@ They build both targets into memory and check
     with name, version, the documented keys and settings),
   * the generated files (skills, the TOML command, no Markdown command, the
     wording the targets rewrite, the variable syntax that Gemini CLI processes),
-  * the shell program that mcp_config.json runs (where it looks for the plugin
-    and where it must not), and the settings that the runner reads from the
-    .env file of a Gemini CLI extension,
+  * the Node.js launcher that mcp_config.json runs (it starts the launcher of
+    its own directory and nothing of the working directory), and the settings
+    that the runner reads from the .env file of a Gemini CLI extension,
   * the release archives of gemini-cli.
 
 If Gemini CLI is installed in a sandbox, its own validator is run on the tree:
@@ -22,6 +22,7 @@ import io
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tarfile
@@ -96,8 +97,10 @@ class AntigravityManifestTests(unittest.TestCase):
         self.assertEqual(list(cfg), ["mcpServers"])
         server = cfg["mcpServers"]["anet"]
         self.assertEqual(set(server), {"command", "args"})  # keys of a stdio server; serverUrl is for remote servers
-        self.assertEqual(server["command"], "sh")
-        self.assertEqual(server["args"][0], "-c")
+        # agy expands ${PLUGIN_ROOT} in args, env and cwd only, and provides node itself (module docstring).
+        self.assertEqual(server["command"], "node")
+        self.assertEqual(server["args"], ["${PLUGIN_ROOT}/bin/anet-mcp.cjs"])
+        self.assertIn("bin/anet-mcp.cjs", self.ctx.files)
 
     def test_runner_is_named_through_the_skill_directory(self):
         for name in ("anet", "anet-setup", "anet-status"):
@@ -113,11 +116,11 @@ class AntigravityManifestTests(unittest.TestCase):
     def test_setup_skill_keeps_the_safety_rules(self):
         text = text_of(self.ctx, "skills/anet-setup/SKILL.md")
         self.assertIn('sh "<skill-dir>/../../bin/anet-install.sh"', text)
+        self.assertIn('"<skill-dir>/../../bin/anet-install.cmd"', text)
         self.assertNotIn("mktemp", text)
-        self.assertIn("Never read, print or copy files under `~/.anet`", text)
-        self.assertIn("Do not run them on the user's behalf", text)
-        self.assertIn("Never read or edit the configuration or credential files of Antigravity", text)
-        self.assertIn("On Windows, stop", text)
+        self.assertIn("Never read, print or copy the files of the anet data directory (`~/.anet`", text)
+        self.assertIn("not run them on the user's behalf", text)
+        self.assertIn("Never read or edit the configuration or the credential files of Antigravity", text)
         self.assertNotIn("ZCode", text)
 
     def test_no_text_of_another_host(self):
@@ -129,106 +132,73 @@ class AntigravityManifestTests(unittest.TestCase):
 
 
 class LauncherProgramTests(unittest.TestCase):
-    """The sh program of mcp_config.json."""
+    """bin/anet-mcp.cjs, which mcp_config.json runs with node."""
 
     @classmethod
     def setUpClass(cls):
+        cls.node = shutil.which("node")
         cls.ctx, _, _ = build_both()
-        cls.program = json_of(cls.ctx, "mcp_config.json")["mcpServers"]["anet"]["args"][1]
+        server = json_of(cls.ctx, "mcp_config.json")["mcpServers"]["anet"]
+        cls.args = server["args"]
         cls.tmp = tempfile.TemporaryDirectory()
         cls.root = Path(cls.tmp.name)
         cls.home = cls.root / "home"
         write_stub(cls.home / ".local" / "bin" / "anet", "ARGS")
-        cls.plugin_files = {p: f for p, f in cls.ctx.files.items()}
+        cls.plugin = cls.root / "plugins" / "anet"
+        g.write_tree({p: f for p, f in cls.ctx.files.items()}, cls.plugin, force=True)
 
     @classmethod
     def tearDownClass(cls):
         cls.tmp.cleanup()
 
-    def install(self, where, label=None):
-        g.write_tree(self.plugin_files, where, force=True)
-        return where
-
-    def run_program(self, cwd, env_extra=None):
-        env = {"HOME": str(self.home), "PATH": "/usr/bin:/bin"}
+    def run_launcher(self, cwd, env_extra=None):
+        if not self.node:
+            self.skipTest("node is not on PATH")
+        env = {"HOME": str(self.home), "PATH": "/usr/bin:/bin", "PLUGIN_ROOT": str(self.plugin)}
         env.update(env_extra or {})
         cwd.mkdir(parents=True, exist_ok=True)
-        return subprocess.run(
-            ["sh", "-c", self.program, "anet-mcp"], cwd=cwd, env=env, capture_output=True, text=True, timeout=30
-        )
+        # What Antigravity runs: node with the arguments, ${PLUGIN_ROOT} expanded.
+        args = [a.replace("${PLUGIN_ROOT}", str(self.plugin)) for a in self.args]
+        return subprocess.run([self.node, *args], cwd=cwd, env=env, capture_output=True, text=True,
+                              stdin=subprocess.DEVNULL, timeout=30)
 
-    def fresh(self, name):
-        d = self.root / name
-        d.mkdir()
-        return d
-
-    def test_finds_the_global_plugin_directory(self):
-        self.install(self.home / ".gemini" / "config" / "plugins" / "anet")
-        r = self.run_program(self.fresh("w1"))
-        self.assertEqual((r.returncode, r.stdout), (0, "ARGS:mcp\n"), r.stderr)
-
-    def test_finds_the_cli_staging_directory(self):
-        import shutil
-
-        shutil.rmtree(self.home / ".gemini", ignore_errors=True)
-        self.install(self.home / ".gemini" / "antigravity-cli" / "plugins" / "anet")
-        r = self.run_program(self.fresh("w2"))
-        self.assertEqual((r.returncode, r.stdout), (0, "ARGS:mcp\n"), r.stderr)
-
-    def test_workspace_plugin_directory_is_not_run(self):
-        # A workspace can come from an untrusted source: .agents/plugins/anet of the working
-        # directory is not a place where the launcher looks, only ANTIGRAVITY_PLUGIN_ROOT can name it.
-        import shutil
-
-        shutil.rmtree(self.home / ".gemini", ignore_errors=True)
-        w = self.fresh("w3")
-        self.install(w / ".agents" / "plugins" / "anet")
-        r = self.run_program(w)
-        self.assertEqual((r.returncode, r.stdout), (1, ""), r.stderr)
-        self.assertIn("plugin directory was not found", r.stderr)
-        r = self.run_program(w, {"ANTIGRAVITY_PLUGIN_ROOT": str(w / ".agents" / "plugins" / "anet")})
-        self.assertEqual((r.returncode, r.stdout), (0, "ARGS:mcp\n"), r.stderr)
-
-    def test_unset_home_does_not_probe_the_root_directory(self):
-        import shutil
-
-        shutil.rmtree(self.home / ".gemini", ignore_errors=True)
-        r = subprocess.run(["sh", "-c", self.program, "anet-mcp"], cwd=self.fresh("w7"), env={"PATH": "/usr/bin:/bin"},
-                           capture_output=True, text=True, timeout=30)
-        self.assertEqual((r.returncode, r.stdout), (1, ""))
-        self.assertIn("plugin directory was not found", r.stderr)
-
-    def test_host_variable_wins(self):
-        import shutil
-
-        shutil.rmtree(self.home / ".gemini", ignore_errors=True)
-        elsewhere = self.install(self.root / "elsewhere" / "anet-copy")
-        r = self.run_program(self.fresh("w4"), {"ANTIGRAVITY_PLUGIN_ROOT": str(elsewhere)})
+    def test_starts_the_launcher_of_its_own_directory(self):
+        r = self.run_launcher(self.root / "w1")
         self.assertEqual((r.returncode, r.stdout), (0, "ARGS:mcp\n"), r.stderr)
 
     def test_working_directory_is_not_a_plugin_directory(self):
-        # A workspace that carries its own bin/anet-mcp.sh must not be run by the launcher.
-        import shutil
-
-        shutil.rmtree(self.home / ".gemini", ignore_errors=True)
-        w = self.fresh("w5")
-        (w / "bin").mkdir()
+        # A workspace that carries its own bin/anet-mcp.sh is not run.
+        w = self.root / "w2"
+        (w / "bin").mkdir(parents=True)
         (w / "bin" / "anet-mcp.sh").write_text('#!/bin/sh\necho SPOOFED\n')
-        r = self.run_program(w)
-        self.assertEqual(r.returncode, 1)
-        self.assertEqual(r.stdout, "")
-        self.assertIn("plugin directory was not found", r.stderr)
+        (w / "bin" / "anet-mcp.cjs").write_text('console.log("SPOOFED")\n')
+        r = self.run_launcher(w)
+        self.assertEqual((r.returncode, r.stdout), (0, "ARGS:mcp\n"), r.stderr)
 
     def test_environment_variables_reach_the_runner(self):
         other = self.root / "other-anet"
         write_stub(other, "OTHER")
-        w = self.fresh("w6")
-        plugin = self.install(self.root / "elsewhere6" / "anet-copy")
-        r = self.run_program(w, {"ANTIGRAVITY_PLUGIN_ROOT": str(plugin), "ANET_PLUGIN_BIN": str(other), "ANET_PLUGIN_IDENTITY": "work"})
+        r = self.run_launcher(self.root / "w3", {"ANET_PLUGIN_BIN": str(other), "ANET_PLUGIN_IDENTITY": "work"})
         self.assertEqual(r.stdout, "OTHER:--id work mcp\n", r.stderr)
-        r = self.run_program(w, {"ANTIGRAVITY_PLUGIN_ROOT": str(plugin), "ANET_PLUGIN_BIN": str(self.root / "missing")})
-        self.assertEqual(r.returncode, 1)
+        r = self.run_launcher(self.root / "w3", {"ANET_PLUGIN_BIN": str(self.root / "missing")})
+        self.assertEqual((r.returncode, r.stdout), (1, ""))
         self.assertIn("not an executable file", r.stderr)
+
+    def test_exit_status_of_the_server_is_passed_on(self):
+        failing = self.root / "failing-anet"
+        failing.write_text("#!/bin/sh\necho 'no daemon' >&2\nexit 3\n")
+        failing.chmod(0o755)
+        r = self.run_launcher(self.root / "w4", {"ANET_PLUGIN_BIN": str(failing)})
+        self.assertEqual(r.returncode, 3)
+        self.assertIn("no daemon", r.stderr)
+
+    def test_windows_branch_starts_the_cmd_launcher_with_cmd_exe(self):
+        text = text_of(self.ctx, "bin/anet-mcp.cjs")
+        self.assertIn("path.join(__dirname, 'anet-mcp.cmd')", text)
+        self.assertIn("path.win32.join(systemRoot, 'System32', 'cmd.exe')", text)
+        self.assertIn("['/d', '/s', '/c', '\"\"' + launcher + '\"\"']", text)
+        self.assertIn("windowsVerbatimArguments = true", text)
+        self.assertIn("/[%\"\\r\\n]/.test(launcher)", text)
 
 
 class InstallerScriptTests(unittest.TestCase):
@@ -254,7 +224,7 @@ class InstallerScriptTests(unittest.TestCase):
 
     def test_skills_forbid_workarounds_when_the_host_refuses_a_command(self):
         for ctx in (self.agy, self.gem):
-            self.assertIn("do not write copies or wrapper scripts", text_of(ctx, "skills/anet-setup/SKILL.md"))
+            self.assertIn("write copies or wrapper scripts", text_of(ctx, "skills/anet-setup/SKILL.md"))
             self.assertIn("do not write copies or wrapper scripts", text_of(ctx, "skills/anet-status/SKILL.md"))
 
     def run_script(self, curl_body, *args):
@@ -315,8 +285,9 @@ class GeminiManifestTests(unittest.TestCase):
 
     def test_mcp_server(self):
         server = self.manifest["mcpServers"]["anet"]
-        self.assertEqual(server["command"], "sh")
-        self.assertEqual(server["args"], ["${extensionPath}/bin/anet-mcp.sh"])
+        # bin/anet-mcp on Linux and macOS, bin/anet-mcp.cmd on Windows (cross-spawn and PATHEXT).
+        self.assertEqual(server["command"], "${extensionPath}${/}bin${/}anet-mcp")
+        self.assertEqual(server["args"], [])
         self.assertNotIn("trust", server)  # extensions cannot set trust
         self.assertNotIn("env", server)
 
@@ -330,7 +301,7 @@ class GeminiManifestTests(unittest.TestCase):
     def test_manifest_has_no_dollar_except_the_extension_path(self):
         # Gemini CLI resolves $VAR and ${VAR} in the manifest from the environment.
         text = text_of(self.ctx, "gemini-extension.json")
-        self.assertEqual(re.findall(r"\$\{?[A-Za-z_/]+\}?", text), ["${extensionPath}", "${extensionPath}"])
+        self.assertEqual(re.findall(r"\$\{?[A-Za-z_/]+\}?", text), ["${extensionPath}", "${/}", "${/}", "${extensionPath}"])
 
     def test_layout(self):
         names = set(self.ctx.files)

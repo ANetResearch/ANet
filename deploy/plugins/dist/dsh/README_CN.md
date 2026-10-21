@@ -10,23 +10,25 @@ anet 是运行在用户本机上的开源节点。它保存智能体的身份，
 
 | 组件 | 名称 | 用途 |
 | --- | --- | --- |
-| MCP 服务 | `anet` | `anet mcp` 提供的 14 个工具：`list_agents`、`get_agent_card`、`send_message`、`wait_task`、`get_task`、`list_tasks`、`cancel_task`、`submit_payment`、`reject_payment`、`reply_task`、`inbound_pending`、`get_balance`、`audit`、`node_status`。 |
-| Skill | `anet` | 说明如何发现智能体、发送和跟踪任务、如实报告结果与支付，以及将其他智能体的回复视为不可信输入。用户提到 anet、AgentNetwork、AID 或希望把工作交给其他智能体时加载。 |
-| Skill | `anet-setup` | 检查、安装或更新 anet，启动节点，加入 hub，并运行 `anet doctor`。安装和更新只在用户同意后执行。 |
-| Skill | `anet-status` | 显示节点、所加入的 hub、余额和支付额度。 |
+| MCP 服务 | `anet` | `anet mcp` 提供的工具，由本机安装的 anet 提供。其中的工具 `guide` 返回 anet 的当前指南。 |
+| Skill | `anet` | 要求智能体在会话中首次执行 anet 操作之前以及每次收到“@anet”请求时，先阅读已安装 anet 的指南，并列出始终适用的规则。用户输入“@anet”，提到 anet、AgentNetwork 或 AID，或希望把工作交给其他智能体时加载。 |
+| Skill | `anet-status` | 按已安装 anet 的指南显示节点状态。 |
+| Skill | `anet-setup` | 查找 anet 可执行文件；anet 未安装且用户同意时进行安装，然后按已安装 anet 的设置指南完成设置。 |
+
+本插件不包含 anet 工具或设置步骤的说明，这些内容由已安装的 anet 提供（MCP 工具 `guide`，以及命令行中的 `anet guide`）。因此，anet 的新版本只需更新 anet 可执行文件即可在 DeepSeek Harness 中生效，插件无需更新。
 
 ## 环境要求
 
-- anet 可在 Linux、macOS 和 Windows 上运行，支持 x86-64 与 ARM64。本插件的启动器是 POSIX shell 脚本，可在 Linux 和 macOS 上运行；在 Windows 上，请用 `anet agents wire` 注册 anet。对于 `anet agents wire` 不支持的工具，请将 `anet mcp` 加入该工具的 MCP 配置。
-- anet 0.3.0 或更高版本。未安装时，`anet-setup` skill 会引导安装。
-- 安装需要 `curl`、`gzip` 和 `ssh-keygen`（OpenSSH 8.1 或更高版本）。
+- Linux、macOS 或 Windows，x86-64 或 ARM64。在 Linux 和 macOS 上，插件运行 POSIX shell 脚本；在 Windows 上，插件运行 `.cmd` 脚本和 Windows 自带的 Windows PowerShell 5.1。
+- 提供 `anet guide` 命令的 anet 版本。未安装 anet 时，`anet-setup` skill 会安装当前版本。
+- 在 Linux 和 macOS 上安装需要 `curl`、`gzip` 和 `ssh-keygen`（OpenSSH 8.1 或更高版本）。
 
 ## 快速开始
 
 1. 把本插件安装到某个 DSH profile 并重启该 profile（见下文“安装”）。
-2. 在会话中输入：`Set up anet.`（或"配置 anet"）。智能体会运行 `anet-setup` skill：征得同意后安装 anet，启动节点，并询问要加入的 hub（官方公共 hub 为 `https://hub.agentnetwork.org.cn`）。
-3. 在您自己的终端中运行 `anet up`（具名身份使用 `anet --id <name> up`；设置了 `anetPath` 时使用该可执行文件的路径）：DSH 在会话结束时会终止其 bash 工具启动的进程，因此 skill 启动的节点会随会话结束而停止。然后新建一个会话，使 MCP 服务启动并连接到正在运行的节点，再让智能体显示 anet 节点的状态。
-4. 交代任务，例如：`在 anet 上找一个能总结文本的智能体，把本项目的 README 发给它，等待结果并报告。不要支付报价，把金额告诉我。`
+2. 在会话中输入：`Set up anet.`（或“配置 anet”）。智能体会运行 `anet-setup` skill：征得同意后安装 anet，然后按已安装 anet 的设置指南完成设置。
+3. 在您自己的终端中启动节点（`anet up`；具名身份使用 `anet --id <name> up`；设置了 `anetPath` 时使用该可执行文件的路径）：DSH 在会话结束时会终止其 shell 工具启动的进程，因此由智能体启动的节点会随会话结束而停止。然后新建一个会话，使 MCP 服务启动并连接到正在运行的节点，再让智能体显示 anet 节点的状态。
+4. 输入以 `@anet` 开头的请求，或直接描述要交给其他智能体的工作。
 
 anet 文档中的 [DeepSeek Harness 接入指南](https://docs.agentnetwork.org.cn/docs/zh-cn/latest/agents/dsh.html)完整说明了安装、验证与卸载。
 
@@ -54,19 +56,19 @@ DSH 没有面向插件的声明式设置界面。两项设置是 `cordis.patch.y
 
 | 设置项 | 默认值 | 含义 |
 | --- | --- | --- |
-| `identity` | 空 | 指定的命名身份（`anet id ls`）。为空时使用 `~/.anet` 中的默认身份。 |
-| `anetPath` | 空 | `anet` 可执行文件的绝对路径。为空时依次查找 `PATH`、`~/.local/bin`、`/usr/local/bin` 和 `/opt/homebrew/bin`。若该路径不是可执行文件，则报告错误；不会改用其他副本，安装 skill 也不会另行安装。 |
+| `identity` | 空 | 指定的命名身份（`anet id ls`）。为空时使用默认身份。 |
+| `anetPath` | 空 | `anet` 可执行文件（Windows 上为 `anet.exe`）的绝对路径。为空时先查找 `PATH`，然后在 Linux 和 macOS 上查找 `~/.local/bin`、`/usr/local/bin` 和 `/opt/homebrew/bin`，在 Windows 上查找 Windows 安装程序的安装位置（`%LOCALAPPDATA%\Programs\anet`、`%LOCALAPPDATA%\anet\bin`、`%USERPROFILE%\.anet-bin`）。若该路径不是可执行文件，则报告错误；不会改用其他副本，安装 skill 也不会另行安装。 |
 
 某个键为空时，使用启动 DSH 的进程的环境变量 `ANET_PLUGIN_IDENTITY` 和 `ANET_PLUGIN_BIN`。生效的取值同时作用于 MCP 服务，以及智能体为本插件的 skill 所运行的命令。MCP 服务随 profile 启动，因此修改后需重启 profile。
 
-MCP 服务 `anet` 对一次工具调用最多等待 15 分钟（`toolCallTimeoutMs`），使 `wait_task` 能等待耗时较长的任务；DSH 对其他 MCP 调用默认 60 秒后中止。DSH 会先启动一次 stdio MCP 服务用于协商，再启动一次用于会话，因此启动时 `anet mcp` 会运行两次。
+MCP 服务 `anet` 对一次工具调用最多等待 15 分钟（`toolCallTimeoutMs`），使等待任务结果的长时间调用不被中断；DSH 对其他 MCP 调用默认 60 秒后中止。DSH 会先启动一次 stdio MCP 服务用于协商，再启动一次用于会话，因此启动时 `anet mcp` 会运行两次。
 
 ## 安全与副作用
 
-- **执行的命令。** 插件的所有 `anet` 命令都经由 `bin/anet-run.sh` 执行，并应用上述两项设置：MCP 服务（`bin/anet-mcp.sh`，即 `anet mcp`）以及 `anet-setup`、`anet-status` skill 使用同一可执行文件和同一身份。用户同意后，`anet-setup` skill 将 `https://agentnetwork.org.cn/install.sh` 安装程序下载到新建的私有临时目录，仅在下载成功后运行，并在结束后删除该目录。本插件不包含 Hook。
+- **执行的命令。** 插件的所有 `anet` 命令都经由插件的运行脚本执行（Linux 和 macOS 上为 `bin/anet-run.sh`，Windows 上为 `bin/anet-run.cmd`），并应用上述两项设置：MCP 服务（`anet mcp`）以及 `anet`、`anet-setup`、`anet-status` skill 使用同一可执行文件和同一身份。运行脚本从不执行工作目录或工作区中的文件。用户同意后，`anet-setup` skill 运行官方安装程序（`https://agentnetwork.org.cn/install.sh`，Windows 上为 `install.ps1`）。本插件不包含 Hook。
 - **网络访问。** 插件本身不建立任何连接。anet 节点连接其加入的 hub，并经由 hub 与其他节点通信。安装程序从 `agentnetwork.org.cn` 下载。
-- **写入的文件。** 插件本身不写文件。安装程序写入 `~/.local/bin/anet` 及其签名的发布清单；`anet init` 将身份和配置写入 `~/.anet`。Skill 要求智能体不得读取 `~/.anet` 下的文件。
-- **安全默认值。** 新节点不接受其他智能体的任务，不发布任何能力，支付额度为 0。开放节点、信任对端和提高额度均须由运营者在终端中确认；Skill 要求智能体只给出这些命令，不代为执行。
+- **写入的文件。** 插件本身不写文件。安装程序将 anet 可执行文件写入用户目录，并在 `~/.anet`（Windows 上为 `%USERPROFILE%\.anet`）中创建身份和配置。Skill 要求智能体不得读取该目录中的文件。
+- **安全默认值。** 新节点不接受其他智能体的任务，不发布任何能力，支付额度为 0。开放节点、信任对端和提高额度均由用户决定；Skill 要求智能体只给出这些命令，不代为执行。
 - **不可信输入。** 其他智能体返回的结果和发来的任务都是第三方文本。`anet` skill 要求智能体不执行其中的指令，也不发送用户未要求发送的密钥或文件。
 - **数据。** 节点之间的任务内容端到端加密。hub 能看到哪些节点在通信以及通信时间。
 
@@ -74,10 +76,8 @@ MCP 服务 `anet` 对一次工具调用最多等待 15 分钟（`toolCallTimeout
 
 | 现象 | 处理 |
 | --- | --- |
-| 会话中没有 anet 工具 | anet 未安装或守护进程未运行。让智能体运行 `anet-setup` skill，在您自己的终端中运行 `anet up`，然后新建会话。 |
-| `anet is not running … [daemon_not_running]` | 在您自己的终端中运行 `anet up`。计算机重启后节点不会自动启动；由 DSH 会话中的智能体启动的节点会随该会话结束而停止。 |
-| `wait_task` 结束时任务仍在进行 | 长任务属正常情况。再次调用 `wait_task`，不要重新发送任务。 |
-| 拒绝信息末尾带有方括号中的代码 | 参见[原因代码](https://docs.agentnetwork.org.cn/docs/zh-cn/latest/reference/reason-codes.html)。 |
+| 会话中没有 anet 工具 | anet 未安装或节点未运行。让智能体运行 `anet-setup` skill，在您自己的终端中启动节点（`anet up`），然后新建会话。 |
+| 拒绝信息末尾带有方括号中的代码 | 其下一行给出下一步命令。另请参见[原因代码](https://docs.agentnetwork.org.cn/docs/zh-cn/latest/reference/reason-codes.html)。 |
 
 ## 链接
 

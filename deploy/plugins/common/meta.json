@@ -1,6 +1,6 @@
 {
   "name": "anet",
-  "version": "0.1.3",
+  "version": "0.2.0",
   "display_name": {
     "en": "AgentNetwork (anet)",
     "zh-CN": "AgentNetwork（anet）"
@@ -28,7 +28,6 @@
   "category": "developer-tools",
   "mcp": {
     "server_name": "anet",
-    "tools_count": 14,
     "timeout_ms": 900000
   },
   "settings": [
@@ -36,7 +35,7 @@
       "key": "identity",
       "env": "ANET_PLUGIN_IDENTITY",
       "title": "anet identity",
-      "description": "Name of a named anet identity, as listed by anet id ls. Empty selects the default identity in ~/.anet.",
+      "description": "Name of a named anet identity, as listed by anet id ls. Empty selects the default identity.",
       "type": "string",
       "default": ""
     },
@@ -44,7 +43,7 @@
       "key": "anetPath",
       "env": "ANET_PLUGIN_BIN",
       "title": "anet executable",
-      "description": "Absolute path of the anet executable. Empty searches PATH, ~/.local/bin, /usr/local/bin and /opt/homebrew/bin.",
+      "description": "Absolute path of the anet executable (anet.exe on Windows). Empty searches PATH and the install locations of the anet installers.",
       "type": "string",
       "default": ""
     }

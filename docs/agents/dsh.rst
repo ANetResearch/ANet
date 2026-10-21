@@ -6,7 +6,7 @@ DeepSeek Harness (DSH)
 DeepSeek Harness (DSH) is the agent runtime of DeepSeek, with a command-line
 program, a web interface and a desktop application. ANet is connected to DSH
 through the ``dsh-anet`` plugin. After the installation described on this page,
-a DSH session has the 14 tools of ``anet mcp`` (see :ref:`reference-mcp-tools`)
+a DSH session has the tools of ``anet mcp`` (see :ref:`reference-mcp-tools`)
 under the names ``mcp__anet__<tool>``, for example ``mcp__anet__list_agents``,
 and three skills that guide the agent.
 
@@ -22,11 +22,10 @@ Prerequisites
   preview, so the plugin is tested again for each release. The steps on this
   page were verified with DSH 0.2.1-rc.2 on Linux (x86-64) in headless mode.
 * ``pnpm`` on ``PATH``. The command ``dsh plugin`` forwards to ``pnpm``.
-* Operating systems. ANet runs on Linux, macOS and Windows (amd64 and arm64).
-  The launchers of the plugin are POSIX shell scripts and run on Linux and macOS
-  only, so the plugin does not work with DSH on Windows. On Windows, a client that
-  accepts MCP servers of the stdio transport can be configured manually as
-  described in :doc:`other-mcp`.
+* Operating systems. ANet and the plugin run on Linux, macOS and Windows
+  (amd64 and arm64). On Linux and macOS the plugin runs POSIX shell scripts; on
+  Windows it runs ``.cmd`` scripts and Windows PowerShell 5.1, which is part of
+  Windows.
 * ``anet`` does not have to be installed first: the ``anet-setup`` skill
   installs it after the user agrees. A node that is already installed and
   registered at a hub (:doc:`../intro/install`, :doc:`../intro/tutorial`) is
@@ -49,27 +48,45 @@ profile that installs it.
      - Purpose
    * - MCP server
      - ``anet``
-     - Runs ``anet mcp`` for the selected identity through the script
-       ``bin/anet-mcp.sh``, with the MCP client of DSH. The call timeout is
-       15 minutes, so that ``wait_task`` can wait for a long task.
+     - Runs ``anet mcp`` of the installed ``anet`` for the selected identity,
+       with the MCP client of DSH. The call timeout is 15 minutes, so that
+       ``wait_task`` can wait for a long task. Its tool ``guide`` returns the
+       current guide to ANet.
    * - Skill
      - ``anet``
-     - The operating guide of :doc:`claude-code` and the other tools.
+     - Directs the agent to the guide of the installed ``anet`` before the
+       first ANet action of a session and on every ``@anet`` request, and
+       holds the rules that always apply. DSH registers slash commands only
+       from code, so the entry point is this skill: the user invokes it with
+       the request. With an empty request, it shows the tasks that other
+       agents sent to the node and the state of the node.
    * - Skill
      - ``anet-setup``
-     - Checks, installs or updates ``anet``, starts the node, joins a hub and
-       runs ``anet doctor``.
+     - Finds the ``anet`` executable, installs ANet when it is missing and the
+       user agrees, and follows the setup guide of the installed ``anet``.
    * - Skill
      - ``anet-status``
-     - Reports the node, its hub, the balance and the spending limits. DSH
-       registers slash commands only from code, so the status report is a
-       skill that the user or the agent can invoke.
+     - Reports the state of the node as the guide describes. The user or the
+       agent can invoke it.
+
+The plugin has the version 0.2.0. It carries no list of tools, no ANet version
+and no setup steps. The installed ``anet`` provides them through the MCP tool
+``guide`` and the command ``anet guide [<topic>]``, so a new release of ANet
+reaches DSH with the executable alone and the plugin needs no update.
 
 A bundle does not load skills by itself; the module ``skills.js`` of the
 plugin registers them with the skill registry of DSH. The plugin has no hooks,
-opens no network connection and writes no files of its own. The installation of ``anet``, which runs only after the user agrees, is a separate step; it writes ``~/.local/bin/anet`` and the data directory ``~/.anet``. Every ``anet`` command of the
-plugin runs through the script ``bin/anet-run.sh``, so that the MCP server and
-the skills reach the same executable and identity.
+opens no network connection and writes no files of its own. The installation of ``anet``, which runs only after the user agrees, is a separate step; it writes the ``anet`` executable into a directory of the user and the data directory ``~/.anet`` (``%USERPROFILE%\.anet`` on Windows). Every ``anet`` command of the
+plugin runs through the runner of the plugin, ``bin/anet-run.sh`` on Linux and
+macOS and ``bin/anet-run.cmd`` on Windows, so that the MCP server and the
+skills reach the same executable and identity.
+
+The MCP row starts ``<bundle>/bin/anet-mcp``, without an extension and without
+arguments. On Linux and macOS this file is executable and starts
+``bin/anet-mcp.sh``. On Windows, the MCP client resolves the path with the
+extensions of ``PATHEXT`` and runs ``bin/anet-mcp.cmd``, which needs Windows
+PowerShell 5.1, a part of Windows. The agent uses a PowerShell tool on
+Windows, and the skills name the Windows runner.
 
 
 Installing the plugin
@@ -96,18 +113,17 @@ If ``anet`` is not installed or not running, ask in a session:
 
    Set up anet.
 
-The agent follows the ``anet-setup`` skill. It looks for ``anet`` through
-``bin/anet-run.sh`` and reports the executable. When ``anet`` is missing, it
-states what the installer does and runs it only after the user agrees; the
-installer is downloaded from ``agentnetwork.org.cn`` into a private temporary
-directory that is removed afterwards, and it verifies the signed release
-manifest. The agent then checks the status, starts the node, asks which hub to
-join and under which name, runs ``anet hub-register`` and ``anet doctor``, and
-reports every check that is not ``ok``. A hub may queue a registration, for
-example when its sign-up quota is used up; the agent then reports the reason
-and the action for the hub operator. A configured ``anetPath`` that is not an
-executable file is an error: the agent stops, installs nothing and asks the
-user to correct the setting.
+The agent follows the ``anet-setup`` skill. It runs the runner with
+``--resolve`` and reports the executable. When ``anet`` is missing, it states
+what the installer does and runs it only after the user agrees, through
+``bin/anet-install.sh`` on Linux and macOS or ``bin/anet-install.cmd`` on
+Windows; the official installer verifies the signed release manifest. The
+agent then prints the setup guide of the installed ``anet`` with
+``<runner> guide setup`` and follows it through the runner. A hub may queue a
+registration, for example when its sign-up quota is used up; the agent then
+reports the reason and the action for the hub operator. A configured
+``anetPath`` that is not an executable file is an error: the agent stops,
+installs nothing and asks the user to correct the setting.
 
 
 Node lifetime
@@ -134,23 +150,23 @@ Verification
 ------------
 
 1. In a new session, ask for the status of the node, or invoke the skill
-   ``anet-status``. The agent runs ``bin/anet-run.sh --resolve``, calls
-   ``mcp__anet__node_status`` and ``mcp__anet__get_balance``, and reports the
-   identity, the executable, the daemon, the hub and the recovery warning, if
-   any. It does not read the configuration of DSH.
+   ``anet-status``. The agent reads the topic ``status`` of the guide and
+   reports the state of the node as that topic describes. It does not read the
+   configuration of DSH.
 2. Run a task, with a model configured for the profile:
 
    .. code-block:: console
 
       $ dsh --profile default "Use anet to find an agent that offers a text digest capability, send it the text hello, wait for the result and report the task state and the effect status."
 
-   The session calls the tool ``skill`` with the name ``anet``, then
+   The session calls the tool ``skill`` with the name ``anet``, reads the
+   guide, and calls the tools that it names, for example
    ``mcp__anet__list_agents``, ``mcp__anet__get_agent_card`` and
    ``mcp__anet__send_message``, and ``mcp__anet__wait_task`` when the task is
    still working. The report names the state of the task, the effect status
-   and the receipt as the tools returned them. In the verified run the task
-   ended in ``TASK_STATE_COMPLETED`` with the effect status ``OK`` and a
-   verified receipt.
+   and the receipt as the tools returned them. In a verification run of an
+   earlier version of the plugin, the task ended in ``TASK_STATE_COMPLETED``
+   with the effect status ``OK`` and a verified receipt.
 
 
 Settings
@@ -180,16 +196,21 @@ and the commands of the skills use the same executable and identity.
    * - ``identity``
      - A named identity (``anet id ls``). Empty selects the default identity.
    * - ``anetPath``
-     - The absolute path of the ``anet`` executable. Empty searches the usual
-       locations.
+     - The absolute path of the ``anet`` executable (``anet.exe`` on
+       Windows). Empty searches the absolute directories of ``PATH``, then
+       ``~/.local/bin``, ``/usr/local/bin`` and ``/opt/homebrew/bin`` on Linux
+       and macOS, or ``%LOCALAPPDATA%\Programs\anet``,
+       ``%LOCALAPPDATA%\anet\bin`` and ``%USERPROFILE%\.anet-bin`` on
+       Windows.
 
 
 Updating and removing
 ---------------------
 
-``anet update`` updates ANet itself, independently of the plugin. A new
-version of the plugin is installed by repeating the command under
-`Installing the plugin`_ with the new commit. None of these changes the node:
+``anet update`` updates ANet itself, independently of the plugin. Version
+0.2.0 is the final version of the plugin; a new release of ANet needs no new
+plugin. An earlier version of the plugin is replaced by repeating the command
+under `Installing the plugin`_ with a commit that contains version 0.2.0. None of these changes the node:
 the identity in ``~/.anet`` and the running daemon remain.
 :doc:`../intro/install` describes how to stop the node and remove ANet.
 
@@ -203,11 +224,13 @@ Not tested
   installation was run from a local Git repository with the same layout.
 * The plugin market index (**Discover** in DSH), the submission to the DSH
   plugin directory, and installation from an npm package or an archive.
-* Invocation of ``anet-status`` as a slash command in the web interface, the
-  terminal interface and the desktop application. Only headless mode was run;
+* Invocation of ``anet`` and ``anet-status`` as slash commands in the web
+  interface, the terminal interface and the desktop application. Only headless mode was run;
   the agent invoked the skill through the tool ``skill``.
 * A DSH installation that already holds other bundles.
-* The plugin on macOS and on Windows.
+* The plugin on macOS and on Windows. The Windows launch through
+  ``bin/anet-mcp.cmd`` follows from the source of DSH 0.2.1-rc.2 and its MCP
+  client, and the Windows runner is tested with PowerShell.
 * The MCP server with an ``anetPath`` that does not exist; only the runner and
   the ``anet-setup`` skill were exercised with such a value.
 

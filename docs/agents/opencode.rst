@@ -10,8 +10,8 @@ task for an agent and retrieve its result (``send_message``, ``wait_task``,
 tasks that other agents sent to the node (``reply_task``, ``inbound_pending``),
 pay a quote within the limits of the node (``submit_payment``,
 ``reject_payment``, ``get_balance``), and read the state and the evidence chain
-of the node (``node_status``, ``audit``). The tool set has 14 tools and is
-listed in :ref:`reference-mcp-tools`.
+of the node (``node_status``, ``audit``). The tools of ``anet mcp`` are listed
+in :ref:`reference-mcp-tools`.
 
 .. contents::
    :local:
@@ -29,9 +29,10 @@ Prerequisites
   established; the current requirements are those of the `opencode
   documentation <https://opencode.ai/docs/>`_.
 * The operating system is Linux, macOS or Windows. On Windows, install ANet
-  with the PowerShell installer (:ref:`intro-install-windows`) and register it
-  with ``anet agents wire opencode``; the opencode plugin of ANet does not run
-  on Windows. The steps on this page were not run on Windows. See the
+  with the PowerShell installer (:ref:`intro-install-windows`), and register
+  it with ``anet agents wire opencode`` or with the opencode plugin of ANet,
+  which runs on Windows as well. The steps on this page were not run on
+  Windows. See the
   `opencode notes on Windows and WSL <https://opencode.ai/docs/windows-wsl/>`_
   for the tool side.
 * The daemon of the node runs while opencode is in use, because ``anet mcp``
@@ -47,9 +48,9 @@ Prerequisites
 Plugin
 ------
 
-The plugin is an alternative to ``anet agents wire opencode``. It installs the
-MCP server, two skills and one command as a single package, and it adds a
-guided setup of the node. The two channels can coexist; the interaction is
+The plugin (version 0.2.0) is an alternative to ``anet agents wire opencode``.
+It installs the MCP server, two skills and two commands as a single package,
+and it adds a guided setup of the node. The two channels can coexist; the interaction is
 described under :ref:`Plugin and automatic wiring <agents-opencode-plugin-wire>`.
 
 opencode has no plugin marketplace and no plugin manifest. A plugin is a
@@ -66,21 +67,40 @@ adds the following components to the configuration.
      - Purpose
    * - MCP server
      - ``anet``
-     - Runs ``anet mcp`` for the selected identity through the script
-       ``bin/anet-mcp.sh``. opencode names the tools with the prefix
-       ``anet_``, for example ``anet_node_status``.
+     - Runs ``anet mcp`` of the installed ``anet`` for the selected identity.
+       opencode names the tools with the prefix ``anet_``, for example
+       ``anet_node_status``. Its tool ``guide`` returns the current guide to
+       ANet.
    * - Skill
      - ``anet``
-     - The operating guide for the tools, the same text that ``anet agents
-       wire`` installs for Claude Code.
+     - Directs the agent to the guide of the installed ``anet`` before the
+       first ANet action of a session and on every ``@anet`` request, and
+       holds the rules that always apply.
    * - Skill
      - ``anet-setup``
-     - Checks for ``anet``, installs or updates it, starts the node, joins a
-       hub and runs ``anet doctor``. Installation and updates run only after
-       the user agrees.
+     - Finds the ``anet`` executable, installs ANet when it is missing and the
+       user agrees, and follows the setup guide of the installed ``anet``.
+   * - Command
+     - ``/anet``
+     - The entry point: carries out an ``@anet`` request as the guide
+       describes. Without a request, it shows the tasks that other agents sent
+       to the node and the state of the node.
    * - Command
      - ``/anet-status``
-     - Reports the node, its hub, the balance and the spending limits.
+     - Reports the state of the node as the guide describes.
+
+The plugin carries no list of tools, no ANet version and no setup steps. The
+installed ``anet`` provides them through the MCP tool ``guide`` and the command
+``anet guide [<topic>]``, so a new release of ANet reaches opencode with the
+executable alone and the plugin needs no update.
+
+The MCP entry is ``<plugin root>/bin/anet-mcp``, written by the plugin as an
+absolute path, without an extension and without arguments. On Linux and macOS
+this file is executable and starts ``bin/anet-mcp.sh``. On Windows, opencode
+resolves the path with the extensions of ``PATHEXT`` and runs
+``bin/anet-mcp.cmd``, which needs Windows PowerShell 5.1, a part of Windows.
+The bash tool of opencode uses PowerShell, Git Bash or cmd on Windows, and the
+skills name the runner for each of them.
 
 The source of the plugin is the directory ``deploy/plugins/dist/opencode`` of
 the ANet repository. No separate repository is kept for it.
@@ -133,15 +153,16 @@ Without any ``anet`` installation, start opencode and ask for the setup:
    Set up anet. I agree to the installation and to joining the hub at
    <hub URL> with the name <name>.
 
-The model loads the skill ``anet-setup`` and carries out these steps through the
-runner script: it checks the operating system and whether ``anet`` can be
-found, runs the official installer from a private temporary directory (the
-signature and the checksum are verified by the installer, and the directory is
-removed afterwards), starts the node with ``anet up``, joins the hub with
-``anet hub-register``, and runs ``anet status`` and ``anet doctor``. It then
-asks the user to restart opencode, because the MCP server could not start
-before ``anet`` existed. In the run that was tested, every check of ``anet
-doctor`` was ``ok`` or ``info``, except the warning ``identity.recovery``.
+The model loads the skill ``anet-setup``. It runs the runner with
+``--resolve`` to find ``anet``, runs the official installer through
+``bin/anet-install.sh`` on Linux and macOS or ``bin/anet-install.cmd`` on
+Windows after the user agrees (the signature and the checksum are verified by
+the installer), and then prints the setup guide of the installed ``anet`` with
+``<runner> guide setup`` and follows it through the runner. It then asks the
+user to restart opencode, because the MCP server could not start before
+``anet`` existed. In a run with an earlier version of the plugin, every check
+of ``anet doctor`` was ``ok`` or ``info``, except the warning
+``identity.recovery``.
 
 Plugin verification
 ~~~~~~~~~~~~~~~~~~~
@@ -157,16 +178,20 @@ After the restart, list the loaded server and skills:
 it shows ``anet failed`` with ``Connection closed``, which is expected.
 ``opencode debug skill`` lists ``anet`` and ``anet-setup``. ``opencode debug
 config`` shows the entry in ``plugin``, ``mcp.anet`` with the timeout 900000
-milliseconds, the skill path and the command ``anet-status``.
+milliseconds, the skill path and the commands ``anet`` and ``anet-status``.
 
-Run the command, which needs no argument:
+Run the status command, which needs no argument:
 
 .. code-block:: text
 
    /anet-status
 
-The report names the identity and its AID, the state of the daemon, the hub
+The agent reads the topic ``status`` of the guide and reports the state of the
+node as that topic describes. In a run with an earlier version of the plugin,
+the report named the identity and its AID, the state of the daemon, the hub
 and its registration state, the inbound policy, the balance and the limits.
+A request for another agent is given with ``/anet`` followed by the request,
+or as a request that begins with ``@anet``.
 When the command is run from a script, redirect standard input from
 ``/dev/null``: ``opencode run --command anet-status ""`` with an open input that
 is not a terminal does not return.
@@ -200,8 +225,11 @@ in ``opencode.json``:
    }
 
 ``anetPath``
-   The absolute path of the ``anet`` executable. Without it, the runner looks in
-   ``PATH``, ``~/.local/bin``, ``/usr/local/bin`` and ``/opt/homebrew/bin``. A
+   The absolute path of the ``anet`` executable (``anet.exe`` on Windows).
+   Without it, the runner looks in the absolute directories of ``PATH``, then
+   in ``~/.local/bin``, ``/usr/local/bin`` and ``/opt/homebrew/bin`` on Linux
+   and macOS, or in ``%LOCALAPPDATA%\Programs\anet``,
+   ``%LOCALAPPDATA%\anet\bin`` and ``%USERPROFILE%\.anet-bin`` on Windows. A
    path that is not an executable file is an error; no other copy is used. In
    the test, the skill ``anet-setup`` reported ``invalid setting anetPath``,
    stopped before the installation, and changed no file.
@@ -215,16 +243,18 @@ opencode has no variable for the directory of a plugin and no settings store
 for it. The plugin therefore passes the options on explicitly. The MCP server
 receives them as ``ANET_PLUGIN_BIN`` and ``ANET_PLUGIN_IDENTITY``. The plugin
 also sets these two variables and ``ANET_PLUGIN_ROOT`` for every shell command
-of the agent, so that the skill ``anet-setup`` runs ``bin/anet-run.sh`` with the
-same executable and identity. Every ``anet`` command of the plugin runs through
-that script, and the agent does not run a bare ``anet``. The settings are not
+of the agent, so that the skills and the commands run the runner
+(``bin/anet-run.sh``, or ``bin/anet-run.cmd`` on Windows) with the same
+executable and identity. Every ``anet`` command of the plugin runs through the
+runner, and the agent does not run a bare ``anet``. The settings are not
 read from any other file. Restart opencode after a change.
 
 Updating and removing the plugin
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-To update, install the new version of the package or directory with the command
-shown above, and restart opencode. A version can be pinned in the entry, for
+Version 0.2.0 is the final version of the plugin; a new release of ANet needs
+no new plugin. To replace an earlier version, install the package or directory
+with the command shown above, and restart opencode. A version can be pinned in the entry, for
 example ``@agentnetwork/opencode-anet@<version>``. To remove the plugin, delete its
 entry from the ``plugin`` list of ``opencode.json`` and restart opencode. The
 plugin writes no file of its own. The node, its data and the installed ``anet``
@@ -240,8 +270,9 @@ The following items were not tested:
   connection. The installation of the published package from the npm registry
   was run.
 * Installation from a Git URL.
-* macOS, arm64 and Windows. The plugin disables itself on Windows, because its
-  launcher is a POSIX shell script; this was covered only by a unit test.
+* macOS, arm64 and Windows. The Windows launch through ``bin/anet-mcp.cmd``
+  follows from the Windows binary of opencode 1.19.3, and the Windows runner is
+  tested with PowerShell; the plugin was not run in opencode on Windows.
 * The priced capability flow, and a successful completion with a provider that
   does not accept the requester. A provider that did not accept the AID ended
   the task in ``TASK_STATE_REJECTED`` with the reason ``not_accepting``.

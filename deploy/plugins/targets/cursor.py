@@ -6,7 +6,7 @@ repo-root-marketplace.json, the catalogue for the root of the ANet repository
 (see below). Output (dist/cursor/ is the plugin root, as Cursor loads it):
 
     .cursor-plugin/plugin.json   manifest, with the two plugin variables
-    mcp.json                     the MCP server, started through bin/anet-mcp.sh
+    mcp.json                     the MCP server: ${CURSOR_PLUGIN_ROOT}/bin/anet-mcp
     bin/ skills/ commands/       the shared files
     assets/logo.png              logo, referenced by the manifest
     README.md README_CN.md LICENSE
@@ -29,16 +29,39 @@ archive.
 Cursor expands ${CURSOR_PLUGIN_ROOT} in the MCP configuration only. A skill has
 no variable for its own directory and a command has no inline execution, so
 the shared texts name the runner as <skill-dir>/../../bin/anet-run.sh (the
-agent knows where it loaded the skill from) and the status command refers to
-the plugin root in words.
+agent knows where it loaded the skill from) and the commands refer to the
+plugin root in words (RUNNER_NOTE, RUNNER_COMMAND_NOTE). The @anet entry point
+is the command /anet.
 
 Settings: Cursor has no per-user settings file for a plugin. Any ${NAME} (or
 ${NAME:-default}) of mcp.json becomes a plugin variable, which a team
 administrator configures. mcp.json passes the two settings of the shared
 metadata that way, with an empty default, and the manifest declares them. The
-launcher bin/anet-mcp.sh reads them from its environment; the stdio transport
+launchers (bin/anet-mcp, bin/anet-mcp.cmd) read them from their environment; the stdio transport
 of Cursor does not pass the rest of the environment, so nothing else is
-relied on.
+relied on (on Windows the MCP SDK adds its default variables, among them
+PATH, SYSTEMROOT, USERPROFILE and LOCALAPPDATA, which the runner uses).
+
+Start of the MCP server, checked in the Cursor Agent program 2026.10.19 for
+Linux and Windows (dist-package/index.js; nothing executed):
+
+  * ${CURSOR_PLUGIN_ROOT} (and ${CLAUDE_PLUGIN_ROOT}) is replaced in command,
+    args, env and cwd of a plugin MCP server; the documentation says the same
+    (https://cursor.com/docs/plugins/building).
+  * Windows: StdioClientTransport of the MCP SDK spawns with the bundled
+    cross-spawn 7.0.6 and shell false. cross-spawn looks the extensionless
+    command up with the extensions of PATHEXT, finds bin/anet-mcp.cmd and runs
+    it through cmd.exe /d /s /c with escaped arguments; the extensionless POSIX
+    file is not chosen, because isexe accepts only a PATHEXT extension.
+  * Linux and macOS: the command bin/anet-mcp is executed directly, so it
+    needs its executable bit. Cursor keeps it: a marketplace plugin is fetched
+    with git and copied with fs.cp into ~/.cursor/plugins/cache, which both
+    keep the mode, and node-tar keeps the mode of a release archive.
+  * The shell of the agent on Windows is PowerShell (pwsh, else Windows
+    PowerShell), or Git Bash when Cursor runs inside it; the texts name both
+    runners.
+  * The instructions of the server are sent with the request (mcpInstructions).
+The editor application has its own MCP host and was not inspected.
 """
 
 import re
@@ -58,7 +81,7 @@ def _src(name):
 
 
 _SKILL_DIR = "<skill-dir>"
-_COMMAND_NAME = "anet-status"
+_COMMANDS = ("anet", "anet-status")
 _NAME_RE = re.compile(r"^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$")
 _SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$")
 _VARIABLE_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
@@ -73,11 +96,13 @@ VARS = {
         "en": "any text that follows the command name",
         "zh-CN": "命令之后的文字（如有）",
     },
-    "RESOLVE_INVOCATION": (
-        "Its path is `<plugin-root>/bin/anet-run.sh`. `<plugin-root>` is the root directory of the anet plugin: "
-        "the directory that holds `bin`, `skills` and `.cursor-plugin`, which is two levels above the file `SKILL.md` "
-        "of the `anet-setup` skill. `sh \"<plugin-root>/bin/anet-run.sh\" --resolve` prints the executable, the version, "
-        "the identity and a `runner` line."
+    "RUNNER_NOTE": (
+        f"`{_SKILL_DIR}` is the directory that contains this `SKILL.md` file; use the absolute path under which Cursor "
+        "loaded the skill. The runner sits two levels above it, in `bin`."
+    ),
+    "RUNNER_COMMAND_NOTE": (
+        "`<plugin-root>` is the root directory of the anet plugin: the directory that holds `bin`, `skills` and "
+        "`.cursor-plugin`, which is two levels above the file `SKILL.md` of the `anet-setup` skill."
     ),
     "INSTALL_STEP": {
         "en": (
@@ -135,47 +160,9 @@ def _replace_once(text, old, new, rel):
 
 
 def transform(ctx, rel, text, lang):
-    if rel == "skills/anet/SKILL.md":
-        # The tail of the guide (the part that is not generated from guide.go).
-        if lang == "en":
-            note = (
-                f"In the command above, `{_SKILL_DIR}` is the directory that contains this `SKILL.md` file; "
-                "use the absolute path under which Cursor loaded the skill."
-            )
-        else:
-            note = f"上面的命令中，`{_SKILL_DIR}` 是本 `SKILL.md` 文件所在的目录；请使用 Cursor 加载该 skill 时的绝对路径。"
-        return text.rstrip("\n") + "\n\n" + note + "\n"
-    if rel == "skills/anet-setup/SKILL.md":
-        return _replace_once(
-            text,
-            "The `runner` line of the output is the command to use;",
-            f"`{_SKILL_DIR}` is the directory that contains this `SKILL.md` file; use the absolute path under which "
-            "Cursor loaded the skill. The runner sits two levels above it, in `bin`.\n\n"
-            "The `runner` line of the output is the command to use;",
-            rel,
-        )
-    if rel == f"commands/{_COMMAND_NAME}.md":
-        text = _replace_once(text, "description:", f"name: {_COMMAND_NAME}\ndescription:", rel)
-        text = _replace_once(
-            text,
-            "The plugin settings select this executable and identity (resolved when the command started):",
-            "The runner of this plugin, `bin/anet-run.sh`, applies the plugin settings and selects the executable and the "
-            "identity of the node. Only step 3 needs it.",
-            rel,
-        )
-        text = _replace_once(text, "the `runner` command shown above", "the runner (`sh \"<plugin-root>/bin/anet-run.sh\"`)", rel)
-        text = _replace_once(text, ", for example `sh <path>/anet-run.sh status`,", ",", rel)
-        # When the daemon is stopped, `status` prints a hint that names the default identity, not the one of the plugin.
-        text = _replace_once(
-            text,
-            "bare `anet` command instead.",
-            "bare `anet` command instead. When `status` reports that the daemon is not running, "
-            "the hint line of its output names the default identity; report the identity of this plugin instead, "
-            "which is the value of `ANET_PLUGIN_IDENTITY` or, when that is empty, the default, and which also "
-            "appears in the data directory path that `status` prints.",
-            rel,
-        )
-        return text
+    for name in _COMMANDS:
+        if rel == f"commands/{name}.md":
+            return _replace_once(text, "description:", f"name: {name}\ndescription:", rel)
     return text
 
 
@@ -203,8 +190,6 @@ def _catalogue(ctx, source):
 def build(ctx):
     meta = ctx.meta
     ctx.add_common()
-    # The shared runner is stored without the executable bit; the launcher has it. Both are started with sh.
-    ctx.files["bin/anet-run.sh"].executable = True
     ctx.add("assets/logo.png", ctx.icon)
 
     ctx.add_json(".cursor-plugin/plugin.json", {
@@ -225,8 +210,9 @@ def build(ctx):
         "mcpServers": {
             meta["mcp"]["server_name"]: {
                 "type": "stdio",
-                "command": "sh",
-                "args": ["${CURSOR_PLUGIN_ROOT}/bin/anet-mcp.sh"],
+                # bin/anet-mcp on Linux and macOS, bin/anet-mcp.cmd on Windows (see the module docstring).
+                "command": "${CURSOR_PLUGIN_ROOT}/bin/anet-mcp",
+                "args": [],
                 # An unset variable falls back to the empty default instead of staying a literal ${...}.
                 "env": {s["env"]: "${%s:-}" % s["env"] for s in meta["settings"]},
             }

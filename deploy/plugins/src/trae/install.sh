@@ -1,5 +1,6 @@
 #!/bin/sh
-# Installs the anet bundle for Trae and Trae CN.
+# Installs the anet bundle for Trae and Trae CN on Linux and macOS (on
+# Windows: install.cmd).
 #
 # Trae has no plugin package format. This script copies the parts of the
 # bundle into a configuration directory of Trae (the skills, the command and
@@ -88,7 +89,7 @@ done
 
 case $(uname -s) in
   Linux | Darwin) ;;
-  *) die "the launchers of this bundle are POSIX shell scripts and run on Linux and macOS only; on Windows, add anet mcp to the MCP configuration of Trae manually" ;;
+  *) die "this script installs the bundle on Linux and macOS; on Windows, run install.cmd of this bundle" ;;
 esac
 
 # Scope and target directory.
@@ -108,7 +109,9 @@ else
   esac
 fi
 
-FILES="skills/anet/SKILL.md skills/anet-setup/SKILL.md commands/anet-status.md anet/bin/anet-run.sh anet/bin/anet-mcp.sh anet/bin/anet-install.sh"
+FILES="skills/anet/SKILL.md skills/anet-setup/SKILL.md commands/anet.md commands/anet-status.md
+anet/bin/anet-run.sh anet/bin/anet-mcp.sh anet/bin/anet-mcp anet/bin/anet-install.sh
+anet/bin/anet-run.cmd anet/bin/anet-run.ps1 anet/bin/anet-mcp.cmd anet/bin/anet-install.cmd"
 
 # Nothing is written or removed through a symbolic link: a project can hold a link
 # under .trae, and a file or directory of the bundle that is a link could lead out of it.
@@ -135,10 +138,16 @@ check_owner() {
 }
 check_owner skills/anet/SKILL.md '^name: anet$'
 check_owner skills/anet-setup/SKILL.md '^name: anet-setup$'
+check_owner commands/anet.md 'AgentNetwork (anet) node'
 check_owner commands/anet-status.md 'local anet node'
 check_owner anet/bin/anet-run.sh 'Runs the anet executable'
 check_owner anet/bin/anet-mcp.sh 'Starts the MCP server of the local anet node'
+check_owner anet/bin/anet-mcp 'Starts the MCP server of the local anet node'
 check_owner anet/bin/anet-install.sh 'Installs the anet command line'
+check_owner anet/bin/anet-run.cmd 'Runs the anet executable'
+check_owner anet/bin/anet-run.ps1 'The Windows runner of the anet plugin'
+check_owner anet/bin/anet-mcp.cmd 'Starts the MCP server of the local anet node'
+check_owner anet/bin/anet-install.cmd 'Installs the anet command line'
 
 if [ "$remove" -eq 1 ]; then
   [ "$set_id" -eq 0 ] && [ "$set_bin" -eq 0 ] || die "--remove takes no settings"

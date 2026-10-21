@@ -205,6 +205,20 @@ def _check_path(path):
     return p.as_posix()
 
 
+# The shared launchers and runners (common/bin). The .sh files and the
+# extensionless anet-mcp run on Linux and macOS (and in a POSIX shell on
+# Windows); the .cmd files, with anet-run.ps1, run on Windows.
+BIN_FILES = ("anet-run.sh", "anet-mcp.sh", "anet-mcp", "anet-install.sh",
+             "anet-run.cmd", "anet-run.ps1", "anet-mcp.cmd", "anet-install.cmd")
+# The shared commands (common/commands): the @anet entry point and the status report.
+COMMANDS = ("anet", "anet-status")
+
+
+def crlf(text):
+    """The text with CRLF line ends, as cmd.exe expects them in a batch file."""
+    return text.replace("\r\n", "\n").replace("\n", "\r\n")
+
+
 # Where each group of the shared sources goes inside a plugin by default.
 DEFAULT_DEST = {"bin": "bin", "skills": "skills", "commands": "commands", "docs": "", "icon": "assets"}
 GROUPS = tuple(DEFAULT_DEST)
@@ -252,6 +266,11 @@ class Context:
 
     def common_bytes(self, rel):
         return (COMMON / rel).read_bytes()
+
+    @staticmethod
+    def crlf(text):
+        """text with CRLF line ends, for a batch file (.cmd) of the target."""
+        return crlf(text)
 
     def render(self, rel, lang=None, extra=None):
         """Render the shared source common/<rel> for this target and return the text.
@@ -315,8 +334,8 @@ class Context:
     def add_common(self, groups=None, dest=None, skip=()):
         """Add the shared files to the plugin tree, rendered for this target.
 
-        groups: which of "bin" (anet-run.sh, anet-mcp.sh, anet-install.sh), "skills" (anet,
-        anet-setup), "commands" (anet-status.md), "docs" (README.md,
+        groups: which of "bin" (BIN_FILES), "skills" (anet,
+        anet-setup), "commands" (anet.md, anet-status.md), "docs" (README.md,
         README_CN.md, LICENSE) and "icon" (assets/icon.png) to add; the default
         (None) is every group except "icon", which is added only when named. dest maps a group to its directory in the plugin
         ("" is the plugin root). skip lists plugin paths to leave out.
@@ -334,17 +353,20 @@ class Context:
             if path in skip:
                 return
             executable = bool((COMMON / src).stat().st_mode & stat.S_IXUSR)
-            self.add(path, self.render(src) if text else self.common_bytes(src), executable)
+            data = self.render(src) if text else self.common_bytes(src)
+            if text and src.endswith(".cmd"):
+                data = crlf(data)
+            self.add(path, data, executable)
 
         if "bin" in groups:
-            put("bin", "anet-run.sh", "bin/anet-run.sh")
-            put("bin", "anet-mcp.sh", "bin/anet-mcp.sh")
-            put("bin", "anet-install.sh", "bin/anet-install.sh")
+            for name in BIN_FILES:
+                put("bin", name, f"bin/{name}")
         if "skills" in groups:
             for name in ("anet", "anet-setup"):
                 put("skills", f"{name}/SKILL.md", f"skills/{name}/SKILL.md")
         if "commands" in groups:
-            put("commands", "anet-status.md", "commands/anet-status.md")
+            for name in COMMANDS:
+                put("commands", f"{name}.md", f"commands/{name}.md")
         if "docs" in groups:
             put("docs", "README.md", "README.md")
             put("docs", "README_CN.md", "README_CN.md")
@@ -428,42 +450,63 @@ def _default_vars(tvars):
     soft("DOC_SLUG", "")
     soft("SETTINGS_READ_NOTE", "")
     soft("INSTALLER_FROM_SKILL", v["RUNNER_FROM_SKILL"].replace("anet-run.sh", "anet-install.sh"))
-    soft("RESOLVE_INVOCATION", '!`sh "' + _plain(v["RUNNER_FROM_COMMAND"]) + '" --resolve`')
+    # The Windows runner and installer sit next to the POSIX ones.
+    soft("RUNNER_CMD_FROM_SKILL", _plain(v["RUNNER_FROM_SKILL"], "RUNNER_FROM_SKILL").replace("anet-run.sh", "anet-run.cmd"))
+    soft("RUNNER_CMD_FROM_COMMAND", _plain(v["RUNNER_FROM_COMMAND"]).replace("anet-run.sh", "anet-run.cmd"))
+    soft("INSTALLER_CMD_FROM_SKILL", _plain(v["RUNNER_FROM_SKILL"], "RUNNER_FROM_SKILL").replace("anet-run.sh", "anet-install.cmd"))
+    soft("RUNNER_NOTE", "")
+    soft("RUNNER_COMMAND_NOTE", "")
     soft("INSTALL_STEP", {"en": f"Install and enable the plugin in {tool}.", "zh-CN": f"在 {tool} 中安装并启用本插件。"})
     if "COMPONENTS_SAME_RUNNER" not in v:
         if v["HAS_COMMAND"]:
             v["COMPONENTS_SAME_RUNNER"] = {
-                "en": "the MCP server (`bin/anet-mcp.sh`, `anet mcp`), the `/anet-status` command and the `anet-setup` skill",
-                "zh-CN": "MCP 服务（`bin/anet-mcp.sh`，即 `anet mcp`）、`/anet-status` 命令与 `anet-setup` skill ",
+                "en": "the MCP server (`anet mcp`), the commands `/anet` and `/anet-status` and the skills",
+                "zh-CN": "MCP 服务（`anet mcp`）、`/anet` 与 `/anet-status` 命令以及各 skill ",
             }
         else:
             v["COMPONENTS_SAME_RUNNER"] = {
-                "en": "the MCP server (`bin/anet-mcp.sh`, `anet mcp`) and the `anet-setup` skill",
-                "zh-CN": "MCP 服务（`bin/anet-mcp.sh`，即 `anet mcp`）与 `anet-setup` skill ",
+                "en": "the MCP server (`anet mcp`) and the skills",
+                "zh-CN": "MCP 服务（`anet mcp`）与各 skill ",
             }
     soft("SETTINGS_SECTION", {
         "en": "## Settings\n\n"
               "The plugin has no settings of its own. The two optional values below are read from the environment of the process that starts the plugin.\n\n"
               "| Variable | Default | Meaning |\n| --- | --- | --- |\n"
-              "| `ANET_PLUGIN_IDENTITY` | empty | A named identity (`anet id ls`). Empty selects the default identity in `~/.anet`. |\n"
-              "| `ANET_PLUGIN_BIN` | empty | Absolute path of the `anet` executable. Empty searches `PATH`, `~/.local/bin`, `/usr/local/bin` and `/opt/homebrew/bin`. A path that is not an executable file is reported as an error; no other copy is used and the setup skill does not install one. |",
+              "| `ANET_PLUGIN_IDENTITY` | empty | A named identity (`anet id ls`). Empty selects the default identity. |\n"
+              "| `ANET_PLUGIN_BIN` | empty | " + SEARCH_TEXT["en"] + " |",
         "zh-CN": "## 设置项\n\n"
                  "本插件没有自己的设置界面。下列两项为可选项，从启动插件的进程的环境变量中读取。\n\n"
                  "| 变量 | 默认值 | 含义 |\n| --- | --- | --- |\n"
-                 "| `ANET_PLUGIN_IDENTITY` | 空 | 指定的命名身份（`anet id ls`）。为空时使用 `~/.anet` 中的默认身份。 |\n"
-                 "| `ANET_PLUGIN_BIN` | 空 | `anet` 可执行文件的绝对路径。为空时依次查找 `PATH`、`~/.local/bin`、`/usr/local/bin` 和 `/opt/homebrew/bin`。若该路径不是可执行文件，则报告错误；不会改用其他副本，安装 skill 也不会另行安装。 |",
+                 "| `ANET_PLUGIN_IDENTITY` | 空 | 指定的命名身份（`anet id ls`）。为空时使用默认身份。 |\n"
+                 "| `ANET_PLUGIN_BIN` | 空 | " + SEARCH_TEXT["zh-CN"] + " |",
     })
-    for name, rel in (("RUNNER_SETTINGS_COMMENT", "runner-settings-env.txt"), ("RUNNER_READ_SETTINGS", "runner-read-settings-env.sh")):
+    for name, rel in (("RUNNER_SETTINGS_COMMENT", "runner-settings-env.txt"), ("RUNNER_READ_SETTINGS", "runner-read-settings-env.sh"),
+                      ("RUNNER_READ_SETTINGS_PS", "runner-read-settings-env.ps1")):
         if name not in v:
             t = (COMMON / rel).read_text(encoding="utf-8")
             v[name] = t[:-1] if t.endswith("\n") else t
     return v
 
 
-def _plain(value):
+def _plain(value, name="RUNNER_FROM_COMMAND"):
     if not isinstance(value, str):
-        raise BuildError("RUNNER_FROM_COMMAND must be text, not a per-language value")
+        raise BuildError(f"{name} must be text, not a per-language value")
     return value
+
+
+# What the setting anetPath means, for the settings section of a README. The
+# targets that write their own settings section use the same text.
+SEARCH_TEXT = {
+    "en": ("Absolute path of the `anet` executable (`anet.exe` on Windows). Empty searches `PATH`, then "
+           "`~/.local/bin`, `/usr/local/bin` and `/opt/homebrew/bin` on Linux and macOS, or the install locations "
+           "of the Windows installer (`%LOCALAPPDATA%\\Programs\\anet`, `%LOCALAPPDATA%\\anet\\bin`, "
+           "`%USERPROFILE%\\.anet-bin`) on Windows. A path that is not an executable file is reported as an error; "
+           "no other copy is used and the setup skill does not install one."),
+    "zh-CN": ("`anet` 可执行文件（Windows 上为 `anet.exe`）的绝对路径。为空时先查找 `PATH`，然后在 Linux 和 macOS 上查找 "
+              "`~/.local/bin`、`/usr/local/bin` 和 `/opt/homebrew/bin`，在 Windows 上查找 Windows 安装程序的安装位置"
+              "（`%LOCALAPPDATA%\\Programs\\anet`、`%LOCALAPPDATA%\\anet\\bin`、`%USERPROFILE%\\.anet-bin`）。"
+              "若该路径不是可执行文件，则报告错误；不会改用其他副本，安装 skill 也不会另行安装。"),
+}
 
 
 # Variables that a target supplies as files of targets/<key>.d/ (text; the
@@ -471,6 +514,7 @@ def _plain(value):
 DATA_VARS = {
     "RUNNER_SETTINGS_COMMENT": {"": "runner-settings-comment.txt"},
     "RUNNER_READ_SETTINGS": {"": "runner-read-settings.sh"},
+    "RUNNER_READ_SETTINGS_PS": {"": "runner-read-settings.ps1"},
     "SETTINGS_SECTION": {"en": "settings-section.md", "zh-CN": "settings-section_CN.md"},
 }
 

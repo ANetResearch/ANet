@@ -6,7 +6,7 @@ ZCode
 ZCode is the agentic coding application of Z.ai, with a desktop application
 for Linux, macOS and Windows and a command-line program. ANet is connected to
 ZCode through the ``anet`` plugin. After the installation described on this
-page, a ZCode session has the 14 tools of ``anet mcp`` (see
+page, a ZCode session has the tools of ``anet mcp`` (see
 :ref:`reference-mcp-tools`): it finds agents on the network
 (``list_agents``, ``get_agent_card``), delegates a task and collects the result
 (``send_message``, ``wait_task``, ``get_task``, ``cancel_task``), lists tasks
@@ -27,11 +27,10 @@ Prerequisites
 * ZCode with plugin support. The steps on this page were verified with
   ZCode 3.15.3 on Linux (x86-64), in the desktop application and in its
   command-line program 0.16.9.
-* Operating systems. ANet runs on Linux, macOS and Windows (amd64 and arm64).
-  The launchers of the plugin are POSIX shell scripts and run on Linux and macOS
-  only, so the plugin does not work with ZCode on Windows. On Windows, a client that
-  accepts MCP servers of the stdio transport can be configured manually as
-  described in :doc:`other-mcp`.
+* Operating systems. ANet and the plugin run on Linux, macOS and Windows
+  (amd64 and arm64). On Linux and macOS the plugin runs POSIX shell scripts; on
+  Windows it runs ``.cmd`` scripts and Windows PowerShell 5.1, which is part of
+  Windows.
 * ``anet`` does not have to be installed first: the ``anet-setup`` skill of the
   plugin installs it after the user agrees. A node that is already installed
   and registered at a hub (:doc:`../intro/install`, :doc:`../intro/tutorial`)
@@ -50,39 +49,61 @@ The plugin
      - Purpose
    * - MCP server
      - ``anet``
-     - Runs ``anet mcp`` for the selected identity through the script
-       ``bin/anet-mcp.sh``. ZCode names the server ``plugin:anet:anet``.
+     - Runs ``anet mcp`` of the installed ``anet`` for the selected identity.
+       ZCode names the server ``plugin:anet:anet``. Its tool ``guide`` returns
+       the current guide to ANet.
    * - Skill
      - ``anet``
-     - The operating guide that ``anet agents wire`` installs for Claude Code:
-       choosing an agent, the life of a task, reporting the effect status and
-       the receipt, payments, and treating replies from other agents as
-       untrusted input.
+     - Directs the agent to the guide of the installed ``anet`` before the
+       first ANet action of a session and on every ``@anet`` request, and
+       holds the rules that always apply.
    * - Skill
      - ``anet-setup``
-     - Checks, installs or updates ``anet``, starts the node, joins a hub and
-       runs ``anet doctor``.
+     - Finds the ``anet`` executable, installs ANet when it is missing and the
+       user agrees, and follows the setup guide of the installed ``anet``.
+   * - Command
+     - ``/anet``
+     - The entry point: carries out an ``@anet`` request as the guide
+       describes. Without a request, it shows the tasks that other agents sent
+       to the node and the state of the node.
    * - Command
      - ``/anet-status``
-     - Reports the node, its hub, the balance and the spending limits.
+     - Reports the state of the node as the guide describes.
 
-The plugin has no hooks, opens no network connection and writes no files of its own. The installation of ``anet``, which runs only after the user agrees, is a separate step; it writes ``~/.local/bin/anet`` and the data directory ``~/.anet``.
-The node connects to the hub it has joined; the installer, when the user
-agrees to run it, is downloaded from ``agentnetwork.org.cn`` into a private
-temporary directory, runs only when the download succeeded, and the directory
-is removed afterwards.
+The plugin has the version 0.2.0. It carries no list of tools, no ANet version
+and no setup steps. The installed ``anet`` provides them through the MCP tool
+``guide`` and the command ``anet guide [<topic>]``, so a new release of ANet
+reaches ZCode with the executable alone and the plugin needs no update.
 
-Every ``anet`` command of the plugin runs through the script
-``bin/anet-run.sh``, which applies the two settings described under
-`Settings`_: the MCP server, the command ``/anet-status`` and the
-``anet-setup`` skill reach the same executable and the same identity. Without
-the setting ``anetPath``, the script looks for ``anet`` in ``PATH``, then in
-``~/.local/bin``, ``/usr/local/bin`` and ``/opt/homebrew/bin``, because a
-desktop application does not always receive the ``PATH`` of the login shell.
-A configured ``anetPath`` that is not an executable file is an error; no other
-copy is used. When ``anet`` is not found, or no daemon runs for the selected
-identity, the server exits with the status 1 and a one-line reason, and the
-session has no anet tools.
+The plugin has no hooks, opens no network connection and writes no files of its own. The installation of ``anet``, which runs only after the user agrees, is a separate step; it writes the ``anet`` executable into a directory of the user and the data directory ``~/.anet`` (``%USERPROFILE%\.anet`` on Windows).
+The node connects to the hub it has joined. The installer helper of the
+plugin, ``bin/anet-install.sh`` on Linux and macOS or ``bin/anet-install.cmd``
+on Windows, runs the official installer of ``agentnetwork.org.cn`` when the
+user agrees.
+
+Every ``anet`` command of the plugin runs through the runner of the plugin,
+``bin/anet-run.sh`` on Linux and macOS and ``bin/anet-run.cmd`` on Windows,
+which applies the two settings described under `Settings`_: the MCP server,
+the commands and the skills reach the same executable and the same identity.
+Without the setting ``anetPath``, the runner looks for ``anet`` in the absolute
+directories of ``PATH``, then in ``~/.local/bin``, ``/usr/local/bin`` and
+``/opt/homebrew/bin`` on Linux and macOS, or in
+``%LOCALAPPDATA%\Programs\anet``, ``%LOCALAPPDATA%\anet\bin`` and
+``%USERPROFILE%\.anet-bin`` on Windows, because a desktop application does not
+always receive the ``PATH`` of the login shell. A configured ``anetPath`` that
+is not an executable file is an error; no other copy is used. When ``anet`` is
+not found, or no daemon runs for the selected identity, the server exits with
+the status 1 and a one-line reason, and the session has no anet tools.
+
+ZCode extracts the plugin archive without file modes, so no file of the plugin
+is executable. The MCP server is therefore declared as the command ``sh`` with
+the argument ``${ZCODE_PLUGIN_ROOT}/bin/anet-mcp.sh`` and the working
+directory ``${ZCODE_PLUGIN_ROOT}/bin/windows``. On Linux and macOS, ``sh`` is
+the shell of the system. On Windows, ZCode and ``cmd.exe`` look in the working
+directory before ``PATH``, so ``sh`` is the file ``bin/windows/sh.cmd`` of the
+plugin. It accepts only the argument ``anet-mcp.sh`` and starts
+``bin/anet-mcp.cmd``, which needs Windows PowerShell 5.1, a part of Windows.
+The directory is on no ``PATH``, so the file replaces no other ``sh``.
 
 
 Installing the plugin
@@ -100,8 +121,8 @@ In the desktop application:
    **Add marketplace**.
 3. Select **Personal**. The plugin **AgentNetwork (anet)** is listed under
    **agentnetwork**; select **Install**. The page of the plugin then lists the
-   MCP server ``anet``, the skills ``anet`` and ``anet-setup`` and the command
-   ``anet-status``.
+   MCP server ``anet``, the skills ``anet`` and ``anet-setup`` and the commands
+   ``anet`` and ``anet-status``.
 
 With the command-line program:
 
@@ -129,18 +150,18 @@ If ``anet`` is not installed or not running, ask in a session:
 
 The agent follows the ``anet-setup`` skill:
 
-* It looks for ``anet`` and reports the version. When ``anet`` is missing, it
-  states what the installer does and runs it only after the user agrees. The
-  installer verifies the signed release manifest and installs to
-  ``~/.local/bin``; ``anet init`` writes the identity with the safe defaults:
-  inbound tasks closed, nothing published, spending limits 0.
-* It starts the node with ``anet up`` when ``anet status`` reports
-  ``[daemon_not_running]``.
-* It asks which hub to join and under which name, and runs
-  ``anet hub-register``. When the hub admits by AID, it gives the user the line
-  for the hub operator. ``anet identity protect`` reads a passphrase from a
-  terminal, so the agent asks the user to run it there.
-* It runs ``anet doctor`` and reports every check that is not ``ok``.
+* It runs the runner with ``--resolve``, which reports the executable, its
+  version and the identity.
+* When ``anet`` is missing, it states what the installer does and runs it only
+  after the user agrees, through ``bin/anet-install.sh`` on Linux and macOS or
+  ``bin/anet-install.cmd`` on Windows. The official installer verifies the
+  signed release manifest, installs into a directory of the user and creates
+  the identity with the safe defaults: inbound tasks closed, nothing published,
+  spending limits 0.
+* It prints the setup guide of the installed ``anet`` with
+  ``<runner> guide setup`` and follows it, running every ``anet`` command
+  through the runner. A passphrase is never requested in the conversation; the
+  user enters it in a terminal.
 
 The commands that change who may reach the machine or what it may spend
 (``anet peers``, ``anet inbound``, ``anet autoreply set``, the spending limits
@@ -153,34 +174,36 @@ Start a new session after the setup, so that the MCP server starts.
 Verification
 ------------
 
-1. In a new session, run ``/anet-status``. The agent calls ``node_status`` and
-   ``get_balance`` and reports the identity, the hub, the inbound policy and
-   the limits. In the permission mode **Ask before changes**, ZCode asks before
+1. In a new session, run ``/anet-status``. The agent reads the topic
+   ``status`` of the guide and reports the state of the node as that topic
+   describes. In the permission mode **Ask before changes**, ZCode asks before
    the first call of each tool (``mcp__plugin_anet_anet__<tool>``); **Allow**
    permits that call, **Always allow in this project** permits the tool for the
    project.
-2. Ask for a task, for example:
+2. Ask for a task with ``/anet`` or with a request that begins with
+   ``@anet``, for example:
 
    .. code-block:: text
 
-      Use anet to find an agent that offers a text digest capability, send it
+      @anet find an agent that offers a text digest capability, send it
       the text "hello", wait for the result, and report the task state, the
       effect status and the result.
 
-   The agent loads the ``anet`` skill and calls ``list_agents`` and
-   ``send_message``, and ``wait_task`` when the task is still working. The
-   report names the state of the task and ``anet.effect_status`` as the tools
-   returned them.
+   The agent loads the ``anet`` skill, reads the guide and calls the tools
+   that it names, for example ``list_agents`` and ``send_message``, and
+   ``wait_task`` when the task is still working. The report names the state of
+   the task and ``anet.effect_status`` as the tools returned them.
 
 
 Settings
 --------
 
 The plugin has two optional settings. ZCode keeps them in
-``~/.zcode/cli/config.json`` under ``plugins.options."anet@agentnetwork"``;
-the page of the plugin in ZCode 3.15.3 has no field for them, so they are set
-in that file. Outside the MCP server, ``bin/anet-run.sh`` reads these two
-entries, and no other value, from the same file:
+``~/.zcode/cli/config.json`` (``%USERPROFILE%\.zcode\cli\config.json`` on
+Windows) under ``plugins.options."anet@agentnetwork"``; the page of the plugin
+in ZCode 3.15.3 has no field for them, so they are set in that file. Outside
+the MCP server, the runner reads these two entries, and no other value, from
+the same file:
 
 .. list-table::
    :header-rows: 1
@@ -189,11 +212,11 @@ entries, and no other value, from the same file:
    * - Setting
      - Meaning
    * - ``identity``
-     - A named identity (``anet id ls``). Empty selects the default identity in
-       ``~/.anet``. The server then runs ``anet --id <name> mcp``.
+     - A named identity (``anet id ls``). Empty selects the default identity.
+       The server then runs ``anet --id <name> mcp``.
    * - ``anetPath``
-     - The absolute path of the ``anet`` executable. Empty searches the
-       locations named above.
+     - The absolute path of the ``anet`` executable (``anet.exe`` on
+       Windows). Empty searches the locations named above.
 
 .. code-block:: json
 
@@ -211,9 +234,10 @@ A changed setting applies to sessions that start afterwards.
 Updating and removing
 ---------------------
 
-``zcode plugins update anet@agentnetwork`` installs the version that the
-marketplace names. ``anet update`` updates ANet itself, independently of the
-plugin.
+Version 0.2.0 is the final version of the plugin; a new release of ANet needs
+no new plugin. ``zcode plugins update anet@agentnetwork`` installs the version
+that the marketplace names. ``anet update`` updates ANet itself, independently
+of the plugin.
 
 ``zcode plugins uninstall anet@agentnetwork`` removes the plugin after a
 confirmation; a shell without a terminal needs ``--force``. In the desktop
@@ -229,7 +253,10 @@ Not tested
 
 * The plugin on macOS. The script uses only ``sh`` and the locations of the
   ANet installer and of Homebrew; the run on macOS has not been verified.
-* ZCode on Windows.
+* The plugin on Windows. The launch through ``bin/windows/sh.cmd`` and
+  ``bin/anet-mcp.cmd`` follows from the bundle of ZCode, and the Windows runner
+  is tested with PowerShell; the plugin was not installed in ZCode on
+  Windows.
 
 
 Troubleshooting

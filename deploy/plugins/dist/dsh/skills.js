@@ -18,8 +18,11 @@ export const ROOT_TOKEN = '${DSH_BUNDLE_DIR}'
 
 const bundleRoot = dirname(fileURLToPath(import.meta.url))
 
-// Escapes text for the inside of a double-quoted shell word.
-export function shellDoubleQuoted(text) {
+// Escapes text for the inside of a double-quoted POSIX shell word. On Windows
+// the text is a path, which cannot contain a double quote, and is written as it
+// is: PowerShell and cmd do not take a backslash as an escape.
+export function shellDoubleQuoted(text, platform = process.platform) {
+  if (platform === 'win32') return text
   return text.replace(/[\\"$`]/g, '\\$&')
 }
 

@@ -35,6 +35,25 @@ Host facts (CodeBuddy Code 2.169.0): the manifest directory is
 .codebuddy-plugin (then .workbuddy-plugin, then .claude-plugin); the variables
 ${CODEBUDDY_PLUGIN_ROOT} and ${CLAUDE_PLUGIN_ROOT} are expanded in .mcp.json,
 in hooks, and in skill and command text; ${CODEBUDDY_SKILL_DIR} in skill text.
+
+Launch on Windows and POSIX (read in @tencent-ai/codebuddy-code 2.171.0,
+dist/codebuddy.js):
+
+  * A stdio server is spawned by the StdioClientTransport of the MCP
+    TypeScript SDK with cross-spawn, shell:false. ${CODEBUDDY_PLUGIN_ROOT} and
+    ${user_config.KEY} are replaced in command, args, env and cwd
+    (substitutePluginVariables).
+  * The command is ${CODEBUDDY_PLUGIN_ROOT}/bin/anet-mcp, without an extension.
+    On Windows cross-spawn tries the path with each extension of PATHEXT (an
+    extensionless file is not executable there), finds bin/anet-mcp.cmd and
+    runs it through cmd.exe /d /s /c. On Linux and macOS bin/anet-mcp is run
+    itself: a shell script that starts bin/anet-mcp.sh with sh.
+  * The executable bit survives the installation: a marketplace is fetched
+    with git clone, and copyPluginToCache copies each file with copyFile and
+    then applies the mode of the source with chmod.
+  * The agent uses Git Bash on Windows when it finds one, otherwise a
+    PowerShell tool that refuses calls of bash and sh; the skills give the
+    Windows runner bin/anet-run.cmd next to sh bin/anet-run.sh.
 """
 
 import re
@@ -92,6 +111,7 @@ VARS = {
     },
     "RUNNER_SETTINGS_COMMENT": _src("runner-settings-comment.txt"),
     "RUNNER_READ_SETTINGS": _src("runner-read-settings.sh"),
+    "RUNNER_READ_SETTINGS_PS": _src("runner-read-settings.ps1"),
 }
 
 _NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
@@ -104,21 +124,22 @@ def validate(ctx):
 
 
 def transform(ctx, rel, text, lang):
-    """Name the command as CodeBuddy does and, in the guide, say how it names and loads the MCP tools."""
+    """Name the commands as CodeBuddy does and, in the guide, say how it names and loads the MCP tools."""
     # CodeBuddy namespaces the commands of a plugin: /<plugin>:<command>.
-    text = text.replace("`/anet-status`", "`/%s:anet-status`" % ctx.meta["name"])
+    for name in ("anet", "anet-status"):
+        text = text.replace("`/%s`" % name, "`/%s:%s`" % (ctx.meta["name"], name))
     if rel != "skills/anet/SKILL.md":
         return text
     server = ctx.meta["mcp"]["server_name"]
     if lang == "en":
         note = (
-            f"CodeBuddy names the tools of the `{server}` server `mcp__{server}__<tool>`, for example "
-            f"`mcp__{server}__node_status`. It can load tools on demand: when they are not in the list of tools, "
+            f"CodeBuddy names the tools of the `{server}` server `mcp__{server}__<tool>`; the guide is "
+            f"`mcp__{server}__guide`. It can load tools on demand: when they are not in the list of tools, "
             "search for `anet` with the tool search of CodeBuddy, then call the tool it returns."
         )
     else:
         note = (
-            f"CodeBuddy 把 `{server}` 服务的工具命名为 `mcp__{server}__<tool>`，例如 `mcp__{server}__node_status`。"
+            f"CodeBuddy 把 `{server}` 服务的工具命名为 `mcp__{server}__<tool>`；指南工具为 `mcp__{server}__guide`。"
             "它可以按需加载工具：若工具列表中没有它们，先用 CodeBuddy 的工具搜索查找 `anet`，再调用返回的工具。"
         )
     return text.rstrip("\n") + "\n\n" + note + "\n"
@@ -168,8 +189,9 @@ def build(ctx):
     ctx.add_json(".mcp.json", {
         "mcpServers": {
             meta["mcp"]["server_name"]: {
-                "command": "sh",
-                "args": [_ROOT + "/bin/anet-mcp.sh"],
+                # bin/anet-mcp on Linux and macOS, bin/anet-mcp.cmd on Windows (see the module docstring).
+                "command": _ROOT + "/bin/anet-mcp",
+                "args": [],
                 "env": {s["env"]: "${user_config.%s}" % s["key"] for s in meta["settings"]},
             }
         }

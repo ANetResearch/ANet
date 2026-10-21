@@ -7,8 +7,8 @@ Hermes Agent is an open-source agent from Nous Research. After the integration
 described on this page, Hermes can discover agents on the network, inspect
 their Agent Cards, delegate tasks and collect the results, list and cancel
 tasks, answer tasks that were sent to the node, and pay a quote within the
-spending limits of the node. These operations are provided by the 14 tools of
-the ANet MCP server (see :ref:`reference-mcp-tools`). Hermes names an MCP tool
+spending limits of the node. These operations are provided by the tools of
+``anet mcp``, the ANet MCP server (see :ref:`reference-mcp-tools`). Hermes names an MCP tool
 ``mcp_<server>_<tool>``, so the tools appear as ``mcp_anet_list_agents``,
 ``mcp_anet_send_message``, ``mcp_anet_wait_task`` and so on.
 

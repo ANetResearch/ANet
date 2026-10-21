@@ -28,9 +28,6 @@ import generator as g  # noqa: E402
 BUILD = PLUGINS / "build.py"
 KEY = "claude-code"
 PREFIX = "mcp__plugin_anet_anet__"
-# The 14 tools of `anet mcp` (the README of the plugin lists them).
-TOOLS = ["list_agents", "get_agent_card", "send_message", "wait_task", "get_task", "list_tasks", "cancel_task",
-         "submit_payment", "reject_payment", "reply_task", "inbound_pending", "get_balance", "audit", "node_status"]
 
 
 def run_build(*args):
@@ -65,8 +62,11 @@ class ManifestTests(Built):
     def test_layout(self):
         files = sorted(str(p.relative_to(self.plugin)) for p in self.plugin.rglob("*") if p.is_file())
         self.assertEqual(files, [
-            ".claude-plugin/plugin.json", ".mcp.json", "LICENSE", "README.md", "README_CN.md", "bin/anet-install.sh", "bin/anet-mcp.sh",
-            "bin/anet-run.sh", "commands/anet-status.md", "skills/anet-setup/SKILL.md", "skills/anet/SKILL.md"])
+            ".claude-plugin/plugin.json", ".mcp.json", "LICENSE", "README.md", "README_CN.md", "bin/anet-install.cmd",
+            "bin/anet-install.sh", "bin/anet-mcp", "bin/anet-mcp.cmd", "bin/anet-mcp.sh", "bin/anet-run.cmd", "bin/anet-run.ps1",
+            "bin/anet-run.sh", "commands/anet-status.md", "commands/anet.md", "skills/anet-setup/SKILL.md", "skills/anet/SKILL.md"])
+        for name in ("anet-mcp", "anet-mcp.sh", "anet-run.sh"):
+            self.assertTrue(os.access(self.plugin / "bin" / name, os.X_OK), name)
 
     def test_plugin_json(self):
         m = self.load(".claude-plugin/plugin.json")
@@ -114,9 +114,11 @@ class McpConfigTests(Built):
         servers = cfg["mcpServers"]
         self.assertEqual(list(servers), [self.meta["mcp"]["server_name"]])
         s = servers["anet"]
-        # Started with sh, so that a missing executable bit does not matter.
-        self.assertEqual(s["command"], "sh")
-        self.assertEqual(s["args"], ["${CLAUDE_PLUGIN_ROOT}/bin/anet-mcp.sh"])
+        # One path for both systems: bin/anet-mcp on Linux and macOS, bin/anet-mcp.cmd on Windows (PATHEXT).
+        self.assertEqual(s["command"], "${CLAUDE_PLUGIN_ROOT}/bin/anet-mcp")
+        self.assertEqual(s["args"], [])
+        self.assertTrue((self.plugin / "bin" / "anet-mcp").is_file())
+        self.assertTrue((self.plugin / "bin" / "anet-mcp.cmd").is_file())
         self.assertEqual(s["type"], "stdio")
         self.assertEqual(s["timeout"], self.meta["mcp"]["timeout_ms"])
         self.assertNotIn("timeoutMs", s)
@@ -139,42 +141,44 @@ class ComponentTests(Built):
                 self.assertNotRegex(text, r"ZCODE|ZCode|\.zcode|\{\{", str(p))
 
     def test_runner_references_use_claude_variables(self):
-        self.assertIn('sh "${CLAUDE_SKILL_DIR}/../../bin/anet-run.sh" --resolve', self.read("skills/anet-setup/SKILL.md"))
-        self.assertIn('sh "${CLAUDE_SKILL_DIR}/../../bin/anet-run.sh" doctor', self.read("skills/anet/SKILL.md"))
-        self.assertIn('!`sh "${CLAUDE_PLUGIN_ROOT}/bin/anet-run.sh" --resolve`', self.read("commands/anet-status.md"))
+        for rel in ("skills/anet-setup/SKILL.md", "skills/anet/SKILL.md"):
+            self.assertIn('sh "${CLAUDE_SKILL_DIR}/../../bin/anet-run.sh"', self.read(rel))
+            self.assertIn('"${CLAUDE_SKILL_DIR}/../../bin/anet-run.cmd"', self.read(rel))
+        for rel in ("commands/anet-status.md", "commands/anet.md"):
+            self.assertIn('sh "${CLAUDE_PLUGIN_ROOT}/bin/anet-run.sh"', self.read(rel))
+            self.assertIn('"${CLAUDE_PLUGIN_ROOT}/bin/anet-run.cmd"', self.read(rel))
+            self.assertNotIn("!`", self.read(rel), "no inline execution: it would need sh on Windows")
 
-    def test_command(self):
-        text = self.read("commands/anet-status.md")
-        fields, body = g.split_frontmatter(text)
-        self.assertEqual(set(fields), {"description", "allowed-tools"})
-        allowed = [a.strip() for a in fields["allowed-tools"].split(", ")]
-        # The injection of the command needs a rule for the quoted form of the runner.
-        self.assertIn('Bash(sh "${CLAUDE_PLUGIN_ROOT}/bin/anet-run.sh" --resolve:*)', allowed)
-        self.assertNotIn("Bash(sh:*)", allowed)  # not every sh command
-        # Only the three read-only runner commands of the command, never the runner with any argument.
-        runs = [a for a in allowed if a.startswith("Bash(")]
-        self.assertEqual(len(runs), 6, runs)
-        for a in runs:
-            self.assertRegex(a, r"^Bash\(sh \"?\$\{CLAUDE_PLUGIN_ROOT\}/bin/anet-run\.sh\"? (--resolve|status|doctor):\*\)$")
-        tools = [a for a in allowed if a.startswith("mcp__")]
-        self.assertEqual(sorted(tools), [PREFIX + "get_balance", PREFIX + "node_status"])
-        for t in tools:
-            self.assertIn(t[len(PREFIX):], TOOLS)
-        self.assertTrue(body.lstrip().startswith("Report the state"))
-        # The injection starts a line: Claude Code runs it only after whitespace or at a line start.
-        self.assertRegex(text, r"(?m)^!`sh ")
+    def test_commands(self):
+        for name, args in (("anet-status", ("--resolve", "guide", "status", "doctor")), ("anet", ("--resolve", "guide"))):
+            text = self.read(f"commands/{name}.md")
+            fields, body = g.split_frontmatter(text)
+            self.assertEqual(set(fields), {"description", "allowed-tools"})
+            allowed = [a.strip() for a in fields["allowed-tools"].split(", ")]
+            self.assertNotIn("Bash(sh:*)", allowed)  # not every sh command
+            # Only read-only runner commands, never the runner with any argument.
+            runs = [a for a in allowed if a.startswith("Bash(")]
+            self.assertEqual(len(runs), 3 * len(args), runs)
+            for a in runs:
+                self.assertRegex(a, r'^Bash\((sh \"?\$\{CLAUDE_PLUGIN_ROOT\}/bin/anet-run\.sh\"?|"\$\{CLAUDE_PLUGIN_ROOT\}/bin/anet-run\.cmd") '
+                                    r"(" + "|".join(args) + r"):\*\)$")
+            self.assertEqual([a for a in allowed if a.startswith("mcp__")], [PREFIX + "guide"])
+        self.assertTrue(g.split_frontmatter(self.read("commands/anet-status.md"))[1].lstrip().startswith("Report the state"))
+        body = g.split_frontmatter(self.read("commands/anet.md"))[1]
+        self.assertIn("Request: $ARGUMENTS", body)
+        self.assertIn("@anet", body)
 
     def test_command_name_is_namespaced(self):
         for rel in ("README.md", "README_CN.md"):
             text = self.read(rel)
-            self.assertIn("/anet:anet-status", text, rel)
+            self.assertIn("`/anet:anet-status`", text, rel)
+            self.assertIn("`/anet:anet`", text, rel)
             self.assertNotRegex(text, r"(?<![\w:])/anet-status", rel)
+            self.assertNotIn("`/anet`", text, rel)
 
-    def test_guide_carries_the_tool_names(self):
+    def test_skill_names_the_guide_tool_as_claude_code_does(self):
         text = self.read("skills/anet/SKILL.md")
-        self.assertIn(PREFIX + "node_status", text)
-        self.assertEqual(text.count("\n## When something is off\n"), 1)
-        self.assertTrue(text.index(PREFIX) > text.index("## When something is off"), "the note belongs to the last section")
+        self.assertIn(PREFIX + "guide", text)
         self.assertTrue(text.endswith("\n") and not text.endswith("\n\n"))
 
     def test_skills_have_front_matter(self):
@@ -185,12 +189,14 @@ class ComponentTests(Built):
 
     def test_setup_skill_rules(self):
         text = self.read("skills/anet-setup/SKILL.md")
-        self.assertIn("Never read, print or copy files under `~/.anet`", text)
+        self.assertIn("Never read, print or copy the files of the anet data directory (`~/.anet`", text)
         self.assertIn("do not open the Claude Code\n  configuration file", text)
         self.assertIn("Never read or edit the Claude Code configuration (`~/.claude`)", text)
         self.assertIn("bin/anet-install.sh", text)
+        self.assertIn("bin/anet-install.cmd", text)
+        self.assertIn("<runner> guide setup", text)
         self.assertNotIn("$(", text)
-        self.assertIn("Do not run them on the user's behalf", text)
+        self.assertIn("not run them on the user's behalf", text)
 
     def test_connect_tool_is_explained(self):
         # Claude Code keeps a failed start of an MCP server for a while (observed with claude -p), so the

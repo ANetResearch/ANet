@@ -11,8 +11,10 @@ commands and no declarative settings, so this target differs from the others:
     to the environment; src/dsh/skills.js registers the skills in the skill
     registry of DSH.
   * The MCP server is a row of the patch for @deepseek-ai/dsh-mcp-client that
-    starts bin/anet-mcp.sh with sh.
+    starts <bundle>/bin/anet-mcp, without an extension and without arguments.
   * The status command becomes the skill anet-status (user and model invocable).
+    The @anet entry point is the skill anet itself, which the user can invoke
+    with a request.
   * In the skill texts the token ${DSH_BUNDLE_DIR} stands for the bundle
     directory; skills.js replaces it by the absolute path when it registers a
     skill.
@@ -22,6 +24,23 @@ Output (dist/dsh/ is the package directory, as `dsh plugin add` takes it):
     package.json  cordis.patch.yml  index.js  skills.js
     bin/ skills/ (anet, anet-setup, anet-status)
     README.md README_CN.md LICENSE
+
+Launch on Windows and POSIX (read in @deepseek-ai/dsh 0.2.1-rc.2 and its
+dsh-mcp-client, which uses @modelcontextprotocol/client 2.2.0):
+
+  * The stdio transport of the MCP SDK spawns with cross-spawn, shell:false.
+    The command comes from the !!js expression of the patch; no variable is
+    expanded.
+  * On Windows cross-spawn tries <bundle>/bin/anet-mcp with each extension of
+    PATHEXT (an extensionless file is not executable there), finds
+    bin/anet-mcp.cmd and runs it through cmd.exe /d /s /c. On Linux and macOS
+    bin/anet-mcp is run itself: a shell script that starts bin/anet-mcp.sh
+    with sh.
+  * The executable bit survives the installation: `dsh plugin add` installs
+    with pnpm, whose store writes executable files with mode 0755.
+  * The agent uses a PowerShell tool on Windows (the bash tools are disabled
+    there); skills.js writes the bundle directory into the skills unescaped on
+    Windows, so that the runner path is valid in PowerShell.
 
 Site (only when ANET_PLUGIN_COMMIT and SOURCE_DATE_EPOCH are set): index.json,
 a format-1 plugin market index for the "Custom plugin markets" feature of DSH.
@@ -59,10 +78,9 @@ VARS = {
         "en": "Install the plugin into a DSH profile and restart the profile (see Installation below).",
         "zh-CN": "把本插件安装到某个 DSH profile 并重启该 profile（见下文“安装”）。",
     },
-    "RESOLVE_INVOCATION": 'First run `sh "${DSH_BUNDLE_DIR}/bin/anet-run.sh" --resolve`. Its output states the executable, the identity and the `runner` command.',
     "COMPONENTS_SAME_RUNNER": {
-        "en": "the MCP server (`bin/anet-mcp.sh`, `anet mcp`) and the `anet-setup` and `anet-status` skills",
-        "zh-CN": "MCP 服务（`bin/anet-mcp.sh`，即 `anet mcp`）以及 `anet-setup`、`anet-status` skill ",
+        "en": "the MCP server (`anet mcp`) and the skills `anet`, `anet-setup` and `anet-status`",
+        "zh-CN": "MCP 服务（`anet mcp`）以及 `anet`、`anet-setup`、`anet-status` skill ",
     },
     "SETTINGS_SECTION": {
         "en": (SRC / "settings-section.md").read_text(encoding="utf-8").rstrip("\n"),
@@ -70,7 +88,7 @@ VARS = {
     },
 }
 
-_STATUS_USE = " Use when the user asks for the state of the anet node, its hub, its balance or its spending limits, or runs anet-status."
+_STATUS_USE = " Use when the user asks for the state of the anet node, its hub or its balance, or runs anet-status."
 
 
 def _replace_once(text, old, new, rel):
@@ -84,39 +102,24 @@ def transform(ctx, rel, text, lang):
     if rel == "skills/anet-setup/SKILL.md":
         text = _replace_once(
             text,
-            "  The node runs in the background and keeps running after this session. It does not start again\n"
-            "  after a restart of the computer; `<runner> up` starts it then.\n",
-            "  The bash tool of DeepSeek Harness ends every process it started when the session ends, so a node started\n"
-            "  here stops with this session. Start it now, so that the steps below work in this session, and tell the\n"
-            "  user plainly that the node ends with the session and that the user has to start it again in a terminal of\n"
-            "  their own (see step 6). Do not try to detach the node from the session.\n",
-            rel,
-        )
-        text = _replace_once(
-            text,
-            "Then tell the user to start a new {{TOOL}} session, because the MCP server of a plugin starts with\n"
-            "the session.".replace("{{TOOL}}", "DeepSeek Harness"),
-            "Then tell the user two things, in this order. First: the node started by this skill ends with this\n"
-            "session, so the user has to run `anet up` and then `anet status` in a terminal of their own (with `--id <name>`\n"
-            "after `anet` in both commands when the plugin selects a named identity, and with the path of the executable\n"
-            "when the plugin setting anetPath names one). Second: the user has to start a new\n"
-            "DeepSeek Harness session, because the MCP server of a plugin starts with the session and connects only to a\n"
-            "node that is already running.",
+            "When the MCP tools of anet are still not available after the setup, tell the user to start a\n"
+            "new DeepSeek Harness session, because the MCP server of a plugin starts with the session.",
+            "DeepSeek Harness ends every process that its shell tool started when the session ends, so a node\n"
+            "that the setup guide starts in this session stops with it. Tell the user plainly that the user has\n"
+            "to start the node again in a terminal of their own (the start command that the guide names, with\n"
+            "`--id <name>` after `anet` when the plugin selects a named identity, and with the path of the\n"
+            "executable when the plugin setting anetPath names one), and then has to start a new DeepSeek\n"
+            "Harness session, because the MCP server of a plugin starts with the session and connects only to a\n"
+            "node that is already running. Do not try to detach the node from the session.",
             rel,
         )
         return text.rstrip("\n") + (
-            f"\nNever read or edit the DeepSeek Harness configuration ({CONFIG_DIR_TEXT}): it holds the user's profiles and model\n"
-            "credentials, and the plugin settings in it belong to the user. The plugin passes the two plugin settings to the\n"
-            "runner in the environment.\n"
+            f"\n- Never read or edit the DeepSeek Harness configuration ({CONFIG_DIR_TEXT}): it holds the user's\n"
+            "  profiles and model credentials, and the plugin settings in it belong to the user. The plugin passes\n"
+            "  the two plugin settings to the runner in the environment.\n"
         )
     if rel == "commands/anet-status.md":
-        text = _replace_once(
-            text,
-            "The plugin settings select this executable and identity (resolved when the command started):",
-            "The plugin settings select the executable and the identity of every anet command of this skill.",
-            rel,
-        )
-        text = _replace_once(
+        return _replace_once(
             text,
             "Do not change any setting. Optional focus from the user: stated in the request, if any",
             "Do not change any setting, and do not read or edit the DeepSeek Harness configuration\n"
@@ -124,55 +127,42 @@ def transform(ctx, rel, text, lang):
             "If the request names a focus, report on it first.",
             rel,
         )
-        return text
     if rel == "README.md":
         text = _replace_once(
             text,
-            "\n\n## Requirements",
-            "\n| Skill | `anet-status` | Shows the node, its hub, the balance and the spending limits. |\n\n## Requirements",
+            "| Skill | `anet-setup` |",
+            "| Skill | `anet-status` | Shows the state of the node, as the guide of the installed anet describes. |\n| Skill | `anet-setup` |",
             rel,
         )
         text = _replace_once(
             text,
             "3. Start a new session, so that the MCP server starts, and ask the agent to show the state of the anet node.",
-            "3. Run `anet up` in a terminal of your own (for a named identity, `anet --id <name> up`; for a setting `anetPath`, the path of that executable): DSH ends the processes that its bash tool started when the session ends, so the node that the skill started stops with the session. Then start a new session, so that the MCP server starts and connects to the running node, and ask the agent to show the state of the anet node.",
-            rel,
-        )
-        text = _replace_once(
-            text,
-            "Ask the agent to run the `anet-setup` skill, then start a new session. |",
-            "Ask the agent to run the `anet-setup` skill, run `anet up` in a terminal of your own, then start a new session. |",
+            "3. Start the node in a terminal of your own (`anet up`; for a named identity, `anet --id <name> up`; for a setting `anetPath`, the path of that executable): DSH ends the processes that its shell tool started when the session ends, so a node that the agent started stops with the session. Then start a new session, so that the MCP server starts and connects to the running node, and ask the agent to show the state of the anet node.",
             rel,
         )
         return _replace_once(
             text,
-            "| Run `anet up`, with `--id <name>` after `anet` for a named identity. The node does not start by itself after the computer restarts. |",
-            "| Run `anet up` in a terminal of your own. The node does not start by itself after the computer restarts, and a node that the agent started from a DSH session ends with that session. |",
+            "Ask the agent to run the `anet-setup` skill, then start a new session. |",
+            "Ask the agent to run the `anet-setup` skill, start the node in a terminal of your own (`anet up`), then start a new session. |",
             rel,
         )
     if rel == "README_CN.md":
         text = _replace_once(
             text,
-            "\n\n## 环境要求",
-            "\n| Skill | `anet-status` | 显示节点、所加入的 hub、余额和支付额度。 |\n\n## 环境要求",
+            "| Skill | `anet-setup` |",
+            "| Skill | `anet-status` | 按已安装 anet 的指南显示节点状态。 |\n| Skill | `anet-setup` |",
             rel,
         )
         text = _replace_once(
             text,
             "3. 新建一个会话，使 MCP 服务启动，然后让智能体显示 anet 节点的状态。",
-            "3. 在您自己的终端中运行 `anet up`（具名身份使用 `anet --id <name> up`；设置了 `anetPath` 时使用该可执行文件的路径）：DSH 在会话结束时会终止其 bash 工具启动的进程，因此 skill 启动的节点会随会话结束而停止。然后新建一个会话，使 MCP 服务启动并连接到正在运行的节点，再让智能体显示 anet 节点的状态。",
-            rel,
-        )
-        text = _replace_once(
-            text,
-            "让智能体运行 `anet-setup` skill，然后新建会话。 |",
-            "让智能体运行 `anet-setup` skill，在您自己的终端中运行 `anet up`，然后新建会话。 |",
+            "3. 在您自己的终端中启动节点（`anet up`；具名身份使用 `anet --id <name> up`；设置了 `anetPath` 时使用该可执行文件的路径）：DSH 在会话结束时会终止其 shell 工具启动的进程，因此由智能体启动的节点会随会话结束而停止。然后新建一个会话，使 MCP 服务启动并连接到正在运行的节点，再让智能体显示 anet 节点的状态。",
             rel,
         )
         return _replace_once(
             text,
-            "| 运行 `anet up`（具名身份在 `anet` 之后加 `--id <name>`）。计算机重启后节点不会自动启动。 |",
-            "| 在您自己的终端中运行 `anet up`。计算机重启后节点不会自动启动；由 DSH 会话中的智能体启动的节点会随该会话结束而停止。 |",
+            "让智能体运行 `anet-setup` skill，然后新建会话。 |",
+            "让智能体运行 `anet-setup` skill，在您自己的终端中启动节点（`anet up`），然后新建会话。 |",
             rel,
         )
     return text

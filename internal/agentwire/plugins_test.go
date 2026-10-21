@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -45,84 +46,53 @@ func runScript(t *testing.T, script, home, path string, env []string, args ...st
 	return string(out), code
 }
 
-// The plugin guide equals the wire guide except for its last section, which
-// differs because a plugin is repaired through its setup skill rather than
-// through `anet agents wire --refresh`. The part before the section is plain
-// text: it holds no template variable, so every target ships it unchanged.
-const guideTail = "## When something is off"
+// The plugins are published once and do not change with a release of anet:
+// their skills and commands defer to the guide of the installed anet (the
+// MCP tool guide, `anet guide <topic>`). Every skill and command of every
+// generated target names the guide, and every topic that one of them names
+// exists in this release.
+var pluginTopicRe = regexp.MustCompile("(?:guide ([a-z]+)`|topic `([a-z]+)`)")
 
-func wantGuide(t *testing.T) string {
-	t.Helper()
-	i := strings.Index(skillMarkdown, guideTail)
-	if i < 0 {
-		t.Fatalf("%q missing from skillMarkdown", guideTail)
-	}
-	return strings.TrimLeft(skillMarkdown[:i], "\n")
-}
-
-// The shared source of the operating guide carries the wire guide up to its
-// last section. UPDATE_PLUGIN_GUIDE=1 go test -run TestPluginGuide ./internal/agentwire
-// rewrites that part of the source and keeps the last section; then run
-// python3 deploy/plugins/build.py --out deploy/plugins/dist --force.
-func TestPluginGuideSourceMatchesTheWireGuide(t *testing.T) {
-	src := filepath.Join(pluginsDir, "common", "skills", "anet", "SKILL.md")
-	b, err := os.ReadFile(src)
-	if err != nil {
-		t.Fatal(err)
-	}
-	plugin := string(b)
-	j := strings.Index(plugin, guideTail)
-	if j < 0 {
-		t.Fatalf("%q missing from %s", guideTail, src)
-	}
-	want := wantGuide(t)
-	if os.Getenv("UPDATE_PLUGIN_GUIDE") == "1" {
-		plugin = want + plugin[j:]
-		if err := os.WriteFile(src, []byte(plugin), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		j = strings.Index(plugin, guideTail)
-	}
-	if got := plugin[:j]; got != want {
-		k := 0
-		for k < len(want) && k < len(got) && want[k] == got[k] {
-			k++
-		}
-		t.Errorf("%s differs from skillMarkdown before %q at byte %d: guide %q, plugin %q; copy the guide again (UPDATE_PLUGIN_GUIDE=1)",
-			src, guideTail, k, want[k:min(k+40, len(want))], got[k:min(k+40, len(got))])
-	}
-	if strings.Contains(plugin[j:], "agents wire") {
-		t.Error("the last section names anet agents wire, which does not repair a plugin")
-	}
-}
-
-// Every generated copy of the guide, in every target, carries the same guide.
-func TestPluginGuideInEveryTarget(t *testing.T) {
-	want := wantGuide(t)
+func TestPluginsDeferToTheInstalledGuide(t *testing.T) {
 	n := 0
 	err := filepath.WalkDir(filepath.Join(pluginsDir, "dist"), func(p string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() || d.Name() != "SKILL.md" || filepath.Base(filepath.Dir(p)) != "anet" {
+		if err != nil || d.IsDir() {
 			return err
+		}
+		rel := filepath.ToSlash(p)
+		if !strings.Contains(rel, "/skills/") && !strings.Contains(rel, "/commands/") {
+			return nil
+		}
+		if !strings.HasSuffix(rel, ".md") && !strings.HasSuffix(rel, ".toml") {
+			return nil
 		}
 		b, err := os.ReadFile(p)
 		if err != nil {
 			return err
 		}
+		text := string(b)
 		n++
-		plugin := string(b)
-		j := strings.Index(plugin, guideTail)
-		if j < 0 {
-			t.Errorf("%s: %q missing", p, guideTail)
-		} else if plugin[:j] != want {
-			t.Errorf("%s differs from skillMarkdown before %q; run deploy/plugins/build.py again", p, guideTail)
+		if !strings.Contains(text, "guide") {
+			t.Errorf("%s does not name the guide of the installed anet", rel)
+		}
+		for _, m := range pluginTopicRe.FindAllStringSubmatch(text, -1) {
+			topic := m[1] + m[2]
+			if _, ok := Guide(topic); !ok {
+				t.Errorf("%s names the guide topic %q, which this release does not have", rel, topic)
+			}
 		}
 		return nil
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n == 0 {
-		t.Error("no generated copy of the guide found below deploy/plugins/dist")
+	if n < 20 {
+		t.Errorf("found %d skills and commands below deploy/plugins/dist", n)
+	}
+	for _, topic := range []string{"overview", "setup", "status"} {
+		if _, ok := Guide(topic); !ok {
+			t.Errorf("the permanent guide topic %q is missing", topic)
+		}
 	}
 }
 
@@ -235,6 +205,18 @@ func TestPluginRunnersShareTheRules(t *testing.T) {
 			out, code := runScript(t, mcp, home, sysPath, []string{"ANET_PLUGIN_BIN=" + bin, "ANET_PLUGIN_IDENTITY=work"})
 			if code != 0 || strings.TrimSpace(out) != bin+" --id work mcp" {
 				t.Errorf("anet-mcp.sh: status %d, output %q; want %q", code, out, bin+" --id work mcp")
+			}
+			// The launcher without an extension, which a host starts by its path, is executable and
+			// does the same.
+			direct := strings.TrimSuffix(mcp, ".sh")
+			if fi, err := os.Stat(direct); err != nil || fi.Mode()&0o100 == 0 {
+				t.Errorf("%s is missing or not executable: %v", direct, err)
+			} else {
+				cmd := exec.Command(direct)
+				cmd.Env = []string{"HOME=" + home, "PATH=" + sysPath, "ANET_PLUGIN_BIN=" + bin, "ANET_PLUGIN_IDENTITY=work"}
+				if got, err := cmd.CombinedOutput(); err != nil || strings.TrimSpace(string(got)) != bin+" --id work mcp" {
+					t.Errorf("%s: %v, output %q", direct, err, got)
+				}
 			}
 			missing := filepath.Join(home, "nowhere", "anet")
 			out, code = runScript(t, mcp, home, sysPath, []string{"ANET_PLUGIN_BIN=" + missing})

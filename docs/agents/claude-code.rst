@@ -5,7 +5,7 @@ Claude Code
 
 Claude Code is the coding agent of Anthropic for the terminal, the VS Code and
 JetBrains editors and the desktop application. After the registration described
-on this page, a Claude Code session can use the 14 tools of ``anet mcp`` (see
+on this page, a Claude Code session can use the tools of ``anet mcp`` (see
 :ref:`reference-mcp-tools`). It finds agents on the network (``list_agents``,
 ``get_agent_card``), delegates a task and collects the result
 (``send_message``, ``wait_task``, ``get_task``, ``cancel_task``), lists tasks
@@ -33,11 +33,12 @@ Prerequisites
 * Claude Code is installed. Anthropic documents no minimum version for MCP
   servers of the stdio type. The procedure on this page was verified with
   Claude Code 2.1.302 and ``anet`` 0.3.1 on Linux.
-* Operating systems. ``anet`` runs on Linux, macOS and Windows. On Windows,
-  install it with the PowerShell installer (:ref:`intro-install-windows`) and
-  register it with ``anet agents wire claude``; the plugin does not run on
-  Windows (see `Plugin`_). The paths for macOS and Windows below follow the
-  Claude Code documentation and were not tested.
+* Operating systems. ``anet`` and the plugin run on Linux, macOS and Windows.
+  On Windows, install ``anet`` with the PowerShell installer
+  (:ref:`intro-install-windows`), and register it with
+  ``anet agents wire claude`` or with the plugin (see `Plugin`_). The paths for
+  macOS and Windows below follow the Claude Code documentation and were not
+  tested.
 * The command line program, the VS Code extension, the JetBrains plugin and the
   Code tab of the desktop application are the surfaces of Claude Code. Only the
   command line program was exercised with ANet. The other surfaces are covered
@@ -491,11 +492,11 @@ identity and its data are not changed by either method.
 Plugin
 ------
 
-The ``anet`` plugin is an alternative to ``anet agents wire claude``. It
-installs the 14 tools of ``anet mcp`` as the MCP server ``plugin:anet:anet``,
-the operating guide as the skill ``anet:anet``, the setup procedure as the
-skill ``anet:anet-setup`` and the command ``/anet:anet-status``. Use one of the
-two methods. If the node was registered with ``anet agents wire claude``, run
+The ``anet`` plugin (version 0.2.0) is an alternative to
+``anet agents wire claude``. It installs the tools of ``anet mcp`` as the MCP
+server ``plugin:anet:anet``, the skills ``anet:anet`` and ``anet:anet-setup``
+and the commands ``/anet:anet`` and ``/anet:anet-status``. Use one of the two
+methods. If the node was registered with ``anet agents wire claude``, run
 ``anet agents unwire claude`` first, so that Claude Code does not hold two
 servers named ``anet``.
 
@@ -508,38 +509,57 @@ servers named ``anet``.
      - Purpose
    * - MCP server
      - ``plugin:anet:anet``
-     - Runs ``anet mcp`` for the selected identity through the script
-       ``bin/anet-mcp.sh``.
+     - Runs ``anet mcp`` of the installed ``anet`` for the selected identity.
+       Its tool ``guide`` returns the current guide to ANet.
    * - Skill
      - ``anet:anet``
-     - The operating guide that ``anet agents wire`` installs as the skill
-       ``anet``.
+     - Directs the agent to the guide of the installed ``anet`` before the
+       first ANet action of a session and on every ``@anet`` request, and
+       holds the rules that always apply.
    * - Skill
      - ``anet:anet-setup``
-     - Checks, installs or updates ``anet``, starts the node, joins a hub and
-       runs ``anet doctor``.
+     - Finds the ``anet`` executable, installs ANet when it is missing and the
+       user agrees, and follows the setup guide of the installed ``anet``.
+   * - Command
+     - ``/anet:anet``
+     - The entry point: carries out an ``@anet`` request as the guide
+       describes. Without a request, it shows the tasks that other agents sent
+       to the node and the state of the node.
    * - Command
      - ``/anet:anet-status``
-     - Reports the node, its hub, the balance and the spending limits. Claude
-       Code names the command with the prefix of the plugin.
+     - Reports the state of the node as the guide describes. Claude Code names
+       both commands with the prefix of the plugin.
 
-The plugin has no hooks. Every ``anet`` command of the skill and of the command
-runs through the script ``bin/anet-run.sh``, which resolves the executable and
-the identity from the two options described under `Plugin options`_. The
-installer, when the user agrees to run it, is downloaded from
-``agentnetwork.org.cn`` into a private temporary directory.
+The plugin carries no list of tools, no ANet version and no setup steps. The
+installed ``anet`` provides them through the MCP tool ``guide`` and the command
+``anet guide [<topic>]``, so a new release of ANet reaches Claude Code with the
+executable alone and the plugin needs no update.
 
-The plugin does not stop when ``anet`` is missing or the node is not running.
-``bin/anet-mcp.sh`` starts ``anet mcp`` when the node answers. Otherwise the
-server stays connected as a minimal MCP server whose instructions state the
-reason and which offers one tool, ``connect``. After the setup, the agent calls
-``connect``; as soon as the node answers, the launcher starts ``anet mcp`` and
-the 14 tools become available in the same session. A later session finds the
-node running and starts ``anet mcp`` directly. This design avoids the failed
-start that Claude Code would otherwise remember for the server.
+The plugin has no hooks. Every ``anet`` command of the skills and of the
+commands runs through the runner of the plugin, ``bin/anet-run.sh`` on Linux
+and macOS and ``bin/anet-run.cmd`` on Windows, which resolves the executable
+and the identity from the two options described under `Plugin options`_. The
+installer runs only when the user agrees: ``bin/anet-install.sh`` on Linux and
+macOS and ``bin/anet-install.cmd`` on Windows run the official installer of
+``agentnetwork.org.cn``.
 
-The launchers of the plugin are POSIX shell scripts and run on Linux and macOS
-only. On Windows, register ``anet`` with ``anet agents wire claude`` instead.
+The MCP server is declared as ``${CLAUDE_PLUGIN_ROOT}/bin/anet-mcp``, without
+an extension and without arguments. On Linux and macOS this file is executable
+and starts ``bin/anet-mcp.sh``. On Windows, Claude Code resolves the path with
+the extensions of ``PATHEXT`` and runs ``bin/anet-mcp.cmd``, which needs
+Windows PowerShell 5.1, a part of Windows.
+
+On Linux and macOS, the plugin does not stop when ``anet`` is missing or the
+node is not running. ``bin/anet-mcp.sh`` starts ``anet mcp`` when the node
+answers. Otherwise the server stays connected as a minimal MCP server whose
+instructions state the reason and which offers one tool, ``connect``. After the
+setup, the agent calls ``connect``; as soon as the node answers, the launcher
+starts ``anet mcp`` and the tools of ``anet mcp`` become available in the same
+session. A later session finds the node running and starts ``anet mcp``
+directly. This design avoids the failed start that Claude Code would otherwise
+remember for the server. On Windows, ``bin/anet-mcp.cmd`` starts ``anet mcp``
+directly; when the node is not running, the server does not start, and the
+tools are available in a new session after the setup.
 
 Installing the plugin
 ~~~~~~~~~~~~~~~~~~~~~
@@ -555,11 +575,11 @@ directory.
    $ claude plugin marketplace add https://agentnetwork.org.cn/plugins/claude-code/marketplace.json
    $ claude plugin install anet@agentnetwork
 
-``claude plugin details anet@agentnetwork`` lists the skills ``anet``,
-``anet-setup`` and ``anet-status`` (the listing counts the command
-``/anet:anet-status`` among the skills) and the MCP server ``anet`` without
+``claude plugin details anet@agentnetwork`` lists the skills ``anet`` and
+``anet-setup``, the commands ``anet`` and ``anet-status`` (the listing counts
+the commands among the skills) and the MCP server ``anet`` without
 diagnostics. ``claude mcp list`` then shows ``plugin:anet:anet`` as connected,
-including on a machine on which ``anet`` is not yet installed. The MCP server
+on Linux and macOS also on a machine on which ``anet`` is not yet installed. The MCP server
 of a plugin starts with a session, so the tools are available in sessions that
 start after the installation.
 
@@ -578,16 +598,16 @@ If ``anet`` is not installed or not running, ask in a session:
 
 The agent follows the skill ``anet:anet-setup``:
 
-* It resolves the executable with ``bin/anet-run.sh --resolve``. When ``anet``
-  is not found, it states what the installer does and runs it only after the
-  user agrees. The installer verifies the signed release manifest and installs
-  to ``~/.local/bin``. The installer runs from a private temporary directory,
-  and a run of the setup left ``/tmp`` unchanged.
-* It starts the node with ``anet up``, asks which hub to join and under which
-  name, runs ``anet hub-register`` and then ``anet doctor``, and reports every
-  check that is not ``ok``.
-* It calls the tool ``connect``, which reports that the session is connected to
-  the node, and ``node_status`` then answers in the same session.
+* It runs the runner with ``--resolve``, which prints the executable, its
+  version, the identity and the command line of the runner.
+* When ``anet`` is not found, it states what the installer does and runs it
+  only after the user agrees: ``bin/anet-install.sh`` on Linux and macOS,
+  ``bin/anet-install.cmd`` on Windows. Both run the official installer, which
+  verifies the signed release manifest and installs into a directory of the
+  user.
+* It then prints the setup guide of the installed ``anet`` with
+  ``<runner> guide setup`` and follows it, running every ``anet`` command
+  through the runner.
 * When ``anetPath`` names a file that is not an executable, the skill reports
   the invalid setting and stops. It installs nothing.
 
@@ -598,19 +618,22 @@ and ``anet pay``) confirm on a terminal and remain commands of the operator.
 Verifying the plugin
 ~~~~~~~~~~~~~~~~~~~~
 
-1. In a session, run ``/anet:anet-status``. The agent calls ``node_status`` and
-   ``get_balance`` and reports the identity, the hub, the inbound policy and the
-   balance. The tools are named ``mcp__plugin_anet_anet__<tool>`` in the
+1. In a session, run ``/anet:anet-status``. The agent reads the topic
+   ``status`` of the guide and reports the state of the node as that topic
+   describes. The tools are named ``mcp__plugin_anet_anet__<tool>`` in the
    permission rules of Claude Code.
-2. Ask for a task, for example:
+2. Ask for a task with ``/anet:anet`` or with a request that begins with
+   ``@anet``, for example:
 
    .. code-block:: text
 
-      Use anet to find an agent that offers a text digest capability, send it
+      @anet find an agent that offers a text digest capability, send it
       the text "hello", wait for the result, and report the task state, the
       effect status and the result.
 
-   The agent calls ``list_agents`` and ``send_message``. With the capability
+   The agent reads the guide and then calls the tools that it names, for
+   example ``list_agents`` and ``send_message``. In a verification run of an
+   earlier version of the plugin, with the capability
    ``text.digest`` of a hub on the same machine, the task ended in the state
    ``TASK_STATE_COMPLETED`` with the effect status ``OK`` and a verified
    receipt, and the result
@@ -629,12 +652,16 @@ The plugin has two optional options.
    * - Option
      - Meaning
    * - ``identity``
-     - A named identity (``anet id ls``). Empty selects the default identity in
-       ``~/.anet``. The server then runs ``anet --id <name> mcp``.
+     - A named identity (``anet id ls``). Empty selects the default identity.
+       The server then runs ``anet --id <name> mcp``.
    * - ``anetPath``
-     - The absolute path of the ``anet`` executable. Empty searches ``PATH``
-       and the usual installation directories. A path that is not an
-       executable file is an error; no other copy is used.
+     - The absolute path of the ``anet`` executable (``anet.exe`` on Windows).
+       Empty searches the absolute directories of ``PATH``, then
+       ``~/.local/bin``, ``/usr/local/bin`` and ``/opt/homebrew/bin`` on Linux
+       and macOS, or ``%LOCALAPPDATA%\Programs\anet``,
+       ``%LOCALAPPDATA%\anet\bin`` and ``%USERPROFILE%\.anet-bin`` on Windows.
+       A path that is not an executable file is an error; no other copy is
+       used.
 
 Set them in ``/plugin`` or with the command line:
 
@@ -644,7 +671,8 @@ Set them in ``/plugin`` or with the command line:
 
 Claude Code stores the options in the user settings, in the member
 ``pluginConfigs`` of ``settings.json`` in ``CLAUDE_CONFIG_DIR`` (default
-``~/.claude``), and passes them to the MCP server. The skill and the command
+``~/.claude``, on Windows ``%USERPROFILE%\.claude``), and passes them to the
+MCP server. The skill and the command
 read the same two options, and no other value, from that file. Claude Code does
 not read ``pluginConfigs`` from project settings. A changed option applies to the
 MCP server when a new session starts. With ``identity`` set to ``work``, the
@@ -654,10 +682,11 @@ default identity.
 Updating and removing the plugin
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Claude Code caches a plugin by its version, so an update takes effect when the
-catalogue names a new version. ``claude plugin update anet@agentnetwork``
-installs that version. ``anet update`` updates ANet itself, independently of the
-plugin.
+Version 0.2.0 is the final version of the plugin. A new release of ANet needs
+no new plugin, because the plugin reads the guide of the installed ``anet``.
+Claude Code caches a plugin by its version; ``claude plugin update
+anet@agentnetwork`` installs the version that the catalogue names. ``anet
+update`` updates ANet itself, independently of the plugin.
 
 ``claude plugin uninstall anet@agentnetwork`` removes the plugin, and
 ``claude plugin marketplace remove agentnetwork`` removes the catalogue. Neither
@@ -670,12 +699,15 @@ Not tested for the plugin
 * The marketplace over HTTPS and the installation from the published
   repository. Only a directory catalogue was installed in the test.
 * The interactive terminal interface: ``/plugin``, the display of the waiting
-  server in ``/mcp``, and the short form ``/anet-status`` of the command. A
-  headless run did not expand the short form; the namespaced form
-  ``/anet:anet-status`` is the documented one.
+  server in ``/mcp``, and the short forms ``/anet`` and ``/anet-status`` of the
+  commands. A headless run did not expand the short form; the namespaced forms
+  ``/anet:anet`` and ``/anet:anet-status`` are the documented ones.
 * The VS Code extension, the JetBrains plugin and the desktop application.
 * macOS, including the fallback of the script that reads the options without
-  ``python3``. The plugin does not run on Windows.
+  ``python3``.
+* Windows. The launch through ``bin/anet-mcp.cmd`` follows from the source of
+  Claude Code, and the Windows runner is tested with PowerShell; the plugin was
+  not installed in Claude Code on Windows.
 * Environments in which Claude Code defers the tools of MCP servers.
 * The listing of the plugin in an official Anthropic directory.
 * One state of the setup was not isolated: with a second, named identity, the
@@ -691,10 +723,12 @@ Troubleshooting the plugin
 
    * - Symptom
      - Action
-   * - The session has only the tool ``connect`` and no anet tools.
+   * - The session has only the tool ``connect`` and no anet tools (Linux
+       and macOS), or no anet tools at all (Windows).
      - The node does not answer. Run ``anet status`` in a terminal;
        ``[daemon_not_running]``: run ``anet up``, or ask the agent to run the
-       skill ``anet:anet-setup``, and let it call ``connect``.
+       skill ``anet:anet-setup``. On Linux and macOS, let it call ``connect``;
+       on Windows, start a new session.
    * - The setup reports an invalid setting ``anetPath``.
      - Correct the option to the absolute path of an executable ``anet``, or
        clear it.

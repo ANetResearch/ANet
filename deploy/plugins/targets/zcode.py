@@ -18,6 +18,28 @@ publish.sh --zcode installs and that ZCode fetches over HTTPS):
 
 ZCode checks the SHA-256 of the archive against marketplace.json, so the
 archive is reproducible; a published version is never replaced.
+
+Launch on Windows and POSIX (verified by reading the bundle of ZCode,
+resources/glm/zcode.cjs):
+
+  * ${ZCODE_PLUGIN_ROOT} is expanded in command, args, cwd and env of a stdio
+    server (resolveMcpServerConfig). The server is spawned by the
+    StdioClientTransport of the MCP TypeScript SDK with cross-spawn,
+    shell:false, and the given cwd.
+  * ZCode extracts a plugin archive with plain writeFile calls and keeps no
+    file mode, so on Linux and macOS no file of the plugin is executable and
+    the launcher has to be started by an interpreter: the command is "sh" and
+    its argument ${ZCODE_PLUGIN_ROOT}/bin/anet-mcp.sh.
+  * On Windows cross-spawn resolves "sh" with the module `which`, which looks
+    in the working directory before PATH and tries each extension of PATHEXT,
+    and runs the result through cmd.exe /d /s /c, which also looks in the
+    working directory first. The working directory of the server is
+    ${ZCODE_PLUGIN_ROOT}/bin/windows, which holds sh.cmd
+    (targets/zcode.d/sh.cmd): it accepts only the argument anet-mcp.sh and
+    starts bin/anet-mcp.cmd. The directory is not on any PATH, so the file
+    shadows no other sh.
+  * The agent runs commands in Git Bash on Windows when Git is installed, and
+    in cmd otherwise; the skills give both runner forms.
 """
 
 import re
@@ -52,6 +74,7 @@ def validate(ctx):
 def build(ctx):
     meta = ctx.meta
     ctx.add_common()
+    ctx.add("bin/windows/sh.cmd", ctx.crlf(ctx.target_file("sh.cmd") + "\n"))
 
     ctx.add_json(".zcode-plugin/plugin.json", {
         "name": meta["name"],
@@ -71,8 +94,10 @@ def build(ctx):
         "mcpServers": {
             meta["mcp"]["server_name"]: {
                 "type": "stdio",
+                # sh of the system on Linux and macOS; bin/windows/sh.cmd on Windows (see the module docstring).
                 "command": "sh",
                 "args": ["${ZCODE_PLUGIN_ROOT}/bin/anet-mcp.sh"],
+                "cwd": "${ZCODE_PLUGIN_ROOT}/bin/windows",
                 "env": {s["env"]: "${user_config.%s}" % s["key"] for s in meta["settings"]},
                 "enabled": True,
                 "timeoutMs": meta["mcp"]["timeout_ms"],

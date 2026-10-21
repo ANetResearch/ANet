@@ -2,42 +2,54 @@
 
 The sibling target gemini-cli (targets/gemini-cli.py) builds the extension for
 Gemini CLI from the same shared files. The target-specific sources are in
-deploy/plugins/src/antigravity/: the MCP launcher fragment, the settings
-section of the README (English and Chinese) and the draft documentation page.
+deploy/plugins/src/antigravity/: the MCP launcher bin/anet-mcp.cjs, the
+settings section of the README (English and Chinese) and the draft
+documentation page.
 
-Shape of the host. Only the public documentation was available
-(https://antigravity.google/docs/plugins, /docs/mcp, /docs/marketplace); `agy`
-needs a Google login and was not run, so the layout below is checked against
-the documented rules and not against the program.
+Shape of the host. `agy` needs a Google login and was not run; the facts below
+come from the public documentation (https://antigravity.google/docs/plugins,
+/docs/mcp) and from the shipped `agy` 1.4.4 binaries for Linux and Windows
+(Go; symbols and strings inspected, nothing executed).
 
   * A plugin is a directory with plugin.json at its root. The documented
     schema allows only $schema, name and description (additionalProperties is
-    false), so the manifest carries nothing else.
-  * Components are found by directory name at the plugin root: skills/<name>/
-    SKILL.md, mcp_config.json, hooks.json, agents/, rules/. There are no
-    slash commands and no plugin settings.
-  * The documentation defines no variable for the plugin directory in
-    mcp_config.json. The server is therefore started by `sh -c` with a short
-    program (src/antigravity/mcp-launch.sh) that looks for bin/anet-mcp.sh in
-    the user-level places where the host keeps an installed plugin (and in
-    ANTIGRAVITY_PLUGIN_ROOT when the host sets it). It never runs a file of the
-    working directory or of the workspace, which can come from an untrusted
-    source, so a plugin installed at workspace scope is not started unless
-    ANTIGRAVITY_PLUGIN_ROOT names it.
+    false). Components are found by directory name: skills/<name>/SKILL.md,
+    mcp_config.json. There are no slash commands, so there is no /anet entry
+    point: the skill anet handles "@anet" requests, and the status command is
+    the skill anet-status. There are no plugin settings.
+  * MCP start: mcp.(*LocalSubprocessConnector).createTransport passes the
+    command through mcp.resolveCommand, which changes only "node" (to the
+    copy of Node.js bundled with agy when none is on PATH, log line "No node
+    on PATH; starting MCP server %s with %s"), and runs it with os/exec, no
+    shell. The validator of agy says "${PLUGIN_ROOT} and ${PLUGIN_DATA} aren't
+    expanded in %s, only in "args", "env" and "cwd"" and "MCP configs don't
+    expand environment variables". The command is therefore "node" and the
+    plugin root is in the argument: node runs bin/anet-mcp.cjs, which starts
+    bin/anet-mcp.sh with /bin/sh on Linux and macOS and bin/anet-mcp.cmd with
+    %SystemRoot%\\System32\\cmd.exe /d /s /c on Windows. A .cmd file named
+    as the command is not used on Windows: os/exec hands a batch file to
+    CreateProcess, which runs cmd.exe /c with the command as written, and cmd
+    splits a forward-slash path such as ./bin/anet-mcp at the first slash.
+  * Executable bits are not needed: node, /bin/sh and cmd.exe read the files.
+    (agy keeps them anyway: common.CopyFile copies the mode, plugins.extractZip
+    uses the mode of the entry, plugins.gitClone runs git.)
+  * The shell of the agent is PowerShell on Windows (changelog 1.0.10,
+    "defaulted shell resolution to PowerShell"), so the skills name both
+    runners. A skill refers to the runner as <skill-dir>/../../bin/anet-run.sh
+    (or .cmd), where <skill-dir> is the directory of its SKILL.md.
+  * The instructions of an MCP server are written to a file that the model
+    reads on demand (McpManager.writeServerState), not added to the prompt;
+    the skill anet tells the agent to read the guide.
   * Settings are the two environment variables ANET_PLUGIN_BIN and
-    ANET_PLUGIN_IDENTITY of the process; the launcher bin/anet-mcp.sh and the
-    runner read them.
-  * The status command is the skill anet-status. A skill refers to the runner
-    as <skill-dir>/../../bin/anet-run.sh, where <skill-dir> is the directory
-    of its SKILL.md.
+    ANET_PLUGIN_IDENTITY of the process; the launchers and the runners read
+    them.
 
 Output (dist/antigravity/ is the plugin root; `agy plugin install <directory>`
 installs it, and a GitHub URL install needs it at the root of a repository):
 
     plugin.json         manifest ($schema, name, description)
-    mcp_config.json    the MCP server, started through bin/anet-mcp.sh
-    bin/ skills/       the shared files; skills/anet-status is made from the shared command
-    bin/anet-install.sh  the official installer as one plain command (common/bin/anet-install.sh)
+    mcp_config.json     the MCP server: node ${PLUGIN_ROOT}/bin/anet-mcp.cjs
+    bin/ skills/        the shared files; skills/anet-status is made from the shared command
     README.md README_CN.md LICENSE
 
 There is no catalogue and no site(): Antigravity accepts one marketplace name
@@ -58,6 +70,10 @@ SCHEMA = "https://antigravity.google/schemas/v1/plugin.json"
 SKILL_DIR = "<skill-dir>"
 RUNNER_FROM_SKILL = SKILL_DIR + "/../../bin/anet-run.sh"
 STATUS_SKILL = "anet-status"
+_SKILL_DIR_NOTE = (
+    "`" + SKILL_DIR + "` is the absolute path of the directory that contains this SKILL.md file. The runner sits two "
+    "levels above it, in `bin`. Never run a script from the workspace."
+)
 _NAME_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
 
 
@@ -90,13 +106,11 @@ VARS = {
         ),
     },
     "COMPONENTS_SAME_RUNNER": {
-        "en": "the MCP server (`bin/anet-mcp.sh`, `anet mcp`) and the `anet-status` and `anet-setup` skills",
-        "zh-CN": "MCP 服务（`bin/anet-mcp.sh`，即 `anet mcp`）与 `anet-status`、`anet-setup` skill ",
+        "en": "the MCP server (`anet mcp`) and the skills `anet`, `anet-setup` and `anet-status`",
+        "zh-CN": "MCP 服务（`anet mcp`）与 `anet`、`anet-setup`、`anet-status` skill ",
     },
-    "RESOLVE_INVOCATION": (
-        '```bash\nsh "' + RUNNER_FROM_SKILL + '" --resolve\n```\n\n'
-        "`" + SKILL_DIR + "` is the absolute path of the directory that contains this SKILL.md file."
-    ),
+    "RUNNER_NOTE": _SKILL_DIR_NOTE,
+    "RUNNER_COMMAND_NOTE": _SKILL_DIR_NOTE,
     "ARGUMENTS": "the part of the request that names something specific to check, if any.",
 }
 
@@ -117,28 +131,9 @@ def _replace_once(text, old, new, where):
 
 def transform(ctx, rel, text, lang):
     """Antigravity-specific wording that the variables do not cover."""
-    if rel == "skills/anet/SKILL.md":
-        # The last section is owned by the target; the part generated from guide.go is untouched.
-        text = _replace_once(
-            text,
-            "setup with the executable and identity of the plugin settings.",
-            "setup with the executable and identity of the plugin settings. Here `" + SKILL_DIR
-            + "` is the absolute path of the directory that contains this SKILL.md file.",
-            rel,
-        )
-    elif rel == "skills/anet-setup/SKILL.md":
-        text = _replace_once(
-            text,
-            "The `runner` line of the output is the command to use;",
-            "Here `" + SKILL_DIR + "` is the absolute path of the directory that contains this SKILL.md file; the runner sits\n"
-            "two levels above it, in `bin`. If no file exists there, the plugin directory `anet` is in `~/.gemini/config/plugins`,\n"
-            "or in `~/.gemini/antigravity-cli/plugins`; use its `bin/anet-run.sh`. Never run a script from the workspace.\n"
-            "The `runner` line of the output is the command to use;",
-            rel,
-        )
+    if rel == "skills/anet-setup/SKILL.md":
         text = _replace_once(text, "**anet executable** (`anetPath`)", "**anet executable** (the variable `ANET_PLUGIN_BIN`)", rel)
         text = _replace_once(text, "**anet identity** (`identity`)", "**anet identity** (the variable `ANET_PLUGIN_IDENTITY`)", rel)
-        text = _replace_once(text, "status in the Antigravity settings.", "status in the MCP server list of Antigravity.", rel)
         text = _replace_once(
             text,
             "the plugin setting **anet executable** names a file",
@@ -149,18 +144,12 @@ def transform(ctx, rel, text, lang):
             text,
             "they hold the identity keys and the control token.\n",
             "they hold the identity keys and the control token.\n"
-            "Never read or edit the configuration or credential files of Antigravity (under `~/.gemini`); the only access the\n"
-            "plugin needs there is to find the plugin directory `anet`, as described in step 2.\n"
-            "If the host refuses a command of this skill, report the refusal together with the command and stop: do not write copies or wrapper scripts of the runner or of the installer to work around it.\n",
+            "- Never read or edit the configuration or the credential files of Antigravity (under `~/.gemini`).\n"
+            "- If the host refuses a command of this skill, report the refusal together with the command and stop: do not\n"
+            "  write copies or wrapper scripts of the runner or of the installer to work around it.\n",
             rel,
         )
     elif rel == "commands/anet-status.md":
-        text = _replace_once(
-            text,
-            "The plugin settings select this executable and identity (resolved when the command started):",
-            "The plugin settings select an executable and an identity. Resolve them first:",
-            rel,
-        )
         text = _replace_once(
             text,
             "Do not change any setting. Optional focus from the user:",
@@ -178,7 +167,8 @@ def transform(ctx, rel, text, lang):
         text = _replace_once(
             text,
             "| Skill | `anet-setup` |",
-            "| Skill | `anet-status` | Shows the node, its hub, the balance and the spending limits. Antigravity has no plugin commands, so the check is a skill. |\n| Skill | `anet-setup` |",
+            "| Skill | `anet-status` | Shows the state of the node, as the guide of the installed anet describes. "
+            "Antigravity has no plugin commands, so the check is a skill. |\n| Skill | `anet-setup` |",
             rel,
         )
     elif rel == "README_CN.md":
@@ -191,7 +181,7 @@ def transform(ctx, rel, text, lang):
         text = _replace_once(
             text,
             "| Skill | `anet-setup` |",
-            "| Skill | `anet-status` | 显示节点、所加入的 hub、余额和支付额度。Antigravity 的插件没有命令，因此该检查以 skill 提供。 |\n| Skill | `anet-setup` |",
+            "| Skill | `anet-status` | 按已安装 anet 的指南显示节点状态。Antigravity 的插件没有命令，因此该检查以 skill 提供。 |\n| Skill | `anet-setup` |",
             rel,
         )
     return text
@@ -199,18 +189,14 @@ def transform(ctx, rel, text, lang):
 
 def _status_skill(ctx):
     description, body = ctx.command("anet-status")
-    description = description.rstrip(".") + ". Use when the user asks for the state of the anet node, the balance or the spending limits."
+    description = description.rstrip(".") + ". Use when the user asks for the state of the anet node or its balance."
     return "---\nname: " + STATUS_SKILL + "\ndescription: " + json.dumps(description, ensure_ascii=False) + "\n---\n\n" + body
-
-
-def mcp_launch_program(name):
-    """The sh program that finds and starts bin/anet-mcp.sh of the installed plugin."""
-    return _read("mcp-launch.sh").replace("@NAME@", name) + "\n"
 
 
 def build(ctx):
     meta = ctx.meta
     ctx.add_common(groups=("bin", "skills", "docs"))
+    ctx.add("bin/anet-mcp.cjs", _read("anet-mcp.cjs") + "\n")
     ctx.add(f"skills/{STATUS_SKILL}/SKILL.md", _status_skill(ctx))
 
     ctx.add_json("plugin.json", {
@@ -221,8 +207,9 @@ def build(ctx):
     ctx.add_json("mcp_config.json", {
         "mcpServers": {
             meta["mcp"]["server_name"]: {
-                "command": "sh",
-                "args": ["-c", mcp_launch_program(meta["name"]), "anet-mcp"],
+                # Only "args", "env" and "cwd" expand ${PLUGIN_ROOT}; see the module docstring.
+                "command": "node",
+                "args": ["${PLUGIN_ROOT}/bin/anet-mcp.cjs"],
             }
         }
     })

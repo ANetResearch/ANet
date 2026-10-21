@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ANet 0.3\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-20 07:09+0000\n"
+"POT-Creation-Date: 2026-10-21 15:12+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: Agent Network Research\n"
 "Language: zh_Hans_CN\n"
@@ -25,19 +25,20 @@ msgstr "Cursor"
 #: ../../agents/cursor.rst:6
 msgid ""
 "The ANet MCP server registered in Cursor gives the editor and the Cursor "
-"command-line agent 14 tools. Within a Cursor session they discover agents"
-" on the network (``list_agents``, ``get_agent_card``), delegate tasks and"
-" retrieve the results (``send_message``, ``wait_task``, ``get_task``, "
-"``cancel_task``), list the tasks of the node (``list_tasks``), answer "
-"tasks that other agents sent to the node (``reply_task``, "
-"``inbound_pending``), pay or decline quotes within the agent spending "
-"tier (``submit_payment``, ``reject_payment``), and read the balance, the "
-"evidence chain and the state of the node (``get_balance``, ``audit``, "
-"``node_status``). Previews are not exposed through MCP. The parameters of"
-" every tool are listed in :ref:`reference-mcp-tools`."
+"command-line agent the tools of ``anet mcp``. Within a Cursor session "
+"they discover agents on the network (``list_agents``, "
+"``get_agent_card``), delegate tasks and retrieve the results "
+"(``send_message``, ``wait_task``, ``get_task``, ``cancel_task``), list "
+"the tasks of the node (``list_tasks``), answer tasks that other agents "
+"sent to the node (``reply_task``, ``inbound_pending``), pay or decline "
+"quotes within the agent spending tier (``submit_payment``, "
+"``reject_payment``), and read the balance, the evidence chain and the "
+"state of the node (``get_balance``, ``audit``, ``node_status``). Previews"
+" are not exposed through MCP. The parameters of every tool are listed in "
+":ref:`reference-mcp-tools`."
 msgstr ""
-"在 Cursor 中注册 ANet MCP 服务器后，编辑器与 Cursor 命令行 Agent 获得 14 个工具。在 Cursor "
-"会话内，这些工具用于发现网络上的 "
+"在 Cursor 中注册 ANet MCP 服务器后，编辑器与 Cursor 命令行 Agent 即可使用 ``anet mcp`` 的工具。在 "
+"Cursor 会话内，这些工具用于发现网络上的 "
 "Agent（``list_agents``、``get_agent_card``），委派任务并取回结果（``send_message``、``wait_task``、``get_task``、``cancel_task``），列出本节点的任务（``list_tasks``），应答其他"
 " Agent 发给本节点的任务（``reply_task``、``inbound_pending``），在 Agent "
 "支出档位之内支付或拒绝报价（``submit_payment``、``reject_payment``），以及读取余额、证据链和节点状态（``get_balance``、``audit``、``node_status``）。预览不通过"
@@ -75,20 +76,20 @@ msgstr ""
 
 #: ../../agents/cursor.rst:34
 msgid ""
-"A supported system for ``anet``: Linux, macOS or Windows. On Windows, "
-"install ``anet`` with the PowerShell installer (:ref:`intro-install-"
-"windows`) and register it with ``anet agents wire cursor``; the plugin "
-"does not run on Windows. The steps on this page were not run on Windows."
+"A supported system for ``anet`` and the plugin: Linux, macOS or Windows. "
+"On Windows, install ``anet`` with the PowerShell installer (:ref:`intro-"
+"install-windows`), and register it with ``anet agents wire cursor`` or "
+"with the plugin. The steps on this page were not run on Windows."
 msgstr ""
-"``anet`` 支持的系统：Linux、macOS 或 Windows。在 Windows 上，请使用 PowerShell 安装程序安装 "
-"``anet``\\ （:ref:`intro-install-windows`），并用 ``anet agents wire cursor`` "
-"注册；插件不能在 Windows 上运行。本页步骤未在 Windows 上运行。"
+"``anet`` 和插件支持的系统：Linux、macOS 或 Windows。在 Windows 上，请使用 PowerShell 安装程序安装"
+" ``anet``\\ （:ref:`intro-install-windows`），并用 ``anet agents wire cursor``"
+" 或插件注册。本页步骤未在 Windows 上运行。"
 
-#: ../../agents/cursor.rst:41
+#: ../../agents/cursor.rst:42
 msgid "Automatic registration"
 msgstr "自动注册"
 
-#: ../../agents/cursor.rst:47
+#: ../../agents/cursor.rst:48
 msgid ""
 "The command writes the member ``mcpServers.anet`` into "
 "``~/.cursor/mcp.json``. The member names the ``anet`` binary by its "
@@ -98,7 +99,7 @@ msgstr ""
 "该命令将成员 ``mcpServers.anet`` 写入 ``~/.cursor/mcp.json``。该成员以绝对路径指明 ``anet`` "
 "二进制文件，传入参数 ``mcp``，并将 ``ANET_DATA_DIR`` 设为该身份的数据目录："
 
-#: ../../agents/cursor.rst:63
+#: ../../agents/cursor.rst:64
 msgid ""
 "The file is created when it does not exist, the other servers in it are "
 "kept, and the write is atomic. An existing file is saved first as "
@@ -111,13 +112,13 @@ msgstr ""
 "时间戳>``。再次运行该命令不产生任何变更，并报告 ``up to date``。早期版本的 ``anet`` 写入的规则文件 "
 "``~/.cursor/rules/agentnetwork-anet.mdc``，在其内容标明由 ANet 写入时被删除。"
 
-#: ../../agents/cursor.rst:70
+#: ../../agents/cursor.rst:71
 msgid ""
 "The command writes no entry of the project scope (``.cursor/mcp.json``) "
 "and no operating guide. See `Operating guide`_ for the optional guide."
 msgstr "该命令不写入项目范围的条目（``.cursor/mcp.json``），也不写入操作指南。可选的操作指南见 `操作指南`_。"
 
-#: ../../agents/cursor.rst:73
+#: ../../agents/cursor.rst:74
 msgid ""
 "The output of the command is in English by default and in Chinese when "
 "``ANET_LANG`` is ``zh-CN``. The status words are ``written``, ``up to "
@@ -140,7 +141,7 @@ msgstr ""
 "程序，或存在目录 ``~/.cursor``，即视为存在。显式指定 ``cursor`` 时无论是否检测到都会写入，未检测到时输出提示 ``the"
 " tool was not detected; written as requested``。"
 
-#: ../../agents/cursor.rst:85
+#: ../../agents/cursor.rst:86
 msgid ""
 "Restart Cursor after the first write. The Cursor documentation states "
 "that a change to the local files takes effect after Cursor is restarted; "
@@ -152,7 +153,7 @@ msgstr ""
 "后生效，未描述其他重新加载该文件的方式。命令输出同样的提示，并说明 ``anet mcp`` 需要本机 daemon 在运行（``anet "
 "up``）。"
 
-#: ../../agents/cursor.rst:100
+#: ../../agents/cursor.rst:101
 msgid ""
 "The state of the registration is shown by ``anet agents``; ``cursor`` is "
 "reported as ``wired, up to date`` or ``not installed``."
@@ -160,27 +161,27 @@ msgstr ""
 "注册状态由 ``anet agents`` 显示；``cursor`` 报告为 ``wired, up to date`` 或 ``not "
 "installed``。"
 
-#: ../../agents/cursor.rst:116
+#: ../../agents/cursor.rst:117
 msgid "Manual registration"
 msgstr "手动注册"
 
-#: ../../agents/cursor.rst:118
+#: ../../agents/cursor.rst:119
 msgid "Cursor reads the following files; both use the same format."
 msgstr "Cursor 读取下列文件，二者格式相同。"
 
-#: ../../agents/cursor.rst:124
+#: ../../agents/cursor.rst:125
 msgid "Scope"
 msgstr "范围"
 
-#: ../../agents/cursor.rst:125
+#: ../../agents/cursor.rst:126
 msgid "Location"
 msgstr "位置"
 
-#: ../../agents/cursor.rst:126
+#: ../../agents/cursor.rst:127
 msgid "Global"
 msgstr "全局"
 
-#: ../../agents/cursor.rst:127
+#: ../../agents/cursor.rst:128
 msgid ""
 "``~/.cursor/mcp.json`` on macOS and Linux. The Cursor documentation "
 "states no path for Windows; ``%USERPROFILE%\\.cursor\\mcp.json`` is "
@@ -189,15 +190,15 @@ msgstr ""
 "macOS 与 Linux 为 ``~/.cursor/mcp.json``。Cursor 文档未给出 Windows "
 "路径；``%USERPROFILE%\\.cursor\\mcp.json`` 按同一约定推断，未经确认"
 
-#: ../../agents/cursor.rst:130
+#: ../../agents/cursor.rst:131
 msgid "Project"
 msgstr "项目"
 
-#: ../../agents/cursor.rst:131
+#: ../../agents/cursor.rst:132
 msgid "``.cursor/mcp.json`` in the project directory"
 msgstr "项目目录中的 ``.cursor/mcp.json``"
 
-#: ../../agents/cursor.rst:133
+#: ../../agents/cursor.rst:134
 msgid ""
 "Add the member ``anet`` to the object ``mcpServers``. The values are the "
 "absolute path of the binary (``command -v anet``) and the data directory "
@@ -206,7 +207,7 @@ msgstr ""
 "在对象 ``mcpServers`` 中加入成员 ``anet``。取值为二进制文件的绝对路径（``command -v "
 "anet``）与该身份的数据目录（``anet id ls`` 输出中的 ``DATA DIR`` 列）："
 
-#: ../../agents/cursor.rst:149
+#: ../../agents/cursor.rst:150
 #, python-brace-format
 msgid ""
 "The Cursor documentation lists the field ``type`` for a local server as "
@@ -224,7 +225,7 @@ msgstr ""
 "``${env:NAME}``、``${userHome}``、``${workspaceFolder}``、``${workspaceFolderBasename}``"
 " 与 ``${pathSeparator}``，见 Cursor 文档。"
 
-#: ../../agents/cursor.rst:158
+#: ../../agents/cursor.rst:159
 msgid ""
 "A project file is shared with everyone who holds the repository. The path"
 " of the data directory belongs to one machine, so the project file should"
@@ -236,11 +237,11 @@ msgstr ""
 "项目文件由所有持有该仓库的人共用。数据目录的路径属于某一台机器，因此项目文件不应带着 ``ANET_DATA_DIR`` 的取值提交。命令行 "
 "Agent 读取项目文件、全局文件和上级目录中的文件；命令 ``agent mcp list`` 会列出每个条目的来源。"
 
-#: ../../agents/cursor.rst:165
+#: ../../agents/cursor.rst:166
 msgid "Several identities"
 msgstr "多个身份"
 
-#: ../../agents/cursor.rst:167
+#: ../../agents/cursor.rst:168
 msgid ""
 "A machine can hold several identities (``anet id ls``). ``anet mcp`` "
 "connects to the daemon of the identity named by ``ANET_DATA_DIR`` and to "
@@ -250,7 +251,7 @@ msgstr ""
 "一台机器可以持有多个身份（``anet id ls``）。``anet mcp`` 连接由 ``ANET_DATA_DIR`` 指定的身份的 "
 "daemon，不连接其他身份。要注册指定的身份，使用 ``--id`` 选择；它是 ``anet`` 的选项，位于子命令之前："
 
-#: ../../agents/cursor.rst:176
+#: ../../agents/cursor.rst:177
 msgid ""
 "The entry then holds the data directory of that identity, for example "
 "``~/.anet/ids/work``. The member name is ``anet``, so one ``mcp.json`` "
@@ -260,37 +261,37 @@ msgstr ""
 "条目随即写入该身份的数据目录，例如 ``~/.anet/ids/work``。成员名为 ``anet``，因此一个 ``mcp.json`` "
 "只保存一个身份的条目；第二个身份需要以另一名称手动写入成员。"
 
-#: ../../agents/cursor.rst:183
+#: ../../agents/cursor.rst:184
 msgid "Verification"
 msgstr "验证"
 
-#: ../../agents/cursor.rst:185
+#: ../../agents/cursor.rst:186
 msgid "In the editor:"
 msgstr "在编辑器中："
 
-#: ../../agents/cursor.rst:187
+#: ../../agents/cursor.rst:188
 msgid ""
 "Open **Customize** in the sidebar and confirm that the server ``anet`` is"
 " enabled."
 msgstr "在侧边栏打开 **Customize**，确认服务器 ``anet`` 已启用。"
 
-#: ../../agents/cursor.rst:189
+#: ../../agents/cursor.rst:190
 msgid ""
 "In case of an error, open the Output panel (``Cmd+Shift+U`` on macOS) and"
 " select **MCP Logs**."
 msgstr "出现错误时，打开 Output 面板（macOS 为 ``Cmd+Shift+U``），选择 **MCP Logs**。"
 
-#: ../../agents/cursor.rst:191
+#: ../../agents/cursor.rst:192
 msgid ""
 "Start a chat and ask Cursor to call ``node_status``. The tools of the "
 "server are listed under Available Tools."
 msgstr "开始一次对话，请 Cursor 调用 ``node_status``。该服务器的工具列在 Available Tools 之下。"
 
-#: ../../agents/cursor.rst:194
+#: ../../agents/cursor.rst:195
 msgid "In the command-line agent:"
 msgstr "在命令行 Agent 中："
 
-#: ../../agents/cursor.rst:201
+#: ../../agents/cursor.rst:202
 msgid ""
 "``agent mcp list`` shows whether ``anet`` is connected and from which "
 "file the entry comes. In an interactive session, ``/mcp list`` shows the "
@@ -299,21 +300,21 @@ msgstr ""
 "``agent mcp list`` 显示 ``anet`` 是否已连接以及条目来自哪个文件。在交互会话中，``/mcp list`` "
 "显示同样的内容。"
 
-#: ../../agents/cursor.rst:204
+#: ../../agents/cursor.rst:205
 msgid ""
 "On the shell, ``anet agents`` shows the registration, as in the previous "
 "section."
 msgstr "在 shell 中，``anet agents`` 显示注册状态，见上一节。"
 
-#: ../../agents/cursor.rst:208
+#: ../../agents/cursor.rst:209
 msgid "First task"
 msgstr "首次任务"
 
-#: ../../agents/cursor.rst:210
+#: ../../agents/cursor.rst:211
 msgid "Enter the following prompt in the chat:"
 msgstr "在对话中输入下列提示词："
 
-#: ../../agents/cursor.rst:217
+#: ../../agents/cursor.rst:218
 msgid ""
 "Cursor asks for approval before it uses an MCP tool by default. The "
 "expected result is a report that contains the AID of the node, the "
@@ -326,35 +327,35 @@ msgstr ""
 " Hub 的节点报告状态 ``none``，原因为 ``no_hub_yet``。连接失败表示 daemon 未运行；此时在终端运行 ``anet"
 " mcp`` 会输出原因："
 
-#: ../../agents/cursor.rst:228
+#: ../../agents/cursor.rst:229
 msgid "The remedy is ``anet up``."
 msgstr "处理方法为运行 ``anet up``。"
 
-#: ../../agents/cursor.rst:232
+#: ../../agents/cursor.rst:233
 msgid "Examples"
 msgstr "示例"
 
-#: ../../agents/cursor.rst:234
+#: ../../agents/cursor.rst:235
 msgid "Find an agent by capability:"
 msgstr "按能力查找 Agent："
 
-#: ../../agents/cursor.rst:241
+#: ../../agents/cursor.rst:242
 msgid "Read a card and delegate a task:"
 msgstr "读取 Agent 卡片并委派任务："
 
-#: ../../agents/cursor.rst:251
+#: ../../agents/cursor.rst:252
 msgid "Check the account and the queue of the node:"
 msgstr "检查账户和节点队列："
 
-#: ../../agents/cursor.rst:260
+#: ../../agents/cursor.rst:261
 msgid "Security and permissions"
 msgstr "安全与权限"
 
-#: ../../agents/cursor.rst:262
+#: ../../agents/cursor.rst:263
 msgid "Three controls apply, and none replaces another."
 msgstr "以下三项控制同时适用，互不替代。"
 
-#: ../../agents/cursor.rst:264
+#: ../../agents/cursor.rst:265
 msgid ""
 "**Cursor.** The Cursor documentation states that Cursor asks for approval"
 " before it uses an MCP tool by default. The command-line agent has the "
@@ -368,7 +369,7 @@ msgstr ""
 "``--approve-mcps`` 与 ``--trust``。Cursor "
 "论坛中有报告称，非交互运行（``-p``）需要事先批准该服务器；这两个参数在此类运行中的效果尚未为本指南核实，以当前版本的参数参考为准。"
 
-#: ../../agents/cursor.rst:270
+#: ../../agents/cursor.rst:271
 msgid ""
 "**Inbound policy.** The default policy of the node is ``closed``: tasks "
 "of peers that are on no list are refused. Approval of a held task is a "
@@ -380,7 +381,7 @@ msgstr ""
 "inbound approve``）；MCP 服务器只能通过 ``inbound_pending`` 列出被挂起的任务。其他 Agent "
 "所发任务的文本属于不可信输入。参见 :doc:`../topics/delegation`。"
 
-#: ../../agents/cursor.rst:275
+#: ../../agents/cursor.rst:276
 msgid ""
 "**Payments.** ``submit_payment`` signs within the limits of the agent "
 "spending tier. A quote above them stays in ``input-required`` until a "
@@ -392,7 +393,7 @@ msgstr ""
 "required``，直至有人在终端运行 ``anet pay``。限额属于节点，不会因 Cursor 中的设置而放宽。参见 "
 ":doc:`../topics/payments`。"
 
-#: ../../agents/cursor.rst:280
+#: ../../agents/cursor.rst:281
 msgid ""
 "The server cannot read or change the keys, the identity or the "
 "configuration of the node. Task content that a capability executes on the"
@@ -402,11 +403,11 @@ msgstr ""
 "该服务器不能读取或修改节点的密钥、身份和配置。能力在对端执行的任务内容，由对端节点约束；本节点的沙箱见 "
 ":doc:`../topics/sandbox`。"
 
-#: ../../agents/cursor.rst:287
+#: ../../agents/cursor.rst:288
 msgid "Operating guide"
 msgstr "操作指南"
 
-#: ../../agents/cursor.rst:289
+#: ../../agents/cursor.rst:290
 msgid ""
 "``anet`` installs no operating guide for Cursor. The MCP server sends its"
 " own instructions when a client connects; whether Cursor passes them to "
@@ -416,11 +417,11 @@ msgstr ""
 "``anet`` 不为 Cursor 安装操作指南。MCP 服务器在客户端连接时发送自己的说明；Cursor 是否将其传给模型，尚未核实。可以通过"
 " Cursor 的下列方式之一提供指南："
 
-#: ../../agents/cursor.rst:294
+#: ../../agents/cursor.rst:295
 msgid "``AGENTS.md`` in the project directory, in plain Markdown."
 msgstr "项目目录中的 ``AGENTS.md``，为纯 Markdown。"
 
-#: ../../agents/cursor.rst:295
+#: ../../agents/cursor.rst:296
 msgid ""
 "A project rule ``.cursor/rules/anet.mdc`` with the frontmatter fields "
 "``description``, ``globs`` and ``alwaysApply``. Only ``.mdc`` files are "
@@ -430,7 +431,7 @@ msgstr ""
 "``description``、``globs`` 与 ``alwaysApply``。只有 ``.mdc`` 文件会被读取为规则；该目录中的普通"
 " ``.md`` 文件被忽略。"
 
-#: ../../agents/cursor.rst:298
+#: ../../agents/cursor.rst:299
 msgid ""
 "**User Rules** in **Customize**, **Rules**. They are set in the interface"
 " and are not stored in a file that ``anet`` could write."
@@ -438,121 +439,121 @@ msgstr ""
 "**Customize** 中的 **Rules** 下的 **User Rules**。它们在界面中设置，不存放在 ``anet`` "
 "可以写入的文件中。"
 
-#: ../../agents/cursor.rst:301
+#: ../../agents/cursor.rst:302
 msgid "An example of ``.cursor/rules/anet.mdc``:"
 msgstr "``.cursor/rules/anet.mdc`` 示例："
 
-#: ../../agents/cursor.rst:317
+#: ../../agents/cursor.rst:318
 msgid "Troubleshooting"
 msgstr "故障排查"
 
-#: ../../agents/cursor.rst:323
+#: ../../agents/cursor.rst:324
 msgid "Observation"
 msgstr "现象"
 
-#: ../../agents/cursor.rst:324
+#: ../../agents/cursor.rst:325
 msgid "Cause"
 msgstr "原因"
 
-#: ../../agents/cursor.rst:325 ../../agents/cursor.rst:563
+#: ../../agents/cursor.rst:326 ../../agents/cursor.rst:592
 msgid "Action"
 msgstr "处理"
 
-#: ../../agents/cursor.rst:326
+#: ../../agents/cursor.rst:327
 msgid "The server ``anet`` is shown as failed or disconnected"
 msgstr "服务器 ``anet`` 显示为失败或已断开"
 
-#: ../../agents/cursor.rst:327
+#: ../../agents/cursor.rst:328
 msgid ""
 "The daemon is not running, or ``ANET_DATA_DIR`` names another data "
 "directory"
 msgstr "daemon 未运行，或 ``ANET_DATA_DIR`` 指向另一个数据目录"
 
-#: ../../agents/cursor.rst:329
+#: ../../agents/cursor.rst:330
 msgid "Run ``anet up``. Compare the path in ``mcp.json`` with ``anet id ls``"
 msgstr "运行 ``anet up``。将 ``mcp.json`` 中的路径与 ``anet id ls`` 对照"
 
-#: ../../agents/cursor.rst:330
+#: ../../agents/cursor.rst:331
 msgid "The tools are not listed after ``wire``"
 msgstr "运行 ``wire`` 后工具未列出"
 
-#: ../../agents/cursor.rst:331
+#: ../../agents/cursor.rst:332
 msgid "Cursor has not been restarted, or the server is disabled"
 msgstr "Cursor 尚未重启，或服务器已被停用"
 
-#: ../../agents/cursor.rst:332
+#: ../../agents/cursor.rst:333
 msgid "Restart Cursor. Enable ``anet`` in **Customize**"
 msgstr "重启 Cursor。在 **Customize** 中启用 ``anet``"
 
-#: ../../agents/cursor.rst:333
+#: ../../agents/cursor.rst:334
 msgid "``wire`` reports ``conflict`` and exits with status 1"
 msgstr "``wire`` 报告 ``conflict`` 并以状态码 1 退出"
 
-#: ../../agents/cursor.rst:334
+#: ../../agents/cursor.rst:335
 msgid "``mcpServers.anet`` exists and was not written by ``anet``"
 msgstr "``mcpServers.anet`` 已存在，且不是 ``anet`` 写入的"
 
-#: ../../agents/cursor.rst:335
+#: ../../agents/cursor.rst:336
 msgid "Rename or delete that member, then run ``wire`` again"
 msgstr "重命名或删除该成员，然后再次运行 ``wire``"
 
-#: ../../agents/cursor.rst:336
+#: ../../agents/cursor.rst:337
 msgid "``agent mcp list`` shows another source or another identity"
 msgstr "``agent mcp list`` 显示了另一个来源或另一个身份"
 
-#: ../../agents/cursor.rst:337
+#: ../../agents/cursor.rst:338
 msgid ""
 "A project ``.cursor/mcp.json`` or a file in a parent directory takes "
 "precedence"
 msgstr "项目中的 ``.cursor/mcp.json`` 或上级目录中的文件优先"
 
-#: ../../agents/cursor.rst:339
+#: ../../agents/cursor.rst:340
 msgid "Read the source column and correct or remove the entry"
 msgstr "查看来源列，修正或删除该条目"
 
-#: ../../agents/cursor.rst:340
+#: ../../agents/cursor.rst:341
 msgid "A tool call ends before the task is done"
 msgstr "工具调用在任务完成之前结束"
 
-#: ../../agents/cursor.rst:341
+#: ../../agents/cursor.rst:342
 msgid ""
 "Cursor documents no tool timeout; ``wait_task`` waits 30 seconds by "
 "default and 300 seconds at most"
 msgstr "Cursor 未记载工具超时设置；``wait_task`` 默认等待 30 秒，最长 300 秒"
 
-#: ../../agents/cursor.rst:343
+#: ../../agents/cursor.rst:344
 msgid ""
 "Call ``wait_task`` again with the same ``task_id``. Do not send the task "
 "again"
 msgstr "以同一 ``task_id`` 再次调用 ``wait_task``。不要重新发送任务"
 
-#: ../../agents/cursor.rst:345
+#: ../../agents/cursor.rst:346
 msgid "A non-interactive run does not use the server"
 msgstr "非交互运行不使用该服务器"
 
-#: ../../agents/cursor.rst:346
+#: ../../agents/cursor.rst:347
 msgid "The server has not been approved"
 msgstr "该服务器尚未获得批准"
 
-#: ../../agents/cursor.rst:347
+#: ../../agents/cursor.rst:348
 msgid ""
 "Approve it in an interactive session, or see the parameter reference of "
 "the command-line agent"
 msgstr "在交互会话中批准，或参阅命令行 Agent 的参数参考"
 
-#: ../../agents/cursor.rst:349
+#: ../../agents/cursor.rst:350
 msgid "The rule is not applied"
 msgstr "规则未生效"
 
-#: ../../agents/cursor.rst:350
+#: ../../agents/cursor.rst:351
 msgid "The file is ``.md`` or lacks ``alwaysApply``"
 msgstr "文件为 ``.md``，或缺少 ``alwaysApply``"
 
-#: ../../agents/cursor.rst:351
+#: ../../agents/cursor.rst:352
 msgid "Use the extension ``.mdc`` and set ``alwaysApply: true``"
 msgstr "使用扩展名 ``.mdc`` 并设置 ``alwaysApply: true``"
 
-#: ../../agents/cursor.rst:353
+#: ../../agents/cursor.rst:354
 msgid ""
 "For other failures, see :doc:`../howto/troubleshooting`. The sentences "
 "and codes in tool errors are listed in :doc:`../reference/reason-codes`."
@@ -560,11 +561,11 @@ msgstr ""
 "其他故障见 :doc:`../howto/troubleshooting`。工具错误中的语句与原因码见 :doc:`../reference"
 "/reason-codes`。"
 
-#: ../../agents/cursor.rst:358
+#: ../../agents/cursor.rst:359
 msgid "Disconnecting"
 msgstr "断开"
 
-#: ../../agents/cursor.rst:368
+#: ../../agents/cursor.rst:369
 msgid ""
 "The command removes only the member written by ``anet`` and keeps the "
 "other servers; a file that holds nothing else is removed, and the backup "
@@ -579,114 +580,164 @@ msgstr ""
 " anet and was left unchanged`` 报告。未注册时状态为 ``not wired``。手动断开时，从 "
 "``mcpServers`` 中删除成员 ``anet``，并重启 Cursor。"
 
-#: ../../agents/cursor.rst:377
+#: ../../agents/cursor.rst:378
 msgid "Plugin"
 msgstr "插件"
 
-#: ../../agents/cursor.rst:379
+#: ../../agents/cursor.rst:380
 msgid ""
-"The ``anet`` plugin is an alternative to ``anet agents wire cursor``. It "
-"registers the same MCP server and adds the operating guide, a setup skill"
-" that installs and starts the node, and the command ``/anet-status``. Use"
-" one of the two ways, not both: a Cursor session that has the server from"
-" ``mcp.json`` and the server of the plugin holds two ``anet`` servers. If"
-" ``anet agents wire cursor`` was run earlier, run ``anet agents unwire "
-"cursor`` before the plugin is installed."
+"The ``anet`` plugin (version 0.2.0) is an alternative to ``anet agents "
+"wire cursor``. It registers the same MCP server and adds the skill "
+"``anet``, a setup skill, the entry point ``/anet`` and the command "
+"``/anet-status``. Use one of the two ways, not both: a Cursor session "
+"that has the server from ``mcp.json`` and the server of the plugin holds "
+"two ``anet`` servers. If ``anet agents wire cursor`` was run earlier, run"
+" ``anet agents unwire cursor`` before the plugin is installed."
 msgstr ""
-"``anet`` 插件是 ``anet agents wire cursor`` 之外的另一种接入方式。它注册同一个 MCP "
-"服务器，并增加操作指南、用于安装和启动节点的设置技能，以及命令 ``/anet-status``\\ 。两种方式只应选用其一：若会话同时具有 "
-"``mcp.json`` 中的服务器和插件的服务器，就会出现两个 ``anet`` 服务器。若此前运行过 ``anet agents wire "
-"cursor``\\ ，请在安装插件之前运行 ``anet agents unwire cursor``\\ 。"
+"``anet`` 插件（版本 0.2.0）是 ``anet agents wire cursor`` 之外的另一种接入方式。它注册同一个 MCP "
+"服务器，并增加技能 ``anet``、一项设置技能、入口 ``/anet`` 以及命令 ``/anet-"
+"status``。两种方式只应选用其一：若会话同时具有 ``mcp.json`` 中的服务器和插件的服务器，就会出现两个 ``anet`` "
+"服务器。若此前运行过 ``anet agents wire cursor``，请在安装插件之前运行 ``anet agents unwire "
+"cursor``。"
 
-#: ../../agents/cursor.rst:391
+#: ../../agents/cursor.rst:393
 msgid "Component"
 msgstr "组件"
 
-#: ../../agents/cursor.rst:392
+#: ../../agents/cursor.rst:394
 msgid "Name"
 msgstr "名称"
 
-#: ../../agents/cursor.rst:393
+#: ../../agents/cursor.rst:395
 msgid "Purpose"
 msgstr "用途"
 
-#: ../../agents/cursor.rst:394
+#: ../../agents/cursor.rst:396
 msgid "MCP server"
 msgstr "MCP 服务器"
 
-#: ../../agents/cursor.rst:395 ../../agents/cursor.rst:400
+#: ../../agents/cursor.rst:397 ../../agents/cursor.rst:402
 msgid "``anet``"
 msgstr "``anet``"
 
-#: ../../agents/cursor.rst:396
+#: ../../agents/cursor.rst:398
 msgid ""
-"Runs ``anet mcp`` for the selected identity through the script ``bin"
-"/anet-mcp.sh``. It exposes the 14 tools listed in :ref:`reference-mcp-"
-"tools`."
+"Runs ``anet mcp`` of the installed ``anet`` for the selected identity, "
+"with the tools listed in :ref:`reference-mcp-tools`. Its tool ``guide`` "
+"returns the current guide to ANet."
 msgstr ""
-"通过脚本 ``bin/anet-mcp.sh`` 为所选身份运行 ``anet mcp``\\ 。提供 :ref:`reference-mcp-"
-"tools` 中列出的 14 个工具。"
+"为所选身份运行已安装 ``anet`` 的 ``anet mcp``，提供 :ref:`reference-mcp-tools` "
+"中列出的工具。其工具 ``guide`` 返回 ANet 的最新指南。"
 
-#: ../../agents/cursor.rst:399 ../../agents/cursor.rst:404
+#: ../../agents/cursor.rst:401 ../../agents/cursor.rst:406
 msgid "Skill"
 msgstr "技能"
 
-#: ../../agents/cursor.rst:401
+#: ../../agents/cursor.rst:403
 msgid ""
-"The operating guide: choosing an agent, the life of a task, reporting the"
-" effect status and the receipt, payments, and treating replies from other"
-" agents as untrusted input."
-msgstr "操作指南：选择智能体、任务的生命周期、如实报告效果状态与回执、支付，以及将其他智能体的回复视为不可信输入。"
+"Directs the agent to the guide of the installed ``anet`` before the first"
+" ANet action of a session and on every ``@anet`` request, and holds the "
+"rules that always apply."
+msgstr ""
+"在会话中首次执行 ANet 操作之前以及每次收到 ``@anet`` 请求时，引导 Agent 阅读已安装 ``anet`` "
+"的指南，并包含始终适用的规则。"
 
-#: ../../agents/cursor.rst:405
+#: ../../agents/cursor.rst:407
 msgid "``anet-setup``"
 msgstr "``anet-setup``"
 
-#: ../../agents/cursor.rst:406
-msgid ""
-"Checks, installs or updates ``anet``, starts the node, joins a hub and "
-"runs ``anet doctor``."
-msgstr "检查、安装或更新 ``anet``\\ ，启动节点，加入 hub，并运行 ``anet doctor``\\ 。"
-
 #: ../../agents/cursor.rst:408
+msgid ""
+"Finds the ``anet`` executable, installs ANet when it is missing and the "
+"user agrees, and follows the setup guide of the installed ``anet``."
+msgstr "查找 ``anet`` 可执行文件，在其缺失且用户同意时安装 ANet，并按已安装 ``anet`` 的设置指南执行。"
+
+#: ../../agents/cursor.rst:410 ../../agents/cursor.rst:415
 msgid "Command"
 msgstr "命令"
 
-#: ../../agents/cursor.rst:409
-msgid "``/anet-status``"
-msgstr "``/anet-status``"
-
-#: ../../agents/cursor.rst:410
-msgid "Reports the node, its hub, the balance and the spending limits."
-msgstr "报告节点、其 hub、余额和支出限额。"
+#: ../../agents/cursor.rst:411
+msgid "``/anet``"
+msgstr "``/anet``"
 
 #: ../../agents/cursor.rst:412
 msgid ""
+"The entry point: carries out an ``@anet`` request as the guide describes."
+" Without a request, it shows the tasks that other agents sent to the node"
+" and the state of the node."
+msgstr "入口：按指南所述执行 ``@anet`` 请求。未给出请求时，显示其他 Agent 发给本节点的任务以及节点状态。"
+
+#: ../../agents/cursor.rst:416
+msgid "``/anet-status``"
+msgstr "``/anet-status``"
+
+#: ../../agents/cursor.rst:417
+msgid "Reports the state of the node as the guide describes."
+msgstr "按指南所述报告节点状态。"
+
+#: ../../agents/cursor.rst:419
+msgid ""
+"The plugin carries no list of tools, no ANet version and no setup steps. "
+"The installed ``anet`` provides them through the MCP tool ``guide`` and "
+"the command ``anet guide [<topic>]``, so a new release of ANet reaches "
+"Cursor with the executable alone and the plugin needs no update."
+msgstr ""
+"插件不携带工具列表、ANet 版本或设置步骤，这些内容由已安装的 ``anet`` 通过 MCP 工具 ``guide`` 和命令 ``anet "
+"guide [<topic>]`` 提供。因此，ANet 的新版本仅凭可执行文件即可作用于 Cursor，插件无需更新。"
+
+#: ../../agents/cursor.rst:424
+msgid ""
 "The plugin has no hooks, opens no network connection and writes no files "
 "of its own. The installation of ``anet``, which runs only after the user "
-"agrees, is a separate step; it writes ``~/.local/bin/anet`` and the data "
-"directory ``~/.anet``. Every ``anet`` command of the plugin runs through "
-"the script ``bin/anet-run.sh``, which applies the two settings described "
-"under `Plugin settings`_. Without the setting ``ANET_PLUGIN_BIN``, the "
-"script looks for ``anet`` in ``PATH``, then in ``~/.local/bin``, "
-"``/usr/local/bin`` and ``/opt/homebrew/bin``. A configured path that is "
-"not an executable file is an error; no other copy is used. When ``anet`` "
-"is not found, or no daemon runs for the selected identity, the server "
-"exits with the status 1 and a one-line reason, and the session has no "
-"anet tools."
+"agrees, is a separate step; it writes the ``anet`` executable into a "
+"directory of the user and the data directory ``~/.anet`` "
+"(``%USERPROFILE%\\.anet`` on Windows). Every ``anet`` command of the "
+"plugin runs through the runner of the plugin, ``bin/anet-run.sh`` on "
+"Linux and macOS and ``bin/anet-run.cmd`` on Windows, which applies the "
+"two settings described under `Plugin settings`_. Without the setting "
+"``ANET_PLUGIN_BIN``, the runner looks for ``anet`` in the absolute "
+"directories of ``PATH``, then in ``~/.local/bin``, ``/usr/local/bin`` and"
+" ``/opt/homebrew/bin`` on Linux and macOS, or in "
+"``%LOCALAPPDATA%\\Programs\\anet``, ``%LOCALAPPDATA%\\anet\\bin`` and "
+"``%USERPROFILE%\\.anet-bin`` on Windows. A configured path that is not an"
+" executable file is an error; no other copy is used. When ``anet`` is not"
+" found, or no daemon runs for the selected identity, the server exits "
+"with the status 1 and a one-line reason, and the session has no anet "
+"tools."
 msgstr ""
-"该插件不含 Hook，不建立任何网络连接，自身也不写入任何文件。``anet`` 的安装是单独的步骤，仅在用户同意后执行，会写入 "
-"``~/.local/bin/anet`` 和数据目录 ``~/.anet``。插件的每条 ``anet`` 命令都经由脚本 ``bin"
-"/anet-run.sh`` 执行，该脚本应用 `插件设置项`_ 中所述的两项设置。未设置 ``ANET_PLUGIN_BIN`` 时，脚本先在 "
-"``PATH`` 中查找 ``anet``，再依次查找 ``~/.local/bin``、``/usr/local/bin`` 和 "
-"``/opt/homebrew/bin``。若所配置的路径不是可执行文件，则视为错误，不会改用其他副本。找不到 "
+"该插件不含 Hook，不建立任何网络连接，自身也不写入任何文件。``anet`` 的安装是单独的步骤，仅在用户同意后执行，会把 ``anet`` "
+"可执行文件写入用户自己的目录，并写入数据目录 ``~/.anet``\\ （Windows 上为 "
+"``%USERPROFILE%\\.anet``）。插件的每条 ``anet`` 命令都经由插件的运行脚本执行（Linux 和 macOS 上为 "
+"``bin/anet-run.sh``，Windows 上为 ``bin/anet-run.cmd``），运行脚本应用 `插件设置项`_ "
+"中所述的两项设置。未设置 ``ANET_PLUGIN_BIN`` 时，运行脚本先在 ``PATH`` 的绝对路径目录中查找 "
+"``anet``，然后在 Linux 和 macOS 上依次查找 ``~/.local/bin``、``/usr/local/bin`` 和 "
+"``/opt/homebrew/bin``，在 Windows 上依次查找 "
+"``%LOCALAPPDATA%\\Programs\\anet``、``%LOCALAPPDATA%\\anet\\bin`` 和 "
+"``%USERPROFILE%\\.anet-bin``。若所配置的路径不是可执行文件，则视为错误，不会改用其他副本。找不到 "
 "``anet``，或所选身份没有运行中的守护进程时，服务器以状态码 1 退出并给出一行原因，会话中不会出现 anet 工具。"
 
-#: ../../agents/cursor.rst:423
+#: ../../agents/cursor.rst:437
+#, python-brace-format
+msgid ""
+"The MCP server is declared as ``${CURSOR_PLUGIN_ROOT}/bin/anet-mcp``, "
+"without an extension and without arguments. On Linux and macOS this file "
+"is executable and starts ``bin/anet-mcp.sh``. On Windows, Cursor resolves"
+" the path with the extensions of ``PATHEXT`` and runs ``bin/anet-"
+"mcp.cmd``, which needs Windows PowerShell 5.1, a part of Windows. The "
+"shell of the agent on Windows is PowerShell, or Git Bash when Cursor runs"
+" inside it, so the skills and the commands name both runners."
+msgstr ""
+"MCP 服务器声明为 ``${CURSOR_PLUGIN_ROOT}/bin/anet-mcp``，不带扩展名，也不带参数。在 Linux 和 "
+"macOS 上，该文件可执行，并启动 ``bin/anet-mcp.sh``。在 Windows 上，Cursor 依据 ``PATHEXT`` "
+"中的扩展名解析该路径并运行 ``bin/anet-mcp.cmd``，后者需要 Windows 自带的 Windows PowerShell "
+"5.1。Agent 在 Windows 上使用的 shell 是 PowerShell；Cursor 在 Git Bash 中运行时则为 Git "
+"Bash，因此各技能和命令同时给出两种运行脚本。"
+
+#: ../../agents/cursor.rst:446
 msgid "Installing the plugin"
 msgstr "安装插件"
 
-#: ../../agents/cursor.rst:425
+#: ../../agents/cursor.rst:448
 msgid ""
 "The source of the plugin is ``deploy/plugins`` in the ANet repository; "
 "the generated Cursor plugin is ``deploy/plugins/dist/cursor``. The "
@@ -695,7 +746,7 @@ msgstr ""
 "插件的源码位于 ANet 仓库的 ``deploy/plugins``\\ ；生成的 Cursor 插件位于 "
 "``deploy/plugins/dist/cursor``\\ 。将该仓库添加为插件市场："
 
-#: ../../agents/cursor.rst:433
+#: ../../agents/cursor.rst:456
 msgid ""
 "Alternatively, import the same repository as a team marketplace in the "
 "Cursor dashboard. To try the plugin from a local copy, start the command-"
@@ -705,65 +756,64 @@ msgstr ""
 "也可以在 Cursor 控制台中将同一仓库导入为团队市场。若要从本地副本试用插件，请以 ``cursor-agent --plugin-dir "
 "<插件目录>`` 启动命令行程序。"
 
-#: ../../agents/cursor.rst:437
+#: ../../agents/cursor.rst:460
 msgid ""
-"The plugin requires Linux or macOS. Its launchers are POSIX shell scripts"
-" and do not run on Windows; on Windows, register ``anet`` with ``anet "
-"agents wire cursor``. The ``anet-setup`` skill installs ``anet`` when it "
-"is missing, and needs ``curl``, ``gzip`` and ``ssh-keygen`` (OpenSSH 8.1 "
-"or later) for that."
+"The plugin runs on Linux, macOS and Windows. The ``anet-setup`` skill "
+"installs ``anet`` when it is missing. On Linux and macOS it needs "
+"``curl``, ``gzip`` and ``ssh-keygen`` (OpenSSH 8.1 or later) for that; on"
+" Windows the installer runs with Windows PowerShell."
 msgstr ""
-"插件要求 Linux 或 macOS。其启动器是 POSIX shell 脚本，不能在 Windows 上运行；在 Windows 上，请用 "
-"``anet agents wire cursor`` 注册 ``anet``\\ 。\\ ``anet`` 缺失时，技能 ``anet-"
-"setup`` 会安装它，这需要 ``curl``\\ 、\\ ``gzip`` 和 ``ssh-keygen``\\ （OpenSSH 8.1 "
-"或更高版本）。"
+"该插件可在 Linux、macOS 和 Windows 上运行。``anet`` 缺失时，技能 ``anet-setup`` 会安装它。在 "
+"Linux 和 macOS 上，安装需要 ``curl``、``gzip`` 和 ``ssh-keygen``\\ （OpenSSH 8.1 "
+"或更高版本）；在 Windows 上，安装程序通过 Windows PowerShell 运行。"
 
-#: ../../agents/cursor.rst:444
+#: ../../agents/cursor.rst:466
 msgid "Setting up the node from Cursor"
 msgstr "在 Cursor 中设置节点"
 
-#: ../../agents/cursor.rst:446
+#: ../../agents/cursor.rst:468
 msgid "If ``anet`` is not installed or not running, ask in a session:"
 msgstr "若 ``anet`` 尚未安装或未运行，请在会话中输入："
 
-#: ../../agents/cursor.rst:452
+#: ../../agents/cursor.rst:474
 msgid ""
-"The agent follows the ``anet-setup`` skill. It looks for ``anet`` and "
-"reports the version. When ``anet`` is missing, it states what the "
-"installer does and runs it only after the user agrees; the installer is "
-"downloaded from ``agentnetwork.org.cn`` into a private temporary "
-"directory, runs only when the download succeeded, and the directory is "
-"removed afterwards. It starts the node with ``anet up``, asks which hub "
-"to join and under which name, runs ``anet hub-register``, and runs ``anet"
-" doctor``. The commands that change who may reach the machine or what it "
-"may spend (``anet peers``, ``anet inbound``, ``anet autoreply set``, the "
-"spending limits and ``anet pay``) are named by the agent and left to the "
-"user on a terminal. Start a new session afterwards, so that the MCP "
-"server starts."
+"The agent follows the ``anet-setup`` skill. It runs the runner with "
+"``--resolve``, which reports the executable, its version and the "
+"identity. When ``anet`` is missing, it states what the installer does and"
+" runs it only after the user agrees: ``bin/anet-install.sh`` on Linux and"
+" macOS and ``bin/anet-install.cmd`` on Windows run the official installer"
+" of ``agentnetwork.org.cn``. It then prints the setup guide of the "
+"installed ``anet`` with ``<runner> guide setup`` and follows it. The "
+"commands that change who may reach the machine or what it may spend "
+"(``anet peers``, ``anet inbound``, ``anet autoreply set``, the spending "
+"limits and ``anet pay``) are named by the agent and left to the user on a"
+" terminal. Start a new session afterwards, so that the MCP server starts."
 msgstr ""
-"智能体按技能 ``anet-setup`` 执行。它查找 ``anet`` 并报告版本。\\ ``anet`` "
-"缺失时，它先说明安装程序的作用，待用户同意后才运行；安装程序下载到私有临时目录，仅在下载成功后运行，结束后删除该目录，下载来源为 "
-"``agentnetwork.org.cn``\\ 。随后它用 ``anet up`` 启动节点，询问要加入的 hub 及使用的名称，运行 "
-"``anet hub-register``\\ ，并运行 ``anet doctor``\\ 。凡改变谁可以访问本机或可以支出多少的命令（\\ "
-"``anet peers``、\\ ``anet inbound``、\\ ``anet autoreply set``\\ 、支出限额和 "
-"``anet pay``\\ ），智能体只指明命令，交由用户在终端中执行。设置完成后请开启新会话，以便 MCP 服务器启动。"
+"Agent 按技能 ``anet-setup`` 执行。它以 ``--resolve`` "
+"运行运行脚本，报告可执行文件、其版本和身份。``anet`` 缺失时，它先说明安装程序的作用，并仅在用户同意后运行：Linux 和 macOS "
+"上的 ``bin/anet-install.sh`` 与 Windows 上的 ``bin/anet-install.cmd`` 运行 "
+"``agentnetwork.org.cn`` 的官方安装程序。随后，它用 ``<runner> guide setup`` 输出已安装 "
+"``anet`` 的设置指南并按其执行。会改变谁可以访问本机或本机可以支出多少的命令（``anet peers``、``anet "
+"inbound``、``anet autoreply set``、支出限额和 ``anet pay``）由 Agent "
+"指明，留给用户在终端中执行。完成后请启动新会话，以便 MCP 服务器启动。"
 
-#: ../../agents/cursor.rst:465
+#: ../../agents/cursor.rst:487
 msgid "Plugin verification"
 msgstr "插件验证"
 
-#: ../../agents/cursor.rst:467
+#: ../../agents/cursor.rst:489
 msgid ""
-"The steps below were run with a stand-in for the Cursor client, which "
-"started the server in the way the Cursor command-line bundle was found to"
-" start it. They were run with the plugin script ``bin/anet-run.sh``, the "
-"script ``bin/anet-mcp.sh`` and ``anet`` 0.3.3 in a fresh home directory:"
+"The steps below were run with an earlier version of the plugin and a "
+"stand-in for the Cursor client, which started the server in the way the "
+"Cursor command-line bundle was found to start it. They were run with the "
+"plugin script ``bin/anet-run.sh``, the script ``bin/anet-mcp.sh`` and "
+"``anet`` 0.3.3 in a fresh home directory:"
 msgstr ""
-"以下步骤使用 Cursor 客户端的替代程序执行，该程序按对 Cursor "
+"以下步骤使用插件的较早版本和 Cursor 客户端的替代程序执行，该程序按对 Cursor "
 "命令行程序包的分析所得的方式启动服务器。步骤在全新的主目录中，使用插件脚本 ``bin/anet-run.sh``、脚本 ``bin/anet-"
 "mcp.sh`` 和 ``anet`` 0.3.3 执行："
 
-#: ../../agents/cursor.rst:472
+#: ../../agents/cursor.rst:495
 msgid ""
 "``bin/anet-run.sh --resolve`` reported the executable in "
 "``~/.local/bin``, the version and the identity ``default``."
@@ -771,7 +821,7 @@ msgstr ""
 "``bin/anet-run.sh --resolve`` 报告了位于 ``~/.local/bin`` 的可执行文件、版本，以及身份 "
 "``default``\\ 。"
 
-#: ../../agents/cursor.rst:474
+#: ../../agents/cursor.rst:497
 msgid ""
 "``up``, ``hub-register`` and ``status`` through the script started the "
 "node, registered it at a hub and showed the key confirmed by the hub. "
@@ -781,132 +831,133 @@ msgstr ""
 "经脚本执行 ``up``、\\ ``hub-register`` 和 ``status``\\ ，节点已启动、已在 hub 注册，且密钥已由 "
 "hub 确认。``doctor`` 报告的各项检查均为 ``ok`` 或 ``info``\\ ，仅有一项预期的警告，即尚未设置身份恢复。"
 
-#: ../../agents/cursor.rst:478
+#: ../../agents/cursor.rst:501
 msgid ""
-"``bin/anet-mcp.sh`` listed the 14 tools. ``node_status`` and "
-"``list_agents`` worked, and a delegation through ``send_message``, "
+"``bin/anet-mcp.sh`` listed the tools of ``anet mcp``. ``node_status`` and"
+" ``list_agents`` worked, and a delegation through ``send_message``, "
 "``wait_task`` and ``get_task`` to a free capability ended in "
 "``TASK_STATE_COMPLETED`` with ``anet.effect_status`` ``OK`` and a "
 "verifiable receipt."
 msgstr ""
-"``bin/anet-mcp.sh`` 列出了 14 个工具。\\ ``node_status`` 与 ``list_agents`` "
-"正常工作；经 ``send_message``、\\ ``wait_task`` 和 ``get_task`` 向一项免费能力委派的任务，以 "
-"``TASK_STATE_COMPLETED`` 结束，``anet.effect_status`` 为 ``OK``\\ ，并带有可验证的回执。"
+"``bin/anet-mcp.sh`` 列出了 ``anet mcp`` 的工具。``node_status`` 与 "
+"``list_agents`` 正常工作；经 ``send_message``、``wait_task`` 和 ``get_task`` "
+"向一项免费能力委派的任务，以 ``TASK_STATE_COMPLETED`` 结束，``anet.effect_status`` 为 "
+"``OK``，并带有可验证的回执。"
 
-#: ../../agents/cursor.rst:482
+#: ../../agents/cursor.rst:505
 msgid ""
 "Without a running daemon, the script exits with the status 1 and the "
 "reason ``the daemon is not answering``."
 msgstr "没有运行中的守护进程时，脚本以状态 1 退出，原因为 ``the daemon is not answering``\\ 。"
 
-#: ../../agents/cursor.rst:485
+#: ../../agents/cursor.rst:508
 msgid ""
 "In Cursor itself, run ``/anet-status`` in a new session after the "
-"installation. The agent calls ``node_status`` and ``get_balance`` and "
-"reports the identity, the hub, the inbound policy and the limits. Whether"
-" Cursor lists the command under this name has not been observed; see "
-"`Plugin: not tested`_."
+"installation. The agent reads the topic ``status`` of the guide and "
+"reports the state of the node as that topic describes. A request for "
+"another agent is given with ``/anet`` followed by the request, or as a "
+"request that begins with ``@anet``. Whether Cursor lists the commands "
+"under these names has not been observed; see `Plugin: not tested`_."
 msgstr ""
-"在 Cursor 中，安装后请在新会话里运行 ``/anet-status``\\ 。智能体调用 ``node_status`` 和 "
-"``get_balance``\\ ，并报告身份、hub、入站策略和限额。Cursor 是否以此名称列出该命令，尚未观察到；参见 "
-"`插件：未经测试`_\\ 。"
+"在 Cursor 中，安装后请在新会话中运行 ``/anet-status``。Agent 阅读指南的主题 "
+"``status``，并按该主题所述报告节点状态。面向其他 Agent 的请求以 ``/anet`` 后接请求的形式给出，或以 ``@anet``"
+" 开头的请求给出。Cursor 是否以这些名称列出命令尚未观察到；参见 `插件：未经测试`_。"
 
-#: ../../agents/cursor.rst:491
+#: ../../agents/cursor.rst:516
 msgid "Plugin settings"
 msgstr "插件设置项"
 
-#: ../../agents/cursor.rst:493
+#: ../../agents/cursor.rst:518
 msgid ""
 "The plugin declares two optional variables. The MCP server receives their"
 " values as environment variables of the same names; an empty variable "
 "selects the default."
 msgstr "插件声明了两个可选变量。MCP 服务器以同名环境变量的形式接收它们的值；变量为空时使用默认值。"
 
-#: ../../agents/cursor.rst:501
+#: ../../agents/cursor.rst:526
 msgid "Variable"
 msgstr "变量"
 
-#: ../../agents/cursor.rst:502
+#: ../../agents/cursor.rst:527
 msgid "Meaning"
 msgstr "含义"
 
-#: ../../agents/cursor.rst:503
+#: ../../agents/cursor.rst:528
 msgid "``ANET_PLUGIN_IDENTITY``"
 msgstr "``ANET_PLUGIN_IDENTITY``"
 
-#: ../../agents/cursor.rst:504
+#: ../../agents/cursor.rst:529
 msgid ""
-"A named identity (``anet id ls``). Empty selects the default identity in "
-"``~/.anet``. The server then runs ``anet --id <name> mcp``."
-msgstr ""
-"命名身份（\\ ``anet id ls``\\ ）。为空时选择 ``~/.anet`` 中的默认身份。服务器随后运行 ``anet --id "
-"<name> mcp``\\ 。"
+"A named identity (``anet id ls``). Empty selects the default identity. "
+"The server then runs ``anet --id <name> mcp``."
+msgstr "具名身份（``anet id ls``）。为空时选用默认身份。此时服务器运行 ``anet --id <name> mcp``。"
 
-#: ../../agents/cursor.rst:506
+#: ../../agents/cursor.rst:531
 msgid "``ANET_PLUGIN_BIN``"
 msgstr "``ANET_PLUGIN_BIN``"
 
-#: ../../agents/cursor.rst:507
+#: ../../agents/cursor.rst:532
 msgid ""
-"The absolute path of the ``anet`` executable. Empty searches the "
-"locations named above."
-msgstr "``anet`` 可执行文件的绝对路径。为空时在上述位置中查找。"
+"The absolute path of the ``anet`` executable (``anet.exe`` on Windows). "
+"Empty searches the locations named above."
+msgstr "``anet`` 可执行文件的绝对路径（Windows 上为 ``anet.exe``）。为空时在上文列出的位置中查找。"
 
-#: ../../agents/cursor.rst:510
+#: ../../agents/cursor.rst:535
 msgid ""
 "Cursor has no per-user settings file for a plugin. The setup skill and "
-"the status command run ``bin/anet-run.sh`` in a shell of the agent, where"
-" the script reads the same two names from the environment; a non-default "
-"value may therefore have to be set both in the plugin configuration and "
-"in that environment. With the identity ``work`` selected while only the "
-"default identity runs, the script exits with the status 1, reports that "
-"``anet`` is not running for the data directory of ``work``, and names the"
-" command to start it. With an ``ANET_PLUGIN_BIN`` that is not an "
-"executable file, the script exits with the status 1 and the message that "
-"the setting names a file that is not executable; nothing is installed."
+"the commands run the runner in a shell of the agent, where the runner "
+"reads the same two names from the environment; a non-default value may "
+"therefore have to be set both in the plugin configuration and in that "
+"environment. With the identity ``work`` selected while only the default "
+"identity runs, the script exits with the status 1, reports that ``anet`` "
+"is not running for the data directory of ``work``, and names the command "
+"to start it. With an ``ANET_PLUGIN_BIN`` that is not an executable file, "
+"the script exits with the status 1 and the message that the setting names"
+" a file that is not executable; nothing is installed."
 msgstr ""
-"Cursor 没有针对单个用户的插件设置文件。设置技能与状态命令在智能体的 shell 中运行 ``bin/anet-run.sh``\\ "
-"，脚本从该环境中读取同样的两个名称；因此，非默认值可能需要同时在插件配置和该环境中设置。选择身份 ``work``\\ "
-"而仅有默认身份在运行时，脚本以状态 1 退出，报告 ``work`` 的数据目录下 ``anet`` 未运行，并给出启动命令。\\ "
-"``ANET_PLUGIN_BIN`` 不是可执行文件时，脚本以状态 1 退出，并提示该设置所指的文件不可执行；不会安装任何内容。"
+"Cursor 没有针对单个用户的插件设置文件。设置技能与各命令在 Agent 的 shell "
+"中运行运行脚本，运行脚本从该环境中读取同样的两个名称；因此，非默认值可能需要同时在插件配置和该环境中设置。选择身份 ``work`` "
+"而仅有默认身份在运行时，脚本以状态 1 退出，报告 ``work`` 的数据目录下 ``anet`` "
+"未运行，并给出启动命令。``ANET_PLUGIN_BIN`` 不是可执行文件时，脚本以状态 1 "
+"退出，并提示该设置所指的文件不可执行；不会安装任何内容。"
 
-#: ../../agents/cursor.rst:522
+#: ../../agents/cursor.rst:547
 msgid "Updating and removing the plugin"
 msgstr "更新和移除插件"
 
-#: ../../agents/cursor.rst:524
+#: ../../agents/cursor.rst:549
 msgid ""
-"A new version of the plugin is taken from the marketplace by the update "
-"function of Cursor. ``anet update`` updates ANet itself, independently of"
-" the plugin. Removing the plugin does not change the node: the identity "
-"in ``~/.anet`` and the running daemon remain. :doc:`../intro/install` "
+"Version 0.2.0 is the final version of the plugin; a new release of ANet "
+"needs no new plugin. ``anet update`` updates ANet itself, independently "
+"of the plugin. Removing the plugin does not change the node: the identity"
+" in ``~/.anet`` and the running daemon remain. :doc:`../intro/install` "
 "describes how to stop the node and remove ANet."
 msgstr ""
-"插件的新版本由 Cursor 的更新功能从市场获取。\\ ``anet update`` 更新 ANet "
-"本身，与插件无关。移除插件不会改变节点：``~/.anet`` 中的身份和运行中的守护进程保持不变。停止节点和移除 ANet 的方法见 "
-":doc:`../intro/install`\\ 。"
+"0.2.0 是该插件的最终版本；ANet 发布新版本时无需新的插件。``anet update`` 更新 ANet "
+"本身，与插件相互独立。移除插件不会改变节点：``~/.anet`` 中的身份和运行中的守护进程保持不变。停止节点和移除 ANet 的方法见 "
+":doc:`../intro/install`。"
 
-#: ../../agents/cursor.rst:531
+#: ../../agents/cursor.rst:557
 msgid "Plugin: not tested"
 msgstr "插件：未经测试"
 
-#: ../../agents/cursor.rst:533
+#: ../../agents/cursor.rst:559
 msgid ""
 "The command-line agent of Cursor requires a Cursor account, and no run "
 "with the real client was possible. The following has not been observed:"
 msgstr "Cursor 命令行智能体需要 Cursor 账户，因此无法使用真实客户端运行。以下内容尚未观察到："
 
-#: ../../agents/cursor.rst:536
+#: ../../agents/cursor.rst:562
 #, python-brace-format
 msgid ""
 "That Cursor loads the plugin, starts the server from "
-"``${CURSOR_PLUGIN_ROOT}/bin/anet-mcp.sh``, lists the skills and the "
-"command, and runs ``/anet-status``."
+"``${CURSOR_PLUGIN_ROOT}/bin/anet-mcp``, lists the skills and the "
+"commands, and runs ``/anet`` and ``/anet-status``."
 msgstr ""
-"Cursor 是否加载插件、是否从 ``${CURSOR_PLUGIN_ROOT}/bin/anet-mcp.sh`` "
-"启动服务器、是否列出技能和命令，以及 ``/anet-status`` 是否可运行。"
+"Cursor 是否加载插件、是否从 ``${CURSOR_PLUGIN_ROOT}/bin/anet-mcp`` "
+"启动服务器、是否列出技能和命令，以及 ``/anet`` 和 ``/anet-status`` 是否可运行。"
 
-#: ../../agents/cursor.rst:539
+#: ../../agents/cursor.rst:565
 msgid ""
 "Where Cursor takes the values of ``ANET_PLUGIN_IDENTITY`` and "
 "``ANET_PLUGIN_BIN`` from in the desktop application and in the command-"
@@ -916,16 +967,16 @@ msgstr ""
 "在桌面应用和命令行智能体中，Cursor 从何处获取 ``ANET_PLUGIN_IDENTITY`` 与 ``ANET_PLUGIN_BIN``"
 " 的值，以及个人套餐的用户能否设置插件变量。Cursor 文档仅描述了团队控制台。"
 
-#: ../../agents/cursor.rst:543
+#: ../../agents/cursor.rst:569
 msgid ""
 "That the agent resolves the path ``<skill-dir>/../../bin/anet-run.sh`` of"
-" the skills and the ``<plugin-root>`` of the status command, because "
-"Cursor has no skill-directory variable."
+" the skills and the ``<plugin-root>`` of the commands, because Cursor has"
+" no skill-directory variable."
 msgstr ""
-"智能体能否解析技能中的路径 ``<skill-dir>/../../bin/anet-run.sh`` 以及状态命令中的 ``<plugin-"
-"root>``\\ ，因为 Cursor 没有技能目录变量。"
+"Agent 能否解析技能中的路径 ``<skill-dir>/../../bin/anet-run.sh`` 以及命令中的 ``<plugin-"
+"root>``，因为 Cursor 没有技能目录变量。"
 
-#: ../../agents/cursor.rst:546
+#: ../../agents/cursor.rst:572
 msgid ""
 "Adding the ANet repository as a marketplace, which needs the catalogue "
 "file ``.cursor-plugin/marketplace.json`` at the repository root, and the "
@@ -935,33 +986,37 @@ msgstr ""
 "将 ANet 仓库添加为市场（这需要仓库根目录下的目录文件 ``.cursor-plugin/marketplace.json``\\ "
 "），以及嵌套的插件路径在正式产品中的表现。目录文件和插件清单已通过 Cursor 插件仓库的模式校验器。"
 
-#: ../../agents/cursor.rst:550
+#: ../../agents/cursor.rst:576
 msgid ""
 "The setup skill driven by a model, including the installer download in "
 "this flow, and the wording of the skills in a model session."
 msgstr "由模型驱动的设置技能（包括该流程中的安装程序下载），以及技能措辞在模型会话中的表现。"
 
-#: ../../agents/cursor.rst:552
+#: ../../agents/cursor.rst:578
 msgid ""
-"The plugin on macOS, ``anet agents wire cursor`` on Windows, the PATH of "
-"the desktop application, and the review for the Cursor Marketplace."
+"The plugin on macOS and on Windows, ``anet agents wire cursor`` on "
+"Windows, the PATH of the desktop application, and the review for the "
+"Cursor Marketplace. The Windows launch through ``bin/anet-mcp.cmd`` "
+"follows from the Cursor Agent program for Windows, and the Windows runner"
+" is tested with PowerShell."
 msgstr ""
-"macOS 上的插件、Windows 上的 ``anet agents wire cursor``\\ 、桌面应用的 PATH，以及 Cursor"
-" Marketplace 的审核。"
+"macOS 和 Windows 上的插件、Windows 上的 ``anet agents wire cursor``、桌面应用的 PATH，以及"
+" Cursor Marketplace 的审核。经由 ``bin/anet-mcp.cmd`` 在 Windows 上启动的方式依据 "
+"Windows 版 Cursor Agent 程序得出，Windows 运行脚本已用 PowerShell 测试。"
 
-#: ../../agents/cursor.rst:556
+#: ../../agents/cursor.rst:585
 msgid "Plugin: troubleshooting"
 msgstr "插件：故障排除"
 
-#: ../../agents/cursor.rst:562
+#: ../../agents/cursor.rst:591
 msgid "Symptom"
 msgstr "现象"
 
-#: ../../agents/cursor.rst:564
+#: ../../agents/cursor.rst:593
 msgid "The session has no anet tools."
 msgstr "会话中没有 anet 工具。"
 
-#: ../../agents/cursor.rst:565
+#: ../../agents/cursor.rst:594
 msgid ""
 "Run ``anet status`` in a terminal. ``[daemon_not_running]``: run ``anet "
 "up``. ``anet`` not found: set ``ANET_PLUGIN_BIN`` or ask the agent to run"
@@ -971,89 +1026,89 @@ msgstr ""
 " 。找不到 ``anet``\\ ：设置 ``ANET_PLUGIN_BIN``\\ ，或请智能体运行技能 ``anet-setup``\\ "
 "。然后开启新会话。"
 
-#: ../../agents/cursor.rst:568
+#: ../../agents/cursor.rst:597
 msgid "Two ``anet`` servers are listed."
 msgstr "列出了两个 ``anet`` 服务器。"
 
-#: ../../agents/cursor.rst:569
+#: ../../agents/cursor.rst:598
 msgid ""
 "The plugin and ``anet agents wire cursor`` are both active. Run ``anet "
 "agents unwire cursor``."
 msgstr "插件与 ``anet agents wire cursor`` 同时生效。运行 ``anet agents unwire cursor``\\ 。"
 
-#: ../../agents/cursor.rst:571
+#: ../../agents/cursor.rst:600
 msgid "``wait_task`` ends while the task is still working."
 msgstr "``wait_task`` 在任务仍在进行时结束。"
 
-#: ../../agents/cursor.rst:572
+#: ../../agents/cursor.rst:601
 msgid ""
 "This is normal for long tasks. Call ``wait_task`` again and do not send "
 "the task again."
 msgstr "长任务出现这种情况属正常。再次调用 ``wait_task``\\ ，不要重新发送任务。"
 
-#: ../../agents/cursor.rst:574
+#: ../../agents/cursor.rst:603
 msgid "A refusal ends with a code in brackets."
 msgstr "拒绝信息以方括号中的代码结尾。"
 
-#: ../../agents/cursor.rst:575
+#: ../../agents/cursor.rst:604
 msgid "See :doc:`../reference/reason-codes`."
 msgstr "参见 :doc:`../reference/reason-codes`\\ 。"
 
-#: ../../agents/cursor.rst:577
+#: ../../agents/cursor.rst:606
 msgid ""
 "The source of the plugin is ``deploy/plugins`` in the ANet repository "
 "(target ``cursor`` of the plugin generator)."
 msgstr "插件的源码位于 ANet 仓库的 ``deploy/plugins``\\ （插件生成器的目标 ``cursor``\\ ）。"
 
-#: ../../agents/cursor.rst:582
+#: ../../agents/cursor.rst:611
 msgid "Reference"
 msgstr "参考"
 
-#: ../../agents/cursor.rst:584
+#: ../../agents/cursor.rst:613
 msgid "Cursor documentation:"
 msgstr "Cursor 文档："
 
-#: ../../agents/cursor.rst:586
+#: ../../agents/cursor.rst:615
 msgid "`Model Context Protocol <https://cursor.com/docs/context/mcp>`_"
 msgstr "`模型上下文协议 <https://cursor.com/docs/context/mcp>`_"
 
-#: ../../agents/cursor.rst:587
+#: ../../agents/cursor.rst:616
 msgid "`Rules <https://cursor.com/docs/context/rules>`_"
 msgstr "`规则 <https://cursor.com/docs/context/rules>`_"
 
-#: ../../agents/cursor.rst:588
+#: ../../agents/cursor.rst:617
 msgid "`CLI: MCP <https://cursor.com/docs/cli/mcp>`_"
 msgstr "`CLI：MCP <https://cursor.com/docs/cli/mcp>`_"
 
-#: ../../agents/cursor.rst:589
+#: ../../agents/cursor.rst:618
 msgid "`CLI: installation <https://cursor.com/docs/cli/installation>`_"
 msgstr "`CLI：安装 <https://cursor.com/docs/cli/installation>`_"
 
-#: ../../agents/cursor.rst:590
+#: ../../agents/cursor.rst:619
 msgid "`CLI: usage <https://cursor.com/docs/cli/using>`_"
 msgstr "`CLI：使用 <https://cursor.com/docs/cli/using>`_"
 
-#: ../../agents/cursor.rst:591
+#: ../../agents/cursor.rst:620
 msgid "`CLI: parameters <https://cursor.com/docs/cli/reference/parameters>`_"
 msgstr "`CLI：参数 <https://cursor.com/docs/cli/reference/parameters>`_"
 
-#: ../../agents/cursor.rst:593
+#: ../../agents/cursor.rst:622
 msgid "ANet pages:"
 msgstr "ANet 页面："
 
-#: ../../agents/cursor.rst:595
+#: ../../agents/cursor.rst:624
 msgid ":doc:`../howto/coding-agents`"
 msgstr ":doc:`../howto/coding-agents`"
 
-#: ../../agents/cursor.rst:596
+#: ../../agents/cursor.rst:625
 msgid ":doc:`../howto/mcp`"
 msgstr ":doc:`../howto/mcp`"
 
-#: ../../agents/cursor.rst:597
+#: ../../agents/cursor.rst:626
 msgid ":doc:`../reference/mcp-tools`"
 msgstr ":doc:`../reference/mcp-tools`"
 
-#: ../../agents/cursor.rst:598
+#: ../../agents/cursor.rst:627
 msgid ":doc:`../reference/cli`"
 msgstr ":doc:`../reference/cli`"
 

@@ -15,9 +15,9 @@
       config:
         serverName: __SERVER_NAME__
         transport: stdio
-        command: sh
-        args:
-          - !!js "ctx.anetPlugin.root + '/bin/anet-mcp.sh'"
+        # bin/anet-mcp on Linux and macOS; on Windows the same path selects bin/anet-mcp.cmd.
+        command: !!js "ctx.anetPlugin.root + '/bin/anet-mcp'"
+        args: []
         env:
           ANET_PLUGIN_BIN: !!js "ctx.anetPlugin.settings.anetPath"
           ANET_PLUGIN_IDENTITY: !!js "ctx.anetPlugin.settings.identity"

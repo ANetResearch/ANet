@@ -1,10 +1,8 @@
 {
   "mcpServers": {
     "anet": {
-      "command": "sh",
-      "args": [
-        "./bin/anet-mcp.sh"
-      ],
+      "command": "./bin/anet-mcp",
+      "args": [],
       "cwd": ".",
       "env_vars": [
         "ANET_PLUGIN_IDENTITY",

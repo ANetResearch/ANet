@@ -59,8 +59,9 @@ class ManifestTests(unittest.TestCase):
             sorted(self.ctx.files),
             sorted([
                 ".codex-plugin/plugin.json", ".mcp.json", "LICENSE", "README.md", "README_CN.md", "assets/icon.png",
-                "bin/anet-install.sh", "bin/anet-mcp.sh", "bin/anet-run.sh", "skills/anet-setup/SKILL.md", "skills/anet-status/SKILL.md",
-                "skills/anet/SKILL.md",
+                "bin/anet-install.cmd", "bin/anet-install.sh", "bin/anet-mcp", "bin/anet-mcp.cmd", "bin/anet-mcp.sh",
+                "bin/anet-run.cmd", "bin/anet-run.ps1", "bin/anet-run.sh", "skills/anet-setup/SKILL.md",
+                "skills/anet-status/SKILL.md", "skills/anet/SKILL.md",
             ]),
         )
 
@@ -125,10 +126,14 @@ class McpConfigTests(unittest.TestCase):
         servers = self.mcp["mcpServers"]
         self.assertEqual(list(servers), ["anet"])
         s = servers["anet"]
-        self.assertEqual(s["command"], "sh")
-        self.assertEqual(s["args"], ["./bin/anet-mcp.sh"])
+        # Relative to cwd ".", the plugin root: bin/anet-mcp on Linux and macOS, bin/anet-mcp.cmd on
+        # Windows, where Codex resolves the program with which::which_in and PATHEXT.
+        self.assertEqual(s["command"], "./bin/anet-mcp")
+        self.assertEqual(s["args"], [])
         self.assertEqual(s["cwd"], ".")
-        self.assertIn(s["args"][0][2:], self.ctx.files)
+        self.assertIn(s["command"][2:], self.ctx.files)
+        self.assertTrue(self.ctx.files[s["command"][2:]].executable)
+        self.assertIn(s["command"][2:] + ".cmd", self.ctx.files)
         self.assertEqual(s["tool_timeout_sec"], self.ctx.meta["mcp"]["timeout_ms"] // 1000)
 
     def test_no_variable_is_expanded_in_the_legacy_format(self):
@@ -191,15 +196,13 @@ class TextTests(unittest.TestCase):
         status = self.texts["skills/anet-status/SKILL.md"]
         self.assertTrue(status.endswith(body))
         self.assertIn(json.dumps(description.rstrip(".") + ".", ensure_ascii=False)[1:-1], status)
-        self.assertIn("Resolve them first", status)
-        self.assertNotIn("resolved when the command started", status)
+        self.assertIn("topic `status`", status)
+        self.assertIn('"<skill-dir>/../../bin/anet-run.cmd"', status)
 
-    def test_guide_is_unchanged(self):
-        # The part generated from guide.go is a prefix of the shared skill; the target changes only the tail.
-        shared = (PLUGINS / "common/skills/anet/SKILL.md").read_text(encoding="utf-8")
-        cut = shared.index("## When something is off")
-        generated = shared[:cut]
-        self.assertTrue(self.texts["skills/anet/SKILL.md"].startswith(generated))
+    def test_skill_anet_is_the_entry_point(self):
+        text = self.texts["skills/anet/SKILL.md"]
+        self.assertIn("invokes this skill with a request", text)
+        self.assertIn("$anet:anet", self.texts["README.md"])
 
     def test_settings_section_names_the_variables_in_both_languages(self):
         for readme in ("README.md", "README_CN.md"):
@@ -210,7 +213,7 @@ class TextTests(unittest.TestCase):
             self.assertIn("anet-status", text, readme)
         self.assertIn("codex plugin marketplace add ANetResearch/ANet", self.texts["README.md"])
         self.assertIn("anet@agentnetwork", self.texts["README_CN.md"])
-        self.assertIn("on Windows, register anet with `anet agents wire`", self.texts["README.md"])
+        self.assertIn("Windows PowerShell 5.1", self.texts["README.md"])
 
     def test_readme_does_not_promise_a_command(self):
         self.assertNotIn("| Command |", self.texts["README.md"])

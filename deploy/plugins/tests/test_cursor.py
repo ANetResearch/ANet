@@ -99,13 +99,15 @@ class McpTests(unittest.TestCase):
         cls.plugin = json_of(cls.ctx, ".cursor-plugin/plugin.json")
         cls.mcp = json_of(cls.ctx, "mcp.json")
 
-    def test_one_stdio_server_started_with_sh(self):
+    def test_one_stdio_server_started_by_its_path(self):
+        # bin/anet-mcp on Linux and macOS, bin/anet-mcp.cmd on Windows (PATHEXT); see the module docstring.
         servers = self.mcp["mcpServers"]
         self.assertEqual(list(servers), [self.meta["mcp"]["server_name"]])
         server = servers["anet"]
-        self.assertEqual(server["command"], "sh")
-        self.assertEqual(server["args"], ["${CURSOR_PLUGIN_ROOT}/bin/anet-mcp.sh"])
-        self.assertTrue(self.ctx.files["bin/anet-mcp.sh"])
+        self.assertEqual(server["command"], "${CURSOR_PLUGIN_ROOT}/bin/anet-mcp")
+        self.assertEqual(server["args"], [])
+        self.assertTrue(self.ctx.files["bin/anet-mcp"].executable)
+        self.assertIn("bin/anet-mcp.cmd", self.ctx.files)
 
     def test_every_variable_is_declared_and_has_an_empty_default(self):
         declared = self.plugin["variables"]["properties"]
@@ -187,39 +189,39 @@ class ComponentTests(unittest.TestCase):
         fields, body = g.split_frontmatter(text_of(self.ctx, path))
         return fields, body
 
-    def test_skills_have_name_and_description_and_the_guide(self):
+    def test_skills_have_name_and_description_and_defer_to_the_guide(self):
         for name in ("anet", "anet-setup"):
             fields, _ = self.frontmatter(f"skills/{name}/SKILL.md")
             self.assertEqual(fields["name"], name)
             self.assertTrue(fields["description"])
-        guide = (PLUGINS / "common" / "skills" / "anet" / "SKILL.md").read_text(encoding="utf-8")
-        body = guide.split("\n## When something is off\n")[0]
-        self.assertTrue(text_of(self.ctx, "skills/anet/SKILL.md").startswith(body))
+        self.assertIn("@anet", self.frontmatter("skills/anet/SKILL.md")[0]["description"])
+        self.assertIn("<runner> guide setup", text_of(self.ctx, "skills/anet-setup/SKILL.md"))
 
-    def test_command_has_name_and_description(self):
-        fields, body = self.frontmatter("commands/anet-status.md")
-        self.assertEqual(fields["name"], "anet-status")
-        self.assertTrue(fields["description"])
-        self.assertNotIn("!`", body, "Cursor commands have no inline execution")
-        self.assertNotIn("$ARGUMENTS", body, "Cursor commands have no argument variable")
-        self.assertNotIn("{{", body)
+    def test_commands_have_name_and_description(self):
+        for name in ("anet", "anet-status"):
+            fields, body = self.frontmatter(f"commands/{name}.md")
+            self.assertEqual(fields["name"], name)
+            self.assertTrue(fields["description"])
+            self.assertNotIn("!`", body, "Cursor commands have no inline execution")
+            self.assertNotIn("$ARGUMENTS", body, "Cursor commands have no argument variable")
+            self.assertNotIn("{{", body)
+            self.assertIn("`<plugin-root>` is the root directory of the anet plugin", body)
 
-    def test_status_command_corrects_the_hint_of_a_stopped_daemon(self):
+    def test_status_command_defers_to_the_guide(self):
         _, body = self.frontmatter("commands/anet-status.md")
-        self.assertIn("names the default identity", body)
-        self.assertIn("ANET_PLUGIN_IDENTITY", body)
+        self.assertIn("topic `status`", body)
+        self.assertIn("<runner> guide status", body)
 
-    def test_both_scripts_are_executable(self):
-        for rel in ("bin/anet-run.sh", "bin/anet-mcp.sh"):
+    def test_scripts_are_executable(self):
+        for rel in ("bin/anet-run.sh", "bin/anet-mcp.sh", "bin/anet-mcp", "bin/anet-install.sh"):
             self.assertTrue(self.ctx.files[rel].executable, rel)
 
     def test_runner_is_named_in_the_syntax_the_agent_can_resolve(self):
-        setup = text_of(self.ctx, "skills/anet-setup/SKILL.md")
-        self.assertIn('sh "<skill-dir>/../../bin/anet-run.sh" --resolve', setup)
-        self.assertIn("`<skill-dir>` is the directory that contains this `SKILL.md` file", setup)
-        guide = text_of(self.ctx, "skills/anet/SKILL.md")
-        self.assertIn("<skill-dir>/../../bin/anet-run.sh", guide)
-        self.assertIn("`<skill-dir>` is the directory that contains this `SKILL.md` file", guide)
+        for rel in ("skills/anet-setup/SKILL.md", "skills/anet/SKILL.md"):
+            text = text_of(self.ctx, rel)
+            self.assertIn('sh "<skill-dir>/../../bin/anet-run.sh"', text, rel)
+            self.assertIn('"<skill-dir>/../../bin/anet-run.cmd"', text, rel)
+            self.assertIn("`<skill-dir>` is the directory that contains this `SKILL.md` file", text, rel)
         # The relative path really reaches the runner from a skill directory.
         self.assertIn("bin/anet-run.sh", self.ctx.files)
         self.assertEqual(Path("skills/anet-setup", "../../bin/anet-run.sh").as_posix().count(".."), 2)
@@ -227,17 +229,19 @@ class ComponentTests(unittest.TestCase):
     def test_setup_rules_are_kept(self):
         setup = text_of(self.ctx, "skills/anet-setup/SKILL.md")
         self.assertIn("bin/anet-install.sh", setup)
+        self.assertIn("bin/anet-install.cmd", setup)
         self.assertNotIn("$(", setup)
-        self.assertIn("Never read, print or copy files under `~/.anet`", setup)
-        self.assertIn("Do not run them on the user's behalf", setup)
-        self.assertIn("On Windows, stop", setup)
+        self.assertIn("Never read, print or copy the files of the anet data directory (`~/.anet`", setup)
+        self.assertIn("not run them on the user's behalf", setup)
+        self.assertIn("Pass no options to the installer", setup)
         # No settings file of Cursor exists; the text must not tell the agent about one.
         self.assertNotIn("~/.cursor", setup)
 
     def test_readme_states_windows_and_settings(self):
         readme = text_of(self.ctx, "README.md")
-        self.assertIn("anet runs on Linux, macOS and Windows", readme)
-        self.assertIn("on Windows, register anet with `anet agents wire`", readme)
+        self.assertIn("Linux, macOS or Windows", readme)
+        self.assertIn("Windows PowerShell 5.1", readme)
+        self.assertIn("`/anet`", readme)
         self.assertIn("ANET_PLUGIN_BIN", readme)
         self.assertIn("cursor-agent --plugin-dir", readme)
         self.assertNotIn("{{", readme)
@@ -245,19 +249,17 @@ class ComponentTests(unittest.TestCase):
         self.assertIn("ANET_PLUGIN_IDENTITY", cn)
         self.assertNotIn("{{", cn)
 
-    def test_scripts_are_started_with_sh(self):
-        # An archive or a checkout may lose the executable bit; nothing may depend on it.
-        mcp = json_of(self.ctx, "mcp.json")["mcpServers"]["anet"]
-        self.assertEqual(mcp["command"], "sh")
-        self.assertIn('sh "<skill-dir>', text_of(self.ctx, "skills/anet-setup/SKILL.md"))
+    def test_runners_of_the_texts_are_started_with_sh(self):
+        # The texts start the POSIX runner with sh, so a lost executable bit does not stop them.
         self.assertTrue(self.ctx.vars["RUNNER_FROM_SKILL"].startswith("<skill-dir>"))
-        mcp_launcher = text_of(self.ctx, "bin/anet-mcp.sh")
-        self.assertIn('exec sh "$(dirname "$0")/anet-run.sh" mcp', mcp_launcher)
+        self.assertIn('exec sh "$(dirname "$0")/anet-mcp.sh"', text_of(self.ctx, "bin/anet-mcp"))
+        self.assertIn('exec sh "$(dirname "$0")/anet-run.sh" mcp', text_of(self.ctx, "bin/anet-mcp.sh"))
 
-    def test_transform_fails_when_a_shared_source_changes(self):
+    def test_transform_fails_when_a_shared_command_changes(self):
         mod = self.ctx.module
-        with self.assertRaises(ValueError):
-            mod.transform(self.ctx, "skills/anet-setup/SKILL.md", "no marker here\n", "en")
+        for name in ("anet", "anet-status"):
+            with self.assertRaises(ValueError):
+                mod.transform(self.ctx, f"commands/{name}.md", "no marker here\n", "en")
 
     def test_validate_rejects_a_setting_that_cannot_be_a_plugin_variable(self):
         mod = self.ctx.module
@@ -299,13 +301,13 @@ class LauncherTests(unittest.TestCase):
     def tearDownClass(cls):
         cls.tmp.cleanup()
 
-    def run_mcp(self, env_extra, script="anet-mcp.sh", args=()):
-        # The stdio transport of Cursor passes HOME, PATH and the configured env only.
+    def run_mcp(self, env_extra, script="anet-mcp", args=()):
+        # The stdio transport of Cursor passes HOME, PATH and the configured env only. bin/anet-mcp is run by
+        # its path, as mcp.json names it; the runner is run with sh, as the skills name it.
         env = {"HOME": str(self.home), "PATH": "/usr/bin:/bin"}
         env.update(env_extra)
-        return subprocess.run(
-            ["sh", str(self.plugin / "bin" / script), *args], env=env, capture_output=True, text=True, timeout=30
-        )
+        argv = [str(self.plugin / "bin" / script)] if script == "anet-mcp" else ["sh", str(self.plugin / "bin" / script)]
+        return subprocess.run([*argv, *args], env=env, capture_output=True, text=True, timeout=30)
 
     def test_empty_variables_use_the_default_search(self):
         # What mcp.json yields when nothing is configured: both variables empty.
@@ -350,7 +352,7 @@ class LauncherTests(unittest.TestCase):
 
     def test_missing_anet_exits_1_with_a_reason(self):
         env = {"HOME": str(self.plugin), "PATH": "/usr/bin:/bin"}
-        r = subprocess.run(["sh", str(self.plugin / "bin" / "anet-mcp.sh")], env=env, capture_output=True, text=True, timeout=30)
+        r = subprocess.run([str(self.plugin / "bin" / "anet-mcp")], env=env, capture_output=True, text=True, timeout=30)
         if Path("/usr/local/bin/anet").exists() or Path("/opt/homebrew/bin/anet").exists():
             self.skipTest("an anet executable exists in a system directory")
         self.assertEqual(r.returncode, 1)

@@ -63,7 +63,9 @@ assert.throws(() => plugin.resolveSettings([], {}), /mapping/)
 }
 
 // shellDoubleQuoted and parseSkill.
-assert.equal(skills.shellDoubleQuoted('a"b$c`d\\e f'), 'a\\"b\\$c\\`d\\\\e f')
+assert.equal(skills.shellDoubleQuoted('a"b$c`d\\e f', 'linux'), 'a\\"b\\$c\\`d\\\\e f')
+// On Windows the bundle path is written as it is (PowerShell and cmd take no backslash escape).
+assert.equal(skills.shellDoubleQuoted('C:\\Users\\a b\\dsh-anet', 'win32'), 'C:\\Users\\a b\\dsh-anet')
 {
   const { fields, body } = skills.parseSkill('---\nname: x-y\ndescription: "A \\"quoted\\" word: ok"\nplain: value here\n---\n\nBody\n')
   assert.deepEqual(fields, { name: 'x-y', description: 'A "quoted" word: ok', plain: 'value here' })
@@ -84,9 +86,10 @@ assert.throws(() => skills.parseSkill('---\nname: x\n---\nbody'), /lacks descrip
     assert.ok(s.resourceBase.path.endsWith(s.name))
   }
   const setup = loaded.find((s) => s.name === 'anet-setup')
-  assert.ok(setup.content.includes(`sh "${bundle}/bin/anet-run.sh" --resolve`))
+  assert.ok(setup.content.includes(`sh "${bundle}/bin/anet-run.sh"`))
   const status = loaded.find((s) => s.name === 'anet-status')
-  assert.ok(status.content.includes(`sh "${bundle}/bin/anet-run.sh" --resolve`))
+  assert.ok(status.content.includes(`sh "${bundle}/bin/anet-run.sh"`))
+  assert.ok(status.content.includes(`"${bundle}/bin/anet-run.cmd"`))
 }
 
 // A root path with characters that are special in double quotes stays one word.

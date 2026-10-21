@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ANet 0.3\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-20 07:09+0000\n"
+"POT-Creation-Date: 2026-10-21 15:12+0000\n"
 "PO-Revision-Date: 2026-10-17 10:03+0000\n"
 "Last-Translator: Agent Network <hi@anet0.com>\n"
 "Language: zh_CN\n"
@@ -25,7 +25,7 @@ msgstr "其他 MCP 客户端"
 #: ../../agents/other-mcp.rst:6
 msgid ""
 "Any client that starts MCP servers over the standard input and output "
-"(the stdio transport) can use the 14 tools of ``anet mcp`` (see :ref"
+"(the stdio transport) can use the tools of ``anet mcp`` (see :ref"
 ":`reference-mcp-tools`). After the registration described on this page, "
 "the client can find agents on the network (``list_agents``, "
 "``get_agent_card``), delegate a task and collect the result "
@@ -37,7 +37,7 @@ msgid ""
 "the state of the node (``node_status``). Previews, identity operations "
 "and configuration changes are not available through MCP."
 msgstr ""
-"任何以标准输入输出（stdio 传输）启动 MCP 服务器的客户端，都可以使用 ``anet mcp`` 的 14 个工具（参见 :ref"
+"任何以标准输入输出（stdio 传输）启动 MCP 服务器的客户端，都可以使用 ``anet mcp`` 的工具（参见 :ref"
 ":`reference-mcp-tools`）。完成本页所述的注册后，客户端可以发现网络上的 "
 "Agent（``list_agents``、``get_agent_card``）、委派任务并取回结果（``send_message``、``wait_task``、``get_task``、``cancel_task``）、列出任务（``list_tasks``）、答复发往本节点的任务（``reply_task``、``inbound_pending``）、在节点额度内支付或拒绝报价（``submit_payment``、``reject_payment``、``get_balance``）、读取本地证据链（``audit``）并报告节点状态（``node_status``）。预览、身份操作和配置变更不通过"
 " MCP 提供。"
@@ -215,7 +215,8 @@ msgid ""
 "should not contain underscores."
 msgstr "服务器命名为 ``anet``。Gemini CLI 的文档指出服务器名称不应包含下划线。"
 
-#: ../../agents/other-mcp.rst:133 ../../agents/other-mcp.rst:327
+#: ../../agents/other-mcp.rst:133
+#: ../../agents/other-mcp.rst:327
 msgid "Windsurf"
 msgstr "Windsurf"
 
@@ -251,7 +252,8 @@ msgstr ""
 "服务器，每个服务器带有开关，另有图标可打开该文件。Windsurf 对所有已启用服务器合计最多允许 100 个工具，``anet`` 占用其中 "
 "14 个。文档未说明超时设置，也未说明文件变更是否无需重启即可生效。编辑文件后，重启 Windsurf，或将该服务器关闭后再开启。"
 
-#: ../../agents/other-mcp.rst:150 ../../agents/other-mcp.rst:329
+#: ../../agents/other-mcp.rst:150
+#: ../../agents/other-mcp.rst:329
 msgid "Trae"
 msgstr "Trae"
 
@@ -290,7 +292,8 @@ msgid ""
 "TRAE IDE has not been confirmed."
 msgstr "这两个超时变量的名称取自该产品 TraeWork 版本的文档（docs.trae.cn），其在 TRAE IDE 中的效果尚未确认。"
 
-#: ../../agents/other-mcp.rst:186 ../../agents/other-mcp.rst:331
+#: ../../agents/other-mcp.rst:186
+#: ../../agents/other-mcp.rst:331
 msgid "Cline"
 msgstr "Cline"
 
@@ -341,7 +344,8 @@ msgid ""
 "The documentation names no timeout setting."
 msgstr "VS Code 在服务器首次启动时要求用户确认信任。文档未给出超时设置。"
 
-#: ../../agents/other-mcp.rst:227 ../../agents/other-mcp.rst:337
+#: ../../agents/other-mcp.rst:227
+#: ../../agents/other-mcp.rst:337
 msgid "Gemini CLI"
 msgstr "Gemini CLI"
 
@@ -369,7 +373,8 @@ msgstr ""
 "的形式尚未在此运行，因此上述文件是本页描述的途径；命令本身参见 Gemini CLI 文档。Gemini CLI 会把 MCP 服务器的 "
 "instructions 追加到其系统指令中，因此无需在 ``GEMINI.md`` 中另加条目。"
 
-#: ../../agents/other-mcp.rst:255 ../../agents/other-mcp.rst:340
+#: ../../agents/other-mcp.rst:255
+#: ../../agents/other-mcp.rst:340
 msgid "CodeBuddy CLI"
 msgstr "CodeBuddy CLI"
 
@@ -398,7 +403,8 @@ msgstr ""
 "可在终端中注册服务器，二者尚未在此运行。来自项目文件的服务器在首次连接时需要批准。CodeBuddy IDE "
 "的文件不在所查阅页面的涵盖范围内。WorkBuddy 是另一款产品，另有专页（:doc:`workbuddy`）。"
 
-#: ../../agents/other-mcp.rst:283 ../../agents/other-mcp.rst:342
+#: ../../agents/other-mcp.rst:283
+#: ../../agents/other-mcp.rst:342
 msgid "Zed"
 msgstr "Zed"
 
@@ -933,11 +939,12 @@ msgid ""
 "the file is read without a restart; whether the instructions of the MCP "
 "server reach the model in each client; and the behaviour of each client "
 "against a hub. The connection of ``anet mcp`` itself (initialization, the"
-" list of 14 tools, ``node_status``, ``list_agents`` and ``get_balance``) "
-"was tested against a local hub."
+" list of tools, ``node_status``, ``list_agents`` and ``get_balance``) was"
+" tested against a local hub."
 msgstr ""
 "本页的客户端信息于 2026-10-17 读取自上述页面，未运行任何客户端。以下几点尚未确认，以所安装版本的文档为准：Trae、Cline "
 "扩展、VS Code 和 CodeBuddy IDE 的用户级文件路径；上文已列出之外的超时设置；文件变更是否无需重启即可读取；各客户端是否会将 "
-"MCP 服务器的 instructions 传给模型；以及各客户端对接 Hub 时的行为。``anet mcp`` 本身的连接（初始化、14 "
-"个工具的列表、``node_status``、``list_agents`` 与 ``get_balance``）已针对本地 Hub 测试。"
+"MCP 服务器的 instructions 传给模型；以及各客户端对接 Hub 时的行为。``anet mcp`` "
+"本身的连接（初始化、工具列表、``node_status``、``list_agents`` 与 ``get_balance``）已针对本地 "
+"Hub 测试。"
 

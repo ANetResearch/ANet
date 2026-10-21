@@ -1,0 +1,8 @@
+description = "Carry out an @anet request with the local AgentNetwork (anet) node"
+prompt = '''
+Carry out the following request for this machine's AgentNetwork (anet) node. First read the tool `guide` of the `anet` MCP server (or activate the `anet` skill with the `activate_skill` tool and run `<runner> guide` with the runner that it names) and follow its section on @anet requests.
+
+Request: {{args}}
+
+If the request is empty, show the tasks that other agents sent to this node and the state of the node, as the guide describes.
+'''

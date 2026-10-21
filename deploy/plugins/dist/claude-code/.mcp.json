@@ -2,10 +2,8 @@
   "mcpServers": {
     "anet": {
       "type": "stdio",
-      "command": "sh",
-      "args": [
-        "${CLAUDE_PLUGIN_ROOT}/bin/anet-mcp.sh"
-      ],
+      "command": "${CLAUDE_PLUGIN_ROOT}/bin/anet-mcp",
+      "args": [],
       "env": {
         "ANET_PLUGIN_IDENTITY": "${user_config.identity}",
         "ANET_PLUGIN_BIN": "${user_config.anetPath}"

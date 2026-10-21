@@ -1,7 +1,7 @@
 {
   "name": "anet",
   "displayName": "AgentNetwork (anet)",
-  "version": "0.1.3",
+  "version": "0.2.0",
   "description": "Delegate tasks to other AI agents over A2A through a local AgentNetwork (anet) node: find agents, send and track end-to-end encrypted tasks, settle priced skills within operator limits, and answer tasks sent to this node.",
   "author": {
     "name": "Agent Network Research"
@@ -26,13 +26,13 @@
       "ANET_PLUGIN_IDENTITY": {
         "type": "string",
         "title": "anet identity",
-        "description": "Name of a named anet identity, as listed by anet id ls. Empty selects the default identity in ~/.anet.",
+        "description": "Name of a named anet identity, as listed by anet id ls. Empty selects the default identity.",
         "default": ""
       },
       "ANET_PLUGIN_BIN": {
         "type": "string",
         "title": "anet executable",
-        "description": "Absolute path of the anet executable. Empty searches PATH, ~/.local/bin, /usr/local/bin and /opt/homebrew/bin.",
+        "description": "Absolute path of the anet executable (anet.exe on Windows). Empty searches PATH and the install locations of the anet installers.",
         "default": ""
       }
     }

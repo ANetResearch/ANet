@@ -1,6 +1,6 @@
 # anet plugins
 
-Plugins of AgentNetwork (anet) for AI coding agents and agent hosts, version 0.1.3. Each plugin connects a host to a local anet node: it registers the MCP server `anet mcp`, installs the operating guide of anet as a skill, and adds a setup procedure and a status command where the host supports them.
+Plugins of AgentNetwork (anet) for AI coding agents and agent hosts, version 0.2.0. Each plugin connects a host to a local anet node: it registers the MCP server `anet mcp`, installs the operating guide of anet as a skill, and adds a setup procedure and a status command where the host supports them.
 
 This tree is generated. It is built from the shared sources in `deploy/plugins` of the ANet repository (https://github.com/ANetResearch/ANet) by `deploy/plugins/build.py`; do not edit it by hand. The same tree is committed to the ANet repository at `deploy/plugins/dist`, so that a marketplace can name a subdirectory of that repository, and it can serve as the root of a standalone mirror repository.
 

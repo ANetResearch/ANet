@@ -59,8 +59,11 @@ def build(ctx):
     ctx.add_json(".mcp.json", {
         "mcpServers": {
             meta["mcp"]["server_name"]: {
-                "command": "sh",
-                "args": ["${EXAMPLE_PLUGIN_ROOT}/bin/anet-mcp.sh"],
+                # For a host that spawns with cross-spawn and keeps the executable bit: bin/anet-mcp on
+                # Linux and macOS, bin/anet-mcp.cmd on Windows. Verify both for each host and say how
+                # in the docstring of the module.
+                "command": "${EXAMPLE_PLUGIN_ROOT}/bin/anet-mcp",
+                "args": [],
                 # No settings store: pass the values the user configured in the host.
                 "env": {s["env"]: "${%s}" % s["env"] for s in meta["settings"]},
             }

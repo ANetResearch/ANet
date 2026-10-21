@@ -13,7 +13,10 @@
 # Executable. A configured anetPath is used as it is and is never replaced by
 # another copy. Without it, PATH and the install locations of the anet
 # installer and Homebrew are searched, because a desktop application does not
-# always inherit the PATH of a login shell.
+# always inherit the PATH of a login shell. In a POSIX shell on Windows (Git
+# Bash, MSYS2, Cygwin) a drive path is also absolute, and the install locations
+# of the Windows installer are searched for anet.exe; anet-run.cmd is the
+# runner for PowerShell and cmd.
 #
 # `sh anet-run.sh --resolve` prints the selected executable, version and
 # identity, and the command line of this script, and always exits 0. Errors go
@@ -50,12 +53,21 @@ else
   identity=$(printf '%s\n' "$settings" | sed -n 2p)
 fi
 
+case $(uname -s 2>/dev/null) in
+  MINGW* | MSYS* | CYGWIN*) on_windows=1 ;;
+  *) on_windows=0 ;;
+esac
+
 find_anet() {
   if [ -n "$anet_path" ]; then
     # A relative path would be resolved against the working directory of the session,
     # which can be an untrusted workspace; only an absolute path is accepted.
     case $anet_path in
       /*) ;;
+      [A-Za-z]:[\\/]*) [ "$on_windows" -eq 1 ] || {
+          printf 'The plugin setting anetPath names %s, which is not an absolute path. Correct or clear the setting.\n' "$anet_path" >&2
+          return 1
+        } ;;
       *)
         printf 'The plugin setting anetPath names %s, which is not an absolute path. Correct or clear the setting.\n' "$anet_path" >&2
         return 1
@@ -69,6 +81,11 @@ find_anet() {
     return 1
   fi
   found=$(command -v anet 2>/dev/null) || found=
+  # A relative directory of PATH (such as ".") would find a file of the working directory.
+  case $found in
+    /*) ;;
+    *) found= ;;
+  esac
   if [ -n "$found" ] && [ -f "$found" ] && [ -x "$found" ]; then
     printf '%s\n' "$found"
     return 0
@@ -79,6 +96,18 @@ find_anet() {
       return 0
     fi
   done
+  if [ "$on_windows" -eq 1 ]; then
+    for dir in "${LOCALAPPDATA:-}/Programs/anet" "${LOCALAPPDATA:-}/anet/bin" "${USERPROFILE:-}/.anet-bin"; do
+      case $dir in
+        /* | [A-Za-z]:[\\/]*) ;;
+        *) continue ;;
+      esac
+      if [ -f "$dir/anet.exe" ]; then
+        printf '%s\n' "$dir/anet.exe"
+        return 0
+      fi
+    done
+  fi
   printf '%s\n' "anet is not installed (searched PATH, ~/.local/bin, /usr/local/bin and /opt/homebrew/bin)." \
     "Ask the agent to run the anet-setup skill of the anet plugin, or see https://docs.agentnetwork.org.cn/docs/en/latest/intro/install.html" >&2
   return 1

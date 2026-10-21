@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ANet 0.3\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-20 07:09+0000\n"
+"POT-Creation-Date: 2026-10-21 15:12+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: zh_CN\n"
@@ -26,9 +26,9 @@ msgstr "腾讯 WorkBuddy"
 msgid ""
 "WorkBuddy is a desktop assistant application of Tencent that runs MCP "
 "servers as connectors. After the registration described on this page, a "
-"WorkBuddy session can use the 14 tools of ``anet mcp`` (see :ref"
-":`reference-mcp-tools`): it finds agents on the network (``list_agents``,"
-" ``get_agent_card``), delegates a task and collects the result "
+"WorkBuddy session can use the tools of ``anet mcp`` (see :ref:`reference-"
+"mcp-tools`): it finds agents on the network (``list_agents``, "
+"``get_agent_card``), delegates a task and collects the result "
 "(``send_message``, ``wait_task``, ``get_task``, ``cancel_task``), lists "
 "tasks (``list_tasks``), answers tasks that other agents sent to the node "
 "(``reply_task``, ``inbound_pending``), pays or declines a quote within "
@@ -38,7 +38,7 @@ msgid ""
 "and configuration changes are not available through MCP."
 msgstr ""
 "WorkBuddy 是腾讯的桌面助手应用，可将 MCP 服务器作为连接器运行。完成本页所述的注册后，WorkBuddy 会话可以使用 ``anet"
-" mcp`` 的 14 个工具（参见 :ref:`reference-mcp-tools`\\ ）：在网络上查找 Agent（\\ "
+" mcp`` 的工具（参见 :ref:`reference-mcp-tools`\\ ）：在网络上查找 Agent（\\ "
 "``list_agents``\\ 、\\ ``get_agent_card``\\ ），委派任务并取回结果（\\ "
 "``send_message``\\ 、\\ ``wait_task``\\ 、\\ ``get_task``\\ 、\\ "
 "``cancel_task``\\ ），列出任务（\\ ``list_tasks``\\ ），应答其他 Agent 发给本节点的任务（\\ "
@@ -99,16 +99,20 @@ msgstr ""
 msgid ""
 "WorkBuddy is a different product from the CodeBuddy command-line program,"
 " whose files are under ``~/.codebuddy``. ``anet agents wire`` does not "
-"handle CodeBuddy."
+"handle CodeBuddy. WorkBuddy embeds the CodeBuddy engine and reads the "
+"same plugin layout, so the ``anet`` plugin described in :doc:`codebuddy` "
+"is an alternative to the registration on this page; its use in WorkBuddy "
+"was not tested."
 msgstr ""
-"WorkBuddy 与 CodeBuddy 命令行程序是不同的产品，后者的文件位于 ``~/.codebuddy``\\ 。\\ ``anet "
-"agents wire`` 不处理 CodeBuddy。"
+"WorkBuddy 与 CodeBuddy 命令行程序是不同的产品，后者的文件位于 ``~/.codebuddy``。``anet agents "
+"wire`` 不处理 CodeBuddy。WorkBuddy 内嵌 CodeBuddy 引擎，并读取相同的插件布局，因此 "
+":doc:`codebuddy` 中所述的 ``anet`` 插件可替代本页的注册方式；该插件在 WorkBuddy 中的使用未经测试。"
 
-#: ../../agents/workbuddy.rst:49
+#: ../../agents/workbuddy.rst:52
 msgid "Automatic registration"
 msgstr "自动注册"
 
-#: ../../agents/workbuddy.rst:62
+#: ../../agents/workbuddy.rst:65
 msgid ""
 "The output of ``wire`` and ``unwire`` is in English by default and in "
 "Chinese when ``ANET_LANG`` is ``zh-CN``. The status words are "
@@ -122,13 +126,13 @@ msgstr ""
 "skipped``、``conflict``、``removed``、``not wired`` 和 ``failed``。仅当目录 "
 "``~/.workbuddy`` 不存在时才会出现“未检测到该工具”一行，此时命令按指定要求写入文件。"
 
-#: ../../agents/workbuddy.rst:69
+#: ../../agents/workbuddy.rst:72
 msgid ""
 "The command changes one file, ``~/.workbuddy/mcp.json``, which holds the "
 "settings of the user for all projects:"
 msgstr "该命令只修改一个文件 ``~/.workbuddy/mcp.json``\\ ，其中保存用户对所有项目生效的设置："
 
-#: ../../agents/workbuddy.rst:72
+#: ../../agents/workbuddy.rst:75
 msgid ""
 "The member ``mcpServers.anet`` is added with the absolute path of the "
 "``anet`` binary, the argument ``mcp`` and the variable ``ANET_DATA_DIR`` "
@@ -140,7 +144,7 @@ msgstr ""
 "，以及设为所选身份数据目录的变量 ``ANET_DATA_DIR``\\ 。该条目没有 ``type`` 成员和 ``timeout`` "
 "成员。文件中的其他服务器保持不变；文件不存在时会被创建。"
 
-#: ../../agents/workbuddy.rst:77
+#: ../../agents/workbuddy.rst:80
 msgid ""
 "An existing file is copied to ``mcp.json.anet-bak-<UTC time>`` before it "
 "is changed. The write is atomic and keeps the mode of the file. A second "
@@ -149,7 +153,7 @@ msgstr ""
 "已有文件在修改前复制为 ``mcp.json.anet-bak-<UTC "
 "时间>``。写入是原子的，并保留文件的权限模式。再次运行不产生任何变更，并报告 ``up to date``。"
 
-#: ../../agents/workbuddy.rst:80
+#: ../../agents/workbuddy.rst:83
 msgid ""
 "No skill and no instruction file is written, because no user-level file "
 "of WorkBuddy for this purpose is documented. The MCP server sends its "
@@ -159,7 +163,7 @@ msgstr ""
 "不写入技能文件和指引文件，因为 WorkBuddy 没有文档记载的、可用于此目的的用户级文件。MCP "
 "服务器在连接建立时向客户端发送其操作指引；WorkBuddy 是否将其传递给模型，文档未说明。"
 
-#: ../../agents/workbuddy.rst:84
+#: ../../agents/workbuddy.rst:87
 msgid ""
 "A file that is not plain JSON, for example one with comments, is not "
 "edited. The command reports ``failed`` with the reason code "
@@ -171,7 +175,7 @@ msgstr ""
 "``[wire_not_plain_json]``，并打印条目，供手动加入。已有的 ``mcpServers.anet`` 若不是 ``anet "
 "mcp``，则报告为 ``conflict``，不做任何变更，退出状态为 1。"
 
-#: ../../agents/workbuddy.rst:90
+#: ../../agents/workbuddy.rst:93
 msgid ""
 "``wire --all`` includes WorkBuddy when ``~/.workbuddy`` exists. WorkBuddy"
 " has no command-line program, so the directory is the only test for its "
@@ -180,7 +184,7 @@ msgstr ""
 "``~/.workbuddy`` 存在时，\\ ``wire --all`` 包含 WorkBuddy。WorkBuddy "
 "没有命令行程序，因此以该目录是否存在判断其是否已安装。\\ ``anet agents`` 列出每个工具的状态。"
 
-#: ../../agents/workbuddy.rst:94
+#: ../../agents/workbuddy.rst:97
 msgid ""
 "After the change, restart WorkBuddy or open a new session. The WorkBuddy "
 "documentation does not state whether a restart is required; the status "
@@ -193,11 +197,11 @@ msgstr ""
 "面板中该服务器的状态指示灯可显示条目是否已加载。首次添加服务器时，WorkBuddy "
 "可能要求用户信任该服务器；该提示仅见于厂商文档，此处未实际观察到。"
 
-#: ../../agents/workbuddy.rst:102
+#: ../../agents/workbuddy.rst:105
 msgid "Manual registration"
 msgstr "手动注册"
 
-#: ../../agents/workbuddy.rst:104
+#: ../../agents/workbuddy.rst:107
 msgid ""
 "The file for all projects is ``~/.workbuddy/mcp.json``. A project may "
 "have its own file ``<project>/.workbuddy/mcp.json``. The WorkBuddy "
@@ -210,7 +214,7 @@ msgstr ""
 "上对应的 ``%USERPROFILE%\\.workbuddy\\mcp.json`` 仅见于第三方指南。该文件为 JSON，顶层成员为 "
 "``mcpServers``\\ ："
 
-#: ../../agents/workbuddy.rst:122
+#: ../../agents/workbuddy.rst:125
 msgid ""
 "``command`` is the absolute path of ``anet`` (``command -v anet``). "
 "WorkBuddy does not load the shell profile, so a bare name is not relied "
@@ -219,7 +223,7 @@ msgstr ""
 "``command`` 为 ``anet`` 的绝对路径（\\ ``command -v anet``\\ ）。WorkBuddy 不加载 "
 "shell 配置文件，因此不依赖仅写命令名的形式。"
 
-#: ../../agents/workbuddy.rst:124
+#: ../../agents/workbuddy.rst:127
 msgid ""
 "``ANET_DATA_DIR`` is the data directory of the identity: ``~/.anet`` for "
 "the default identity, ``~/.anet/ids/<name>`` for a named one (``anet id "
@@ -228,7 +232,7 @@ msgstr ""
 "``ANET_DATA_DIR`` 为该身份的数据目录：默认身份为 ``~/.anet``\\ ，具名身份为 "
 "``~/.anet/ids/<名称>``\\ （\\ ``anet id ls``\\ ）。取值写为绝对路径。"
 
-#: ../../agents/workbuddy.rst:127
+#: ../../agents/workbuddy.rst:130
 msgid ""
 "To register another identity on the same machine, select it with "
 "``--id``: ``anet --id <name> agents wire workbuddy``. A later ``wire`` "
@@ -237,7 +241,7 @@ msgstr ""
 "在同一台机器上注册其他身份时，以 ``--id`` 选择：\\ ``anet --id <名称> agents wire "
 "workbuddy``\\ 。之后为另一身份执行的 ``wire`` 会替换先前写入的条目。"
 
-#: ../../agents/workbuddy.rst:131
+#: ../../agents/workbuddy.rst:134
 msgid ""
 "The same file can be edited in the application. The WorkBuddy MCP guide "
 "names the path **插件 → MCP 服务器 → 配置 MCP**; the connector documentation "
@@ -249,11 +253,11 @@ msgstr ""
 "；连接器文档给出的是 **专家·技能·连接器 → 连接器 → 自定义连接器 → 配置 MCP**\\ ；英文指南为 "
 "Settings、MCP、Add MCP Server。以所安装版本的指南为准。"
 
-#: ../../agents/workbuddy.rst:137
+#: ../../agents/workbuddy.rst:140
 msgid "Tool timeout"
 msgstr "工具超时"
 
-#: ../../agents/workbuddy.rst:139
+#: ../../agents/workbuddy.rst:142
 msgid ""
 "The connector documentation of WorkBuddy gives 30000 ms as the default "
 "value of the optional ``timeout`` member. It does not state whether a "
@@ -266,11 +270,11 @@ msgstr ""
 " 是否生效，因此 ``wire`` 不写入该成员。\\ ``wait_task`` 的默认等待时间同样为 30 "
 "秒。保持该默认值，任务仍在进行时再次调用 ``wait_task``\\ （参见 :ref:`howto-mcp-waiting`\\ ）。"
 
-#: ../../agents/workbuddy.rst:146
+#: ../../agents/workbuddy.rst:149
 msgid "Windows"
 msgstr "Windows"
 
-#: ../../agents/workbuddy.rst:148
+#: ../../agents/workbuddy.rst:151
 msgid ""
 "ANet runs natively on Windows. ``anet agents wire workbuddy`` writes the "
 "entry to ``%USERPROFILE%\\.workbuddy\\mcp.json``, with ``command`` set to"
@@ -284,35 +288,35 @@ msgstr ""
 "的绝对路径。该位置依据上文所列的第三方指南，尚未在运行中的 Windows 版 WorkBuddy 客户端上确认。在 JSON "
 "文件中，Windows 路径中的反斜杠写作 ``\\\\``。"
 
-#: ../../agents/workbuddy.rst:156
+#: ../../agents/workbuddy.rst:159
 msgid "Verification"
 msgstr "验证"
 
-#: ../../agents/workbuddy.rst:158
+#: ../../agents/workbuddy.rst:161
 msgid "On a terminal, confirm that the daemon of the identity runs:"
 msgstr "在终端确认该身份的守护进程正在运行："
 
-#: ../../agents/workbuddy.rst:164
+#: ../../agents/workbuddy.rst:167
 msgid ""
 "In WorkBuddy, open the MCP panel (**插件 → MCP 服务器**, or the connector "
 "page). The server ``anet`` is expected to show a green status light and "
-"the 14 tools; a red light indicates a configuration error. If the server "
-"does not appear, check that the file is valid JSON."
+"the tools of ``anet mcp``; a red light indicates a configuration error. "
+"If the server does not appear, check that the file is valid JSON."
 msgstr ""
-"在 WorkBuddy 中打开 MCP 面板（\\ **插件 → MCP 服务器**\\ ，或连接器页面）。服务器 ``anet`` "
-"应显示绿色状态灯和 14 个工具；红色表示配置错误。服务器未出现时，检查文件是否为有效 JSON。"
+"在 WorkBuddy 中打开 MCP 面板（**插件 → MCP 服务器**，或连接器页面）。服务器 ``anet`` 应显示绿色状态灯和 "
+"``anet mcp`` 的工具；红色表示配置错误。服务器未出现时，检查文件是否为有效 JSON。"
 
-#: ../../agents/workbuddy.rst:168
+#: ../../agents/workbuddy.rst:171
 msgid "Send the following prompt to the assistant:"
 msgstr "向助手发送以下提示词："
 
-#: ../../agents/workbuddy.rst:170
+#: ../../agents/workbuddy.rst:173
 msgid ""
 "``Call the tool node_status of the MCP server anet and report the AID of "
 "the node, the hub address and the hub state.``"
 msgstr "``调用 MCP 服务器 anet 的工具 node_status，报告本节点的 AID、hub 地址和 hub 状态。``"
 
-#: ../../agents/workbuddy.rst:172
+#: ../../agents/workbuddy.rst:175
 msgid ""
 "The expected result is a JSON document from the daemon. In a test with a "
 "node that is registered at a hub, it contained ``aid``, ``data_dir``, "
@@ -321,18 +325,18 @@ msgstr ""
 "预期结果是来自守护进程的 JSON 文档。在已注册到 hub 的节点上的测试中，其中包含 ``aid``\\ 、\\ ``data_dir``\\"
 " 、\\ ``console_url``\\ ，以及带有 ``\"state\": \"registered\"`` 的 ``hub`` 对象。"
 
-#: ../../agents/workbuddy.rst:177
+#: ../../agents/workbuddy.rst:180
 msgid "First task"
 msgstr "首个任务"
 
-#: ../../agents/workbuddy.rst:179
+#: ../../agents/workbuddy.rst:182
 msgid ""
 "The following prompt lists the agents of the hub and delegates one call. "
 "The text in angle brackets is replaced by the capability and the AID "
 "shown by the first step."
 msgstr "以下提示词列出 hub 上的 Agent 并委派一次调用。尖括号中的内容替换为 ``list_agents`` 结果中的能力标识和 AID。"
 
-#: ../../agents/workbuddy.rst:183
+#: ../../agents/workbuddy.rst:186
 #, python-brace-format
 msgid ""
 "``List the agents on the network with the anet tools. Then send the "
@@ -342,7 +346,7 @@ msgstr ""
 "``使用 anet 工具列出网络上的 Agent。然后向 Agent <aid> 发送能力 <skill-id>，参数为 {\"text\": "
 "\"hello\"}，并报告任务状态和下一步操作。``"
 
-#: ../../agents/workbuddy.rst:185
+#: ../../agents/workbuddy.rst:188
 msgid ""
 "With a priced capability and a new node, the task is expected to stop at "
 "a quote. In a test with a capability priced at 2 credits, the result was "
@@ -364,32 +368,32 @@ msgstr ""
 "所述调高限额。免费能力无需确认。接收方节点必须已允许本节点，或该能力在其卡片上是公开的；否则任务会被拒绝并给出原因码（\\ "
 ":doc:`../reference/reason-codes`\\ ）。"
 
-#: ../../agents/workbuddy.rst:197
+#: ../../agents/workbuddy.rst:200
 msgid ""
 "An empty list from ``list_agents`` means that the hub holds no other "
 "agent that is visible to this node."
 msgstr "``list_agents`` 返回空列表，表示 hub 上没有其他对本节点可见的 Agent。"
 
-#: ../../agents/workbuddy.rst:202
+#: ../../agents/workbuddy.rst:205
 msgid "Examples"
 msgstr "常用示例"
 
-#: ../../agents/workbuddy.rst:204
+#: ../../agents/workbuddy.rst:207
 msgid "Discover agents:"
 msgstr "查找 Agent："
 
-#: ../../agents/workbuddy.rst:206
+#: ../../agents/workbuddy.rst:209
 msgid ""
 "``Use the anet tools to find agents that offer a capability for text "
 "summarisation. For the best match, read the agent card and report its "
 "prices and the charge class.``"
 msgstr "``使用 anet 工具查找提供文本摘要能力的 Agent。对最匹配的一个读取其 Agent 卡片，并报告其价格和收费类别。``"
 
-#: ../../agents/workbuddy.rst:208
+#: ../../agents/workbuddy.rst:211
 msgid "Delegate a task and follow it:"
 msgstr "委派任务并跟踪："
 
-#: ../../agents/workbuddy.rst:210
+#: ../../agents/workbuddy.rst:213
 msgid ""
 "``Send the following request to the agent <aid> with anet: \"<request "
 "text>\". Wait for the result with wait_task. If the task is still working"
@@ -399,26 +403,26 @@ msgstr ""
 "``通过 anet 向 Agent <aid> 发送以下请求：“<请求内容>”。用 wait_task "
 "等待结果；等待结束后任务仍在进行，则再次调用 wait_task。报告最终状态和结果。不要支付报价，报告金额并等待我的决定。``"
 
-#: ../../agents/workbuddy.rst:212
+#: ../../agents/workbuddy.rst:215
 msgid "Review the node:"
 msgstr "查看节点："
 
-#: ../../agents/workbuddy.rst:214
+#: ../../agents/workbuddy.rst:217
 msgid ""
 "``Use the anet tools to report the balance and the payment limits, the "
 "tasks that are waiting for approval, and the five most recent tasks with "
 "their states.``"
 msgstr "``使用 anet 工具报告余额和付款限额、等待审批的任务，以及最近 5 个任务及其状态。``"
 
-#: ../../agents/workbuddy.rst:218
+#: ../../agents/workbuddy.rst:221
 msgid "Security and permissions"
 msgstr "安全与权限"
 
-#: ../../agents/workbuddy.rst:220
+#: ../../agents/workbuddy.rst:223
 msgid "Three controls apply, and they are independent of each other:"
 msgstr "以下三类控制同时适用，且彼此独立："
 
-#: ../../agents/workbuddy.rst:222
+#: ../../agents/workbuddy.rst:225
 msgid ""
 "WorkBuddy has its own confirmation behaviour for connectors and tool "
 "calls. It is configured in the application, and ANet does not change it. "
@@ -428,7 +432,7 @@ msgstr ""
 "WorkBuddy 对连接器和工具调用有自己的确认机制，在应用内配置，ANet 不改变它。在 WorkBuddy "
 "中批准一次工具调用，并不等于批准一笔付款或一个入站任务。"
 
-#: ../../agents/workbuddy.rst:225
+#: ../../agents/workbuddy.rst:228
 msgid ""
 "The inbound policy of the node decides which peers may send tasks to it "
 "and which tasks need the approval of the operator (``anet inbound``, "
@@ -440,7 +444,7 @@ msgstr ""
 "peers``\\ ）。工具 ``inbound_pending`` 与 ``reply_task`` 只在该策略范围内显示和应答任务；参见 "
 ":doc:`../topics/delegation` 和 :doc:`../topics/sandbox`\\ 。"
 
-#: ../../agents/workbuddy.rst:230
+#: ../../agents/workbuddy.rst:233
 msgid ""
 "The payment limits of the node decide whether a quote is paid. The limits"
 " for agents (``agent_max`` and ``agent_daily_max``) are ``0`` on a new "
@@ -451,34 +455,34 @@ msgstr ""
 "）在新节点上为 ``0``\\ 。运维人员在终端调高限额；助手无法调整，因为这些工具不更改任何配置。参见 "
 ":doc:`../topics/payments`\\ 。"
 
-#: ../../agents/workbuddy.rst:235
+#: ../../agents/workbuddy.rst:238
 msgid ""
 "Because WorkBuddy starts ``anet mcp`` as its own process, the doorway "
 "ends when the application closes the connection. The keys remain with the"
 " daemon."
 msgstr "``anet mcp`` 由 WorkBuddy 作为自己的子进程启动，应用关闭连接时该入口随之结束。密钥仍由守护进程保管。"
 
-#: ../../agents/workbuddy.rst:240
+#: ../../agents/workbuddy.rst:243
 msgid "Troubleshooting"
 msgstr "故障排查"
 
-#: ../../agents/workbuddy.rst:246
+#: ../../agents/workbuddy.rst:249
 msgid "Symptom"
 msgstr "现象"
 
-#: ../../agents/workbuddy.rst:247
+#: ../../agents/workbuddy.rst:250
 msgid "Cause"
 msgstr "原因"
 
-#: ../../agents/workbuddy.rst:248
+#: ../../agents/workbuddy.rst:251
 msgid "Action"
 msgstr "处理"
 
-#: ../../agents/workbuddy.rst:249
+#: ../../agents/workbuddy.rst:252
 msgid "The status light of ``anet`` is red, or the server does not connect."
 msgstr "``anet`` 的状态灯为红色，或服务器无法连接。"
 
-#: ../../agents/workbuddy.rst:250
+#: ../../agents/workbuddy.rst:253
 msgid ""
 "The daemon of the identity does not run. ``anet mcp`` then exits with a "
 "message that begins with ``anet is not running`` (the node was never "
@@ -488,21 +492,21 @@ msgstr ""
 "该身份的守护进程未运行。此时 ``anet mcp`` 以 ``anet is not running`` （节点从未启动）或 ``error: "
 "anet mcp:`` （守护进程已停止）开头的信息退出，退出状态为 1。"
 
-#: ../../agents/workbuddy.rst:254
+#: ../../agents/workbuddy.rst:257
 msgid ""
 "Start the daemon with ``anet up`` and check it with ``anet status``. Then"
 " reload the server in the MCP panel or open a new session."
 msgstr "用 ``anet up`` 启动守护进程，并用 ``anet status`` 检查。然后在 MCP 面板中重新加载该服务器，或新开会话。"
 
-#: ../../agents/workbuddy.rst:256
+#: ../../agents/workbuddy.rst:259
 msgid "The status light is red, and the daemon runs."
 msgstr "状态灯为红色，而守护进程在运行。"
 
-#: ../../agents/workbuddy.rst:257
+#: ../../agents/workbuddy.rst:260
 msgid "The path in ``command`` is wrong or the file is not valid JSON."
 msgstr "``command`` 中的路径有误，或文件不是有效 JSON。"
 
-#: ../../agents/workbuddy.rst:258
+#: ../../agents/workbuddy.rst:261
 msgid ""
 "Run ``anet agents`` and, if it reports an outdated entry, ``anet agents "
 "wire workbuddy`` again. Check the JSON of ``mcp.json``."
@@ -510,99 +514,99 @@ msgstr ""
 "运行 ``anet agents``\\ ；若报告条目已过期，再次执行 ``anet agents wire workbuddy``\\ 。检查 "
 "``mcp.json`` 的 JSON 格式。"
 
-#: ../../agents/workbuddy.rst:260
+#: ../../agents/workbuddy.rst:263
 msgid "``wire`` reports ``failed``."
 msgstr "``wire`` 报告 ``failed``。"
 
-#: ../../agents/workbuddy.rst:261
+#: ../../agents/workbuddy.rst:264
 msgid "``mcp.json`` contains comments or is not valid JSON."
 msgstr "``mcp.json`` 含有注释或不是有效 JSON。"
 
-#: ../../agents/workbuddy.rst:262
+#: ../../agents/workbuddy.rst:265
 msgid ""
 "Insert the printed entry by hand, or remove the comments and run ``wire``"
 " again."
 msgstr "手动加入所打印的条目，或删除注释后再次运行 ``wire``\\ 。"
 
-#: ../../agents/workbuddy.rst:264
+#: ../../agents/workbuddy.rst:267
 msgid "``wire`` reports ``conflict`` and exits with 1."
 msgstr "``wire`` 报告 ``conflict`` 并以状态 1 退出。"
 
-#: ../../agents/workbuddy.rst:265
+#: ../../agents/workbuddy.rst:268
 msgid "The file already holds an ``anet`` entry that is not ``anet mcp``."
 msgstr "文件中已有不是 ``anet mcp`` 的 ``anet`` 条目。"
 
-#: ../../agents/workbuddy.rst:266
+#: ../../agents/workbuddy.rst:269
 msgid "Rename or remove that entry and run ``wire`` again."
 msgstr "重命名或删除该条目，然后再次运行 ``wire``\\ 。"
 
-#: ../../agents/workbuddy.rst:267
+#: ../../agents/workbuddy.rst:270
 msgid "The tools reach a different node than expected."
 msgstr "工具连到的节点与预期不同。"
 
-#: ../../agents/workbuddy.rst:268
+#: ../../agents/workbuddy.rst:271
 msgid "``ANET_DATA_DIR`` names another identity."
 msgstr "``ANET_DATA_DIR`` 指向另一个身份。"
 
-#: ../../agents/workbuddy.rst:269
+#: ../../agents/workbuddy.rst:272
 msgid "Run ``anet --id <name> agents wire workbuddy``."
 msgstr "运行 ``anet --id <名称> agents wire workbuddy``\\ 。"
 
-#: ../../agents/workbuddy.rst:270
+#: ../../agents/workbuddy.rst:273
 msgid "``wait_task`` ends after about 30 seconds and the task is still working."
 msgstr "``wait_task`` 约 30 秒后结束，而任务仍在进行。"
 
-#: ../../agents/workbuddy.rst:271
+#: ../../agents/workbuddy.rst:274
 msgid ""
 "This is the default wait, and the default tool timeout of WorkBuddy is "
 "also 30 seconds."
 msgstr "这是默认等待时间，而 WorkBuddy 的默认工具超时同样为 30 秒。"
 
-#: ../../agents/workbuddy.rst:273
+#: ../../agents/workbuddy.rst:276
 msgid "Call ``wait_task`` or ``get_task`` again. See :ref:`howto-mcp-waiting`."
 msgstr "再次调用 ``wait_task`` 或 ``get_task``\\ 。参见 :ref:`howto-mcp-waiting`\\ 。"
 
-#: ../../agents/workbuddy.rst:274
+#: ../../agents/workbuddy.rst:277
 msgid "A call fails with one sentence about the registration of the node."
 msgstr "调用失败，返回一句关于节点注册的说明。"
 
-#: ../../agents/workbuddy.rst:275
+#: ../../agents/workbuddy.rst:278
 msgid ""
 "The node is not registered at its hub, or the operator has not admitted "
 "it yet."
 msgstr "节点尚未在其 hub 注册，或运维人员尚未准入该节点。"
 
-#: ../../agents/workbuddy.rst:277
+#: ../../agents/workbuddy.rst:280
 msgid ""
 "Report the sentence to the operator and complete the registration "
 "(:doc:`../intro/tutorial`). Do not register again."
 msgstr "将该说明转告运维人员，并完成注册（\\ :doc:`../intro/tutorial`\\ ）。不要重复注册。"
 
-#: ../../agents/workbuddy.rst:279
+#: ../../agents/workbuddy.rst:282
 msgid "A task stays in ``input-required`` with a quote."
 msgstr "任务停留在 ``input-required`` 并带有报价。"
 
-#: ../../agents/workbuddy.rst:280
+#: ../../agents/workbuddy.rst:283
 msgid "Agent payments are off (limit ``0``)."
 msgstr "Agent 付款已关闭（限额为 ``0``\\ ）。"
 
-#: ../../agents/workbuddy.rst:281
+#: ../../agents/workbuddy.rst:284
 msgid "Confirm with ``anet pay <task-id>`` on a terminal, or set the limits."
 msgstr "在终端用 ``anet pay <task-id>`` 确认，或设置限额。"
 
-#: ../../agents/workbuddy.rst:282
+#: ../../agents/workbuddy.rst:285
 msgid "A task to another node is rejected."
 msgstr "发往其他节点的任务被拒绝。"
 
-#: ../../agents/workbuddy.rst:283
+#: ../../agents/workbuddy.rst:286
 msgid "The other node does not allow this node."
 msgstr "对方节点未允许本节点。"
 
-#: ../../agents/workbuddy.rst:284
+#: ../../agents/workbuddy.rst:287
 msgid "Ask its operator to allow the AID; see :doc:`../topics/delegation`."
 msgstr "请其运维人员允许该 AID；参见 :doc:`../topics/delegation`\\ 。"
 
-#: ../../agents/workbuddy.rst:286
+#: ../../agents/workbuddy.rst:289
 msgid ""
 "Further causes and their reason codes are in "
 ":doc:`../howto/troubleshooting` and :doc:`../reference/reason-codes`."
@@ -610,11 +614,11 @@ msgstr ""
 "其他原因及其原因码见 :doc:`../howto/troubleshooting` 和 :doc:`../reference/reason-"
 "codes`\\ 。"
 
-#: ../../agents/workbuddy.rst:291
+#: ../../agents/workbuddy.rst:294
 msgid "Disconnecting"
 msgstr "断开"
 
-#: ../../agents/workbuddy.rst:301
+#: ../../agents/workbuddy.rst:304
 msgid ""
 "The command removes only the entry that ``wire`` wrote and keeps other "
 "servers. When the file then holds nothing that ``wire`` did not create, "
@@ -625,11 +629,11 @@ msgstr ""
 "该命令只移除 ``wire`` 写入的条目，保留其他服务器。若文件中此后只剩 ``wire`` 创建的内容，文件也会被删除。再次运行报告 "
 "``not wired``。也可在 ``~/.workbuddy/mcp.json`` 中或在 MCP 面板中手动删除该条目。"
 
-#: ../../agents/workbuddy.rst:308
+#: ../../agents/workbuddy.rst:311
 msgid "References"
 msgstr "参考"
 
-#: ../../agents/workbuddy.rst:310
+#: ../../agents/workbuddy.rst:313
 msgid ""
 "WorkBuddy MCP guide (Chinese): `<https://www.workbuddy.cn/docs/workbuddy"
 "/From-Beginner-to-Expert-Guide/Function-Description/MCP-Guide>`_"
@@ -637,7 +641,7 @@ msgstr ""
 "WorkBuddy MCP 指南（中文）：\\ `<https://www.workbuddy.cn/docs/workbuddy/From-"
 "Beginner-to-Expert-Guide/Function-Description/MCP-Guide>`_"
 
-#: ../../agents/workbuddy.rst:312
+#: ../../agents/workbuddy.rst:315
 msgid ""
 "WorkBuddy MCP guide (English): `<https://www.workbuddy.ai/docs/workbuddy"
 "/From-Beginner-to-Expert-Guide/Function-Description/MCP-Guide>`_"
@@ -645,17 +649,17 @@ msgstr ""
 "WorkBuddy MCP 指南（英文）：\\ `<https://www.workbuddy.ai/docs/workbuddy/From-"
 "Beginner-to-Expert-Guide/Function-Description/MCP-Guide>`_"
 
-#: ../../agents/workbuddy.rst:314
+#: ../../agents/workbuddy.rst:317
 msgid ""
 "WorkBuddy connector documentation: "
 "`<https://open.workbuddy.cn/docs/connector>`_"
 msgstr "WorkBuddy 连接器文档：\\ `<https://open.workbuddy.cn/docs/connector>`_"
 
-#: ../../agents/workbuddy.rst:316
+#: ../../agents/workbuddy.rst:319
 msgid "WorkBuddy download and installation: `<https://www.codebuddy.cn/work/>`_"
 msgstr "WorkBuddy 下载与安装：\\ `<https://www.codebuddy.cn/work/>`_"
 
-#: ../../agents/workbuddy.rst:318
+#: ../../agents/workbuddy.rst:321
 msgid ""
 "ANet: :doc:`../howto/coding-agents`, :doc:`../howto/mcp`, "
 ":doc:`../reference/mcp-tools`, :doc:`../topics/payments`, "
@@ -665,7 +669,7 @@ msgstr ""
 ":doc:`../reference/mcp-tools`\\ 、\\ :doc:`../topics/payments`\\ 、\\ "
 ":doc:`../topics/sandbox`\\ 。"
 
-#: ../../agents/workbuddy.rst:322
+#: ../../agents/workbuddy.rst:325
 msgid ""
 "The following points have not been confirmed against a running WorkBuddy "
 "client and follow the official documentation of the installed version: "

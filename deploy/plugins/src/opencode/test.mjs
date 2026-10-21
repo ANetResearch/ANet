@@ -38,7 +38,9 @@ test("settings become the variables of the runner", () => {
 })
 
 test("shellDouble escapes the characters that are special in double quotes", () => {
-  assert.equal(lib.shellDouble('a b"c$d`e\\f'), 'a b\\"c\\$d\\`e\\\\f')
+  assert.equal(lib.shellDouble('a b"c$d`e\\f', "linux"), 'a b\\"c\\$d\\`e\\\\f')
+  // A Windows path is written as it is: PowerShell and cmd take no backslash escape.
+  assert.equal(lib.shellDouble("C:\\Users\\a b\\anet", "win32"), "C:\\Users\\a b\\anet")
 })
 
 test("applyConfig registers the server, the skills and the command", () => {
@@ -47,16 +49,18 @@ test("applyConfig registers the server, the skills and the command", () => {
   const entry = cfg.mcp.anet
   assert.equal(entry.type, "local")
   assert.equal(entry.enabled, true)
-  assert.deepEqual(entry.command, ["sh", path.join(dir, "bin", "anet-mcp.sh")])
+  assert.deepEqual(entry.command, [path.join(dir, "bin", "anet-mcp")])
   assert.deepEqual(entry.environment, { ANET_PLUGIN_BIN: "/opt/anet", ANET_PLUGIN_IDENTITY: "work" })
   assert.ok(entry.timeout >= 60000)
   assert.deepEqual(cfg.skills.paths, [path.join(dir, "skills")])
-  const command = cfg.command["anet-status"]
-  assert.ok(command.description.length > 0)
-  assert.ok(command.template.includes(path.join(dir, "bin", "anet-run.sh")))
-  assert.ok(command.template.includes("!`ANET_PLUGIN_BIN='/opt/anet' ANET_PLUGIN_IDENTITY='work' sh "))
-  assert.equal(command.template.includes("${ANET_PLUGIN_ROOT}"), false)
-  assert.ok(command.template.includes("$ARGUMENTS"))
+  assert.deepEqual(Object.keys(cfg.command).sort(), ["anet", "anet-status"])
+  for (const command of Object.values(cfg.command)) {
+    assert.ok(command.description.length > 0)
+    assert.ok(command.template.includes(path.join(dir, "bin", "anet-run.sh")))
+    assert.ok(command.template.includes(path.join(dir, "bin", "anet-run.cmd")))
+    assert.equal(command.template.includes("${ANET_PLUGIN_ROOT}"), false)
+    assert.ok(command.template.includes("$ARGUMENTS"))
+  }
 })
 
 test("applyConfig without settings sets no environment", () => {
@@ -124,15 +128,13 @@ test("the server hooks without options", async () => {
   assert.deepEqual(output.env, { ANET_PLUGIN_ROOT: dir })
 })
 
-test("the plugin is inactive on Windows", async () => {
+test("the plugin is active on Windows", async () => {
   const original = Object.getOwnPropertyDescriptor(process, "platform")
   Object.defineProperty(process, "platform", { value: "win32" })
   try {
-    let logged
-    const hooks = await server.default.server({ client: { app: { log: async (m) => (logged = m) } } }, {})
-    assert.deepEqual(hooks, {})
-    assert.equal(logged.body.level, "warn")
-    assert.deepEqual(await server.default.server({}, {}), {})
+    const hooks = await server.default.server({}, {})
+    assert.equal(typeof hooks.config, "function")
+    assert.equal(typeof hooks["shell.env"], "function")
   } finally {
     Object.defineProperty(process, "platform", original)
   }

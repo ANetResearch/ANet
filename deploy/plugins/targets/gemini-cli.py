@@ -26,9 +26,27 @@ reading its bundle and its documentation):
     (the manifest at the root of the repository or of a release archive) or a
     local path, not a subdirectory of a repository.
 
+Launch on Windows and POSIX (read in the bundle of @google/gemini-cli 0.65.0):
+
+  * A stdio server is spawned by the StdioClientTransport of the MCP
+    TypeScript SDK with cross-spawn, shell:false (only in a trusted folder).
+    ${extensionPath} and ${/} are replaced in the whole manifest.
+  * The command is ${extensionPath}${/}bin${/}anet-mcp, without an extension.
+    On Windows cross-spawn tries the path with each extension of PATHEXT (an
+    extensionless file is not executable there), finds bin/anet-mcp.cmd and
+    runs it through cmd.exe /d /s /c. On Linux and macOS bin/anet-mcp is run
+    itself: a shell script that starts bin/anet-mcp.sh with sh.
+  * The executable bit survives every installation: a local installation is
+    copied with fs.promises.cp, a Git installation is a clone, and the release
+    archives (tar.gz, built with mode 0755 for executables) are unpacked by
+    node-tar with their modes.
+  * The agent runs commands in PowerShell on Windows; the skills give the
+    Windows runner bin/anet-run.cmd next to sh bin/anet-run.sh.
+
 Output (dist/gemini-cli/ is the extension root):
 
     gemini-extension.json   manifest with mcpServers and settings
+    commands/anet.toml      /anet, the @anet entry point
     commands/anet-status.toml   /anet-status
     bin/ skills/            the shared files; skills/anet-status is made from the shared command
     bin/anet-install.sh  the official installer as one plain command (common/bin/anet-install.sh)
@@ -72,6 +90,7 @@ VARS = {
     "SETTINGS_SECTION": {"en": _read("gemini-settings-section.md"), "zh-CN": _read("gemini-settings-section_CN.md")},
     "RUNNER_SETTINGS_COMMENT": _read("gemini-runner-settings-comment.txt"),
     "RUNNER_READ_SETTINGS": _read("gemini-runner-read-settings.sh"),
+    "RUNNER_READ_SETTINGS_PS": _read("gemini-runner-read-settings.ps1"),
     "INSTALL_STEP": {
         "en": (
             "Install the extension from a local copy of the ANet repository: `git clone https://github.com/ANetResearch/ANet.git`, "
@@ -87,10 +106,9 @@ VARS = {
         ),
     },
     "COMPONENTS_SAME_RUNNER": {
-        "en": "the MCP server (`bin/anet-mcp.sh`, `anet mcp`) and the `anet-status` and `anet-setup` skills",
-        "zh-CN": "MCP 服务（`bin/anet-mcp.sh`，即 `anet mcp`）与 `anet-status`、`anet-setup` skill ",
+        "en": "the MCP server (`anet mcp`), the commands `/anet` and `/anet-status` and the skills",
+        "zh-CN": "MCP 服务（`anet mcp`）、`/anet` 与 `/anet-status` 命令以及各 skill ",
     },
-    "RESOLVE_INVOCATION": '```bash\nsh "' + RUNNER_FROM_SKILL + '" --resolve\n```',
     "ARGUMENTS": "the part of the request that names something specific to check, if any.",
 }
 
@@ -125,7 +143,6 @@ def transform(ctx, rel, text, lang):
     if rel == "skills/anet-setup/SKILL.md":
         text = _replace_once(text, "**anet executable** (`anetPath`)", "**anet executable** (the variable `ANET_PLUGIN_BIN`)", rel)
         text = _replace_once(text, "**anet identity** (`identity`)", "**anet identity** (the variable `ANET_PLUGIN_IDENTITY`)", rel)
-        text = _replace_once(text, "status in the Gemini CLI settings.", "status (`/mcp` in a session).", rel)
         text = _replace_once(
             text,
             "the plugin setting **anet executable** names a file",
@@ -142,18 +159,13 @@ def transform(ctx, rel, text, lang):
             text,
             "they hold the identity keys and the control token.\n",
             "they hold the identity keys and the control token.\n"
-            "Never read or edit the Gemini CLI configuration (`~/.gemini`, including its `settings.json`, `.env` and credential files):\n"
-            "it holds the user's credentials. The runner reads the two extension settings itself.\n"
-            "If the host refuses a command of this skill, report the refusal together with the command and stop: do not write copies or wrapper scripts of the runner or of the installer to work around it.\n",
+            "- Never read or edit the Gemini CLI configuration (`~/.gemini`, including its `settings.json`, `.env` and\n"
+            "  credential files): it holds the user's credentials. The runner reads the two extension settings itself.\n"
+            "- If the host refuses a command of this skill, report the refusal together with the command and stop: do not\n"
+            "  write copies or wrapper scripts of the runner or of the installer to work around it.\n",
             rel,
         )
     elif rel == "commands/anet-status.md":
-        text = _replace_once(
-            text,
-            "The plugin settings select this executable and identity (resolved when the command started):",
-            "The plugin settings select an executable and an identity. Resolve them first:",
-            rel,
-        )
         text = _replace_once(
             text,
             "Do not change any setting. Optional focus from the user:",
@@ -165,14 +177,14 @@ def transform(ctx, rel, text, lang):
         text = _replace_once(
             text,
             "| Skill | `anet-setup` |",
-            "| Skill | `anet-status` | Shows the node, its hub, the balance and the spending limits. The command `/anet-status` activates it. |\n| Skill | `anet-setup` |",
+            "| Skill | `anet-status` | Shows the state of the node, as the guide of the installed anet describes. The command `/anet-status` activates it. |\n| Skill | `anet-setup` |",
             rel,
         )
     elif rel == "README_CN.md":
         text = _replace_once(
             text,
             "| Skill | `anet-setup` |",
-            "| Skill | `anet-status` | 显示节点、所加入的 hub、余额和支付额度。命令 `/anet-status` 会激活该 skill。 |\n| Skill | `anet-setup` |",
+            "| Skill | `anet-status` | 按已安装 anet 的指南显示节点状态。命令 `/anet-status` 会激活该 skill。 |\n| Skill | `anet-setup` |",
             rel,
         )
     return text
@@ -180,19 +192,34 @@ def transform(ctx, rel, text, lang):
 
 def _status_skill(ctx):
     description, body = ctx.command("anet-status")
-    description = description.rstrip(".") + ". Use when the user asks for the state of the anet node, the balance or the spending limits."
+    description = description.rstrip(".") + ". Use when the user asks for the state of the anet node or its balance."
     return "---\nname: " + STATUS_SKILL + "\ndescription: " + json.dumps(description, ensure_ascii=False) + "\n---\n\n" + body
+
+
+def _toml(description, prompt):
+    if "'''" in prompt:
+        raise ValueError("the prompt would end the TOML string")
+    return f"description = {json.dumps(description, ensure_ascii=False)}\nprompt = '''\n{prompt}\n'''\n"
 
 
 def status_command_toml(description):
     """commands/anet-status.toml: the command delegates to the skill, which holds the runner path."""
-    prompt = (
+    return _toml(description, (
         "Activate the `anet-status` skill with the `activate_skill` tool and follow its instructions to report "
-        "the state of the local anet node. Optional focus from the user: {{args}}"
-    )
-    if "'''" in prompt:
-        raise ValueError("the prompt would end the TOML string")
-    return f"description = {json.dumps(description, ensure_ascii=False)}\nprompt = '''\n{prompt}\n'''\n"
+        "the state of the local anet node, as the guide of the installed anet describes. Optional focus from the user: {{args}}"
+    ))
+
+
+def anet_command_toml(description):
+    """commands/anet.toml: the @anet entry point. A TOML command is not expanded, so the runner comes from the skill."""
+    return _toml(description, (
+        "Carry out the following request for this machine's AgentNetwork (anet) node. First read the tool `guide` of "
+        "the `anet` MCP server (or activate the `anet` skill with the `activate_skill` tool and run `<runner> guide` "
+        "with the runner that it names) and follow its section on @anet requests.\n\n"
+        "Request: {{args}}\n\n"
+        "If the request is empty, show the tasks that other agents sent to this node and the state of the node, as "
+        "the guide describes."
+    ))
 
 
 def build(ctx):
@@ -201,6 +228,8 @@ def build(ctx):
     ctx.add(f"skills/{STATUS_SKILL}/SKILL.md", _status_skill(ctx))
     description, _ = ctx.command("anet-status")
     ctx.add(f"commands/{STATUS_SKILL}.toml", status_command_toml(description))
+    description, _ = ctx.command("anet")
+    ctx.add("commands/anet.toml", anet_command_toml(description))
 
     ctx.add_json("gemini-extension.json", {
         "name": meta["name"],
@@ -208,8 +237,9 @@ def build(ctx):
         "description": meta["description"],
         "mcpServers": {
             meta["mcp"]["server_name"]: {
-                "command": "sh",
-                "args": ["${extensionPath}/bin/anet-mcp.sh"],
+                # bin/anet-mcp on Linux and macOS, bin/anet-mcp.cmd on Windows (see the module docstring).
+                "command": "${extensionPath}${/}bin${/}anet-mcp",
+                "args": [],
                 "cwd": "${extensionPath}",
                 "timeout": meta["mcp"]["timeout_ms"],
             }

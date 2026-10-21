@@ -67,7 +67,8 @@ class ManifestTests(unittest.TestCase):
             sorted(self.ctx.files),
             sorted([
                 ".codebuddy-plugin/plugin.json", ".mcp.json", "LICENSE", "README.md", "README_CN.md",
-                "bin/anet-install.sh", "bin/anet-mcp.sh", "bin/anet-run.sh", "commands/anet-status.md",
+                "bin/anet-install.cmd", "bin/anet-install.sh", "bin/anet-mcp", "bin/anet-mcp.cmd", "bin/anet-mcp.sh",
+                "bin/anet-run.cmd", "bin/anet-run.ps1", "bin/anet-run.sh", "commands/anet-status.md", "commands/anet.md",
                 "skills/anet-setup/SKILL.md", "skills/anet/SKILL.md",
             ]),
         )
@@ -106,9 +107,10 @@ class ManifestTests(unittest.TestCase):
         servers = self.mcp["mcpServers"]
         self.assertEqual(list(servers), [meta["mcp"]["server_name"]])
         server = servers["anet"]
-        # Started with sh: the executable bit of the launcher does not matter.
-        self.assertEqual(server["command"], "sh")
-        self.assertEqual(server["args"], ["${CODEBUDDY_PLUGIN_ROOT}/bin/anet-mcp.sh"])
+        # bin/anet-mcp on Linux and macOS (the copy into the cache keeps the mode), bin/anet-mcp.cmd on Windows.
+        self.assertEqual(server["command"], "${CODEBUDDY_PLUGIN_ROOT}/bin/anet-mcp")
+        self.assertEqual(server["args"], [])
+        self.assertTrue(self.ctx.files["bin/anet-mcp"].executable)
         self.assertEqual(server["env"], {s["env"]: "${user_config.%s}" % s["key"] for s in meta["settings"]})
 
     def test_every_user_config_reference_is_declared(self):
@@ -127,33 +129,35 @@ class ManifestTests(unittest.TestCase):
                     self.assertIn(var, known, path)
 
     def test_skills_and_command_reach_the_runner_through_the_plugin_root(self):
-        runner = 'sh "${CODEBUDDY_PLUGIN_ROOT}/bin/anet-run.sh"'
-        self.assertIn(runner + " --resolve", text_of(self.ctx, "skills/anet-setup/SKILL.md"))
-        self.assertIn(runner + " --resolve", text_of(self.ctx, "commands/anet-status.md"))
-        self.assertIn(runner + " doctor", text_of(self.ctx, "skills/anet/SKILL.md"))
+        for path in ("skills/anet-setup/SKILL.md", "skills/anet/SKILL.md", "commands/anet-status.md", "commands/anet.md"):
+            self.assertIn('sh "${CODEBUDDY_PLUGIN_ROOT}/bin/anet-run.sh"', text_of(self.ctx, path), path)
+            self.assertIn('"${CODEBUDDY_PLUGIN_ROOT}/bin/anet-run.cmd"', text_of(self.ctx, path), path)
 
     def test_command_is_named_as_codebuddy_names_it(self):
         # The host registers it as /<plugin>:<command> (slash_commands: "anet:anet-status").
         for path in ("README.md", "README_CN.md", "skills/anet/SKILL.md", "skills/anet-setup/SKILL.md"):
             text = text_of(self.ctx, path)
             self.assertNotRegex(text, r"`/anet-status`", path)
-        self.assertIn("`/anet:anet-status`", text_of(self.ctx, "README.md"))
-        self.assertIn("`/anet:anet-status`", text_of(self.ctx, "README_CN.md"))
+            self.assertNotIn("`/anet`", text, path)
+        for path in ("README.md", "README_CN.md"):
+            self.assertIn("`/anet:anet-status`", text_of(self.ctx, path))
+            self.assertIn("`/anet:anet`", text_of(self.ctx, path))
 
     def test_guide_names_the_tools_as_the_host_does(self):
         guide = text_of(self.ctx, "skills/anet/SKILL.md")
-        self.assertIn("mcp__anet__node_status", guide)
+        self.assertIn("mcp__anet__guide", guide)
         self.assertEqual(guide.count("mcp__anet__<tool>"), 1)
 
     def test_setup_rules_of_zcode_are_kept(self):
         setup = text_of(self.ctx, "skills/anet-setup/SKILL.md")
         self.assertIn("bin/anet-install.sh", setup)
         self.assertNotIn("$(", setup)
-        self.assertIn("Never read, print or copy files under `~/.anet`", setup)
-        self.assertIn("Do not run them on the user's behalf", setup)
+        self.assertIn("bin/anet-install.cmd", setup)
+        self.assertIn("Never read, print or copy the files of the anet data directory (`~/.anet`", setup)
+        self.assertIn("not run them on the user's behalf", setup)
         self.assertIn("`~/.codebuddy` or `~/.workbuddy`", setup)  # the host configuration is named as off limits
         self.assertIn("Never read or edit the CodeBuddy configuration", setup)
-        self.assertIn("do not run on Windows", setup)
+        self.assertIn("<runner> guide setup", setup)
 
     def test_readme(self):
         for name in ("README.md", "README_CN.md"):

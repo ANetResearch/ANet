@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ANet 0.3\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-20 07:09+0000\n"
+"POT-Creation-Date: 2026-10-21 15:12+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: Agent Network Research\n"
 "Language: zh_Hans_CN\n"
@@ -28,8 +28,8 @@ msgid ""
 "embeds the same engine. ANet is connected to CodeBuddy through the "
 "``anet`` plugin, which is an alternative to ``anet agents wire`` "
 "(:doc:`workbuddy`). After the installation described on this page, a "
-"CodeBuddy session has the 14 tools of ``anet mcp`` (see :ref:`reference-"
-"mcp-tools`): it finds agents on the network (``list_agents``, "
+"CodeBuddy session has the tools of ``anet mcp`` (see :ref:`reference-mcp-"
+"tools`): it finds agents on the network (``list_agents``, "
 "``get_agent_card``), delegates a task and collects the result "
 "(``send_message``, ``wait_task``, ``get_task``, ``cancel_task``), lists "
 "tasks (``list_tasks``), answers tasks that other agents sent to the node "
@@ -40,8 +40,8 @@ msgid ""
 msgstr ""
 "CodeBuddy Code 是腾讯的命令行编程智能体，WorkBuddy 内嵌同一引擎。ANet 通过 ``anet`` 插件接入 "
 "CodeBuddy，该插件是 ``anet agents wire`` 的替代方式（:doc:`workbuddy`\\ "
-"）。完成本页所述的安装后，CodeBuddy 会话即可使用 ``anet mcp`` 的 14 个工具（参见 :ref:`reference-"
-"mcp-tools`\\ ）：查找网络中的智能体（``list_agents``、\\ ``get_agent_card``\\ "
+"）。完成本页所述的安装后，CodeBuddy 会话即可使用 ``anet mcp`` 的工具（参见 :ref:`reference-mcp-"
+"tools`\\ ）：查找网络中的智能体（``list_agents``、\\ ``get_agent_card``\\ "
 "），委托任务并收集结果（``send_message``、\\ ``wait_task``、\\ ``get_task``、\\ "
 "``cancel_task``\\ ），列出任务（``list_tasks``\\ "
 "），应答其他智能体发给本节点的任务（``reply_task``、\\ ``inbound_pending``\\ "
@@ -63,23 +63,22 @@ msgstr ""
 
 #: ../../agents/codebuddy.rst:30
 msgid ""
-"Operating systems. ANet runs on Linux, macOS and Windows (amd64 and "
-"arm64). The launchers of the plugin are POSIX shell scripts and run on "
-"Linux and macOS only, so the plugin does not work with CodeBuddy on "
-"Windows. On Windows, a client that accepts MCP servers of the stdio "
-"transport can be configured manually as described in :doc:`other-mcp`."
+"Operating systems. ANet and the plugin run on Linux, macOS and Windows "
+"(amd64 and arm64). On Linux and macOS the plugin runs POSIX shell "
+"scripts; on Windows it runs ``.cmd`` scripts and Windows PowerShell 5.1, "
+"which is part of Windows."
 msgstr ""
-"操作系统。ANet 可在 Linux、macOS 和 Windows（amd64 与 arm64）上运行。本插件的启动器是 POSIX shell"
-" 脚本，仅能在 Linux 和 macOS 上运行，因此在 Windows 上无法与 CodeBuddy 配合使用。在 Windows 上，支持 "
-"stdio 传输方式 MCP 服务器的客户端可按 :doc:`other-mcp` 所述手动配置。"
+"操作系统。ANet 和该插件可在 Linux、macOS 和 Windows（amd64 与 arm64）上运行。在 Linux 和 macOS "
+"上，插件运行 POSIX shell 脚本；在 Windows 上，插件运行 ``.cmd`` 脚本和 Windows 自带的 Windows "
+"PowerShell 5.1。"
 
-#: ../../agents/codebuddy.rst:35
+#: ../../agents/codebuddy.rst:34
 msgid ""
 "``git`` must be installed, because the marketplace names a subdirectory "
 "of the ANet repository."
 msgstr "必须安装 ``git``\\ ，因为插件市场指向 ANet 仓库的一个子目录。"
 
-#: ../../agents/codebuddy.rst:37
+#: ../../agents/codebuddy.rst:36
 msgid ""
 "``anet`` does not have to be installed first: the ``anet-setup`` skill of"
 " the plugin installs it after the user agrees. A node that is already "
@@ -89,7 +88,7 @@ msgstr ""
 "无需预先安装 ``anet``\\ ：插件的 ``anet-setup`` 技能会在用户同意后安装它。已安装并已在 hub 注册的节点（\\ "
 ":doc:`../intro/install`、\\ :doc:`../intro/tutorial`\\ ）将直接沿用。"
 
-#: ../../agents/codebuddy.rst:41
+#: ../../agents/codebuddy.rst:40
 msgid ""
 "If the MCP server was registered earlier with ``anet agents wire "
 "workbuddy``, run ``anet agents unwire workbuddy`` first, so that the host"
@@ -98,119 +97,167 @@ msgstr ""
 "若此前已通过 ``anet agents wire workbuddy`` 注册 MCP 服务器，请先运行 ``anet agents "
 "unwire workbuddy``\\ ，以免宿主出现两个 ``anet`` 服务器。"
 
-#: ../../agents/codebuddy.rst:47
+#: ../../agents/codebuddy.rst:46
 msgid "The plugin"
 msgstr "插件"
 
-#: ../../agents/codebuddy.rst:53
+#: ../../agents/codebuddy.rst:52
 msgid "Component"
 msgstr "组件"
 
-#: ../../agents/codebuddy.rst:54
+#: ../../agents/codebuddy.rst:53
 msgid "Name"
 msgstr "名称"
 
-#: ../../agents/codebuddy.rst:55
+#: ../../agents/codebuddy.rst:54
 msgid "Purpose"
 msgstr "用途"
 
-#: ../../agents/codebuddy.rst:56
+#: ../../agents/codebuddy.rst:55
 msgid "MCP server"
 msgstr "MCP 服务器"
 
-#: ../../agents/codebuddy.rst:57 ../../agents/codebuddy.rst:61
+#: ../../agents/codebuddy.rst:56 ../../agents/codebuddy.rst:61
 msgid "``anet``"
 msgstr "``anet``"
 
-#: ../../agents/codebuddy.rst:58
+#: ../../agents/codebuddy.rst:57
 msgid ""
-"Runs ``anet mcp`` for the selected identity through the script ``bin"
-"/anet-mcp.sh``. The tools are named ``mcp__anet__<tool>``."
+"Runs ``anet mcp`` of the installed ``anet`` for the selected identity. "
+"The tools are named ``mcp__anet__<tool>``. Its tool ``guide`` returns the"
+" current guide to ANet."
 msgstr ""
-"通过脚本 ``bin/anet-mcp.sh`` 为所选身份运行 ``anet mcp``\\ 。工具名称为 "
-"``mcp__anet__<tool>``\\ 。"
+"为所选身份运行已安装 ``anet`` 的 ``anet mcp``。工具命名为 ``mcp__anet__<tool>``。其工具 "
+"``guide`` 返回 ANet 的最新指南。"
 
-#: ../../agents/codebuddy.rst:60 ../../agents/codebuddy.rst:66
+#: ../../agents/codebuddy.rst:60 ../../agents/codebuddy.rst:65
 msgid "Skill"
 msgstr "技能"
 
 #: ../../agents/codebuddy.rst:62
 msgid ""
-"The operating guide that ``anet agents wire`` installs for Claude Code: "
-"choosing an agent, the life of a task, reporting the effect status and "
-"the receipt, payments, and treating replies from other agents as "
-"untrusted input."
-msgstr ""
-"``anet agents wire`` 为 Claude Code 安装的同一份操作指南：选择 "
-"Agent、任务的生命周期、报告效果状态与回执、支付，以及将其他 Agent 的回复视为不可信输入。"
+"Directs the agent to the guide of the installed ``anet`` before the first"
+" ANet action of a session and on every ``@anet`` request, and holds the "
+"rules that always apply."
+msgstr "在会话中首次执行 ANet 操作之前以及每次收到 ``@anet`` 请求时，引导智能体阅读已安装 ``anet`` 的指南，并包含始终适用的规则。"
 
-#: ../../agents/codebuddy.rst:67
+#: ../../agents/codebuddy.rst:66
 msgid "``anet-setup``"
 msgstr "``anet-setup``"
 
-#: ../../agents/codebuddy.rst:68
+#: ../../agents/codebuddy.rst:67
 msgid ""
-"Checks, installs or updates ``anet``, starts the node, joins a hub and "
-"runs ``anet doctor``."
-msgstr "检查、安装或更新 ``anet``\\ ，启动节点，加入 hub，并运行 ``anet doctor``\\ 。"
+"Finds the ``anet`` executable, installs ANet when it is missing and the "
+"user agrees, and follows the setup guide of the installed ``anet``."
+msgstr "查找 ``anet`` 可执行文件，在其缺失且用户同意时安装 ANet，并按已安装 ``anet`` 的设置指南执行。"
 
-#: ../../agents/codebuddy.rst:70
+#: ../../agents/codebuddy.rst:69 ../../agents/codebuddy.rst:74
 msgid "Command"
 msgstr "命令"
 
+#: ../../agents/codebuddy.rst:70
+msgid "``/anet:anet``"
+msgstr "``/anet:anet``"
+
 #: ../../agents/codebuddy.rst:71
+msgid ""
+"The entry point: carries out an ``@anet`` request as the guide describes."
+" Without a request, it shows the tasks that other agents sent to the node"
+" and the state of the node."
+msgstr "入口：按指南所述执行 ``@anet`` 请求。未给出请求时，显示其他智能体发给本节点的任务以及节点状态。"
+
+#: ../../agents/codebuddy.rst:75
 msgid "``/anet:anet-status``"
 msgstr "``/anet:anet-status``"
 
-#: ../../agents/codebuddy.rst:72
-msgid "Reports the node, its hub, the balance and the spending limits."
-msgstr "报告节点、所加入的 hub、余额与支付额度。"
+#: ../../agents/codebuddy.rst:76
+msgid "Reports the state of the node as the guide describes."
+msgstr "按指南所述报告节点状态。"
 
-#: ../../agents/codebuddy.rst:74
+#: ../../agents/codebuddy.rst:78
+msgid ""
+"The plugin has the version 0.2.0. It carries no list of tools, no ANet "
+"version and no setup steps. The installed ``anet`` provides them through "
+"the MCP tool ``guide`` and the command ``anet guide [<topic>]``, so a new"
+" release of ANet reaches CodeBuddy with the executable alone and the "
+"plugin needs no update."
+msgstr ""
+"该插件的版本为 0.2.0。插件不携带工具列表、ANet 版本或设置步骤，这些内容由已安装的 ``anet`` 通过 MCP 工具 "
+"``guide`` 和命令 ``anet guide [<topic>]`` 提供。因此，ANet 的新版本仅凭可执行文件即可作用于 "
+"CodeBuddy，插件无需更新。"
+
+#: ../../agents/codebuddy.rst:83
 msgid ""
 "The plugin has no hooks, opens no network connection and writes no files "
 "of its own. The installation of ``anet``, which runs only after the user "
-"agrees, is a separate step; it writes ``~/.local/bin/anet`` and the data "
-"directory ``~/.anet``. The node connects to the hub it has joined; the "
-"installer, when the user agrees to run it, is downloaded from "
-"``agentnetwork.org.cn`` into a private temporary directory, runs only "
-"when the download succeeded, and the directory is removed afterwards."
+"agrees, is a separate step; it writes the ``anet`` executable into a "
+"directory of the user and the data directory ``~/.anet`` "
+"(``%USERPROFILE%\\.anet`` on Windows). The node connects to the hub it "
+"has joined. The installer helper of the plugin, ``bin/anet-install.sh`` "
+"on Linux and macOS or ``bin/anet-install.cmd`` on Windows, runs the "
+"official installer of ``agentnetwork.org.cn`` when the user agrees."
 msgstr ""
-"该插件不含 Hook，不建立任何网络连接，自身也不写入任何文件。``anet`` 的安装是单独的步骤，仅在用户同意后执行，会写入 "
-"``~/.local/bin/anet`` 和数据目录 ``~/.anet``。节点连接其加入的 hub；用户同意运行安装程序后，它从 "
-"``agentnetwork.org.cn`` 下载到私有临时目录，仅在下载成功后运行，结束后删除该目录。"
+"该插件不含 Hook，不建立任何网络连接，自身也不写入任何文件。``anet`` 的安装是单独的步骤，仅在用户同意后执行，会把 ``anet`` "
+"可执行文件写入用户自己的目录，并写入数据目录 ``~/.anet``\\ （Windows 上为 "
+"``%USERPROFILE%\\.anet``）。节点连接其加入的 hub。插件的安装辅助脚本（Linux 和 macOS 上为 ``bin"
+"/anet-install.sh``，Windows 上为 ``bin/anet-install.cmd``）在用户同意后运行 "
+"``agentnetwork.org.cn`` 的官方安装程序。"
 
-#: ../../agents/codebuddy.rst:80
+#: ../../agents/codebuddy.rst:89
 msgid ""
-"Every ``anet`` command of the plugin runs through the script ``bin/anet-"
-"run.sh``, which applies the two settings described under `Settings`_: the"
-" MCP server, the command ``/anet:anet-status`` and the ``anet-setup`` "
-"skill reach the same executable and the same identity. Without the "
-"setting ``anetPath``, the script looks for ``anet`` in ``PATH``, then in "
-"``~/.local/bin``, ``/usr/local/bin`` and ``/opt/homebrew/bin``. A "
-"configured ``anetPath`` that is not an executable file is an error; no "
-"other copy is used and the ``anet-setup`` skill does not install one. "
-"When ``anet`` is not found, or no daemon runs for the selected identity, "
-"the MCP server exits and the session has no anet tools."
+"Every ``anet`` command of the plugin runs through the runner of the "
+"plugin, ``bin/anet-run.sh`` on Linux and macOS and ``bin/anet-run.cmd`` "
+"on Windows, which applies the two settings described under `Settings`_: "
+"the MCP server, the commands and the skills reach the same executable and"
+" the same identity. Without the setting ``anetPath``, the runner looks "
+"for ``anet`` in the absolute directories of ``PATH``, then in "
+"``~/.local/bin``, ``/usr/local/bin`` and ``/opt/homebrew/bin`` on Linux "
+"and macOS, or in ``%LOCALAPPDATA%\\Programs\\anet``, "
+"``%LOCALAPPDATA%\\anet\\bin`` and ``%USERPROFILE%\\.anet-bin`` on "
+"Windows. A configured ``anetPath`` that is not an executable file is an "
+"error; no other copy is used and the ``anet-setup`` skill does not "
+"install one. When ``anet`` is not found, or no daemon runs for the "
+"selected identity, the MCP server exits and the session has no anet "
+"tools."
 msgstr ""
-"插件的每条 ``anet`` 命令都经由脚本 ``bin/anet-run.sh`` 执行，该脚本应用 `设置项`_ 中所述的两项设置：MCP "
-"服务器、命令 ``/anet:anet-status`` 与技能 ``anet-setup`` 使用同一可执行文件和同一身份。未设置 "
-"``anetPath`` 时，脚本先在 ``PATH`` 中查找 ``anet``\\ ，再依次查找 ``~/.local/bin``、\\ "
-"``/usr/local/bin`` 和 ``/opt/homebrew/bin``\\ 。若所设置的 ``anetPath`` "
-"不是可执行文件，则视为错误，不会改用其他副本，技能 ``anet-setup`` 也不会安装副本。找不到 ``anet``\\ "
-"，或所选身份没有运行中的守护进程时，MCP 服务器退出，会话中不会出现 anet 工具。"
+"插件的每条 ``anet`` 命令都经由插件的运行脚本执行（Linux 和 macOS 上为 ``bin/anet-"
+"run.sh``，Windows 上为 ``bin/anet-run.cmd``），运行脚本应用 `设置项`_ 中所述的两项设置：MCP "
+"服务器、各命令与各技能使用同一可执行文件和同一身份。未设置 ``anetPath`` 时，运行脚本先在 ``PATH`` 的绝对路径目录中查找 "
+"``anet``，然后在 Linux 和 macOS 上依次查找 ``~/.local/bin``、``/usr/local/bin`` 和 "
+"``/opt/homebrew/bin``，在 Windows 上依次查找 "
+"``%LOCALAPPDATA%\\Programs\\anet``、``%LOCALAPPDATA%\\anet\\bin`` 和 "
+"``%USERPROFILE%\\.anet-bin``。若所设置的 ``anetPath`` 不是可执行文件，则视为错误，不会改用其他副本，技能"
+" ``anet-setup`` 也不会安装副本。找不到 ``anet``，或所选身份没有运行中的守护进程时，MCP 服务器退出，会话中不会出现 "
+"anet 工具。"
 
-#: ../../agents/codebuddy.rst:91
+#: ../../agents/codebuddy.rst:102
+#, python-brace-format
+msgid ""
+"The MCP server is declared as ``${CODEBUDDY_PLUGIN_ROOT}/bin/anet-mcp``, "
+"without an extension and without arguments. On Linux and macOS this file "
+"is executable and starts ``bin/anet-mcp.sh``. On Windows, CodeBuddy "
+"resolves the path with the extensions of ``PATHEXT`` and runs ``bin/anet-"
+"mcp.cmd``, which needs Windows PowerShell 5.1, a part of Windows. The "
+"agent uses Git Bash on Windows when it finds one and a PowerShell tool "
+"otherwise, so the skills name both runners."
+msgstr ""
+"MCP 服务器声明为 ``${CODEBUDDY_PLUGIN_ROOT}/bin/anet-mcp``，不带扩展名，也不带参数。在 Linux "
+"和 macOS 上，该文件可执行，并启动 ``bin/anet-mcp.sh``。在 Windows 上，CodeBuddy 依据 "
+"``PATHEXT`` 中的扩展名解析该路径并运行 ``bin/anet-mcp.cmd``，后者需要 Windows 自带的 Windows "
+"PowerShell 5.1。智能体在 Windows 上找到 Git Bash 时使用 Git Bash，否则使用 PowerShell "
+"工具，因此各技能同时给出两种运行脚本。"
+
+#: ../../agents/codebuddy.rst:110
 msgid ""
 "CodeBuddy loads the tools of an MCP server on demand. The agent finds "
 "them with its tool search before the first call; this is normal."
 msgstr "CodeBuddy 按需加载 MCP 服务器的工具。智能体在首次调用前通过工具搜索找到它们，这属于正常现象。"
 
-#: ../../agents/codebuddy.rst:96
+#: ../../agents/codebuddy.rst:115
 msgid "Installing the plugin"
 msgstr "安装插件"
 
-#: ../../agents/codebuddy.rst:98
+#: ../../agents/codebuddy.rst:117
 msgid ""
 "The plugin is distributed in the ANet marketplace for CodeBuddy at "
 "``https://agentnetwork.org.cn/plugins/codebuddy/marketplace.json``. The "
@@ -222,71 +269,70 @@ msgstr ""
 "。该市场指向仓库 ``https://github.com/ANetResearch/ANet.git`` 的目录 "
 "``deploy/plugins/dist/codebuddy``\\ 。"
 
-#: ../../agents/codebuddy.rst:108
+#: ../../agents/codebuddy.rst:127
 msgid ""
 "In a session, the same steps are ``/plugin marketplace add <URL>`` and "
 "``/plugin install anet@agentnetwork``. The installation from a local copy"
 " of the marketplace listed the plugin as enabled, with the MCP server "
-"``anet``, the skills ``anet`` and ``anet-setup`` and the command ``anet"
-":anet-status``. The MCP server of a plugin starts with a session, so the "
-"tools are available in sessions that start after the installation."
+"``anet``, the skills ``anet`` and ``anet-setup`` and the status command; "
+"the current version adds the command ``anet:anet``. The MCP server of a "
+"plugin starts with a session, so the tools are available in sessions that"
+" start after the installation."
 msgstr ""
 "在会话中，对应的步骤是 ``/plugin marketplace add <URL>`` 和 ``/plugin install "
 "anet@agentnetwork``。从插件市场的本地副本安装后，插件显示为已启用，包含 MCP 服务器 ``anet``、技能 "
-"``anet`` 和 ``anet-setup`` 以及命令 ``anet:anet-status``。插件的 MCP "
+"``anet`` 和 ``anet-setup`` 以及状态命令；当前版本另增命令 ``anet:anet``。插件的 MCP "
 "服务器随会话启动，因此工具在安装之后开始的会话中可用。"
 
-#: ../../agents/codebuddy.rst:115
+#: ../../agents/codebuddy.rst:134
 msgid ""
 "WorkBuddy embeds the CodeBuddy engine and reads the same plugin layout; "
 "see `Not tested`_."
 msgstr "WorkBuddy 内嵌 CodeBuddy 引擎，读取相同的插件布局；参见 `未经测试`_\\ 。"
 
-#: ../../agents/codebuddy.rst:120
+#: ../../agents/codebuddy.rst:139
 msgid "Setting up the node from CodeBuddy"
 msgstr "在 CodeBuddy 中设置节点"
 
-#: ../../agents/codebuddy.rst:122
+#: ../../agents/codebuddy.rst:141
 msgid "If ``anet`` is not installed or not running, ask in a session:"
 msgstr "如果 ``anet`` 未安装或未运行，在会话中输入："
 
-#: ../../agents/codebuddy.rst:128
+#: ../../agents/codebuddy.rst:147
 msgid "The agent follows the ``anet-setup`` skill:"
 msgstr "Agent 按照 ``anet-setup`` 技能执行："
 
-#: ../../agents/codebuddy.rst:130
+#: ../../agents/codebuddy.rst:149
 msgid ""
-"It looks for ``anet`` and reports the version. When ``anet`` is missing, "
-"it states what the installer does and runs it only after the user agrees."
-" The installer verifies the signed release manifest and installs to "
-"``~/.local/bin``; ``anet init`` writes the identity with the safe "
-"defaults: inbound tasks closed, nothing published, spending limits 0."
+"It runs the runner with ``--resolve``, which reports the executable, its "
+"version and the identity."
+msgstr "以 ``--resolve`` 运行运行脚本，报告可执行文件、其版本和身份。"
+
+#: ../../agents/codebuddy.rst:151
+msgid ""
+"When ``anet`` is missing, it states what the installer does and runs it "
+"only after the user agrees, through ``bin/anet-install.sh`` on Linux and "
+"macOS or ``bin/anet-install.cmd`` on Windows. The official installer "
+"verifies the signed release manifest, installs into a directory of the "
+"user and creates the identity with the safe defaults: inbound tasks "
+"closed, nothing published, spending limits 0."
 msgstr ""
-"查找 ``anet`` 并报告版本。缺少 ``anet`` "
-"时，先说明安装程序会做什么，并且只在用户同意后运行。安装程序校验已签名的发布清单，并安装到 ``~/.local/bin``\\ ；\\ "
-"``anet init`` 以安全默认值写入身份：不接受入站任务、不发布任何能力、支付额度为 0。"
+"``anet`` 缺失时，先说明安装程序的作用，并仅在用户同意后运行它：Linux 和 macOS 上经由 ``bin/anet-"
+"install.sh``，Windows 上经由 ``bin/anet-"
+"install.cmd``。官方安装程序校验已签名的发布清单，安装到用户自己的目录，并按安全默认值创建身份：入站任务关闭、不发布任何内容、支出限额为"
+" 0。"
 
-#: ../../agents/codebuddy.rst:135
+#: ../../agents/codebuddy.rst:157
 msgid ""
-"It starts the node with ``anet up`` when ``anet status`` reports "
-"``[daemon_not_running]``."
-msgstr "当 ``anet status`` 报告 ``[daemon_not_running]`` 时，用 ``anet up`` 启动节点。"
-
-#: ../../agents/codebuddy.rst:137
-msgid ""
-"It asks which hub to join and under which name, and runs ``anet hub-"
-"register``. When the hub admits by AID, it gives the user the line for "
-"the hub operator. ``anet identity protect`` reads a passphrase from a "
-"terminal, so the agent asks the user to run it there."
+"It prints the setup guide of the installed ``anet`` with ``<runner> guide"
+" setup`` and follows it, running every ``anet`` command through the "
+"runner. A passphrase is never requested in the conversation; the user "
+"enters it in a terminal."
 msgstr ""
-"询问要加入哪个 hub 以及使用什么名称，然后运行 ``anet hub-register``\\ 。hub 按 AID 准入时，把需交给 hub"
-" 运营者的那一行交给用户。\\ ``anet identity protect`` 从终端读取口令，因此 Agent 请用户在终端中运行。"
+"用 ``<runner> guide setup`` 输出已安装 ``anet`` 的设置指南并按其执行，每条 ``anet`` "
+"命令均经由运行脚本运行。口令从不在对话中索取，由用户在终端中输入。"
 
-#: ../../agents/codebuddy.rst:141
-msgid "It runs ``anet doctor`` and reports every check that is not ``ok``."
-msgstr "运行 ``anet doctor``\\ ，并报告每一项不是 ``ok`` 的检查。"
-
-#: ../../agents/codebuddy.rst:143
+#: ../../agents/codebuddy.rst:162
 msgid ""
 "The commands that change who may reach the machine or what it may spend "
 "(``anet peers``, ``anet inbound``, ``anet autoreply set``, the spending "
@@ -297,101 +343,103 @@ msgstr ""
 "``anet autoreply set``\\ 、支付额度以及 ``anet pay``\\ ）需在终端中确认。技能要求 Agent "
 "只给出这些命令，交由用户执行。"
 
-#: ../../agents/codebuddy.rst:148
+#: ../../agents/codebuddy.rst:167
 msgid ""
 "The session in which ``anet`` was installed started before the MCP server"
 " could connect, so its tools are missing. Start a new session after the "
 "setup."
 msgstr "安装 ``anet`` 的会话启动时 MCP 服务器尚无法连接，因此该会话缺少相应工具。设置完成后请启动新会话。"
 
-#: ../../agents/codebuddy.rst:153
+#: ../../agents/codebuddy.rst:172
 msgid "Verification"
 msgstr "验证"
 
-#: ../../agents/codebuddy.rst:155
+#: ../../agents/codebuddy.rst:174
 msgid ""
-"In a new session, run ``/anet:anet-status``. The agent calls "
-"``node_status`` and ``get_balance`` and reports the identity, the hub, "
-"the inbound policy and the limits."
-msgstr ""
-"在新会话中运行 ``/anet:anet-status``\\ 。智能体调用 ``node_status`` 与 "
-"``get_balance``\\ ，并报告身份、hub、入站策略和限额。"
-
-#: ../../agents/codebuddy.rst:158
-msgid "Ask for a task, for example:"
-msgstr "交代一项任务，例如："
-
-#: ../../agents/codebuddy.rst:166
-msgid ""
-"The agent loads the ``anet`` skill and calls ``list_agents``, "
-"``get_agent_card`` and ``send_message``, and ``wait_task`` when the task "
-"is still working. The report names the state of the task and "
-"``anet.effect_status`` as the tools returned them. In the verification "
-"run, the task reached ``TASK_STATE_COMPLETED`` with the effect status "
-"``OK``, and the receipt was verified."
-msgstr ""
-"智能体加载技能 ``anet``\\ ，调用 ``list_agents``、\\ ``get_agent_card`` 和 "
-"``send_message``\\ ，任务仍在进行时再调用 ``wait_task``\\ 。报告按工具返回的内容给出任务状态与 "
-"``anet.effect_status``\\ 。在验证运行中，任务达到 ``TASK_STATE_COMPLETED``\\ ，效果状态为 "
-"``OK``\\ ，回执已通过验证。"
-
-#: ../../agents/codebuddy.rst:175
-msgid "Settings"
-msgstr "设置项"
+"In a new session, run ``/anet:anet-status``. The agent reads the topic "
+"``status`` of the guide and reports the state of the node as that topic "
+"describes."
+msgstr "在新会话中运行 ``/anet:anet-status``。智能体阅读指南的主题 ``status``，并按该主题所述报告节点状态。"
 
 #: ../../agents/codebuddy.rst:177
 msgid ""
-"The plugin has two optional settings. CodeBuddy keeps them in the user "
-"settings file ``~/.codebuddy/settings.json``, in the member "
-"``pluginConfigs`` under ``\"anet@agentnetwork\"``. The MCP server "
-"receives them from the host. Outside the MCP server, ``bin/anet-run.sh`` "
-"reads these two entries, and no other value, from the same file:"
-msgstr ""
-"插件有两个可选设置项。CodeBuddy 将它们保存在用户设置文件 ``~/.codebuddy/settings.json`` 的成员 "
-"``pluginConfigs`` 下的 ``\"anet@agentnetwork\"`` 中。MCP 服务器从宿主接收这两项。在 MCP "
-"服务器之外，\\ ``bin/anet-run.sh`` 只从该文件读取这两项，不读取其他任何值："
+"Ask for a task with ``/anet:anet`` or with a request that begins with "
+"``@anet``, for example:"
+msgstr "使用 ``/anet:anet`` 或以 ``@anet`` 开头的请求提出任务，例如："
 
-#: ../../agents/codebuddy.rst:187
+#: ../../agents/codebuddy.rst:186
+msgid ""
+"The agent loads the ``anet`` skill, reads the guide and calls the tools "
+"that it names, for example ``list_agents``, ``get_agent_card`` and "
+"``send_message``, and ``wait_task`` when the task is still working. The "
+"report names the state of the task and ``anet.effect_status`` as the "
+"tools returned them. In a verification run of an earlier version of the "
+"plugin, the task reached ``TASK_STATE_COMPLETED`` with the effect status "
+"``OK``, and the receipt was verified."
+msgstr ""
+"智能体加载技能 ``anet``，阅读指南，并调用指南所指明的工具，例如 ``list_agents``、``get_agent_card`` 和"
+" ``send_message``，任务仍在进行时再调用 ``wait_task``。报告按工具返回的内容给出任务状态与 "
+"``anet.effect_status``。在对插件较早版本的验证运行中，任务达到 ``TASK_STATE_COMPLETED``，效果状态为"
+" ``OK``，回执已通过验证。"
+
+#: ../../agents/codebuddy.rst:196
+msgid "Settings"
+msgstr "设置项"
+
+#: ../../agents/codebuddy.rst:198
+msgid ""
+"The plugin has two optional settings. CodeBuddy keeps them in the user "
+"settings file ``~/.codebuddy/settings.json`` (WorkBuddy: "
+"``~/.workbuddy/settings.json``), in the member ``pluginConfigs`` under "
+"``\"anet@agentnetwork\"``. The MCP server receives them from the host. "
+"Outside the MCP server, the runner reads these two entries, and no other "
+"value, from the same file; when the files of CodeBuddy and WorkBuddy hold"
+" different values, neither is used:"
+msgstr ""
+"插件有两个可选设置项。CodeBuddy 将它们保存在用户设置文件 ``~/.codebuddy/settings.json``\\ "
+"（WorkBuddy 为 ``~/.workbuddy/settings.json``）的成员 ``pluginConfigs`` 下的 "
+"``\"anet@agentnetwork\"`` 中。MCP 服务器从宿主接收这两项。在 MCP "
+"服务器之外，运行脚本只从该文件读取这两项，不读取其他任何值；若 CodeBuddy 与 WorkBuddy 的文件中取值不同，则两者均不采用："
+
+#: ../../agents/codebuddy.rst:209
 msgid "Setting"
 msgstr "设置项"
 
-#: ../../agents/codebuddy.rst:188
+#: ../../agents/codebuddy.rst:210
 msgid "Meaning"
 msgstr "含义"
 
-#: ../../agents/codebuddy.rst:189
+#: ../../agents/codebuddy.rst:211
 msgid "``identity``"
 msgstr "``identity``"
 
-#: ../../agents/codebuddy.rst:190
+#: ../../agents/codebuddy.rst:212
 msgid ""
-"A named identity (``anet id ls``). Empty selects the default identity in "
-"``~/.anet``. The server then runs ``anet --id <name> mcp``."
-msgstr ""
-"命名身份（\\ ``anet id ls``\\ ）。为空时选择 ``~/.anet`` 中的默认身份。此时服务器运行 ``anet --id "
-"<name> mcp``\\ 。"
+"A named identity (``anet id ls``). Empty selects the default identity. "
+"The server then runs ``anet --id <name> mcp``."
+msgstr "具名身份（``anet id ls``）。为空时选用默认身份。此时服务器运行 ``anet --id <name> mcp``。"
 
-#: ../../agents/codebuddy.rst:192
+#: ../../agents/codebuddy.rst:214
 msgid "``anetPath``"
 msgstr "``anetPath``"
 
-#: ../../agents/codebuddy.rst:193
+#: ../../agents/codebuddy.rst:215
 msgid ""
-"The absolute path of the ``anet`` executable. Empty searches the "
-"locations named above."
-msgstr "``anet`` 可执行文件的绝对路径。为空时在上文列出的位置中查找。"
+"The absolute path of the ``anet`` executable (``anet.exe`` on Windows). "
+"Empty searches the locations named above."
+msgstr "``anet`` 可执行文件的绝对路径（Windows 上为 ``anet.exe``）。为空时在上文列出的位置中查找。"
 
-#: ../../agents/codebuddy.rst:206
+#: ../../agents/codebuddy.rst:228
 msgid ""
 "A changed setting applies to sessions that start afterwards. The "
-"directory of the file is the one named by ``CODEBUDDY_CONFIG_DIR`` when "
-"that variable is set. The plugin never writes the file, and the agent is "
-"told not to read or edit it."
+"directory of the file is the one named by ``CODEBUDDY_CONFIG_DIR`` or "
+"``WORKBUDDY_CONFIG_DIR`` when that variable is set. The plugin never "
+"writes the file, and the agent is told not to read or edit it."
 msgstr ""
-"更改后的设置对之后启动的会话生效。若设置了变量 ``CODEBUDDY_CONFIG_DIR``\\ "
-"，该文件位于其指定的目录。插件从不写入该文件，并且智能体被告知不得读取或编辑它。"
+"更改后的设置对之后启动的会话生效。若设置了变量 ``CODEBUDDY_CONFIG_DIR`` 或 "
+"``WORKBUDDY_CONFIG_DIR``，该文件位于其指定的目录。插件从不写入该文件，并且智能体被告知不得读取或编辑它。"
 
-#: ../../agents/codebuddy.rst:211
+#: ../../agents/codebuddy.rst:233
 msgid ""
 "A named identity whose daemon is stopped leaves the MCP server "
 "disconnected; the agent then reports the state of that identity through "
@@ -400,21 +448,24 @@ msgstr ""
 "所指定身份的守护进程已停止时，MCP 服务器处于断开状态；此时智能体通过运行脚本（``anet doctor``\\ "
 "）报告该身份的状态，而不是默认节点的状态。"
 
-#: ../../agents/codebuddy.rst:217
+#: ../../agents/codebuddy.rst:239
 msgid "Updating and removing"
 msgstr "更新与移除"
 
-#: ../../agents/codebuddy.rst:219
+#: ../../agents/codebuddy.rst:241
 msgid ""
 "CodeBuddy caches an installed plugin by marketplace, plugin and version. "
-"To update, update the marketplace and install the plugin again with "
-"``codebuddy plugin install anet@agentnetwork``. ``anet update`` updates "
-"ANet itself, independently of the plugin."
+"Version 0.2.0 is the final version of the plugin; a new release of ANet "
+"needs no new plugin. To replace an installed earlier version, update the "
+"marketplace and install the plugin again with ``codebuddy plugin install "
+"anet@agentnetwork``. ``anet update`` updates ANet itself, independently "
+"of the plugin."
 msgstr ""
-"CodeBuddy 按插件市场、插件和版本缓存已安装的插件。更新时，请更新插件市场，并再次执行 ``codebuddy plugin "
-"install anet@agentnetwork`` 安装插件。\\ ``anet update`` 更新 ANet 本身，与插件无关。"
+"CodeBuddy 按插件市场、插件和版本缓存已安装的插件。0.2.0 是该插件的最终版本；ANet "
+"发布新版本时无需新的插件。如需替换已安装的较早版本，请更新插件市场，并用 ``codebuddy plugin install "
+"anet@agentnetwork`` 重新安装插件。``anet update`` 更新 ANet 本身，与插件相互独立。"
 
-#: ../../agents/codebuddy.rst:229
+#: ../../agents/codebuddy.rst:253
 msgid ""
 "Neither command changes the node: the identity in ``~/.anet`` and the "
 "running daemon remain. :doc:`../intro/install` describes how to stop the "
@@ -423,64 +474,69 @@ msgstr ""
 "这两条命令都不会改动节点：\\ ``~/.anet`` 中的身份和运行中的守护进程均保留。如何停止节点和移除 ANet，参见 "
 ":doc:`../intro/install`\\ 。"
 
-#: ../../agents/codebuddy.rst:235
+#: ../../agents/codebuddy.rst:259
 msgid "Not tested"
 msgstr "未测试项"
 
-#: ../../agents/codebuddy.rst:237
+#: ../../agents/codebuddy.rst:261
 msgid ""
-"The command ``/anet:anet-status`` as a slash command. In the headless "
-"mode, the host did not expand the command: the agent read the command "
-"file and performed its steps itself. The interactive terminal interface "
-"was not used."
+"The commands ``/anet:anet`` and ``/anet:anet-status`` as slash commands. "
+"In the headless mode, the host did not expand the status command: the "
+"agent read the command file and performed its steps itself. The "
+"interactive terminal interface was not used."
 msgstr ""
-"以斜杠命令方式执行 ``/anet:anet-status``\\ "
-"。在无头模式下，宿主未展开该命令：智能体读取命令文件并自行执行其步骤。未使用交互式终端界面。"
+"以斜杠命令方式执行 ``/anet:anet`` 和 ``/anet:anet-"
+"status``。在无头模式下，宿主未展开状态命令：智能体读取命令文件并自行执行其步骤。未使用交互式终端界面。"
 
-#: ../../agents/codebuddy.rst:240
+#: ../../agents/codebuddy.rst:265
 msgid ""
 "WorkBuddy itself, including whether it accepts an additional marketplace "
 "and whether its settings file is ``~/.workbuddy/settings.json``."
 msgstr "WorkBuddy 本身，包括它是否接受额外的插件市场，以及其设置文件是否为 ``~/.workbuddy/settings.json``\\ 。"
 
-#: ../../agents/codebuddy.rst:242
+#: ../../agents/codebuddy.rst:267
 msgid ""
 "A prompt for the settings at installation time. The settings are set in "
 "the file named above."
 msgstr "安装时对设置项的提示。设置项在上述文件中设置。"
 
-#: ../../agents/codebuddy.rst:244
+#: ../../agents/codebuddy.rst:269
 msgid ""
 "The installation from the published marketplace and from the GitHub "
 "repository. The installation was verified from a local copy of the "
 "marketplace and from a local git server that served the same directory."
 msgstr "从已发布的插件市场和 GitHub 仓库安装。安装仅从插件市场的本地副本以及提供同一目录的本地 git 服务器验证过。"
 
-#: ../../agents/codebuddy.rst:247
-msgid "The plugin on macOS, and CodeBuddy on Windows."
-msgstr "macOS 上的插件，以及 Windows 上的 CodeBuddy。"
+#: ../../agents/codebuddy.rst:272
+msgid ""
+"The plugin on macOS and on Windows. The Windows launch through ``bin"
+"/anet-mcp.cmd`` follows from the source of CodeBuddy Code 2.171.0, and "
+"the Windows runner is tested with PowerShell."
+msgstr ""
+"该插件在 macOS 和 Windows 上的运行。经由 ``bin/anet-mcp.cmd`` 在 Windows 上启动的方式依据 "
+"CodeBuddy Code 2.171.0 的源代码得出，Windows 运行脚本已用 PowerShell 测试。"
 
-#: ../../agents/codebuddy.rst:248
+#: ../../agents/codebuddy.rst:275
 msgid "The installation scopes other than the user scope."
 msgstr "用户范围之外的其他安装范围。"
 
-#: ../../agents/codebuddy.rst:252
+#: ../../agents/codebuddy.rst:279
 msgid "Troubleshooting"
 msgstr "故障排查"
 
-#: ../../agents/codebuddy.rst:258
+#: ../../agents/codebuddy.rst:285
 msgid "Symptom"
 msgstr "现象"
 
-#: ../../agents/codebuddy.rst:259
+#: ../../agents/codebuddy.rst:286
 msgid "Action"
 msgstr "处理"
 
-#: ../../agents/codebuddy.rst:260
+#: ../../agents/codebuddy.rst:287
 msgid "The session has no anet tools."
 msgstr "会话中没有 anet 工具。"
 
-#: ../../agents/codebuddy.rst:261
+#: ../../agents/codebuddy.rst:288
 msgid ""
 "Run ``anet status`` in a terminal. ``[daemon_not_running]``: run ``anet "
 "up``. ``anet`` not found: set ``anetPath`` or ask the agent to run the "
@@ -490,65 +546,65 @@ msgstr ""
 "。找不到 ``anet``\\ ：设置 ``anetPath``\\ ，或请 Agent 运行 ``anet-setup`` "
 "技能。然后新开一个会话。"
 
-#: ../../agents/codebuddy.rst:264
+#: ../../agents/codebuddy.rst:291
 msgid "The tools are not listed at the start of the session."
 msgstr "会话开始时未列出这些工具。"
 
-#: ../../agents/codebuddy.rst:265
+#: ../../agents/codebuddy.rst:292
 msgid ""
 "CodeBuddy loads them on demand. Ask for an anet task; the agent finds the"
 " tools by itself."
 msgstr "CodeBuddy 按需加载工具。请求一项 anet 任务即可，智能体会自行找到这些工具。"
 
-#: ../../agents/codebuddy.rst:267
+#: ../../agents/codebuddy.rst:294
 msgid "``anetPath`` is reported as an invalid setting."
 msgstr "``anetPath`` 被报告为无效设置。"
 
-#: ../../agents/codebuddy.rst:268
+#: ../../agents/codebuddy.rst:295
 msgid "The path is not an executable file. Correct it or clear the setting."
 msgstr "该路径不是可执行文件。请更正路径或清除该设置。"
 
-#: ../../agents/codebuddy.rst:269
+#: ../../agents/codebuddy.rst:296
 msgid "A reinstalled plugin still shows old files."
 msgstr "重新安装的插件仍显示旧文件。"
 
-#: ../../agents/codebuddy.rst:270
+#: ../../agents/codebuddy.rst:297
 msgid ""
 "The host caches by marketplace, plugin and version. Remove the plugin and"
 " install the newer version."
 msgstr "宿主按插件市场、插件和版本缓存。请移除插件并安装较新的版本。"
 
-#: ../../agents/codebuddy.rst:272
+#: ../../agents/codebuddy.rst:299
 msgid "``wait_task`` ends while the task is still working."
 msgstr "任务仍在进行时 ``wait_task`` 已结束。"
 
-#: ../../agents/codebuddy.rst:273
+#: ../../agents/codebuddy.rst:300
 msgid ""
 "This is normal for long tasks. Call ``wait_task`` again and do not send "
 "the task again."
 msgstr "长任务属正常情况。再次调用 ``wait_task``\\ ，不要重新发送任务。"
 
-#: ../../agents/codebuddy.rst:275
+#: ../../agents/codebuddy.rst:302
 msgid "A refusal ends with a code in brackets."
 msgstr "拒绝信息末尾带有方括号中的代码。"
 
-#: ../../agents/codebuddy.rst:276
+#: ../../agents/codebuddy.rst:303
 msgid "See :doc:`../reference/reason-codes`."
 msgstr "参见 :doc:`../reference/reason-codes`\\ 。"
 
-#: ../../agents/codebuddy.rst:280
+#: ../../agents/codebuddy.rst:307
 msgid "References"
 msgstr "参考"
 
-#: ../../agents/codebuddy.rst:282
+#: ../../agents/codebuddy.rst:309
 msgid "CodeBuddy Code: https://www.codebuddy.ai"
 msgstr "CodeBuddy Code：https://www.codebuddy.ai"
 
-#: ../../agents/codebuddy.rst:283
+#: ../../agents/codebuddy.rst:310
 msgid "WorkBuddy: https://www.workbuddy.cn"
 msgstr "WorkBuddy：https://www.workbuddy.cn"
 
-#: ../../agents/codebuddy.rst:284
+#: ../../agents/codebuddy.rst:311
 msgid ""
 "Source of the plugin: ``deploy/plugins`` in the ANet repository (target "
 "``codebuddy`` of the plugin generator; the generated plugin is "

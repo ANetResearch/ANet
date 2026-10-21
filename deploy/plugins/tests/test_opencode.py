@@ -61,7 +61,8 @@ class PackageTests(Base):
     def test_file_set(self):
         files = sorted(p.relative_to(self.pkg).as_posix() for p in self.pkg.rglob("*") if p.is_file())
         self.assertEqual(files, [
-            "LICENSE", "README.md", "README_CN.md", "bin/anet-install.sh", "bin/anet-mcp.sh", "bin/anet-run.sh", "commands/anet-status.md",
+            "LICENSE", "README.md", "README_CN.md", "bin/anet-install.cmd", "bin/anet-install.sh", "bin/anet-mcp", "bin/anet-mcp.cmd",
+            "bin/anet-mcp.sh", "bin/anet-run.cmd", "bin/anet-run.ps1", "bin/anet-run.sh", "commands/anet-status.md", "commands/anet.md",
             "lib.js", "package.json", "server.js", "skills/anet-setup/SKILL.md", "skills/anet/SKILL.md",
         ])
 
@@ -95,20 +96,23 @@ class PackageTests(Base):
             self.assertNotIn("__TIMEOUT_MS__", text, rel)
 
     def test_skills_and_command_use_the_root_variable_only(self):
-        for rel in ("skills/anet-setup/SKILL.md", "skills/anet/SKILL.md", "commands/anet-status.md"):
+        for rel in ("skills/anet-setup/SKILL.md", "skills/anet/SKILL.md", "commands/anet-status.md", "commands/anet.md"):
             text = self.text(rel)
             self.assertNotRegex(text, r"ZCODE|CLAUDE_|CURSOR_|CODEX_", rel)
             self.assertNotIn("../../bin", text, rel)
-        self.assertIn('sh "${ANET_PLUGIN_ROOT}/bin/anet-run.sh" --resolve', self.text("skills/anet-setup/SKILL.md"))
-        self.assertIn('!`sh "${ANET_PLUGIN_ROOT}/bin/anet-run.sh" --resolve`', self.text("commands/anet-status.md"))
+            self.assertIn('sh "${ANET_PLUGIN_ROOT}/bin/anet-run.sh"', text, rel)
+            self.assertIn('"${ANET_PLUGIN_ROOT}/bin/anet-run.cmd"', text, rel)
+        for rel in ("skills/anet-setup/SKILL.md", "skills/anet/SKILL.md"):
+            self.assertIn("$env:ANET_PLUGIN_ROOT", self.text(rel), "the skills say how to write the variable in PowerShell")
 
     def test_setup_skill_rules_are_kept(self):
         text = self.text("skills/anet-setup/SKILL.md")
         self.assertIn("bin/anet-install.sh", text)
+        self.assertIn("bin/anet-install.cmd", text)
         self.assertNotIn("$(", text)
-        self.assertIn("Do not pass `--agents`", text)
-        self.assertIn("Never read, print or copy files under `~/.anet`", text)
-        self.assertIn("Do not run them on the user's behalf", text)
+        self.assertIn("Pass no options to the installer", text)
+        self.assertIn("Never read, print or copy the files of the anet data directory (`~/.anet`", text)
+        self.assertIn("not run them on the user's behalf", text)
         self.assertIn("Never read or edit the OpenCode configuration", text)
         self.assertIn("Windows", text)
         self.assertIn("restart OpenCode", text)
@@ -218,14 +222,12 @@ class ShellTests(Base):
         self.assertIn("identity: work", r.stdout)
         self.assertIn("runner: sh " + str(self.pkg / "bin" / "anet-run.sh"), r.stdout)
 
-    def test_command_line_of_the_template_runs(self):
-        # The command line behind the "!`...`" of the command, with the root written in by the plugin.
-        line = [l for l in self.text("commands/anet-status.md").splitlines() if l.startswith("!`")][0]
-        script = line[2:-1].replace("${ANET_PLUGIN_ROOT}", str(self.pkg))
-        r = subprocess.run(["sh", "-c", script], env={"PATH": "/usr/bin:/bin", "HOME": str(self.home), "ANET_PLUGIN_BIN": str(self.fake)},
-                           capture_output=True, text=True, timeout=60)
+    def test_the_launcher_runs_by_its_path(self):
+        # The MCP entry names bin/anet-mcp itself (no sh): it is executable and starts anet mcp.
+        r = subprocess.run([str(self.pkg / "bin" / "anet-mcp")], env={"PATH": "/usr/bin:/bin", "HOME": str(self.home),
+                           "ANET_PLUGIN_BIN": str(self.fake), "ANET_PLUGIN_IDENTITY": ""}, capture_output=True, text=True, timeout=60)
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn(f"executable: {self.fake}", r.stdout)
+        self.assertIn("mcp", r.stdout)
 
 
 @unittest.skipUnless(os.environ.get("OPENCODE_BIN"), "OPENCODE_BIN is not set")
@@ -256,7 +258,7 @@ class OpenCodeCliTests(Base):
             self.assertEqual(r.returncode, 0, r.stderr)
             cfg = json.loads(r.stdout)
             entry = cfg["mcp"]["anet"]
-            self.assertEqual(entry["command"], ["sh", str(self.pkg / "bin" / "anet-mcp.sh")])
+            self.assertEqual(entry["command"], [str(self.pkg / "bin" / "anet-mcp")])
             self.assertEqual(entry["environment"], {"ANET_PLUGIN_BIN": str(anet), "ANET_PLUGIN_IDENTITY": "work"})
             self.assertIn(str(self.pkg / "skills"), cfg["skills"]["paths"])
             self.assertIn(str(self.pkg / "bin" / "anet-run.sh"), cfg["command"]["anet-status"]["template"])

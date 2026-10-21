@@ -1,10 +1,8 @@
 {
   "mcpServers": {
     "anet": {
-      "command": "sh",
-      "args": [
-        "${CODEBUDDY_PLUGIN_ROOT}/bin/anet-mcp.sh"
-      ],
+      "command": "${CODEBUDDY_PLUGIN_ROOT}/bin/anet-mcp",
+      "args": [],
       "env": {
         "ANET_PLUGIN_IDENTITY": "${user_config.identity}",
         "ANET_PLUGIN_BIN": "${user_config.anetPath}"

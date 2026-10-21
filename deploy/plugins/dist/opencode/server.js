@@ -5,9 +5,9 @@
 // "config" hook, the three things that the anet plugin of every other host
 // consists of:
 //
-//   * the MCP server "anet", started with `sh bin/anet-mcp.sh`;
+//   * the MCP server "anet", started as bin/anet-mcp (bin/anet-mcp.cmd on Windows);
 //   * the skills "anet" and "anet-setup" (directory skills/);
-//   * the command "anet-status" (file commands/anet-status.md).
+//   * the commands "anet" and "anet-status" (directory commands/).
 //
 // It also defines ANET_PLUGIN_ROOT and, when set, the two plugin settings for
 // every shell command of the agent, so that the skills reach the same runner,
@@ -23,17 +23,7 @@ import { applyConfig, readOptions, root, ROOT_VARIABLE, settingsEnvironment } fr
 
 export default {
   id: "anet",
-  server: async (input, options) => {
-    if (process.platform === "win32") {
-      // The launchers of this plugin are POSIX shell scripts and do not run on Windows;
-      // on Windows, anet is registered with `anet agents wire opencode` instead.
-      try {
-        await input?.client?.app?.log?.({
-          body: { service: "anet", level: "warn", message: "The launchers of the anet plugin are POSIX shell scripts and do not run on Windows; the plugin is not active. Register anet with anet agents wire opencode." },
-        })
-      } catch {}
-      return {}
-    }
+  server: async (_input, options) => {
     const settings = readOptions(options)
     return {
       config: async (cfg) => {

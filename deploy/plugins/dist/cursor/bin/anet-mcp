@@ -1,0 +1,5 @@
+#!/bin/sh
+# Starts the MCP server of the local anet node through anet-mcp.sh, for a
+# host that starts the launcher by its path: on Windows the same path, without
+# an extension, selects anet-mcp.cmd.
+exec sh "$(dirname "$0")/anet-mcp.sh" "$@"

@@ -32,10 +32,10 @@ Prerequisites
   ``codex-cli 0.163.0``. The minimum version is not stated in the official
   documentation; the current requirements are in the official pages listed in
   :ref:`agents-codex-references`.
-* ``anet`` runs on Linux, macOS and Windows. On Windows, install it with the
-  PowerShell installer (:ref:`intro-install-windows`) and register it with
-  ``anet agents wire codex``; the plugin does not run on Windows. The wiring
-  and the commands on this page were verified on Linux only.
+* ``anet`` and the plugin run on Linux, macOS and Windows. On Windows,
+  install ``anet`` with the PowerShell installer (:ref:`intro-install-windows`)
+  and register it with ``anet agents wire codex`` or with the plugin. The
+  wiring and the commands on this page were verified on Linux only.
 
 
 .. _agents-codex-wire:
@@ -190,16 +190,21 @@ extension opens is authoritative.
 Plugin
 ------
 
-The ``anet`` plugin is an alternative to :ref:`agents-codex-wire`. It registers
-the same MCP server (``anet mcp``) and adds three skills of Codex: the
-operating guide, the setup procedure and the status check. Installing it does
-not change ``config.toml`` or ``AGENTS.md``. The plugin and ``anet agents wire
+The ``anet`` plugin (version 0.2.0) is an alternative to
+:ref:`agents-codex-wire`. It registers the same MCP server (``anet mcp``) and
+adds three skills of Codex: the entry point for ``@anet`` requests, the setup
+procedure and the status check. Installing it does not change ``config.toml``
+or ``AGENTS.md``. The plugin and ``anet agents wire
 codex`` are alternatives; use one of them, not both (see
 :ref:`agents-codex-plugin-conflict`).
 
 The plugin is distributed from the marketplace file in the ANet repository.
 Its source is ``deploy/plugins/`` in that repository; the installed copy has
-the version of ``plugin.json``.
+the version of ``plugin.json``. The plugin carries no list of tools, no ANet
+version and no setup steps: its skills direct the agent to the guide of the
+installed ``anet`` (the MCP tool ``guide`` and the command
+``anet guide [<topic>]``). A new release of ANet therefore needs no update of
+the plugin.
 
 .. list-table::
    :header-rows: 1
@@ -210,25 +215,38 @@ the version of ``plugin.json``.
      - Purpose
    * - MCP server
      - ``anet``
-     - Runs ``anet mcp`` through the script ``bin/anet-mcp.sh``, which is
-       started with ``sh`` and has the installed plugin as working directory.
+     - Runs ``anet mcp`` of the installed ``anet``. The command is
+       ``./bin/anet-mcp`` with the installed plugin as working directory. Its
+       tool ``guide`` returns the current guide to ANet.
    * - Skill
      - ``anet:anet``
-     - The operating guide that ``anet agents wire`` writes to ``AGENTS.md``.
+     - Directs the agent to the guide of the installed ``anet`` before the
+       first ANet action of a session and on every ``@anet`` request, and
+       holds the rules that always apply. Codex has no slash commands, so the
+       entry point is this skill: ``$anet:anet`` followed by the request. With
+       an empty request, it shows the tasks that other agents sent to the node
+       and the state of the node.
    * - Skill
      - ``anet:anet-setup``
-     - Checks, installs or updates ``anet``, starts the node, joins a hub and
-       runs ``anet doctor``. Installation and update run only after the user
-       agrees.
+     - Finds the ``anet`` executable, installs ANet when it is missing and the
+       user agrees, and follows the setup guide of the installed ``anet``.
    * - Skill
      - ``anet:anet-status``
-     - Reports the node, its hub, the balance and the spending limits. Codex
-       has no slash commands, so the status check is a skill that is started
+     - Reports the state of the node as the guide describes. It is started
        with ``$anet:anet-status``.
 
-Every ``anet`` command of the plugin runs through the script
-``bin/anet-run.sh``, so that the MCP server and the skills use the same
-executable and the same identity.
+Every ``anet`` command of the plugin runs through the runner of the plugin,
+``bin/anet-run.sh`` on Linux and macOS and ``bin/anet-run.cmd`` on Windows, so
+that the MCP server and the skills use the same executable and the same
+identity.
+
+Codex reads ``.mcp.json`` without variable expansion and joins the working
+directory ``.`` to the installed plugin root. On Linux and macOS it runs
+``./bin/anet-mcp``, an executable script that starts ``bin/anet-mcp.sh``. On
+Windows it resolves the same path with the extensions of ``PATHEXT`` and runs
+``bin/anet-mcp.cmd``, which needs Windows PowerShell 5.1, a part of Windows.
+The agent runs commands in PowerShell on Windows, so the skills name the
+Windows runner ``bin/anet-run.cmd`` next to ``sh bin/anet-run.sh``.
 
 
 Installing the plugin
@@ -244,12 +262,11 @@ The marketplace file is ``.agents/plugins/marketplace.json`` at the root of
 the repository. It names the marketplace ``agentnetwork`` and points to the
 directory ``deploy/plugins/dist/codex``. Codex 0.163.0 was used; the minimum
 version is not stated in the official documentation. The plugin was run on
-Linux. Its launchers are POSIX shell scripts and do not run on Windows; on
-Windows, use ``anet agents wire codex``.
+Linux; on Windows it runs the ``.cmd`` launchers described above.
 
 ``codex plugin list`` shows ``anet@agentnetwork`` as installed and enabled.
-``codex mcp list`` shows the server ``anet`` with the command ``sh
-./bin/anet-mcp.sh``. A new session starts the server. The skills are
+``codex mcp list`` shows the server ``anet`` with the command
+``./bin/anet-mcp``. A new session starts the server. The skills are
 ``anet:anet``, ``anet:anet-setup`` and ``anet:anet-status``.
 
 
@@ -263,15 +280,16 @@ the following prompt starts the setup procedure:
 
    Use the skill anet:anet-setup to set up anet on this machine.
 
-The procedure resolves the executable and reports that it is not found. After
-the user agrees, it runs the official installer from
-``agentnetwork.org.cn`` through a private temporary directory and removes the
-directory afterwards. The installer verifies the signature and the checksum
-of the release. The procedure then runs ``anet up``, joins the hub with
-``anet hub-register <hub URL> --name <name>`` and runs ``anet doctor``. It
-reports the executable, the hub and every check that is not ``ok``. The
-commands that only the operator may run, for example changes of the peer lists
-or of the spending limits, are not run by the procedure.
+The procedure runs the runner with ``--resolve`` and reports that the
+executable is not found. After the user agrees, it runs the installer helper
+of the plugin, ``bin/anet-install.sh`` on Linux and macOS or
+``bin/anet-install.cmd`` on Windows, which runs the official installer from
+``agentnetwork.org.cn``. The installer verifies the signature and the checksum
+of the release. The procedure then prints the setup guide of the installed
+``anet`` with ``<runner> guide setup`` and follows it, running every ``anet``
+command through the runner. The commands that only the operator may run, for
+example changes of the peer lists or of the spending limits, are not run by
+the procedure.
 
 When the setting ``ANET_PLUGIN_BIN`` names a file that is not executable, the
 procedure stops before any installation and reports the invalid setting.
@@ -286,10 +304,14 @@ In a new session, the following prompt starts the status check:
 
    $anet:anet-status
 
-The expected result is a report of the identity, the AID, the node name, the
-hub, the balance and the spending limits. It is obtained through the MCP tools
-``node_status`` and ``get_balance``. Warnings that ``anet doctor`` reports, for
-example ``identity.recovery``, are repeated in the report.
+The skill directs the agent to the topic ``status`` of the guide, and the
+agent reports the state of the node as that topic describes. In a verification
+run of an earlier version of the plugin, the report named the identity, the
+AID, the node name, the hub, the balance and the spending limits, obtained
+through the MCP tools ``node_status`` and ``get_balance``.
+
+A request for another agent is given with ``$anet:anet`` followed by the
+request, or as a request that begins with ``@anet``.
 
 To delegate a task to a capability, the call names the capability and its
 arguments. The following prompt was run against a provider that publishes the
@@ -323,10 +345,13 @@ variables to the MCP server.
    * - Variable
      - Meaning
    * - ``ANET_PLUGIN_BIN``
-     - Absolute path of the ``anet`` executable. Without it, the script
-       searches ``PATH``, ``~/.local/bin``, ``/usr/local/bin`` and
-       ``/opt/homebrew/bin``. A value that is not an executable file is an
-       error; no other copy is used.
+     - Absolute path of the ``anet`` executable (``anet.exe`` on Windows).
+       Without it, the runner searches the absolute directories of ``PATH``,
+       then ``~/.local/bin``, ``/usr/local/bin`` and ``/opt/homebrew/bin`` on
+       Linux and macOS, or ``%LOCALAPPDATA%\Programs\anet``,
+       ``%LOCALAPPDATA%\anet\bin`` and ``%USERPROFILE%\.anet-bin`` on
+       Windows. A value that is not an executable file is an error; no other
+       copy is used.
    * - ``ANET_PLUGIN_IDENTITY``
      - Name of the identity. The script passes it to ``anet`` as ``--id``. A
        named identity whose node is stopped is reported as ``daemon not
@@ -353,7 +378,8 @@ Updating and removing
 ~~~~~~~~~~~~~~~~~~~~~
 
 ``codex plugin marketplace upgrade agentnetwork`` refreshes the marketplace.
-A changed plugin carries a new version number. The commands that remove the
+Version 0.2.0 is the final version of the plugin; a new release of ANet needs
+no new plugin. The commands that remove the
 plugin and the marketplace are described by ``codex plugin --help`` in the
 installed version of Codex. The plugin keeps no data of its own; the node, its
 identity and the data directory are not removed with the plugin.
@@ -363,7 +389,10 @@ Not tested
 ~~~~~~~~~~
 
 * The Codex desktop application and the IDE extension, the ``PATH`` of a
-  graphical launch, macOS and Windows.
+  graphical launch, and macOS.
+* Windows. The launch through ``bin/anet-mcp.cmd`` follows from the source of
+  Codex, and the Windows runner is tested with PowerShell; the plugin was not
+  installed in Codex on Windows.
 * The installation from GitHub with ``codex plugin marketplace add
   ANetResearch/ANet``. The test used a local copy of the repository layout.
   The command works only after the marketplace file is present at the root of
@@ -388,7 +417,7 @@ Plugin troubleshooting
    * - Observation
      - Cause
      - Action
-   * - ``codex mcp list`` shows an entry that does not use ``bin/anet-mcp.sh``.
+   * - ``codex mcp list`` shows an entry that does not use ``./bin/anet-mcp``.
      - A table ``[mcp_servers.anet]`` in ``config.toml`` shadows the server of
        the plugin.
      - Run ``anet agents unwire codex``, then open a new session.

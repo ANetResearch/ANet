@@ -32,8 +32,13 @@ export function settingsEnvironment(settings) {
   return env
 }
 
-/** Escapes a path for use inside double quotes of a POSIX shell. */
-export function shellDouble(value) {
+/**
+ * Escapes a path for use inside double quotes of a POSIX shell. On Windows the
+ * path is written as it is: a Windows path cannot contain a double quote, and
+ * the shells there (PowerShell, cmd) do not take a backslash as an escape.
+ */
+export function shellDouble(value, platform = process.platform) {
+  if (platform === "win32") return value
   return value.replace(/[\\"$`]/g, "\\$&")
 }
 
@@ -101,7 +106,8 @@ export function applyConfig(cfg, settings, commands = loadCommands(settings)) {
   if (!Object.hasOwn(cfg.mcp, SERVER_NAME)) {
     const entry = {
       type: "local",
-      command: ["sh", path.join(root, "bin", "anet-mcp.sh")],
+      // bin/anet-mcp on Linux and macOS; on Windows the same path selects bin/anet-mcp.cmd.
+      command: [path.join(root, "bin", "anet-mcp")],
       enabled: true,
       timeout: TIMEOUT_MS,
     }

@@ -1,7 +1,8 @@
 // The anet plugin for DeepSeek Harness (DSH): settings and bundle directory.
 //
 // The bundle layer (cordis.patch.yml) mounts this module and the MCP client row
-// that starts bin/anet-mcp.sh. This module does two things:
+// that starts bin/anet-mcp (bin/anet-mcp.cmd on Windows). This module does two
+// things:
 //
 //   1. It provides the service `anetPlugin` ({ root, settings }) to the MCP row,
 //      because a patch has no variable for the directory of the bundle.
@@ -67,9 +68,6 @@ export function applyEnvironment(settings, env) {
 
 export function apply(ctx, config) {
   const settings = resolveSettings(config, process.env)
-  if (process.platform === 'win32') {
-    ctx.logger?.warn?.('dsh-anet: the launchers of this plugin are POSIX shell scripts and do not run on Windows; the MCP server of this plugin cannot start')
-  }
   ctx.provide('anetPlugin', { root: bundleRoot, settings })
   ctx.on('dispose', applyEnvironment(settings, process.env))
 }

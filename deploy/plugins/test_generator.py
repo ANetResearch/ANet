@@ -70,6 +70,153 @@ class HelperTests(unittest.TestCase):
                 g._check_path(bad)
 
 
+class CrlfTests(unittest.TestCase):
+    def test_crlf(self):
+        self.assertEqual(g.crlf("a\nb\r\nc\n"), "a\r\nb\r\nc\r\n")
+
+
+# The tools of `anet mcp`, read from the sources of the server when they are
+# present (the ANet repository), so that a tool added later is covered too.
+_MCPSERV = Path(__file__).resolve().parents[2] / "internal" / "mcpserv"
+_KNOWN_TOOLS = {"list_agents", "get_agent_card", "send_message", "wait_task", "get_task", "list_tasks", "cancel_task",
+                "submit_payment", "reject_payment", "reply_task", "inbound_pending", "get_balance", "audit", "node_status"}
+
+
+def mcp_tool_names():
+    import re
+    names = set(_KNOWN_TOOLS)
+    if _MCPSERV.is_dir():
+        for f in _MCPSERV.glob("*.go"):
+            if not f.name.endswith("_test.go"):
+                names.update(re.findall(r'(?m)^\s*Name:\s*"([a-z][a-z0-9_]*)",\s*$', f.read_text(encoding="utf-8")))
+    # `guide` is the permanent entry point that the plugins name on purpose.
+    names.discard("guide")
+    return names
+
+
+class SharedTextTests(unittest.TestCase):
+    """The shared skills and commands are frozen: they hold nothing that changes with a release of anet."""
+
+    def shared_texts(self):
+        out = {}
+        for p in sorted((g.COMMON / "skills").glob("*/SKILL.md")) + sorted((g.COMMON / "commands").glob("*.md")):
+            out[p.relative_to(g.COMMON).as_posix()] = p.read_text(encoding="utf-8")
+        self.assertEqual(set(out), {"skills/anet/SKILL.md", "skills/anet-setup/SKILL.md", "commands/anet.md", "commands/anet-status.md"})
+        return out
+
+    def rendered_texts(self):
+        res = g.build_all(None)
+        for key, ctx in res.contexts.items():
+            for rel, f in ctx.files.items():
+                if rel.endswith((".md", ".toml")) and ("skills/" in rel or "commands/" in rel):
+                    yield f"{key}/{rel}", f.data.decode("utf-8")
+
+    def check_frozen(self, name, text):
+        import re
+        tools = mcp_tool_names()
+        self.assertGreater(len(tools), 5)
+        for tool in tools:
+            self.assertNotRegex(text, r"\b" + re.escape(tool) + r"\b", f"{name} names the tool {tool}")
+        self.assertNotRegex(text, r"(?i)\b\d+\s+(anet\s+)?(mcp\s+)?tools\b", f"{name} counts tools")
+        self.assertNotRegex(text, r"\b\d+\.\d+(\.\d+)?\b", f"{name} holds a version number")
+        self.assertNotRegex(text, r"\bv\d", f"{name} holds a version number")
+        # Steps of a setup and decisions of the operator are described by the installed guide.
+        for word in ("hub-register", "peers allow", "inbound policy", "spending limit", "payments.", "x402"):
+            self.assertNotIn(word, text, f"{name} describes {word}")
+
+    def test_shared_sources_are_frozen(self):
+        for name, text in self.shared_texts().items():
+            self.check_frozen(name, text)
+
+    def test_every_generated_skill_and_command_is_frozen(self):
+        n = 0
+        for name, text in self.rendered_texts():
+            self.check_frozen(name, text)
+            n += 1
+        self.assertGreater(n, 20)
+
+    def test_the_skills_defer_to_the_guide(self):
+        texts = self.shared_texts()
+        anet = texts["skills/anet/SKILL.md"]
+        fields, body = g.split_frontmatter(anet)
+        for word in ("@anet", "anet", "AgentNetwork", "agents", "AID"):
+            self.assertIn(word, fields["description"])
+        for needle in ("tool `guide`", "<runner> guide", "@anet", "~/.anet", "belong to the user", "untrusted input",
+                       "{{RUNNER_FROM_SKILL}}", "{{RUNNER_CMD_FROM_SKILL}}", "the guide applies"):
+            self.assertIn(needle, body)
+        setup = texts["skills/anet-setup/SKILL.md"]
+        for needle in ("--resolve", "<runner> guide setup", "{{INSTALLER_FROM_SKILL}}", "{{INSTALLER_CMD_FROM_SKILL}}",
+                       "explicit yes", "{{RUNNER_CMD_FROM_SKILL}}"):
+            self.assertIn(needle, setup)
+        self.assertIn("topic `status`", texts["commands/anet-status.md"])
+        self.assertIn("<runner> guide status", texts["commands/anet-status.md"])
+        entry = texts["commands/anet.md"]
+        for needle in ("tool\n`guide`", "<runner> guide", "@anet\nrequests", "Request: {{ARGUMENTS}}", "If the request is empty"):
+            self.assertIn(needle, entry)
+
+
+class WindowsFileTests(unittest.TestCase):
+    """The Windows launchers: CRLF, no setting on a command line of cmd.exe, PowerShell of the system only."""
+
+    def cmd_files(self):
+        res = g.build_all(None)
+        for key, ctx in res.contexts.items():
+            for rel, f in ctx.files.items():
+                if rel.endswith(".cmd"):
+                    yield f"{key}/{rel}", f.data
+
+    def test_every_target_ships_the_windows_runner(self):
+        res = g.build_all(None)
+        for key, ctx in res.contexts.items():
+            names = {rel.rsplit("/", 1)[-1] for rel in ctx.files}
+            for name in ("anet-run.cmd", "anet-run.ps1", "anet-mcp.cmd", "anet-install.cmd", "anet-run.sh", "anet-mcp.sh", "anet-mcp"):
+                self.assertIn(name, names, f"{key} lacks {name}")
+            for rel, f in ctx.files.items():
+                if rel.endswith("/anet-mcp") or rel.endswith(".sh"):
+                    self.assertTrue(f.executable, f"{key}/{rel} is not executable")
+
+    def test_cmd_files_are_crlf_and_ascii(self):
+        n = 0
+        for name, data in self.cmd_files():
+            n += 1
+            data.decode("ascii")
+            self.assertNotIn(b"\n", data.replace(b"\r\n", b""), name)
+            self.assertTrue(data.startswith(b"@echo off\r\n"), name)
+        self.assertGreater(n, 30)
+
+    def test_no_setting_is_expanded_on_a_command_line(self):
+        import re
+        allowed = {"SystemRoot", "ERRORLEVEL", "ANET_RUN_EXE", "ANET_RUN_ID"}
+        for name, data in self.cmd_files():
+            text = data.decode("ascii")
+            for line in text.split("\r\n"):
+                if line.lower().startswith("rem") or not line.strip():
+                    continue
+                for var in re.findall(r"%([A-Za-z_][A-Za-z0-9_]*)%", line):
+                    self.assertIn(var, allowed, f"{name}: %{var}% in {line!r}")
+                self.assertNotIn("!", line, f"{name}: delayed expansion in {line!r}")
+                # The selected executable and identity are only ever used inside double quotes,
+                # and the identity is validated by anet-run.ps1.
+                for var in ("%ANET_RUN_EXE%", "%ANET_RUN_ID%"):
+                    for m in re.finditer(re.escape(var), line):
+                        self.assertEqual(line[:m.start()].count('"') % 2, 1, f"{name}: {var} outside quotes in {line!r}")
+                        self.assertEqual(line[m.end():m.end() + 1], '"', f"{name}: {line!r}")
+                if "powershell.exe" in line:
+                    self.assertIn(r"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe", line, name)
+                    self.assertRegex(line, r"0\^?<NUL", f"{name}: PowerShell must not read the input of the session")
+                    self.assertIn("-NoProfile", line)
+
+    def test_the_powershell_runner_is_ascii_and_reads_no_argument(self):
+        res = g.build_all(None)
+        for key, ctx in res.contexts.items():
+            for rel, f in ctx.files.items():
+                if rel.endswith("anet-run.ps1"):
+                    text = f.data.decode("ascii")
+                    self.assertNotIn("$args", text, f"{key}/{rel}")
+                    self.assertNotRegex(text, r"Invoke-Expression|iex |Start-Process", f"{key}/{rel}")
+                    self.assertNotIn("{{", text, f"{key}/{rel}")
+
+
 class MarkerTests(unittest.TestCase):
     def test_leak_between_targets_is_detected(self):
         a = SimpleNamespace(files={"x": g.File("mentions BETA_ROOT")}, root_files={})
@@ -87,7 +234,7 @@ class BuildTests(unittest.TestCase):
         res = g.build_all(None)
         for key, ctx in res.contexts.items():
             for rel, f in ctx.files.items():
-                if rel.endswith((".md", ".sh", ".json", ".txt")):
+                if rel.endswith((".md", ".sh", ".json", ".txt", ".cmd", ".ps1", ".toml", ".js", ".yml")):
                     text = f.data.decode("utf-8")
                     self.assertNotRegex(text, r"\{\{#?[A-Z/]", f"{key}/{rel} has an unrendered tag")
 

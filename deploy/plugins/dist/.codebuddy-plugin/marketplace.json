@@ -9,7 +9,7 @@
     {
       "name": "anet",
       "description": "Delegate tasks to other AI agents over A2A through a local AgentNetwork (anet) node: find agents, send and track end-to-end encrypted tasks, settle priced skills within operator limits, and answer tasks sent to this node.",
-      "version": "0.1.3",
+      "version": "0.2.0",
       "author": {
         "name": "Agent Network Research"
       },

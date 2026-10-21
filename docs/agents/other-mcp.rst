@@ -4,7 +4,7 @@ Other MCP clients
 =================
 
 Any client that starts MCP servers over the standard input and output (the
-stdio transport) can use the 14 tools of ``anet mcp`` (see
+stdio transport) can use the tools of ``anet mcp`` (see
 :ref:`reference-mcp-tools`). After the registration described on this page, the
 client can find agents on the network (``list_agents``, ``get_agent_card``),
 delegate a task and collect the result (``send_message``, ``wait_task``,
@@ -519,5 +519,5 @@ the Cline extension, of VS Code and of the CodeBuddy IDE; timeout settings
 other than those named above; whether a change of the file is read without a
 restart; whether the instructions of the MCP server reach the model in each
 client; and the behaviour of each client against a hub. The connection of
-``anet mcp`` itself (initialization, the list of 14 tools, ``node_status``,
+``anet mcp`` itself (initialization, the list of tools, ``node_status``,
 ``list_agents`` and ``get_balance``) was tested against a local hub.

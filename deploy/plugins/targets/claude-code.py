@@ -24,8 +24,30 @@ Site (served at https://agentnetwork.org.cn/plugins/claude-code/):
 
 Claude Code does not export the plugin options to an MCP server as environment
 variables of their own, so .mcp.json passes them as ANET_PLUGIN_IDENTITY and
-ANET_PLUGIN_BIN with ${user_config.KEY}. Outside the MCP server (skill and
-command) the runner reads the same two options from the user settings.
+ANET_PLUGIN_BIN with ${user_config.KEY}. Outside the MCP server (skills and
+commands) the runner reads the same two options from the user settings
+(bin/anet-run.sh on Linux and macOS, bin/anet-run.cmd with anet-run.ps1 on
+Windows).
+
+Launch on Windows and POSIX (verified in the native binary of Claude Code
+2.1.306 for win32-x64 and linux-x64, by reading its embedded JavaScript):
+
+  * The stdio transport is the one of the MCP TypeScript SDK and spawns with
+    cross-spawn, shell:false. ${CLAUDE_PLUGIN_ROOT} is replaced in command,
+    args and env (with forward slashes on Windows). The stdio schema has no
+    cwd; the server starts in the project directory.
+  * .mcp.json therefore names "${CLAUDE_PLUGIN_ROOT}/bin/anet-mcp" without an
+    extension and without arguments. On Windows cross-spawn resolves it through
+    PATHEXT to bin/anet-mcp.cmd (an extensionless file is not executable there)
+    and runs it through cmd.exe /d /s /c. On Linux and macOS the file
+    bin/anet-mcp is run itself: a shell script with the executable bit, which
+    starts bin/anet-mcp.sh with sh.
+  * The executable bit survives the installation: a marketplace is fetched with
+    git clone (mode 100755 is kept), and the copy into the plugin cache uses
+    copyFile, which creates the copy with the mode of the source.
+  * The agent runs commands in Git Bash on Windows when Git is installed, or
+    with a PowerShell tool otherwise; the skills therefore give both runner
+    forms (sh anet-run.sh, which also works in Git Bash, and anet-run.cmd).
 """
 
 import re
@@ -50,7 +72,7 @@ _RESERVED_NAMES = ("claude", "anthropic", "anthropics", "claude-code", "claude-m
 _NAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
 _USER_CONFIG_KEY_RE = re.compile(r"^[A-Za-z_]\w*$")
 
-_COMMAND_NAME = "anet-status"
+_COMMANDS = ("anet", "anet-status")
 _TOOL_PREFIX = "mcp__plugin_{plugin}_{server}__"
 
 VARS = {
@@ -83,6 +105,7 @@ VARS = {
     },
     "RUNNER_SETTINGS_COMMENT": _src("runner-settings-comment.txt"),
     "RUNNER_READ_SETTINGS": _src("runner-read-settings.sh"),
+    "RUNNER_READ_SETTINGS_PS": _src("runner-read-settings.ps1"),
 }
 
 
@@ -105,20 +128,24 @@ def tool_prefix(meta):
     return _TOOL_PREFIX.format(plugin=meta["name"], server=meta["mcp"]["server_name"])
 
 
-_RUNNER_ARGUMENTS = ("--resolve", "status", "doctor")
+_RUNNER_ARGUMENTS = {"anet-status": ("--resolve", "guide", "status", "doctor"), "anet": ("--resolve", "guide")}
 
 
-def _allowed_tools(meta):
-    """The tools that /anet-status uses: three read-only runner commands and two read-only MCP tools.
+def _allowed_tools(meta, command):
+    """The tools that a command may use without a prompt: read-only runner commands and the MCP tool guide.
 
-    The command resolves the settings (`--resolve`) and, without the MCP tools, reads
-    `status` and `doctor`; every other use of the runner stays subject to the normal
-    permission prompt. Both spellings of the path are listed because the agent may quote it.
+    The status command reads the guide and, without the MCP tools, `status` and `doctor`; the
+    @anet command reads the guide. Every other use of the runner stays subject to the normal
+    permission prompt. Both spellings of the POSIX runner path are listed because the agent may
+    quote it, and the Windows runner is listed for the Git Bash of Claude Code on Windows.
     """
     prefix = tool_prefix(meta)
-    runner = "${CLAUDE_PLUGIN_ROOT}/bin/anet-run.sh"
-    runs = [f"Bash(sh {runner} {arg}:*)" for arg in _RUNNER_ARGUMENTS] + [f"Bash(sh \"{runner}\" {arg}:*)" for arg in _RUNNER_ARGUMENTS]
-    return runs + [prefix + "node_status", prefix + "get_balance"]
+    root = "${CLAUDE_PLUGIN_ROOT}/bin/"
+    runs = []
+    for arg in _RUNNER_ARGUMENTS[command]:
+        runs += [f"Bash(sh {root}anet-run.sh {arg}:*)", f"Bash(sh \"{root}anet-run.sh\" {arg}:*)",
+                 f"Bash(\"{root}anet-run.cmd\" {arg}:*)"]
+    return runs + [prefix + "guide"]
 
 
 def _sub(text, old, new, rel):
@@ -129,54 +156,54 @@ def _sub(text, old, new, rel):
 
 
 _CONNECT = {
-    "en": "The `anet` server stays connected while anet is not ready and offers one tool, `connect`: call it after the setup "
-          "(the agent can do this), and the anet tools become available in the same session. If the server is shown as failed, "
-          "reconnect it in `/mcp`.",
-    "zh-CN": "anet 尚未就绪时，`anet` 服务保持连接，并只提供一个工具 `connect`：完成安装设置后调用它（智能体可以代为调用），"
+    "en": "On Linux and macOS, the `anet` server stays connected while anet is not ready and offers one tool, `connect`: call it "
+          "after the setup (the agent can do this), and the anet tools become available in the same session. If the server is "
+          "shown as failed, reconnect it in `/mcp`.",
+    "zh-CN": "在 Linux 和 macOS 上，anet 尚未就绪时，`anet` 服务保持连接，并只提供一个工具 `connect`：完成安装设置后调用它（智能体可以代为调用），"
              "anet 工具即在同一会话中可用。如果该服务显示为失败，请在 `/mcp` 中重新连接。",
 }
+
+_SETUP_RESTART = ("When the MCP tools of anet are still not available after the setup, tell the user to start a\n"
+                  "new Claude Code session, because the MCP server of a plugin starts with the session.")
 
 
 def transform(ctx, rel, text, lang):
     meta = ctx.meta
     prefix = tool_prefix(meta)
     # Claude Code starts a plugin command by its namespaced name: the short form is not recognised.
-    text = re.sub(r"(?<![\w:])/" + _COMMAND_NAME + r"\b", f"/{meta['name']}:{_COMMAND_NAME}", text)
+    for name in _COMMANDS:
+        text = text.replace(f"`/{name}`", f"`/{meta['name']}:{name}`")
     if rel == "skills/anet/SKILL.md":
-        # The tail of the guide (the part that is not generated from guide.go).
         if lang == "en":
             note = (
-                f"Claude Code names the tools of the `{meta['mcp']['server_name']}` server `{prefix}<tool>`, "
-                f"for example `{prefix}node_status`."
+                f"Claude Code names the tools of the `{meta['mcp']['server_name']}` server `{prefix}<tool>`; the guide is "
+                f"`{prefix}guide`."
             )
         else:
-            note = (
-                f"Claude Code 把 `{meta['mcp']['server_name']}` 服务的工具命名为 `{prefix}<tool>`，例如 `{prefix}node_status`。"
-            )
+            note = f"Claude Code 把 `{meta['mcp']['server_name']}` 服务的工具命名为 `{prefix}<tool>`；指南工具为 `{prefix}guide`。"
         return text.rstrip("\n") + "\n\n" + note + "\n"
     if rel == "skills/anet-setup/SKILL.md":
         text = _sub(
             text,
-            "Then tell the user to start a new Claude Code session, because the MCP server of a plugin starts with\n"
-            "the session. In the new session, the `node_status` tool of the `anet` server shows the node. If\n"
-            "the tools still do not appear, check the plugin setting **anet executable** and the MCP server\n"
-            "status in the Claude Code settings.",
-            "Then call the `connect` tool of the `anet` server (`" + prefix + "connect`). The MCP server of this plugin stays "
-            "connected while anet is not ready and offers only that tool; once the node answers, `connect` makes the 14 anet "
-            "tools available in this session, and the `node_status` tool shows the node. If `connect` is not listed, tell the "
-            "user to start a new Claude Code session. If the tools still do not appear, check the plugin setting "
-            "**anet executable** and the MCP server status in `/mcp`.",
+            _SETUP_RESTART,
+            "When the MCP tools of anet are still not available after the setup, call the `connect` tool of the\n"
+            "`anet` server (`" + prefix + "connect`): on Linux and macOS the MCP server of this plugin stays\n"
+            "connected while anet is not ready and offers only that tool, and `connect` makes the anet tools\n"
+            "available in this session. If `connect` is not listed, tell the user to start a new Claude Code\n"
+            "session; if the tools still do not appear, check the plugin setting **anet executable** and the\n"
+            "MCP server status in `/mcp`.",
             rel,
         )
     elif rel == "README.md":
         text = _sub(text, "then start a new session. |", "then call the `connect` tool of the `anet` server or start a new session. " + _CONNECT["en"] + " |", rel)
     elif rel == "README_CN.md":
         text = _sub(text, "然后新建会话。 |", "然后调用 `anet` 服务的 `connect` 工具或新建会话。" + _CONNECT["zh-CN"] + " |", rel)
-    if rel == f"commands/{_COMMAND_NAME}.md":
-        lines = text.split("\n")
-        i = next(n for n, line in enumerate(lines) if line.startswith("description:"))
-        lines.insert(i + 1, "allowed-tools: " + ", ".join(_allowed_tools(meta)))
-        return "\n".join(lines)
+    for name in _COMMANDS:
+        if rel == f"commands/{name}.md":
+            lines = text.split("\n")
+            i = next(n for n, line in enumerate(lines) if line.startswith("description:"))
+            lines.insert(i + 1, "allowed-tools: " + ", ".join(_allowed_tools(meta, name)))
+            return "\n".join(lines)
     return text
 
 
@@ -204,8 +231,9 @@ def build(ctx):
         "mcpServers": {
             meta["mcp"]["server_name"]: {
                 "type": "stdio",
-                "command": "sh",
-                "args": ["${CLAUDE_PLUGIN_ROOT}/bin/anet-mcp.sh"],
+                # bin/anet-mcp on Linux and macOS, bin/anet-mcp.cmd on Windows (see the module docstring).
+                "command": "${CLAUDE_PLUGIN_ROOT}/bin/anet-mcp",
+                "args": [],
                 "env": {s["env"]: "${user_config.%s}" % s["key"] for s in meta["settings"]},
                 "timeout": meta["mcp"]["timeout_ms"],
             }
@@ -242,6 +270,6 @@ def site(ctx, site):
     if not site.base.startswith("https://"):
         raise ValueError("the site base must be an https:// URL")
     meta = ctx.meta
-    site.archive(f"{meta['name']}-{meta['version']}.zip", wrapper=meta["name"], kind="zip")
+    site.archive(f"{meta['name']}-{meta['version']}.zip", wrapper=meta["name"], kind="zip", exec_bits=True)
     source = {"source": "git-subdir", "url": ctx.repo_url, "path": f"{ctx.dist_path}/{ctx.key}"}
     site.add_json("marketplace.json", _catalogue(ctx, source))

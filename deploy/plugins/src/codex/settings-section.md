@@ -4,7 +4,7 @@ Codex has no settings screen for plugins, so the plugin has no settings of its o
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `ANET_PLUGIN_IDENTITY` | empty | A named identity (`anet id ls`). Empty selects the default identity in `~/.anet`. |
-| `ANET_PLUGIN_BIN` | empty | Absolute path of the `anet` executable. Empty searches `PATH`, `~/.local/bin`, `/usr/local/bin` and `/opt/homebrew/bin`. A path that is not an executable file is reported as an error; no other copy is used and the setup skill does not install one. |
+| `ANET_PLUGIN_IDENTITY` | empty | A named identity (`anet id ls`). Empty selects the default identity. |
+| `ANET_PLUGIN_BIN` | empty | Absolute path of the `anet` executable (`anet.exe` on Windows). Empty searches `PATH`, then `~/.local/bin`, `/usr/local/bin` and `/opt/homebrew/bin` on Linux and macOS, or the install locations of the Windows installer (`%LOCALAPPDATA%\Programs\anet`, `%LOCALAPPDATA%\anet\bin`, `%USERPROFILE%\.anet-bin`) on Windows. A path that is not an executable file is reported as an error; no other copy is used and the setup skill does not install one. |
 
 The messages of the runner call them the settings `anetPath` (`ANET_PLUGIN_BIN`) and `identity` (`ANET_PLUGIN_IDENTITY`). Export the variables in the environment that starts Codex, for example in the profile of the shell, and start a new session after a change. Codex does not provide a plugin-level `env` override, and the plugin never reads or edits `~/.codex`. If the MCP server `anet` was registered earlier with `anet agents wire codex`, that entry in `config.toml` has the same name and takes precedence over the server of the plugin, so these variables have no effect on it; remove it with `anet agents unwire codex`.

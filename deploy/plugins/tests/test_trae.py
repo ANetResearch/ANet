@@ -32,15 +32,12 @@ import generator as g  # noqa: E402
 SHELLS = [s for s in ("sh", "dash", "bash") if shutil.which(s)]
 SYSTEM_PATH = "/usr/bin:/bin"
 
-BUNDLE_FILES = {
-    "LICENSE", "README.md", "README_CN.md", "install.sh", "mcp.json",
-    "anet/bin/anet-run.sh", "anet/bin/anet-mcp.sh", "anet/bin/anet-install.sh",
-    "skills/anet/SKILL.md", "skills/anet-setup/SKILL.md", "commands/anet-status.md",
-}
 INSTALLED = [
-    "skills/anet/SKILL.md", "skills/anet-setup/SKILL.md", "commands/anet-status.md",
-    "anet/bin/anet-run.sh", "anet/bin/anet-mcp.sh", "anet/bin/anet-install.sh",
+    "skills/anet/SKILL.md", "skills/anet-setup/SKILL.md", "commands/anet.md", "commands/anet-status.md",
+    "anet/bin/anet-run.sh", "anet/bin/anet-mcp.sh", "anet/bin/anet-mcp", "anet/bin/anet-install.sh",
+    "anet/bin/anet-run.cmd", "anet/bin/anet-run.ps1", "anet/bin/anet-mcp.cmd", "anet/bin/anet-install.cmd",
 ]
+BUNDLE_FILES = {"LICENSE", "README.md", "README_CN.md", "install.sh", "install.ps1", "install.cmd", "mcp.json", *INSTALLED}
 
 _cache = {}
 
@@ -134,18 +131,21 @@ class BundleTests(unittest.TestCase):
                 self.assertNotIn(foreign, text, f"{path} mentions {foreign}")
 
     def test_command_has_no_inline_execution_and_names_the_runner(self):
-        text = text_of(self.ctx, "commands/anet-status.md")
-        self.assertNotIn("!`", text)
-        self.assertIn("<skill-dir>/../../anet/bin/anet-run.sh", text)
-        self.assertNotIn("`runner` command shown above", text)
-        self.assertIn("do not read or edit the Trae configuration (`mcp.json`)", text)
+        for rel in ("commands/anet.md", "commands/anet-status.md"):
+            text = text_of(self.ctx, rel)
+            self.assertNotIn("!`", text)
+            self.assertIn('sh "<trae-dir>/anet/bin/anet-run.sh"', text)
+            self.assertIn('"<trae-dir>/anet/bin/anet-run.cmd"', text)
+            self.assertIn("`<trae-dir>` is the configuration directory of Trae", text)
+        self.assertIn("do not read or edit the Trae configuration (`mcp.json`)", text_of(self.ctx, "commands/anet-status.md"))
 
     def test_setup_skill_keeps_the_safety_rules(self):
         text = text_of(self.ctx, "skills/anet-setup/SKILL.md")
-        self.assertIn("bin/anet-install.sh", text)
+        self.assertIn("anet/bin/anet-install.sh", text)
+        self.assertIn("anet/bin/anet-install.cmd", text)
         self.assertNotIn("$(", text)
-        self.assertIn("Never read, print or copy files under `~/.anet`", text)
-        self.assertIn("Do not run them on the user's behalf", text)
+        self.assertIn("Never read, print or copy the files of the anet data directory (`~/.anet`", text)
+        self.assertIn("not run them on the user's behalf", text)
         self.assertIn("Never read or edit the Trae configuration (`mcp.json`)", text)
         self.assertNotIn("holds the user's model credentials", text)
         self.assertIn("anet/settings", text)
@@ -190,12 +190,9 @@ class BundleTests(unittest.TestCase):
 
     def test_transform_fails_when_a_shared_source_changes(self):
         mod = self.ctx.module
-        with self.assertRaises(ValueError):
-            mod.transform(self.ctx, "skills/anet-setup/SKILL.md", "no anchor here", "en")
-        with self.assertRaises(ValueError):
-            mod.transform(self.ctx, "commands/anet-status.md", "no anchor here", "en")
-        with self.assertRaises(ValueError):
-            mod.transform(self.ctx, "README.md", "no anchor here", "en")
+        for rel in ("skills/anet-setup/SKILL.md", "skills/anet/SKILL.md", "README.md", "README_CN.md"):
+            with self.assertRaises(ValueError):
+                mod.transform(self.ctx, rel, "no anchor here", "en")
 
 
 class SiteTests(unittest.TestCase):

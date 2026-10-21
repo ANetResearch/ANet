@@ -6,14 +6,35 @@ Shape of the host (verified with Codex CLI 0.163.0; see the page of the anet doc
     Agent Plugins specification (plugin.json and mcp.json at the root) is not
     used, because it cannot forward environment variables to the MCP server and
     the runner needs ANET_PLUGIN_BIN and ANET_PLUGIN_IDENTITY.
-  * .mcp.json is read without any variable expansion. The server is therefore
-    started as `sh ./bin/anet-mcp.sh` with the relative working directory ".",
-    which Codex resolves to the installed plugin root. `env_vars` forwards the
-    two settings from the Codex process.
+  * .mcp.json is read without any variable expansion; a relative "cwd" is
+    joined to the installed plugin root (codex-rs/codex-mcp/src/plugin_config.rs).
+    The server is therefore started as "./bin/anet-mcp" with the working
+    directory ".". `env_vars` forwards the two settings from the Codex process;
+    on Windows the default environment of an MCP server also holds PATH,
+    PATHEXT, SYSTEMROOT, USERPROFILE and LOCALAPPDATA
+    (codex-rs/protocol/src/shell_environment.rs, WINDOWS_CORE_ENV_VARS).
+  * Launch on Windows (read in the source of Codex, openai/codex at d138398):
+    codex-rs/rmcp-client/src/program_resolver.rs resolves the program with
+    which::which_in against the PATH of the server and the working directory.
+    A path with a separator is joined to the working directory and tried with
+    each extension of PATHEXT; a file without an extension counts only when it
+    is a Windows executable, so "./bin/anet-mcp" becomes bin/anet-mcp.cmd. The
+    standard library of Rust then runs the .cmd file through cmd.exe with its
+    own argument escaping (stdio_server_launcher.rs). On Linux and macOS the
+    relative program is run after the change into the working directory:
+    bin/anet-mcp, a shell script that starts bin/anet-mcp.sh with sh.
+  * The executable bit survives the installation: marketplaces are fetched
+    with git clone, the copy into the plugin cache uses std::fs::copy, which
+    keeps the permissions (codex-rs/core-plugins/src/store.rs), and remote
+    bundles are tar archives unpacked with their modes.
+  * The agent runs commands in PowerShell on Windows
+    (codex-rs/shell-command/src/shell_detect.rs), so the skills give the
+    Windows runner bin/anet-run.cmd next to sh bin/anet-run.sh.
   * There are no plugin settings and no slash commands. The status command is
     shipped as the skill anet-status ($anet:anet-status), not as commands/,
     because Codex would convert a command into a skill named
-    source-command-anet-status.
+    source-command-anet-status. The @anet entry point is the skill anet
+    itself ($anet:anet followed by the request).
   * A skill cannot reference the plugin root by a variable. The skills name
     <skill-dir>/../../bin/anet-run.sh, and <skill-dir> is the directory that
     holds the SKILL.md file, whose path Codex lists with the skill.
@@ -82,11 +103,14 @@ VARS = {
         "zh-CN": "添加 marketplace 并安装插件：`codex plugin marketplace add ANetResearch/ANet`，然后 `codex plugin add anet@agentnetwork`。需要 Codex 0.163 或更高版本。",
     },
     "COMPONENTS_SAME_RUNNER": {
-        "en": "the MCP server (`bin/anet-mcp.sh`, `anet mcp`) and the `anet-status` and `anet-setup` skills",
-        "zh-CN": "MCP 服务（`bin/anet-mcp.sh`，即 `anet mcp`）与 `anet-status`、`anet-setup` skill ",
+        "en": "the MCP server (`anet mcp`) and the skills `anet`, `anet-setup` and `anet-status`",
+        "zh-CN": "MCP 服务（`anet mcp`）与 `anet`、`anet-setup`、`anet-status` skill ",
     },
-    "RESOLVE_INVOCATION": (
-        '```bash\nsh "' + RUNNER_FROM_SKILL + '" --resolve\n```\n\n'
+    "RUNNER_NOTE": (
+        "`" + SKILL_DIR + "` is the absolute path of the directory that contains this SKILL.md file; the list of skills "
+        "gives the path of the file as a skill root and a relative path."
+    ),
+    "RUNNER_COMMAND_NOTE": (
         "`" + SKILL_DIR + "` is the absolute path of the directory that contains this SKILL.md file; the list of skills "
         "gives the path of the file as a skill root and a relative path."
     ),
@@ -139,37 +163,13 @@ def validate(ctx):
 
 def transform(ctx, rel, text, lang):
     """Codex-specific wording that the variables do not cover."""
-    if rel == "skills/anet/SKILL.md":
-        # The last section is owned by the target; the part generated from guide.go is untouched.
-        text = _replace_once(
-            text,
-            "setup with the executable and identity of the plugin settings.",
-            "setup with the executable and identity of the plugin settings. Here `" + SKILL_DIR
-            + "` is the absolute path of the directory that contains this SKILL.md file.",
-            rel,
-        )
-    elif rel == "skills/anet-setup/SKILL.md":
-        text = _replace_once(
-            text,
-            "The `runner` line of the output is the command to use;",
-            "Here `" + SKILL_DIR + "` is the absolute path of the directory that contains this SKILL.md file; the list of\n"
-            "skills gives the path of the file as a skill root and a relative path. The `runner` line of the output is the command to use;",
-            rel,
-        )
+    if rel == "skills/anet-setup/SKILL.md":
         text = _replace_once(text, "**anet executable** (`anetPath`)", "**anet executable** (the variable `ANET_PLUGIN_BIN`)", rel)
         text = _replace_once(text, "**anet identity** (`identity`)", "**anet identity** (the variable `ANET_PLUGIN_IDENTITY`)", rel)
-        text = _replace_once(text, "status in the Codex settings.", "status (`codex mcp list`).", rel)
         text = _replace_once(
             text,
             "the plugin setting **anet executable** names a file",
             "the setting **anet executable** (`ANET_PLUGIN_BIN`) names a file",
-            rel,
-        )
-    elif rel == "commands/anet-status.md":
-        text = _replace_once(
-            text,
-            "The plugin settings select this executable and identity (resolved when the command started):",
-            "The plugin settings select an executable and an identity. Resolve them first:",
             rel,
         )
     elif rel == "README.md":
@@ -182,7 +182,13 @@ def transform(ctx, rel, text, lang):
         text = _replace_once(
             text,
             "| Skill | `anet-setup` |",
-            "| Skill | `anet-status` | Shows the node, its hub, the balance and the spending limits. Enter `$anet:anet-status` or ask for the state of the node. |\n| Skill | `anet-setup` |",
+            "| Skill | `anet-status` | Shows the state of the node, as the guide of the installed anet describes. Enter `$anet:anet-status` or ask for the state of the node. |\n| Skill | `anet-setup` |",
+            rel,
+        )
+        text = _replace_once(
+            text,
+            "4. Make a request that begins with `@anet`,",
+            "4. Make a request that begins with `@anet` (or `$anet:anet` followed by the request),",
             rel,
         )
     elif rel == "README_CN.md":
@@ -195,7 +201,13 @@ def transform(ctx, rel, text, lang):
         text = _replace_once(
             text,
             "| Skill | `anet-setup` |",
-            "| Skill | `anet-status` | 显示节点、所加入的 hub、余额和支付额度。输入 `$anet:anet-status`，或直接询问节点状态。 |\n| Skill | `anet-setup` |",
+            "| Skill | `anet-status` | 按已安装 anet 的指南显示节点状态。输入 `$anet:anet-status`，或直接询问节点状态。 |\n| Skill | `anet-setup` |",
+            rel,
+        )
+        text = _replace_once(
+            text,
+            "4. 输入以 `@anet` 开头的请求，",
+            "4. 输入以 `@anet` 开头的请求（或输入 `$anet:anet` 后接请求），",
             rel,
         )
     return text
@@ -203,7 +215,7 @@ def transform(ctx, rel, text, lang):
 
 def _status_skill(ctx):
     description, body = ctx.command("anet-status")
-    description = description.rstrip(".") + ". Use when the user asks for the state of the anet node, the balance or the spending limits."
+    description = description.rstrip(".") + ". Use when the user asks for the state of the anet node or its balance."
     return "---\nname: " + STATUS_SKILL + "\ndescription: " + json.dumps(description, ensure_ascii=False) + "\n---\n\n" + body
 
 
@@ -238,12 +250,13 @@ def build(ctx):
         },
     })
     # No variable is expanded in this file. cwd "." is the plugin root; the two
-    # settings reach the server only through env_vars.
+    # settings reach the server only through env_vars. "./bin/anet-mcp" is
+    # bin/anet-mcp on Linux and macOS and bin/anet-mcp.cmd on Windows.
     ctx.add_json(".mcp.json", {
         "mcpServers": {
             meta["mcp"]["server_name"]: {
-                "command": "sh",
-                "args": ["./bin/anet-mcp.sh"],
+                "command": "./bin/anet-mcp",
+                "args": [],
                 "cwd": ".",
                 "env_vars": [s["env"] for s in meta["settings"]],
                 "startup_timeout_sec": 30,

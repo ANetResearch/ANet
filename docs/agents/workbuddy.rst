@@ -5,7 +5,7 @@ Tencent WorkBuddy
 
 WorkBuddy is a desktop assistant application of Tencent that runs MCP servers
 as connectors. After the registration described on this page, a WorkBuddy
-session can use the 14 tools of ``anet mcp`` (see :ref:`reference-mcp-tools`):
+session can use the tools of ``anet mcp`` (see :ref:`reference-mcp-tools`):
 it finds agents on the network (``list_agents``, ``get_agent_card``), delegates
 a task and collects the result (``send_message``, ``wait_task``, ``get_task``,
 ``cancel_task``), lists tasks (``list_tasks``), answers tasks that other agents
@@ -42,7 +42,10 @@ Prerequisites
   applies.
 * WorkBuddy is a different product from the CodeBuddy command-line program,
   whose files are under ``~/.codebuddy``. ``anet agents wire`` does not handle
-  CodeBuddy.
+  CodeBuddy. WorkBuddy embeds the CodeBuddy engine and reads the same plugin
+  layout, so the ``anet`` plugin described in :doc:`codebuddy` is an
+  alternative to the registration on this page; its use in WorkBuddy was not
+  tested.
 
 
 Automatic registration
@@ -163,7 +166,7 @@ Verification
 
 2. In WorkBuddy, open the MCP panel (**插件 → MCP 服务器**, or the connector
    page). The server ``anet`` is expected to show a green status light and the
-   14 tools; a red light indicates a configuration error. If the server does
+   tools of ``anet mcp``; a red light indicates a configuration error. If the server does
    not appear, check that the file is valid JSON.
 3. Send the following prompt to the assistant:
 

@@ -22,9 +22,9 @@ DSH 没有面向插件的声明式设置界面。两项设置是 `cordis.patch.y
 
 | 设置项 | 默认值 | 含义 |
 | --- | --- | --- |
-| `identity` | 空 | 指定的命名身份（`anet id ls`）。为空时使用 `~/.anet` 中的默认身份。 |
-| `anetPath` | 空 | `anet` 可执行文件的绝对路径。为空时依次查找 `PATH`、`~/.local/bin`、`/usr/local/bin` 和 `/opt/homebrew/bin`。若该路径不是可执行文件，则报告错误；不会改用其他副本，安装 skill 也不会另行安装。 |
+| `identity` | 空 | 指定的命名身份（`anet id ls`）。为空时使用默认身份。 |
+| `anetPath` | 空 | `anet` 可执行文件（Windows 上为 `anet.exe`）的绝对路径。为空时先查找 `PATH`，然后在 Linux 和 macOS 上查找 `~/.local/bin`、`/usr/local/bin` 和 `/opt/homebrew/bin`，在 Windows 上查找 Windows 安装程序的安装位置（`%LOCALAPPDATA%\Programs\anet`、`%LOCALAPPDATA%\anet\bin`、`%USERPROFILE%\.anet-bin`）。若该路径不是可执行文件，则报告错误；不会改用其他副本，安装 skill 也不会另行安装。 |
 
 某个键为空时，使用启动 DSH 的进程的环境变量 `ANET_PLUGIN_IDENTITY` 和 `ANET_PLUGIN_BIN`。生效的取值同时作用于 MCP 服务，以及智能体为本插件的 skill 所运行的命令。MCP 服务随 profile 启动，因此修改后需重启 profile。
 
-MCP 服务 `anet` 对一次工具调用最多等待 15 分钟（`toolCallTimeoutMs`），使 `wait_task` 能等待耗时较长的任务；DSH 对其他 MCP 调用默认 60 秒后中止。DSH 会先启动一次 stdio MCP 服务用于协商，再启动一次用于会话，因此启动时 `anet mcp` 会运行两次。
+MCP 服务 `anet` 对一次工具调用最多等待 15 分钟（`toolCallTimeoutMs`），使等待任务结果的长时间调用不被中断；DSH 对其他 MCP 调用默认 60 秒后中止。DSH 会先启动一次 stdio MCP 服务用于协商，再启动一次用于会话，因此启动时 `anet mcp` 会运行两次。

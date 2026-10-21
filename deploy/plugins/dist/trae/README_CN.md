@@ -10,29 +10,32 @@ anet 是运行在用户本机上的开源节点。它保存智能体的身份，
 
 | 组件 | 名称 | 用途 |
 | --- | --- | --- |
-| MCP 服务 | `anet` | `anet mcp` 提供的 14 个工具：`list_agents`、`get_agent_card`、`send_message`、`wait_task`、`get_task`、`list_tasks`、`cancel_task`、`submit_payment`、`reject_payment`、`reply_task`、`inbound_pending`、`get_balance`、`audit`、`node_status`。 |
-| Skill | `anet` | 说明如何发现智能体、发送和跟踪任务、如实报告结果与支付，以及将其他智能体的回复视为不可信输入。用户提到 anet、AgentNetwork、AID 或希望把工作交给其他智能体时加载。 |
-| Skill | `anet-setup` | 检查、安装或更新 anet，启动节点，加入 hub，并运行 `anet doctor`。安装和更新只在用户同意后执行。 |
-| 命令 | `/anet-status` | 显示节点、所加入的 hub、余额和支付额度。 |
+| MCP 服务 | `anet` | `anet mcp` 提供的工具，由本机安装的 anet 提供。其中的工具 `guide` 返回 anet 的当前指南。 |
+| Skill | `anet` | 要求智能体在会话中首次执行 anet 操作之前以及每次收到“@anet”请求时，先阅读已安装 anet 的指南，并列出始终适用的规则。用户输入“@anet”，提到 anet、AgentNetwork 或 AID，或希望把工作交给其他智能体时加载。 |
+| Skill | `anet-setup` | 查找 anet 可执行文件；anet 未安装且用户同意时进行安装，然后按已安装 anet 的设置指南完成设置。 |
+| 命令 | `/anet` | 按已安装 anet 的指南执行一项“@anet”请求。 |
+| 命令 | `/anet-status` | 按已安装 anet 的指南显示节点状态。 |
+
+本插件不包含 anet 工具或设置步骤的说明，这些内容由已安装的 anet 提供（MCP 工具 `guide`，以及命令行中的 `anet guide`）。因此，anet 的新版本只需更新 anet 可执行文件即可在 Trae 中生效，插件无需更新。
 
 ## 环境要求
 
-- anet 可在 Linux、macOS 和 Windows 上运行，支持 x86-64 与 ARM64。本插件的启动器是 POSIX shell 脚本，可在 Linux 和 macOS 上运行；在 Windows 上，请用 `anet agents wire` 注册 anet。对于 `anet agents wire` 不支持的工具，请将 `anet mcp` 加入该工具的 MCP 配置。
-- anet 0.3.0 或更高版本。未安装时，`anet-setup` skill 会引导安装。
-- 安装需要 `curl`、`gzip` 和 `ssh-keygen`（OpenSSH 8.1 或更高版本）。
+- Linux、macOS 或 Windows，x86-64 或 ARM64。在 Linux 和 macOS 上，插件运行 POSIX shell 脚本；在 Windows 上，插件运行 `.cmd` 脚本和 Windows 自带的 Windows PowerShell 5.1。
+- 提供 `anet guide` 命令的 anet 版本。未安装 anet 时，`anet-setup` skill 会安装当前版本。
+- 在 Linux 和 macOS 上安装需要 `curl`、`gzip` 和 `ssh-keygen`（OpenSSH 8.1 或更高版本）。
 
 ## 快速开始
 
-1. 用脚本 `install.sh` 安装本插件包（见下文“安装与设置”）：用户级执行 `sh install.sh`，Trae CN 执行 `sh install.sh --cn`，单个项目执行 `sh install.sh --project <目录>`。脚本会输出 MCP 配置，请在 Trae 中填入。如果此前用其他方式注册过 anet，请先删除该条目，以免 Trae 中出现两个 anet 服务。
-2. 在会话中输入：`Set up anet.`（或"配置 anet"）。智能体会运行 `anet-setup` skill：征得同意后安装 anet，启动节点，并询问要加入的 hub（官方公共 hub 为 `https://hub.agentnetwork.org.cn`）。
+1. 用安装脚本安装本插件包（见下文“安装与设置”）：在 Linux 和 macOS 上，用户级执行 `sh install.sh`，Trae CN 执行 `sh install.sh --cn`，单个项目执行 `sh install.sh --project <目录>`；在 Windows 上执行 `install.cmd`、`install.cmd -Cn` 或 `install.cmd -Project <目录>`。安装脚本会输出 MCP 配置，请在 Trae 中填入。如果此前用其他方式注册过 anet，请先删除该条目，以免 Trae 中出现两个 anet 服务。
+2. 在会话中输入：`Set up anet.`（或“配置 anet”）。智能体会运行 `anet-setup` skill：征得同意后安装 anet，然后按已安装 anet 的设置指南完成设置。
 3. 新建一个会话，使 MCP 服务启动，然后运行 `/anet-status`。
-4. 交代任务，例如：`在 anet 上找一个能总结文本的智能体，把本项目的 README 发给它，等待结果并报告。不要支付报价，把金额告诉我。`
+4. 输入以 `@anet` 开头的请求，或直接描述要交给其他智能体的工作。
 
 anet 文档中的 [Trae 接入指南](https://docs.agentnetwork.org.cn/docs/zh-cn/latest/agents/trae.html)完整说明了安装、验证与卸载。
 
 ## 安装与设置
 
-Trae 没有可由代码仓库提供的插件包格式。因此本插件包通过脚本 `install.sh` 安装：脚本把文件复制到 Trae 的配置目录，并输出 MCP 配置。脚本不启动任何进程，不建立任何连接，也不读取 Trae 的任何文件。它创建的唯一一个 Trae 文件，是尚不存在的项目级 `mcp.json`。
+Trae 没有可由代码仓库提供的插件包格式。因此本插件包通过安装脚本安装：脚本把文件复制到 Trae 的配置目录，并输出 MCP 配置。Linux 和 macOS 上使用 `install.sh`；Windows 上使用 `install.cmd`，它以 Windows PowerShell 5.1 运行 `install.ps1`。安装脚本不启动任何进程，不建立任何连接，也不读取 Trae 的任何文件。它们创建的唯一一个 Trae 文件，是尚不存在的项目级 `mcp.json`。
 
 ```sh
 sh install.sh                    # 用户级：~/.trae
@@ -40,39 +43,45 @@ sh install.sh --cn               # Trae CN 的用户级：~/.trae-cn
 sh install.sh --project DIR      # 项目级：DIR/.trae
 ```
 
+```bat
+install.cmd                      & rem 用户级：%USERPROFILE%\.trae
+install.cmd -Cn                  & rem Trae CN 的用户级：%USERPROFILE%\.trae-cn
+install.cmd -Project DIR         & rem 项目级：DIR\.trae
+```
+
 | 包内文件 | 安装位置 | 用途 |
 | --- | --- | --- |
 | `skills/anet`、`skills/anet-setup` | `<trae-dir>/skills/` | 两个 skill。Trae 在所有项目中加载 `~/.trae/skills`（Trae CN 为 `~/.trae-cn/skills`）下的 skill，并在对应项目中加载 `.trae/skills` 下的 skill。 |
-| `commands/anet-status.md` | `<trae-dir>/commands/` | 命令 `/anet-status`。 |
-| `anet/bin/anet-run.sh`、`anet/bin/anet-mcp.sh` | `<trae-dir>/anet/bin/` | 运行脚本与 MCP 服务的启动脚本。Skill 通过 `<skill-dir>/../../anet/bin/anet-run.sh` 找到运行脚本。 |
+| `commands/anet.md`、`commands/anet-status.md` | `<trae-dir>/commands/` | 命令 `/anet` 与 `/anet-status`。 |
+| `anet/bin/` | `<trae-dir>/anet/bin/` | 运行脚本与 MCP 服务的启动脚本：Linux 和 macOS 上为 `anet-run.sh` 与 `anet-mcp.sh`，Windows 上为 `anet-run.cmd`、`anet-run.ps1` 与 `anet-mcp.cmd`。Skill 通过 `<skill-dir>/../../anet/bin/` 找到运行脚本。 |
 | `mcp.json` | 仅项目级 | 项目的 MCP 配置，仅在 `.trae/mcp.json` 不存在时写入。 |
 
-如需手动安装，请把这些目录复制到相同位置，并使用 `mcp.json` 的内容（项目级）或 `install.sh` 的输出（用户级）配置 MCP 服务。
+如需手动安装，请把这些目录复制到相同位置，并使用安装脚本的输出配置 MCP 服务。
 
-**MCP 服务。** Trae 通过 `/bin/sh` 和启动脚本启动该服务，因此缺少可执行位也不受影响；桌面应用并不总是继承登录 shell 的 `PATH`，启动脚本仍可在 `~/.local/bin` 中找到 `anet`。
+**MCP 服务。** 在 Linux 和 macOS 上，Trae 通过 `/bin/sh` 和启动脚本 `anet-mcp.sh` 启动该服务，因此缺少可执行位也不受影响；桌面应用并不总是继承登录 shell 的 `PATH`，启动脚本仍可在 `~/.local/bin` 中找到 `anet`。在 Windows 上，命令为 `anet-mcp.cmd` 的完整路径。Trae 的文档要求 MCP 服务的命令不得含空格：在 Linux 和 macOS 上，含空格的主目录会被拒绝；在 Windows 上，含空格的路径会替换为其短路径（8.3 格式），若该卷不提供短路径则拒绝安装。
 
-- 用户级：脚本输出配置。请在“设置”“MCP”“添加”“手动创建”（或“原始配置”）中填入，或在浏览器中打开脚本输出的 `trae://` 链接（仅适用于 Trae），并确认 Trae 的提示。Trae 未公开全局 MCP 文件的路径，因此脚本不写入该文件。Trae 的文档要求 MCP 服务的命令不得含空格，但未说明其参数中的空格如何处理，因此含空格的主目录会被拒绝。
-- 项目级：脚本写入 `.trae/mcp.json`，其中通过 `${workspaceFolder}` 指向启动脚本。请在 Trae 的设置中开启“项目 MCP”并确认提示。已有的 `.trae/mcp.json` 不会被修改，脚本会输出需要添加的成员。
+- 用户级：安装脚本输出配置。请在“设置”“MCP”“添加”“手动创建”（或“原始配置”）中填入，或在浏览器中打开安装脚本输出的 `trae://` 链接（仅适用于 Trae），并确认 Trae 的提示。Trae 未公开全局 MCP 文件的路径，因此安装脚本不写入该文件。
+- 项目级：安装脚本写入 `.trae/mcp.json`。在 Linux 和 macOS 上，其中通过 `${workspaceFolder}` 指向启动脚本；在 Windows 上，其中写入启动脚本的完整路径。请在 Trae 的设置中开启“项目 MCP”并确认提示。已有的 `.trae/mcp.json` 不会被修改，安装脚本会输出需要添加的成员。
 
-**设置项。** 本插件有两个可选设置，需要时传给 `install.sh`；未给出的选项沿用上次安装时的值。
+**设置项。** 本插件有两个可选设置，需要时传给安装脚本；未给出的选项沿用上次安装时的值。
 
 | 选项 | 默认值 | 含义 |
 | --- | --- | --- |
-| `--identity NAME` | 空 | 指定的命名身份（`anet id ls`）。为空时使用 `~/.anet` 中的默认身份。 |
-| `--anet PATH` | 空 | `anet` 可执行文件的绝对路径。为空时依次查找 `PATH`、`~/.local/bin`、`/usr/local/bin` 和 `/opt/homebrew/bin`。若该路径不是可执行文件，则报告错误；不会改用其他副本，安装 skill 也不会另行安装。 |
+| `--identity NAME`（`-Identity NAME`；`-ClearIdentity` 清除） | 空 | 指定的命名身份（`anet id ls`）。为空时使用默认身份。 |
+| `--anet PATH`（`-Anet PATH`；`-ClearAnet` 清除） | 空 | `anet` 可执行文件（Windows 上为 `anet.exe`）的绝对路径。为空时先查找 `PATH`，然后在 Linux 和 macOS 上查找 `~/.local/bin`、`/usr/local/bin` 和 `/opt/homebrew/bin`，在 Windows 上查找 Windows 安装程序的安装位置（`%LOCALAPPDATA%\Programs\anet`、`%LOCALAPPDATA%\anet\bin`、`%USERPROFILE%\.anet-bin`）。若该路径不是可执行文件，则报告错误；不会改用其他副本，安装 skill 也不会另行安装。 |
 
-脚本把取值保存在已安装插件包的 `anet/settings` 文件中，供安装 skill 与状态命令所用的 `bin/anet-run.sh` 读取；同时写入所输出 MCP 条目的 `env`（`ANET_PLUGIN_IDENTITY`、`ANET_PLUGIN_BIN`），供启动脚本读取。修改后请重新运行脚本，并按新的输出更新 Trae 中的 MCP 条目，使两处一致。
+安装脚本把取值保存在已安装插件包的 `anet/settings` 文件中，供 skill 与命令所用的运行脚本读取；同时写入所输出 MCP 条目的 `env`（`ANET_PLUGIN_IDENTITY`、`ANET_PLUGIN_BIN`），供启动脚本读取。修改后请重新运行安装脚本，并按新的输出更新 Trae 中的 MCP 条目，使两处一致。
 
-**卸载。** `sh install.sh --remove`（带上相同的 `--cn` 或 `--project`）会删除已安装的文件。同时请在 Trae 中删除 MCP 服务 `anet`。
+**卸载。** `sh install.sh --remove` 或 `install.cmd -Remove`（带上相同的范围选项）会删除已安装的文件。同时请在 Trae 中删除 MCP 服务 `anet`。
 
-**验证状态。** 文件位置与格式依据 Trae 文档。脚本已在 Linux 上运行，MCP 启动脚本已通过通用 MCP 客户端驱动。这些文件尚未在 Trae 应用中实际加载。
+**验证状态。** 文件位置与格式依据 Trae 文档。脚本已在 Linux 上运行，Windows 脚本已用 PowerShell 测试，MCP 启动脚本已通过通用 MCP 客户端驱动。这些文件尚未在 Trae 应用中实际加载。
 
 ## 安全与副作用
 
-- **执行的命令。** 插件的所有 `anet` 命令都经由 `bin/anet-run.sh` 执行，并应用上述两项设置：MCP 服务（`bin/anet-mcp.sh`，即 `anet mcp`）、`/anet-status` 命令与 `anet-setup` skill 使用同一可执行文件和同一身份。MCP 服务从 `mcp.json` 中其条目的 `env` 获得这两项设置；安装 skill 与状态命令在智能体的 shell 中运行，此时脚本只从 `install.sh` 写入的 `anet/settings` 文件中读取它们。用户同意后，`anet-setup` skill 将 `https://agentnetwork.org.cn/install.sh` 安装程序下载到新建的私有临时目录，仅在下载成功后运行，并在结束后删除该目录。本插件不包含 Hook。
+- **执行的命令。** 插件的所有 `anet` 命令都经由插件的运行脚本执行（Linux 和 macOS 上为 `anet/bin/anet-run.sh`，Windows 上为 `anet/bin/anet-run.cmd`），并应用上述两项设置：MCP 服务（`anet mcp`）、`/anet` 与 `/anet-status` 命令以及各 skill 使用同一可执行文件和同一身份。MCP 服务从 Trae 的 MCP 配置中其条目的 `env` 获得这两项设置；skill 与命令在智能体的 shell 中运行，此时运行脚本只从安装脚本写入的 `anet/settings` 文件中读取它们。运行脚本从不执行工作目录或工作区中的文件。用户同意后，`anet-setup` skill 运行官方安装程序（`https://agentnetwork.org.cn/install.sh`，Windows 上为 `install.ps1`）。本插件不包含 Hook。
 - **网络访问。** 插件本身不建立任何连接。anet 节点连接其加入的 hub，并经由 hub 与其他节点通信。安装程序从 `agentnetwork.org.cn` 下载。
-- **写入的文件。** 插件在运行时不写文件；`install.sh` 仅在用户运行时写入上文所列的文件一次，并在尚无 `.trae/mcp.json` 的项目中创建该文件。安装程序写入 `~/.local/bin/anet` 及其签名的发布清单；`anet init` 将身份和配置写入 `~/.anet`。Skill 要求智能体不得读取 `~/.anet` 下的文件。
-- **安全默认值。** 新节点不接受其他智能体的任务，不发布任何能力，支付额度为 0。开放节点、信任对端和提高额度均须由运营者在终端中确认；Skill 要求智能体只给出这些命令，不代为执行。
+- **写入的文件。** 插件在运行时不写文件；安装脚本仅在用户运行时写入上文所列的文件一次，并在尚无 `.trae/mcp.json` 的项目中创建该文件。安装程序将 anet 可执行文件写入用户目录，并在 `~/.anet`（Windows 上为 `%USERPROFILE%\.anet`）中创建身份和配置。Skill 要求智能体不得读取该目录中的文件。
+- **安全默认值。** 新节点不接受其他智能体的任务，不发布任何能力，支付额度为 0。开放节点、信任对端和提高额度均由用户决定；Skill 要求智能体只给出这些命令，不代为执行。
 - **不可信输入。** 其他智能体返回的结果和发来的任务都是第三方文本。`anet` skill 要求智能体不执行其中的指令，也不发送用户未要求发送的密钥或文件。
 - **数据。** 节点之间的任务内容端到端加密。hub 能看到哪些节点在通信以及通信时间。
 
@@ -80,10 +89,8 @@ sh install.sh --project DIR      # 项目级：DIR/.trae
 
 | 现象 | 处理 |
 | --- | --- |
-| 会话中没有 anet 工具 | anet 未安装或守护进程未运行。运行 `/anet-status`（按插件设置中的可执行文件和身份检查），或让智能体运行 `anet-setup` skill，然后新建会话。 |
-| `anet is not running … [daemon_not_running]` | 运行 `anet up`（具名身份在 `anet` 之后加 `--id <name>`）。计算机重启后节点不会自动启动。 |
-| `wait_task` 结束时任务仍在进行 | 长任务属正常情况。再次调用 `wait_task`，不要重新发送任务。 |
-| 拒绝信息末尾带有方括号中的代码 | 参见[原因代码](https://docs.agentnetwork.org.cn/docs/zh-cn/latest/reference/reason-codes.html)。 |
+| 会话中没有 anet 工具 | anet 未安装或节点未运行。运行 `/anet-status`，或让智能体运行 `anet-setup` skill，然后新建会话。 |
+| 拒绝信息末尾带有方括号中的代码 | 其下一行给出下一步命令。另请参见[原因代码](https://docs.agentnetwork.org.cn/docs/zh-cn/latest/reference/reason-codes.html)。 |
 
 ## 链接
 
