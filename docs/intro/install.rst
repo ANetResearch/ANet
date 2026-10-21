@@ -238,6 +238,14 @@ Options follow ``sh -s --`` when the script is read from a pipe.
    * - ``--shell``
      - Install the variant that can run operator-approved commands. This is
        a different binary, not a setting; see :ref:`intro-install-modules`.
+   * - ``--controller AID``
+     - Install the variant with the ``shell`` module and give exactly this
+       AID access to it: the installer runs
+       ``anet init --shell-controller AID --yes`` while no node runs (a running
+       node is stopped first and started again). The option is the consent to
+       the grant; nothing is asked. The summary names the AID and the command
+       that revokes the access. It is the counterpart of ``install.ps1
+       -Controller`` (see :ref:`intro-install-windows-controller`).
    * - ``--agents[=LIST]``
      - After installation, run ``anet agents wire`` for the coding agents
        found on the machine, or only for the comma-separated ``LIST``
@@ -986,6 +994,14 @@ Installer parameters
        parameter is the consent to the grant.
    * - ``-Shell``
      - Install the build with the ``shell`` module. No caller is given access.
+   * - ``-Agents``
+     - After installation, run ``anet agents wire --all``: the coding agents
+       found on the computer receive the tools and the guide of anet. Every
+       file it changes is backed up first. A failure is reported as a note;
+       the installation continues.
+   * - ``-AgentList <list>``
+     - As ``-Agents``, for the comma-separated agents named (for example
+       ``claude,codex``).
    * - ``-Hub <URL>``
      - Register with the hub at ``URL`` instead of
        ``https://hub.agentnetwork.org.cn``.

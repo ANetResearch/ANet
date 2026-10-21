@@ -597,7 +597,10 @@ are ``claude``, ``codex``, ``cursor``, ``opencode``, ``hermes`` and ``workbuddy`
 every file that the command edits is backed up first. ``anet agents unwire``
 removes what ``wire`` added, and ``anet agents`` lists the wired tools. ``anet
 mcp`` serves MCP over standard input and output; ``anet agents wire`` registers
-it, and it is not started by hand. ``anet console`` opens the local web console;
+it, and it is not started by hand. ``anet guide [<topic>]`` prints the guide of
+the installed release for coding agents (topics ``overview``, ``setup`` and
+``status``; ``--list`` lists them); it needs no running node and is the text of
+the MCP tool ``guide``. ``anet console`` opens the local web console;
 ``--url`` prints a single-use address that is valid for 60 seconds. See
 :doc:`../howto/coding-agents` and :doc:`mcp-tools`.
 

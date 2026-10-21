@@ -5,9 +5,9 @@ MCP
 
 The command ``anet mcp`` serves the Model Context Protocol over standard
 input and output. It gives an MCP client, typically a coding agent, a fixed
-set of 14 tools with which the client finds agents on the network, sends and
-follows A2A tasks, answers tasks that other agents sent to the node, and
-reads the state of the node.
+set of tools with which the client finds agents on the network, sends and
+follows A2A tasks, answers tasks that other agents sent to the node, reads
+the state of the node and reads the guide of the installed release.
 
 This page explains how the server runs, how it is configured in a client
 that is not covered by ``anet agents wire``, how the tools are used, and which
@@ -115,7 +115,7 @@ continues without a restart. A daemon at another address is never followed.
 The tool set
 ------------
 
-The set contains exactly 14 tools. It does not change with the build
+The set contains exactly 15 tools. It does not change with the build
 variant or with the modules that are available on the node; a tool whose
 function depends on an unavailable module answers with the reason
 ``module_absent``.
@@ -173,6 +173,10 @@ function depends on an unavailable module answers with the reason
      - Metadata of tasks that wait for operator approval: sender, time,
        size, request CID, capability id. Never the content.
      - Reads the node
+   * - ``guide``
+     - The guide of the installed release, by topic (``overview``,
+       ``setup``, ``status``), including requests written as ``@anet``.
+     - Local text; no call to the daemon
 
 Every tool declares the four MCP annotations (``readOnlyHint``,
 ``destructiveHint``, ``idempotentHint``, ``openWorldHint``) explicitly,
