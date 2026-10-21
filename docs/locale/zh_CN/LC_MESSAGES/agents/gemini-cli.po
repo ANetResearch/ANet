@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ANet 0.3\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-21 15:12+0000\n"
+"POT-Creation-Date: 2026-10-21 17:12+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: Agent Network Research\n"
 "Language: zh_Hans_CN\n"
@@ -108,78 +108,81 @@ msgid ""
 "file ``gemini-extension.json`` is at the root of the repository or of a "
 "release archive. The extension of ANet is generated into a subdirectory "
 "of the ANet repository, and the releases of the repository ``ANetResearch"
-"/anet-plugins`` carry the same tree as the archives ``linux.anet.tar.gz``"
-" and ``darwin.anet.tar.gz``, with the manifest at the root:"
+"/anet-plugins`` carry the same tree as the archives "
+"``linux.anet.tar.gz``, ``darwin.anet.tar.gz`` and ``win32.anet.tar.gz``, "
+"one for each platform prefix that Gemini CLI matches, with the manifest "
+"at the root:"
 msgstr ""
 "只有当文件 ``gemini-extension.json`` 位于仓库根目录或发布归档的根目录时，Gemini CLI 才能从 GitHub "
 "仓库安装扩展。ANet 的扩展生成在 ANet 仓库的子目录中；仓库 ``ANetResearch/anet-plugins`` 的各个发布以归档"
-" ``linux.anet.tar.gz`` 和 ``darwin.anet.tar.gz`` 提供同一目录树，清单位于归档根目录："
+" ``linux.anet.tar.gz``、``darwin.anet.tar.gz`` 和 ``win32.anet.tar.gz`` "
+"提供同一目录树，每个归档对应 Gemini CLI 匹配的一个平台前缀，清单位于归档根目录："
 
-#: ../../agents/gemini-cli.rst:61
+#: ../../agents/gemini-cli.rst:62
 msgid ""
 "Gemini CLI installs the archive of the latest release for the operating "
 "system, and asks whether the directory is trusted and for the two "
 "settings described below. An empty answer selects the default. "
 "``ANetResearch/anet-plugins`` is a generated mirror and is not edited by "
-"hand: the file ``SHA256SUMS`` of each release lists the SHA-256 of both "
-"archives, and the branch ``gemini-cli`` holds the same tree as "
+"hand: the file ``SHA256SUMS`` of each release lists the SHA-256 of every "
+"archive, and the branch ``gemini-cli`` holds the same tree as "
 "``deploy/plugins/dist/gemini-cli`` of the ANet repository. The archives "
 "are written by ``deploy/plugins/build.py --site``."
 msgstr ""
 "Gemini CLI 安装最新发布中对应操作系统的归档，并询问是否信任该目录以及下文所述的两项设置。留空即采用默认值。``ANetResearch"
-"/anet-plugins`` 是生成的镜像，不经手工编辑：每个发布中的文件 ``SHA256SUMS`` 列出两个归档的 SHA-256，分支 "
+"/anet-plugins`` 是生成的镜像，不经手工编辑：每个发布中的文件 ``SHA256SUMS`` 列出每个归档的 SHA-256，分支 "
 "``gemini-cli`` 保存与 ANet 仓库 ``deploy/plugins/dist/gemini-cli`` 相同的目录树。归档由 "
 "``deploy/plugins/build.py --site`` 生成。"
 
-#: ../../agents/gemini-cli.rst:69
+#: ../../agents/gemini-cli.rst:70
 msgid ""
-"The release archives are provided for Linux and macOS. On Windows, and "
-"wherever a local source is preferred, the extension is installed from a "
-"local copy of the ANet repository:"
-msgstr "发布归档仅提供 Linux 和 macOS 版本。在 Windows 上，以及希望使用本地来源时，请从 ANet 仓库的本地副本安装该扩展："
+"The release archives serve Linux, macOS and Windows. Wherever a local "
+"source is preferred, the extension is installed from a local copy of the "
+"ANet repository:"
+msgstr "发布归档适用于 Linux、macOS 和 Windows。希望使用本地来源时，请从 ANet 仓库的本地副本安装该扩展："
 
-#: ../../agents/gemini-cli.rst:78
+#: ../../agents/gemini-cli.rst:79
 msgid ""
 "The extension is copied; after a change of the source, install it again, "
 "and start a new session."
 msgstr "扩展会被复制；源目录变更后，请重新安装，并启动新的会话。"
 
-#: ../../agents/gemini-cli.rst:83
+#: ../../agents/gemini-cli.rst:84
 msgid "The extension"
 msgstr "扩展"
 
-#: ../../agents/gemini-cli.rst:89
+#: ../../agents/gemini-cli.rst:90
 msgid "Component"
 msgstr "组件"
 
-#: ../../agents/gemini-cli.rst:90
+#: ../../agents/gemini-cli.rst:91
 msgid "Name"
 msgstr "名称"
 
-#: ../../agents/gemini-cli.rst:91
+#: ../../agents/gemini-cli.rst:92
 msgid "Purpose"
 msgstr "用途"
 
-#: ../../agents/gemini-cli.rst:92
+#: ../../agents/gemini-cli.rst:93
 msgid "MCP server"
 msgstr "MCP 服务器"
 
-#: ../../agents/gemini-cli.rst:93 ../../agents/gemini-cli.rst:97
+#: ../../agents/gemini-cli.rst:94 ../../agents/gemini-cli.rst:98
 msgid "``anet``"
 msgstr "``anet``"
 
-#: ../../agents/gemini-cli.rst:94
+#: ../../agents/gemini-cli.rst:95
 msgid ""
 "Runs ``anet mcp`` of the installed ``anet`` for the selected identity. "
 "Its tool ``guide`` returns the current guide to ANet."
 msgstr "为所选身份运行已安装 ``anet`` 的 ``anet mcp``。其工具 ``guide`` 返回 ANet 的最新指南。"
 
-#: ../../agents/gemini-cli.rst:96 ../../agents/gemini-cli.rst:101
-#: ../../agents/gemini-cli.rst:105
+#: ../../agents/gemini-cli.rst:97 ../../agents/gemini-cli.rst:102
+#: ../../agents/gemini-cli.rst:106
 msgid "Skill"
 msgstr "技能"
 
-#: ../../agents/gemini-cli.rst:98
+#: ../../agents/gemini-cli.rst:99
 msgid ""
 "Directs the agent to the guide of the installed ``anet`` before the first"
 " ANet action of a session and on every ``@anet`` request, and holds the "
@@ -188,48 +191,48 @@ msgstr ""
 "在会话中首次执行 ANet 操作之前以及每次收到 ``@anet`` 请求时，引导 agent 阅读已安装 ``anet`` "
 "的指南，并包含始终适用的规则。"
 
-#: ../../agents/gemini-cli.rst:102
+#: ../../agents/gemini-cli.rst:103
 msgid "``anet-setup``"
 msgstr "``anet-setup``"
 
-#: ../../agents/gemini-cli.rst:103
+#: ../../agents/gemini-cli.rst:104
 msgid ""
 "Finds the ``anet`` executable, installs ANet when it is missing and the "
 "user agrees, and follows the setup guide of the installed ``anet``."
 msgstr "查找 ``anet`` 可执行文件，在其缺失且用户同意时安装 ANet，并按已安装 ``anet`` 的设置指南执行。"
 
-#: ../../agents/gemini-cli.rst:106
+#: ../../agents/gemini-cli.rst:107
 msgid "``anet-status``"
 msgstr "``anet-status``"
 
-#: ../../agents/gemini-cli.rst:107
+#: ../../agents/gemini-cli.rst:108
 msgid "Reports the state of the node as the guide describes."
 msgstr "按指南所述报告节点状态。"
 
-#: ../../agents/gemini-cli.rst:108 ../../agents/gemini-cli.rst:113
+#: ../../agents/gemini-cli.rst:109 ../../agents/gemini-cli.rst:114
 msgid "Command"
 msgstr "命令"
 
-#: ../../agents/gemini-cli.rst:109
+#: ../../agents/gemini-cli.rst:110
 msgid "``/anet``"
 msgstr "``/anet``"
 
-#: ../../agents/gemini-cli.rst:110
+#: ../../agents/gemini-cli.rst:111
 msgid ""
 "The entry point: carries out an ``@anet`` request as the guide describes."
 " Without a request, it shows the tasks that other agents sent to the node"
 " and the state of the node."
 msgstr "入口：按指南所述执行 ``@anet`` 请求。未给出请求时，显示其他 agent 发给本节点的任务以及节点状态。"
 
-#: ../../agents/gemini-cli.rst:114
+#: ../../agents/gemini-cli.rst:115
 msgid "``/anet-status``"
 msgstr "``/anet-status``"
 
-#: ../../agents/gemini-cli.rst:115
+#: ../../agents/gemini-cli.rst:116
 msgid "Asks the agent to activate the skill ``anet-status``."
 msgstr "请求 agent 启用技能 ``anet-status``。"
 
-#: ../../agents/gemini-cli.rst:117
+#: ../../agents/gemini-cli.rst:118
 msgid ""
 "The extension has the version 0.2.0. It carries no list of tools, no ANet"
 " version and no setup steps. The installed ``anet`` provides them through"
@@ -241,7 +244,7 @@ msgstr ""
 "``guide`` 和命令 ``anet guide [<topic>]`` 提供。因此，ANet 的新版本仅凭可执行文件即可作用于 Gemini"
 " CLI，扩展无需更新。"
 
-#: ../../agents/gemini-cli.rst:123
+#: ../../agents/gemini-cli.rst:124
 msgid ""
 "The extension has no hooks, opens no network connection and writes no "
 "files of its own. The installation of ``anet``, which runs only after the"
@@ -264,7 +267,7 @@ msgstr ""
 "上为 ``bin/anet-run.sh``，Windows 上为 ``bin/anet-run.cmd``），使 MCP "
 "服务器与各技能使用同一可执行文件和同一身份。"
 
-#: ../../agents/gemini-cli.rst:132
+#: ../../agents/gemini-cli.rst:133
 #, python-brace-format
 msgid ""
 "The MCP server is declared as ``${extensionPath}${/}bin${/}anet-mcp``, "
@@ -280,11 +283,11 @@ msgstr ""
 "``PATHEXT`` 中的扩展名解析该路径并运行 ``bin/anet-mcp.cmd``，后者需要 Windows 自带的 Windows "
 "PowerShell 5.1。agent 在 Windows 上通过 PowerShell 运行命令，因此各技能同时给出两种运行脚本。"
 
-#: ../../agents/gemini-cli.rst:141
+#: ../../agents/gemini-cli.rst:142
 msgid "Setting up the node from Gemini CLI"
 msgstr "在 Gemini CLI 中配置节点"
 
-#: ../../agents/gemini-cli.rst:143
+#: ../../agents/gemini-cli.rst:144
 msgid ""
 "Ask the agent to set up anet, for example: \"Set up anet and join the hub"
 " ``<hub URL>`` under the name ``<name>``.\" The agent follows the ``anet-"
@@ -293,13 +296,13 @@ msgstr ""
 "请 agent 配置 anet，例如：“配置 anet，并以名称 ``<name>`` 加入 hub ``<hub URL>``。”agent "
 "将遵循技能 ``anet-setup``："
 
-#: ../../agents/gemini-cli.rst:147
+#: ../../agents/gemini-cli.rst:148
 msgid ""
 "It runs the runner with ``--resolve``, which prints the executable, its "
 "version and the identity that the extension uses."
 msgstr "以 ``--resolve`` 运行运行脚本，输出可执行文件、其版本以及扩展所用的身份。"
 
-#: ../../agents/gemini-cli.rst:149
+#: ../../agents/gemini-cli.rst:150
 msgid ""
 "If ``anet`` is not installed, it asks for consent and lists what the "
 "installer does. After consent it runs ``bin/anet-install.sh`` on Linux "
@@ -308,13 +311,13 @@ msgstr ""
 "若未安装 ``anet``，则征求同意并列出安装程序的操作；获得同意后，在 Linux 和 macOS 上运行 ``bin/anet-"
 "install.sh``，在 Windows 上运行 ``bin/anet-install.cmd``。"
 
-#: ../../agents/gemini-cli.rst:152
+#: ../../agents/gemini-cli.rst:153
 msgid ""
 "It prints the setup guide of the installed ``anet`` with ``<runner> guide"
 " setup`` and follows it through the runner."
 msgstr "用 ``<runner> guide setup`` 输出已安装 ``anet`` 的设置指南，并经由运行脚本按其执行。"
 
-#: ../../agents/gemini-cli.rst:155
+#: ../../agents/gemini-cli.rst:156
 msgid ""
 "The agent does not run commands that are reserved for the operator "
 "(admitting an account at a hub, recovery passphrases, payment limits). "
@@ -322,11 +325,11 @@ msgid ""
 " after the setup."
 msgstr "agent 不会运行保留给运营者的命令（在 hub 上准入账户、恢复口令、支付限额）。MCP 服务器在新会话启动时连接，因此配置完成后请启动新会话。"
 
-#: ../../agents/gemini-cli.rst:161
+#: ../../agents/gemini-cli.rst:162
 msgid "Verification"
 msgstr "验证"
 
-#: ../../agents/gemini-cli.rst:163
+#: ../../agents/gemini-cli.rst:164
 msgid ""
 "Start a session and run ``/anet-status``. The agent reads the topic "
 "``status`` of the guide and reports the state of the node as that topic "
@@ -345,11 +348,11 @@ msgstr ""
 " hub 的免费能力 ``text.digest`` 时，文本 ``hello`` 的结果为 SHA-256 值 "
 "``2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824``。"
 
-#: ../../agents/gemini-cli.rst:175
+#: ../../agents/gemini-cli.rst:176
 msgid "Settings"
 msgstr "设置项"
 
-#: ../../agents/gemini-cli.rst:177
+#: ../../agents/gemini-cli.rst:178
 msgid ""
 "The manifest declares two optional settings. Gemini CLI asks for them "
 "when the extension is installed (``--skip-settings`` leaves them empty), "
@@ -359,47 +362,47 @@ msgstr ""
 "清单声明了两项可选设置。安装扩展时 Gemini CLI 会询问这两项（``--skip-settings`` "
 "将其留空），把它们存入扩展目录中的文件 ``.env``，并作为环境变量传给 MCP 服务器 ``anet``。"
 
-#: ../../agents/gemini-cli.rst:186
+#: ../../agents/gemini-cli.rst:187
 msgid "Setting"
 msgstr "设置"
 
-#: ../../agents/gemini-cli.rst:187
+#: ../../agents/gemini-cli.rst:188
 msgid "Variable"
 msgstr "变量"
 
-#: ../../agents/gemini-cli.rst:188
+#: ../../agents/gemini-cli.rst:189
 msgid "Default"
 msgstr "默认值"
 
-#: ../../agents/gemini-cli.rst:189
+#: ../../agents/gemini-cli.rst:190
 msgid "Meaning"
 msgstr "含义"
 
-#: ../../agents/gemini-cli.rst:190
+#: ../../agents/gemini-cli.rst:191
 msgid "anet identity"
 msgstr "anet 身份"
 
-#: ../../agents/gemini-cli.rst:191
+#: ../../agents/gemini-cli.rst:192
 msgid "``ANET_PLUGIN_IDENTITY``"
 msgstr "``ANET_PLUGIN_IDENTITY``"
 
-#: ../../agents/gemini-cli.rst:192 ../../agents/gemini-cli.rst:196
+#: ../../agents/gemini-cli.rst:193 ../../agents/gemini-cli.rst:197
 msgid "empty"
 msgstr "空"
 
-#: ../../agents/gemini-cli.rst:193
+#: ../../agents/gemini-cli.rst:194
 msgid "A named identity (``anet id ls``). Empty selects the default identity."
 msgstr "具名身份（``anet id ls``）。为空时选用默认身份。"
 
-#: ../../agents/gemini-cli.rst:194
+#: ../../agents/gemini-cli.rst:195
 msgid "anet executable"
 msgstr "anet 可执行文件"
 
-#: ../../agents/gemini-cli.rst:195
+#: ../../agents/gemini-cli.rst:196
 msgid "``ANET_PLUGIN_BIN``"
 msgstr "``ANET_PLUGIN_BIN``"
 
-#: ../../agents/gemini-cli.rst:197
+#: ../../agents/gemini-cli.rst:198
 msgid ""
 "Absolute path of the ``anet`` executable (``anet.exe`` on Windows). Empty"
 " searches the absolute directories of ``PATH``, then ``~/.local/bin``, "
@@ -415,7 +418,7 @@ msgstr ""
 "``%LOCALAPPDATA%\\Programs\\anet``、``%LOCALAPPDATA%\\anet\\bin`` 和 "
 "``%USERPROFILE%\\.anet-bin``。若路径不是可执行文件，则报告为错误；不会改用其他副本，配置技能也不会安装副本。"
 
-#: ../../agents/gemini-cli.rst:205
+#: ../../agents/gemini-cli.rst:206
 msgid ""
 "Change a value with ``gemini extensions config anet``, then start a new "
 "session. The messages of the scripts call these settings ``anetPath`` "
@@ -430,7 +433,7 @@ msgstr ""
 "（``ANET_PLUGIN_IDENTITY``）。在 agent 的 shell 中，运行脚本从环境读取这两个变量；未设置时从扩展的 "
 "``.env`` 文件读取，不读取其他内容。它不会读取 Gemini CLI 的设置或凭据。"
 
-#: ../../agents/gemini-cli.rst:212
+#: ../../agents/gemini-cli.rst:213
 msgid ""
 "A named identity whose daemon is stopped leaves the MCP server "
 "disconnected; the agent then reports the state of that identity through "
@@ -439,11 +442,11 @@ msgstr ""
 "具名身份的守护进程已停止时，MCP 服务器处于断开状态；此时 agent 通过运行脚本（``anet "
 "doctor``）报告该身份的状态，而不是默认节点的状态。"
 
-#: ../../agents/gemini-cli.rst:218
+#: ../../agents/gemini-cli.rst:219
 msgid "Updating and removing"
 msgstr "更新与移除"
 
-#: ../../agents/gemini-cli.rst:225
+#: ../../agents/gemini-cli.rst:226
 msgid ""
 "Version 0.2.0 is the final version of the extension; a new release of "
 "ANet needs no new extension. The commands do not change the node: the "
@@ -455,11 +458,11 @@ msgstr ""
 "中的身份和运行中的守护进程均保持不变。``anet update`` 更新 ANet "
 "本身，与扩展相互独立。:doc:`../intro/install` 说明如何停止节点并移除 ANet。"
 
-#: ../../agents/gemini-cli.rst:233
+#: ../../agents/gemini-cli.rst:234
 msgid "Not tested"
 msgstr "未测试项"
 
-#: ../../agents/gemini-cli.rst:235
+#: ../../agents/gemini-cli.rst:236
 msgid ""
 "The Google endpoint. The sessions behind this page used Gemini CLI with a"
 " model served through a local interface that is compatible with the "
@@ -469,7 +472,7 @@ msgstr ""
 "Google 端点。本页依据的会话使用 Gemini CLI 和由兼容 Gemini API 的本地接口提供的模型，因为 Google 端点需要 "
 "Google 账号。Gemini 模型与这些技能配合时的行为未经测试。"
 
-#: ../../agents/gemini-cli.rst:239
+#: ../../agents/gemini-cli.rst:240
 msgid ""
 "The update of an extension installed from a release (``gemini extensions "
 "update anet``). The installation from ``ANetResearch/anet-plugins`` and "
@@ -478,11 +481,11 @@ msgstr ""
 "从发布安装的扩展的更新（\\ ``gemini extensions update anet``\\ ）。已运行从 ``ANetResearch"
 "/anet-plugins`` 和从本地目录的安装。"
 
-#: ../../agents/gemini-cli.rst:242
+#: ../../agents/gemini-cli.rst:243
 msgid "The extension gallery of Gemini CLI."
 msgstr "Gemini CLI 的扩展库。"
 
-#: ../../agents/gemini-cli.rst:243
+#: ../../agents/gemini-cli.rst:244
 msgid ""
 "The complete ``anet-setup`` procedure. In the non-interactive mode "
 "(``--yolo``), Gemini CLI 0.64.0 ran ``bin/anet-install.sh`` of an earlier"
@@ -495,7 +498,7 @@ msgstr ""
 "``bin/anet-install.sh`` 并安装了 ``anet``，随后以 ``Tool execution denied by "
 "policy`` 拒绝了 ``bin/anet-run.sh`` 的后续命令；交互模式未经测试。节点改为在终端中启动并注册。"
 
-#: ../../agents/gemini-cli.rst:249
+#: ../../agents/gemini-cli.rst:250
 msgid ""
 "The extension on macOS and on Windows. The Windows launch through ``bin"
 "/anet-mcp.cmd`` follows from the bundle of Gemini CLI 0.65.0, and the "
@@ -504,29 +507,29 @@ msgstr ""
 "该扩展在 macOS 和 Windows 上的运行。经由 ``bin/anet-mcp.cmd`` 在 Windows 上启动的方式依据 "
 "Gemini CLI 0.65.0 的程序包得出，Windows 运行脚本已用 PowerShell 测试。"
 
-#: ../../agents/gemini-cli.rst:252
+#: ../../agents/gemini-cli.rst:253
 msgid ""
 "The prompt for the settings at the installation of a changed manifest in "
 "an update of an installed extension."
 msgstr "更新已安装的扩展时，清单发生变化后重新安装所出现的设置提示。"
 
-#: ../../agents/gemini-cli.rst:257
+#: ../../agents/gemini-cli.rst:258
 msgid "Troubleshooting"
 msgstr "故障排查"
 
-#: ../../agents/gemini-cli.rst:263
+#: ../../agents/gemini-cli.rst:264
 msgid "Symptom"
 msgstr "现象"
 
-#: ../../agents/gemini-cli.rst:264
+#: ../../agents/gemini-cli.rst:265
 msgid "Action"
 msgstr "处理"
 
-#: ../../agents/gemini-cli.rst:265
+#: ../../agents/gemini-cli.rst:266
 msgid "The session has no anet tools."
 msgstr "会话中没有 anet 工具。"
 
-#: ../../agents/gemini-cli.rst:266
+#: ../../agents/gemini-cli.rst:267
 msgid ""
 "Run ``anet status`` in a terminal. ``[daemon_not_running]``: run ``anet "
 "up``. ``anet`` not found: run ``gemini extensions config anet`` or ask "
@@ -536,11 +539,11 @@ msgstr ""
 "``anet``：运行 ``gemini extensions config anet``，或请 agent 运行技能 ``anet-"
 "setup``。然后启动新会话。"
 
-#: ../../agents/gemini-cli.rst:270
+#: ../../agents/gemini-cli.rst:271
 msgid "``anetPath`` is reported as an invalid setting."
 msgstr "``anetPath`` 被报告为无效设置。"
 
-#: ../../agents/gemini-cli.rst:271
+#: ../../agents/gemini-cli.rst:272
 msgid ""
 "``ANET_PLUGIN_BIN`` names a file that is not an executable. Correct it "
 "with ``gemini extensions config anet`` or clear it."
@@ -548,44 +551,44 @@ msgstr ""
 "``ANET_PLUGIN_BIN`` 指向的文件不是可执行文件。请用 ``gemini extensions config anet`` "
 "更正或清除。"
 
-#: ../../agents/gemini-cli.rst:273
+#: ../../agents/gemini-cli.rst:274
 msgid "The tool for shell commands refuses a command of the extension."
 msgstr "执行 shell 命令的工具拒绝了扩展的某条命令。"
 
-#: ../../agents/gemini-cli.rst:274
+#: ../../agents/gemini-cli.rst:275
 msgid ""
 "The agent reports the command and stops. Approve the command in the "
 "policy of Gemini CLI, or run it in a terminal. The agent does not write "
 "copies or wrapper scripts to work around the refusal."
 msgstr "agent 会报告该命令并停止。请在 Gemini CLI 的策略中批准该命令，或在终端中运行。agent 不会通过写入副本或包装脚本来绕过拒绝。"
 
-#: ../../agents/gemini-cli.rst:277
+#: ../../agents/gemini-cli.rst:278
 msgid "``wait_task`` ends while the task is still working."
 msgstr "任务仍在进行时 ``wait_task`` 已结束。"
 
-#: ../../agents/gemini-cli.rst:278
+#: ../../agents/gemini-cli.rst:279
 msgid ""
 "This is normal for long tasks. Call ``wait_task`` again and do not send "
 "the task again."
 msgstr "长任务出现这种情况属正常现象。请再次调用 ``wait_task``，不要重新发送任务。"
 
-#: ../../agents/gemini-cli.rst:280
+#: ../../agents/gemini-cli.rst:281
 msgid "A refusal ends with a code in brackets."
 msgstr "拒绝信息以方括号中的代码结尾。"
 
-#: ../../agents/gemini-cli.rst:281
+#: ../../agents/gemini-cli.rst:282
 msgid "See :doc:`../reference/reason-codes`."
 msgstr "参见 :doc:`../reference/reason-codes`。"
 
-#: ../../agents/gemini-cli.rst:285
+#: ../../agents/gemini-cli.rst:286
 msgid "References"
 msgstr "参考"
 
-#: ../../agents/gemini-cli.rst:287
+#: ../../agents/gemini-cli.rst:288
 msgid "Gemini CLI: https://github.com/google-gemini/gemini-cli"
 msgstr "Gemini CLI：https://github.com/google-gemini/gemini-cli"
 
-#: ../../agents/gemini-cli.rst:288
+#: ../../agents/gemini-cli.rst:289
 msgid ""
 "Source of the extension: ``deploy/plugins`` in the ANet repository "
 "(target ``gemini-cli`` of the plugin generator; the generated extension "
@@ -594,7 +597,7 @@ msgstr ""
 "扩展源码：ANet 仓库中的 ``deploy/plugins``\\ （插件生成器的目标 ``gemini-cli``；生成的扩展位于 "
 "``deploy/plugins/dist/gemini-cli``）。"
 
-#: ../../agents/gemini-cli.rst:291
+#: ../../agents/gemini-cli.rst:292
 msgid ""
 "Mirror for the installation from GitHub: https://github.com/ANetResearch"
 "/anet-plugins"

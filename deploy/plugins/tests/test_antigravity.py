@@ -446,7 +446,13 @@ class GeminiSiteTests(unittest.TestCase):
     def test_assets_are_named_by_platform(self):
         paths = {p for p in self.site if p.startswith("plugins/gemini-cli/")}
         self.assertEqual(
-            paths, {"plugins/gemini-cli/linux.anet.tar.gz", "plugins/gemini-cli/darwin.anet.tar.gz", "plugins/gemini-cli/SHA256SUMS"}
+            paths,
+            {
+                "plugins/gemini-cli/linux.anet.tar.gz",
+                "plugins/gemini-cli/darwin.anet.tar.gz",
+                "plugins/gemini-cli/win32.anet.tar.gz",
+                "plugins/gemini-cli/SHA256SUMS",
+            },
         )
         self.assertFalse([p for p in self.site if p.startswith("plugins/antigravity")])
 
@@ -459,6 +465,7 @@ class GeminiSiteTests(unittest.TestCase):
             self.assertIn("commands/anet-status.toml", names)
             self.assertEqual(sorted(names), sorted(set(self.ctx.files)))
         self.assertEqual(data, self.site["plugins/gemini-cli/darwin.anet.tar.gz"].data)
+        self.assertEqual(data, self.site["plugins/gemini-cli/win32.anet.tar.gz"].data)
 
     def test_checksums_match(self):
         sums = self.site["plugins/gemini-cli/SHA256SUMS"].data.decode()

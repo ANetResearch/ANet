@@ -28,6 +28,7 @@
 ### 编程 agent 的插件
 - Claude Code、Codex、Cursor、CodeBuddy 与 WorkBuddy、OpenCode、ZCode、Google Antigravity、Gemini CLI、Trae 和 DeepSeek Harness 的插件升级到 0.2.0。每个插件包含 `anet mcp` 的启动器、一段要求 agent 读取本机 anet 的 `guide` 工具并照其执行的简短技能、宿主支持时的 `/anet` 入口，以及在用户同意后安装 anet 的设置流程。插件不列出任何工具或功能，因此 anet 之后的版本无需插件发布新版即可到达每个工具。
 - 插件可在 Windows 上运行。各宿主按其自身的进程创建方式启动启动器：按 cross-spawn 方式解析命令的宿主经 `PATHEXT` 找到 `.cmd` 启动器，Google Antigravity 使用 Node 启动器，Trae 使用 `.cmd` 启动器的绝对路径。运行器有对应的 Windows 版本，设置、可执行文件的查找（包括 `install.ps1` 的安装目录）与拒绝规则均相同。
+- Gemini CLI 扩展的发布在 Linux 与 macOS 归档之外提供 `win32.anet.tar.gz`，`gemini extensions install` 在 Windows 上同样使用发布归档。
 
 ### 接入 Trae 与 ZCode
 - `anet agents wire trae` 把 MCP 服务器条目写入 Trae 与 Trae CN 的用户配置（各产品应用数据目录下的 `User/mcp.json`，适用于 Linux、macOS 和 Windows），并把简短说明写入 `~/.trae/user_rules/agentnetwork.md`（Trae CN 为 `~/.trae-cn/user_rules/`），对每个会话生效。每个文件都会先备份；`unwire` 予以恢复。

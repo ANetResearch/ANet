@@ -51,8 +51,9 @@ Gemini CLI installs an extension from a GitHub repository only when the file
 ``gemini-extension.json`` is at the root of the repository or of a release
 archive. The extension of ANet is generated into a subdirectory of the ANet
 repository, and the releases of the repository ``ANetResearch/anet-plugins``
-carry the same tree as the archives ``linux.anet.tar.gz`` and
-``darwin.anet.tar.gz``, with the manifest at the root:
+carry the same tree as the archives ``linux.anet.tar.gz``,
+``darwin.anet.tar.gz`` and ``win32.anet.tar.gz``, one for each platform
+prefix that Gemini CLI matches, with the manifest at the root:
 
 .. code-block:: console
 
@@ -62,13 +63,13 @@ Gemini CLI installs the archive of the latest release for the operating system,
 and asks whether the directory is trusted and for the two settings described
 below. An empty answer selects the default. ``ANetResearch/anet-plugins`` is a
 generated mirror and is not edited by hand: the file ``SHA256SUMS`` of each
-release lists the SHA-256 of both archives, and the branch ``gemini-cli`` holds
+release lists the SHA-256 of every archive, and the branch ``gemini-cli`` holds
 the same tree as ``deploy/plugins/dist/gemini-cli`` of the ANet repository.
 The archives are written by ``deploy/plugins/build.py --site``.
 
-The release archives are provided for Linux and macOS. On Windows, and
-wherever a local source is preferred, the extension is installed from a local
-copy of the ANet repository:
+The release archives serve Linux, macOS and Windows. Wherever a local source
+is preferred, the extension is installed from a local copy of the ANet
+repository:
 
 .. code-block:: console
 

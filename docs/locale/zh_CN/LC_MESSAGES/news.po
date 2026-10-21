@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ANet 0.3\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-21 16:11+0000\n"
+"POT-Creation-Date: 2026-10-21 17:13+0000\n"
 "PO-Revision-Date: 2026-10-16 05:00+0000\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: zh_CN\n"
@@ -86,11 +86,20 @@ msgstr ""
 msgid "The plugins run on Windows. See :doc:`agents/index`."
 msgstr "插件可在 Windows 上运行。参见 :doc:`agents/index`\\ 。"
 
-#: ../../news.rst:43
+#: ../../news.rst:41
+msgid ""
+"The releases of the Gemini CLI extension carry ``win32.anet.tar.gz`` next"
+" to the archives for Linux and macOS, so ``gemini extensions install`` "
+"uses a release archive on Windows too."
+msgstr ""
+"Gemini CLI 扩展的发布在 Linux 与 macOS 归档之外提供 ``win32.anet.tar.gz``，``gemini "
+"extensions install`` 在 Windows 上同样使用发布归档。"
+
+#: ../../news.rst:45
 msgid "Wiring Trae and ZCode"
 msgstr "接入 Trae 与 ZCode"
 
-#: ../../news.rst:45
+#: ../../news.rst:47
 msgid ""
 "``anet agents wire trae`` registers the MCP server with Trae and Trae CN "
 "and installs the short persona as a user rule. ``anet agents wire zcode``"
@@ -102,11 +111,11 @@ msgstr ""
 "``anet agents wire zcode`` 通过 ZCode 命令行程序安装 anet 插件；anet 不在 ``~/.zcode`` "
 "下写入任何内容。参见 :doc:`agents/trae` 与 :doc:`agents/zcode`\\ 。"
 
-#: ../../news.rst:51
+#: ../../news.rst:53
 msgid "Installation"
 msgstr "安装"
 
-#: ../../news.rst:53
+#: ../../news.rst:55
 msgid ""
 "``install.sh --controller AID`` installs the build with the ``shell`` "
 "module and gives exactly this AID access to it, as ``install.ps1 "
@@ -115,7 +124,7 @@ msgstr ""
 "``install.sh --controller AID`` 安装带 ``shell`` 模块的构建，并只向该 AID 开放访问，与 "
 "``install.ps1 -Controller`` 相同。参见 :ref:`intro-install-options`\\ 。"
 
-#: ../../news.rst:56
+#: ../../news.rst:58
 msgid ""
 "``install.ps1 -Agents`` and ``-AgentList <list>`` run ``anet agents "
 "wire`` after the installation, as ``install.sh --agents[=LIST]`` does."
@@ -123,11 +132,11 @@ msgstr ""
 "``install.ps1 -Agents`` 与 ``-AgentList <list>`` 在安装后执行 ``anet agents "
 "wire``\\ ，与 ``install.sh --agents[=LIST]`` 相同。"
 
-#: ../../news.rst:60
+#: ../../news.rst:62
 msgid "Official agents"
 msgstr "官方 agent"
 
-#: ../../news.rst:62
+#: ../../news.rst:64
 msgid ""
 "The official manifest of this release marks the organisation agent "
 "``USTC`` on ``https://hub.agentnetwork.org.cn`` as official. The mark "
@@ -136,11 +145,11 @@ msgstr ""
 "本版本的官方清单把 ``https://hub.agentnetwork.org.cn`` 上的组织 agent ``USTC`` "
 "标记为官方。该标记不授予任何准入、信任或支付权限。"
 
-#: ../../news.rst:70
+#: ../../news.rst:72
 msgid "ANet 0.3.6"
 msgstr "ANet 0.3.6"
 
-#: ../../news.rst:72
+#: ../../news.rst:74
 msgid ""
 "ANet 0.3.6 is a patch release. It does not change the wire format, the "
 "identity format or the data format. It consists of ``anet`` 0.3.6; "
@@ -152,11 +161,11 @@ msgstr ""
 "v0.16.1、ANetHub 0.3.3 与 ANetLink v0.2.0 未变更。0.3.5 的节点与 0.3.6 的节点可协同工作，Hub"
 " 无需升级。参见 :ref:`upgrading-036`。"
 
-#: ../../news.rst:78 ../../news.rst:198
+#: ../../news.rst:80 ../../news.rst:200
 msgid "Windows installation"
 msgstr "Windows 安装"
 
-#: ../../news.rst:80
+#: ../../news.rst:82
 msgid ""
 "``install.ps1`` downloads its release from the npm mirror "
 "``registry.npmmirror.com`` or from the GitHub release of the project, "
@@ -171,7 +180,7 @@ msgstr ""
 "``registry.npmjs.org``、jsDelivr，最后为本项目的主机。未提供该发布版本的下载源会被跳过；无论由哪个下载源提供，任一文件未通过检查即终止安装。参见"
 " :ref:`intro-install-windows-sources`。"
 
-#: ../../news.rst:85
+#: ../../news.rst:87
 msgid ""
 "The output is a short summary: whether ANet is installed and running, the"
 " AID of the node, the hub, the agent given remote control and the command"
@@ -188,7 +197,7 @@ msgstr ""
 "``%USERPROFILE%\\.anet\\logs\\install-<UTC time>.log``。参见 :ref:`intro-"
 "install-windows-output`。"
 
-#: ../../news.rst:92
+#: ../../news.rst:94
 msgid ""
 "Without ``-Controller``, the line also starts the node and joins the hub,"
 " as ``install.sh`` does. The new parameter ``-NoStart`` installs without "
@@ -197,11 +206,11 @@ msgstr ""
 "不带 ``-Controller`` 时，该命令同样启动节点并加入 hub，与 ``install.sh`` 相同。新参数 "
 "``-NoStart`` 只安装，不启动节点。"
 
-#: ../../news.rst:94
+#: ../../news.rst:96
 msgid "``anet hub-register`` always runs with ``--passphrase-later``."
 msgstr "``anet hub-register`` 始终以 ``--passphrase-later`` 运行。"
 
-#: ../../news.rst:95
+#: ../../news.rst:97
 msgid ""
 "A daemon of AgentNetwork 1.x that still holds the data directory is "
 "stopped by the installer, through its local API and then by its process "
@@ -213,11 +222,11 @@ msgstr ""
 "身份且有 0.3 守护进程运行的数据目录不再被报告为被早期版本占用。参见 :ref:`intro-install-windows-"
 "earlier`。"
 
-#: ../../news.rst:101 ../../news.rst:239
+#: ../../news.rst:103 ../../news.rst:241
 msgid "Linux and macOS installation"
 msgstr "Linux 与 macOS 安装"
 
-#: ../../news.rst:103
+#: ../../news.rst:105
 msgid ""
 "The installation is the single line ``curl --proto '=https' --tlsv1.2 "
 "-fsSL https://agentnetwork.org.cn/install.sh | sh``. By default the "
@@ -237,7 +246,7 @@ msgstr ""
 "later`` 加入 ``https://hub.agentnetwork.org.cn``。已加入 Hub 的节点保留该 Hub，除非 "
 "``--hub`` 指定了另一个 Hub。参见 :ref:`intro-install-script`。"
 
-#: ../../news.rst:111
+#: ../../news.rst:113
 msgid ""
 "New options: ``--no-join`` starts the node without joining a hub, and "
 "``--no-start`` neither starts nor joins. ``--hub`` and ``--name`` now "
@@ -246,7 +255,7 @@ msgstr ""
 "新选项：``--no-join`` 启动节点但不加入 Hub，``--no-start`` 既不启动也不加入。``--hub`` 和 "
 "``--name`` 现在指定默认加入所用的 Hub 和名称。"
 
-#: ../../news.rst:114
+#: ../../news.rst:116
 msgid ""
 "The output is one short line per phase (download, takeover, start), a "
 "progress line while the download runs on a terminal, and a summary with "
@@ -263,7 +272,7 @@ msgstr ""
 "``Error:``、是否已更改任何内容，以及日志。设置 ``ANET_LANG=zh`` 时，各行以中文输出。参见 :ref:`intro-"
 "install-output`。"
 
-#: ../../news.rst:121
+#: ../../news.rst:123
 msgid ""
 "The exit status is 3 when ``anet`` is installed but the node did not "
 "start or the join failed. A join that the hub has accepted but not yet "
@@ -273,7 +282,7 @@ msgstr ""
 "``anet`` 已安装但节点未能启动或加入失败时，退出状态为 3。Hub 已接受但尚未确认的加入显示为 ``(registering; it "
 "completes on its own)``，不视为失败。停滞的下载会被放弃，改用下一个下载源。"
 
-#: ../../news.rst:125
+#: ../../news.rst:127
 msgid ""
 "In a terminal, ``sudo`` asks for the password at most once, after one "
 "line that gives the reason, when an earlier release can be removed only "
@@ -288,7 +297,7 @@ msgstr ""
 "在一行说明原因之后最多询问一次密码。密码提示被拒绝时，安装继续进行，并以一行 ``Note`` 给出命令。没有终端时，``sudo`` 只以 "
 "``sudo -n`` 的形式使用。``--system`` 保持不变。参见 :ref:`intro-install-sudo`。"
 
-#: ../../news.rst:131
+#: ../../news.rst:133
 msgid ""
 "When ``~/.local/bin`` is not on the search path of the shell that runs "
 "the installer, the installer creates a command link ``anet`` to the new "
@@ -305,7 +314,7 @@ msgstr ""
 "``/usr/local/bin``。二进制文件保留在 ``~/.local/bin`` 中，因此 ``anet update`` "
 "无需管理员权限。参见 :ref:`intro-install-path`。"
 
-#: ../../news.rst:137
+#: ../../news.rst:139
 msgid ""
 "A daemon of AgentNetwork 1.x that still holds the data directory although"
 " its binary is gone is stopped by the installer: through the shutdown "
@@ -320,7 +329,7 @@ msgstr ""
 "AgentNetwork 1.x 之后，向 ``daemon.pid`` 所指进程发送 ``SIGTERM``。不再需要手动执行 "
 "``mv``。本版本的守护进程绝不会收到信号。"
 
-#: ../../news.rst:143
+#: ../../news.rst:145
 msgid ""
 "A systemd unit ``anet-daemon`` whose ``ExecStart`` runs a binary of "
 "AgentNetwork 1.x is disabled with ``systemctl --user disable --now anet-"
@@ -331,11 +340,11 @@ msgstr ""
 "``systemctl --user disable --now anet-daemon`` 停用，系统单元则以 ``sudo -n "
 "systemctl disable --now anet-daemon`` 停用。单元文件不被删除。"
 
-#: ../../news.rst:148 ../../news.rst:255 ../../news.rst:349
+#: ../../news.rst:150 ../../news.rst:257 ../../news.rst:351
 msgid "Command line"
 msgstr "命令行"
 
-#: ../../news.rst:150
+#: ../../news.rst:152
 msgid ""
 "``anet`` without arguments prints a short guide: the version, the state "
 "of the node, its AID and hub, the next step when one is due, and the "
@@ -344,11 +353,11 @@ msgstr ""
 "不带参数的 ``anet`` 输出一份简短指引：版本、节点状态、AID 与 hub、需要时的下一步操作，以及常用命令。``anet help "
 "--all`` 列出全部命令。"
 
-#: ../../news.rst:155
+#: ../../news.rst:157
 msgid "Download sources"
 msgstr "下载源"
 
-#: ../../news.rst:157
+#: ../../news.rst:159
 msgid ""
 "``install.sh`` and ``anet update`` use the same sources in the same "
 "order. npmmirror, which serves the tarball of the npm package "
@@ -364,7 +373,7 @@ msgstr ""
 "``hub.agentnetwork.org.cn``。不再使用 unpkg 以及 npmmirror 的逐文件路径。参见 :ref"
 ":`intro-install-hosts`。"
 
-#: ../../news.rst:162
+#: ../../news.rst:164
 msgid ""
 "A source whose release is older than the installer, or than the installed"
 " ``anet``, is passed over while another source serves the current "
@@ -374,13 +383,13 @@ msgstr ""
 "所提供的发布早于安装脚本或已安装的 ``anet`` 的下载源，只要另有下载源提供当前发布，即被跳过。提供已安装版本的下载源不再对 ``anet "
 "update`` 掩盖更新的版本。"
 
-#: ../../news.rst:165
+#: ../../news.rst:167
 msgid ""
 "Redirects are followed by the installer itself, over ``https://`` only "
 "and to the hosts of the source."
 msgstr "重定向由安装脚本自行跟随，仅限 ``https://``，且仅限该下载源的主机。"
 
-#: ../../news.rst:167
+#: ../../news.rst:169
 msgid ""
 "``--base URL`` and ``ANET_INSTALL_BASE`` replace every source, for ``anet"
 " update`` too; ``ANET_INSTALL_BASE`` is no longer tried before the "
@@ -389,7 +398,7 @@ msgstr ""
 "``--base URL`` 和 ``ANET_INSTALL_BASE`` 取代全部下载源，对 ``anet update`` "
 "同样适用；``ANET_INSTALL_BASE`` 不再在默认下载源之前尝试。"
 
-#: ../../news.rst:169
+#: ../../news.rst:171
 msgid ""
 "``anet update`` reads an npm tarball with bounded sizes, uses only "
 "regular files under ``package/dl/``, refuses entry names that are "
@@ -399,11 +408,11 @@ msgstr ""
 "``anet update`` 以有界大小读取 npm tarball，仅使用 ``package/dl/`` 下的普通文件，拒绝绝对路径或含 "
 "``..`` 的条目名称，并在包元数据提供 sha512 ``integrity`` 时予以核对。其输出给出所用的下载源。"
 
-#: ../../news.rst:174 ../../news.rst:263
+#: ../../news.rst:176 ../../news.rst:265
 msgid "Continuous integration"
 msgstr "持续集成"
 
-#: ../../news.rst:176
+#: ../../news.rst:178
 msgid ""
 "The job ``unix-upgrade`` runs ``install.sh`` with ``--no-join`` over a "
 "real installation of AgentNetwork 1.1.15, and checks the length of the "
@@ -413,7 +422,7 @@ msgstr ""
 "作业 ``unix-upgrade`` 在 AgentNetwork 1.1.15 的真实安装之上以 ``--no-join`` 运行 "
 "``install.sh``，并检查输出的行数、摘要、接管行，以及日志的权限和内容。"
 
-#: ../../news.rst:179
+#: ../../news.rst:181
 msgid ""
 "A test runs ``install.sh`` end to end, piped to ``sh`` in a temporary "
 "home directory, against a release signed for the test and served by local"
@@ -422,7 +431,7 @@ msgstr ""
 "一项测试在临时主目录中以管道方式将 ``install.sh`` 交给 ``sh`` "
 "端到端运行，所用发布为测试签名，由本地替身充当各下载源；该测试不连接任何 Hub。"
 
-#: ../../news.rst:182
+#: ../../news.rst:184
 msgid ""
 "On Windows, ``test-install-http.ps1`` downloads a published release "
 "through the real GitHub and npmmirror routes with the functions of "
@@ -433,11 +442,11 @@ msgstr ""
 " 与 npmmirror 路径下载一个已发布的版本，并与 ``checksums.txt`` 核对，在 Windows PowerShell "
 "5.1 与 PowerShell 7 中分别运行。"
 
-#: ../../news.rst:190
+#: ../../news.rst:192
 msgid "ANet 0.3.5"
 msgstr "ANet 0.3.5"
 
-#: ../../news.rst:192
+#: ../../news.rst:194
 msgid ""
 "ANet 0.3.5 is a patch release. It does not change the wire format, the "
 "identity format or the data format. It consists of ``anet`` 0.3.5; "
@@ -449,7 +458,7 @@ msgstr ""
 "v0.16.1、ANetHub 0.3.3 与 ANetLink v0.2.0 未变更。0.3.4 的节点与 0.3.5 的节点可协同工作，Hub"
 " 无需升级。参见 :ref:`upgrading-035`。"
 
-#: ../../news.rst:200
+#: ../../news.rst:202
 msgid ""
 "The installation is started with one line that is identical in "
 "``cmd.exe``, Windows PowerShell 5.1, PowerShell 7, ``bash`` and ``zsh`` "
@@ -465,7 +474,7 @@ msgstr ""
 "``-Controller CONTROLLER_AID`` 结尾；安装程序拒绝未替换的占位符。在 WSL 中运行时，该命令在 Windows "
 "主机上安装 Windows 版本。参见 :ref:`intro-install-windows`。"
 
-#: ../../news.rst:206
+#: ../../news.rst:208
 msgid ""
 "The installer asks nothing and reads nothing from the console. "
 "``-Controller`` on the command line is the consent to the grant; the "
@@ -477,11 +486,11 @@ msgstr ""
 "中的控制台确认已移除。安装结束时，安装程序列出所授予的权限及其撤销方法。在没有控制台的环境中（如代理的工具调用、CI 作业或 "
 "WSL）安装同样可以完成。"
 
-#: ../../news.rst:210
+#: ../../news.rst:212
 msgid "The exit status of ``powershell.exe`` is the result of the installation."
 msgstr "``powershell.exe`` 的退出状态即为安装结果。"
 
-#: ../../news.rst:211
+#: ../../news.rst:213
 msgid ""
 "An elevated window is no longer refused, and ``-Elevated`` has no effect."
 " ANet is installed for the current account. While Windows provides a "
@@ -499,7 +508,7 @@ msgstr ""
 " 3 "
 "结束，并输出应在普通窗口中运行的命令。以登录账户之外的账户提升权限的窗口会被拒绝。没有标准令牌时，节点以窗口的权限运行，安装程序会说明这一情况。"
 
-#: ../../news.rst:219
+#: ../../news.rst:221
 msgid ""
 "Without ``-Prefix``, the installer chooses the install directory: an "
 "existing installation, ``%LOCALAPPDATA%\\Programs\\anet``, "
@@ -511,7 +520,7 @@ msgstr ""
 "时，由安装程序选择安装目录：现有安装的目录、``%LOCALAPPDATA%\\Programs\\anet``、``%LOCALAPPDATA%\\anet\\bin``"
 " 或 ``%USERPROFILE%\\.anet-bin``，取第一个通过检查的目录。每个被跳过的目录均附原因报告，并写明相关账户的名称。"
 
-#: ../../news.rst:223
+#: ../../news.rst:225
 msgid ""
 "The privacy check ignores an access control entry that grants another "
 "account no more than synchronization, traversal and reading attributes, "
@@ -519,7 +528,7 @@ msgid ""
 "directory. Every other grant still fails the check."
 msgstr "私有性检查忽略仅向其他账户授予同步、遍历与读取属性权限的访问控制项，例如用户配置文件目录上应用容器功能的访问控制项。其他任何授权仍不能通过检查。"
 
-#: ../../news.rst:226
+#: ../../news.rst:228
 msgid ""
 "The installer takes over from earlier installations: an ANet of the 1.x "
 "npm package, recognized by the module path in its binary, is stopped with"
@@ -540,13 +549,13 @@ msgstr ""
 "init`` 之前停止，退出状态为 3，并输出剩余命令。其他 0.3 或更高版本的安装，仅当其目录不含其他内容时才从用户的 ``PATH`` "
 "中移除。安装目录置于用户 ``PATH`` 的首位，安装程序通过一个新的 ``powershell.exe`` 确认实际运行的 ``anet``。"
 
-#: ../../news.rst:236
+#: ../../news.rst:238
 msgid ""
 "The new parameter ``-NoJoin`` starts the node without registering with a "
 "hub."
 msgstr "新参数 ``-NoJoin`` 启动节点但不注册到 hub。"
 
-#: ../../news.rst:241
+#: ../../news.rst:243
 msgid ""
 "``install.sh`` replaces AgentNetwork 1.x, anet 0.1 and anet 0.2 in the "
 "same run and without input. It stops the earlier daemon with that "
@@ -561,7 +570,7 @@ msgstr ""
 "``@agentnetwork/anet`` 1.x，将早期的 ``anet`` 二进制文件替换为指向新二进制文件的链接，并将早期的数据目录改名为"
 " ``~/.anet-legacy-<版本>-<UTC 时间>``。不删除任何内容。参见 :ref:`upgrading-installer`。"
 
-#: ../../news.rst:246
+#: ../../news.rst:248
 msgid ""
 "The installer puts the install directory first on the search path of new "
 "shells through a marked block in the shell profiles, and confirms with a "
@@ -571,7 +580,7 @@ msgstr ""
 "安装脚本通过 shell 配置文件中一段带标记的内容，把安装目录放在新 shell 搜索路径的最前，并用新的登录 shell 确认 "
 "``anet`` 即新的二进制文件。``--no-modify-path`` 不修改配置文件。"
 
-#: ../../news.rst:249
+#: ../../news.rst:251
 msgid ""
 "``sudo`` is used only as ``sudo -n``; a step that needs a password is "
 "reported with the exact command. ``install.sh --system`` no longer "
@@ -580,13 +589,13 @@ msgstr ""
 "``sudo`` 只以 ``sudo -n`` 的形式使用；需要密码的步骤不会执行，报告给出确切的命令。``install.sh "
 "--system`` 不再询问密码，请先运行 ``sudo -v``。"
 
-#: ../../news.rst:251
+#: ../../news.rst:253
 msgid ""
 "The daemon refuses to start in a data directory of AgentNetwork 1.x "
 "without a 0.3 identity, with ``identity_v02``."
 msgstr "守护进程拒绝在没有 0.3 身份的 AgentNetwork 1.x 数据目录中启动，报告 ``identity_v02``。"
 
-#: ../../news.rst:257
+#: ../../news.rst:259
 msgid ""
 "``anet init --shell-controller <AID> --yes`` writes the controller grant "
 "without a confirmation; the command line is the confirmation. Without "
@@ -596,7 +605,7 @@ msgstr ""
 "``anet init --shell-controller <AID> --yes`` 无需确认即写入控制方授权，命令行即为确认。不带 "
 "``--yes`` 时，与以往相同，在终端上确认授权；没有终端的进程以 ``tty_required`` 拒绝。"
 
-#: ../../news.rst:265
+#: ../../news.rst:267
 msgid ""
 "A job on ``windows-latest`` runs ``install.ps1`` end to end with the "
 "published command from ``cmd.exe``, Windows PowerShell 5.1, PowerShell 7 "
@@ -608,7 +617,7 @@ msgstr ""
 "5.1、PowerShell 7 与 Git Bash 端到端运行 "
 "``install.ps1``，安装以该作业生成的密钥签名的当前提交的发布版本，并接管预先放置的较早安装。该作业不连接任何 hub。"
 
-#: ../../news.rst:269
+#: ../../news.rst:271
 msgid ""
 "A job on macOS and Ubuntu runs ``install.sh`` of the commit, piped to "
 "``sh``, over a real installation of the npm package "
@@ -619,11 +628,11 @@ msgstr ""
 "真实安装，以管道方式将当前提交的 ``install.sh`` 交给 ``sh`` 运行，并检查接管结果以及新的登录 shell 运行的 "
 "``anet``。"
 
-#: ../../news.rst:277
+#: ../../news.rst:279
 msgid "ANet 0.3.4"
 msgstr "ANet 0.3.4"
 
-#: ../../news.rst:279
+#: ../../news.rst:281
 msgid ""
 "ANet 0.3.4 is a patch release. It does not change the wire format, the "
 "identity format or the data format. It consists of ``anet`` 0.3.4; "
@@ -635,11 +644,11 @@ msgstr ""
 "v0.16.1、ANetHub 0.3.3 与 ANetLink v0.2.0 未变更。0.3.3 的节点与 0.3.4 的节点可协同工作，Hub"
 " 无需升级。参见 :ref:`upgrading-034`。"
 
-#: ../../news.rst:285
+#: ../../news.rst:287
 msgid "Windows"
 msgstr "Windows"
 
-#: ../../news.rst:287
+#: ../../news.rst:289
 msgid ""
 "``anet`` runs natively on Windows 10 version 1809 or later and on Windows"
 " Server 2019 or later, on amd64 and arm64, in the default build and in "
@@ -650,7 +659,7 @@ msgstr ""
 " 与 arm64，包括缺省版本和含 ``shell`` 模块的版本。无需 WSL2。参见 :ref:`intro-install-"
 "windows`。"
 
-#: ../../news.rst:290
+#: ../../news.rst:292
 msgid ""
 "The PowerShell script ``install.ps1`` installs ``anet`` with Windows "
 "PowerShell 5.1 or PowerShell 7 and no other tool. The script is signed "
@@ -673,7 +682,7 @@ msgstr ""
 "值在登录时启动节点。指定 ``-Controller <AID>`` 时，它安装含 ``shell`` 模块的版本，在控制台上确认一次后仅向该 "
 "AID 开放此模块，并加入 ``https://hub.agentnetwork.org.cn``\\ （指定 ``-Hub`` 时除外）。"
 
-#: ../../news.rst:300
+#: ../../news.rst:302
 msgid ""
 "The daemon keeps its data in ``%USERPROFILE%\\.anet`` and its runtime "
 "files in ``%LOCALAPPDATA%\\anet\\run``. Private files and directories "
@@ -688,7 +697,7 @@ msgstr ""
 "``Administrators`` 访问的访问控制列表。机密文件自创建之时起即为私有，打开文件时不跟随重解析点。``anet up`` "
 "使守护进程脱离控制台启动；它以已登录用户的身份运行，从不作为 Windows 服务运行。"
 
-#: ../../news.rst:306
+#: ../../news.rst:308
 msgid ""
 "The ``shell`` module runs commands with Windows PowerShell by default; "
 "``pwsh``, ``cmd`` and the absolute path of a supported interpreter can be"
@@ -703,7 +712,7 @@ msgstr ""
 ")``、回车或换行的参数将被拒绝，因为批处理文件会再次解释这些字符。参见 :ref:`Windows 上的 shell 模块 <topics-"
 "shell-windows>`。"
 
-#: ../../news.rst:311
+#: ../../news.rst:313
 msgid ""
 "``anet update`` replaces a running ``anet.exe`` by renaming it aside, "
 "puts it back when a later step fails, and removes the copies that were "
@@ -712,7 +721,7 @@ msgstr ""
 "``anet update`` 通过将正在运行的 ``anet.exe`` "
 "改名移开来替换它，后续步骤失败时将其恢复，并在之后的运行中删除已移开的副本。"
 
-#: ../../news.rst:313
+#: ../../news.rst:315
 msgid ""
 "``anet pull`` marks received files as downloaded from the Internet "
 "(``Zone.Identifier``) and adds the suffix ``.txt`` to names on which "
@@ -722,13 +731,13 @@ msgstr ""
 "下载（``Zone.Identifier``），并为资源管理器会对其执行操作的文件名添加后缀 ``.txt``，例如 "
 "``.lnk``、``.url``、``.scf`` 与 ``desktop.ini``。"
 
-#: ../../news.rst:316
+#: ../../news.rst:318
 msgid ""
 "Auto-reply has no sandbox on Windows and refuses every run that needs "
 "one. It also refuses an agent program that is a batch file."
 msgstr "自动回复在 Windows 上没有沙箱，拒绝所有需要沙箱的运行；它同样拒绝作为批处理文件的智能体程序。"
 
-#: ../../news.rst:318
+#: ../../news.rst:320
 msgid ""
 "Backends on a Unix socket, TCP backends on the same host, the ``p2p`` "
 "module and the ANetLink sockets are refused with a reason, because the "
@@ -738,7 +747,7 @@ msgstr ""
 "Unix 套接字上的后端、同一主机上的 TCP 后端、``p2p`` 模块和 ANetLink "
 "套接字均以明确原因被拒绝，因为节点无法确认对端进程。通过 HTTPS 访问其他主机上的后端不受影响。"
 
-#: ../../news.rst:321
+#: ../../news.rst:323
 msgid ""
 "The installation, shell, sandbox and security pages, the READMEs and "
 "``SECURITY.md`` describe the Windows build in English and Chinese. Its "
@@ -748,11 +757,11 @@ msgstr ""
 "安装、shell、沙箱与安全页面、各 README 以及 ``SECURITY.md`` 以中英文描述 Windows 版本。其限制列于 "
 ":ref:`Windows 版本的已知限制 <reference-known-limitations-windows>`。"
 
-#: ../../news.rst:326
+#: ../../news.rst:328
 msgid "Distribution"
 msgstr "分发"
 
-#: ../../news.rst:328
+#: ../../news.rst:330
 msgid ""
 "Each release is published on npm. ``@agentnetwork/anet`` is a launcher "
 "for Node.js 18 or later. Before the first run of a version it verifies "
@@ -769,7 +778,7 @@ msgstr ""
 "``@agentnetwork/anet-shell-<os>-<cpu>`` 包中，Windows 对应 ``win32``。参见 :ref"
 ":`intro-install-npm`。"
 
-#: ../../news.rst:334
+#: ../../news.rst:336
 msgid ""
 "``install.sh`` and ``anet update`` try the npm package of the build "
 "through npmmirror, jsDelivr and unpkg after the project hosts. Every file"
@@ -779,7 +788,7 @@ msgstr ""
 "``install.sh`` 与 ``anet update`` 在项目主机之后，通过 npmmirror、jsDelivr 与 unpkg "
 "尝试该构建的 npm 包。无论由哪台主机提供，每个文件都按已签名的清单进行校验。参见 :ref:`intro-install-hosts`。"
 
-#: ../../news.rst:337
+#: ../../news.rst:339
 msgid ""
 "The ``anet`` plugin is generated from one source for Claude Code, OpenAI "
 "Codex, Cursor, CodeBuddy, opencode, DeepSeek Harness, Trae, Google "
@@ -800,7 +809,7 @@ msgstr ""
 "/opencode-anet``。新增的指南介绍 CodeBuddy、DeepSeek "
 "Harness、Trae、Antigravity、Gemini CLI 与 ZCode（参见 :ref:`agents-index`）。"
 
-#: ../../news.rst:344
+#: ../../news.rst:346
 msgid ""
 "Plugin version 0.1.3 states that ``anet`` runs on Windows. The launchers "
 "of the plugins are POSIX shell scripts and run on Linux and macOS only; "
@@ -809,7 +818,7 @@ msgstr ""
 "插件 0.1.3 版说明 ``anet`` 可在 Windows 上运行。插件的启动脚本为 POSIX shell 脚本，仅在 Linux 与 "
 "macOS 上运行；在 Windows 上，由 ``anet agents wire`` 注册节点。"
 
-#: ../../news.rst:351
+#: ../../news.rst:353
 msgid ""
 "``anet init --shell-controller <AID>`` makes the AID the only caller of "
 "the ``shell`` module and adds it to ``peers.allow``, after one "
@@ -819,7 +828,7 @@ msgstr ""
 "``anet init --shell-controller <AID>`` 使该 AID 成为 ``shell`` 模块唯一的调用方，并将其加入"
 " ``peers.allow``；需在终端上确认一次，且须在没有守护进程运行时执行。该命令需要含 ``shell`` 模块的版本。"
 
-#: ../../news.rst:354
+#: ../../news.rst:356
 msgid ""
 "``anet hub-register <url> --passphrase-later`` joins a hub without asking"
 " for the recovery passphrase. The passphrase is set afterwards with "
@@ -830,7 +839,7 @@ msgstr ""
 "``anet identity protect`` 设置。该选项不能与 ``--recovery-file`` 或 ``--new-"
 "recovery`` 同时使用。"
 
-#: ../../news.rst:357
+#: ../../news.rst:359
 msgid ""
 "``anet update --verify-dir <dir>`` fetches and writes nothing. It "
 "verifies the release manifest in the directory with the release key that "
@@ -845,11 +854,11 @@ msgstr ""
 " 摘要、大小、版本和模块。指定 ``--installed <version>`` 时，早于该版本的发布将被拒绝。``install.ps1`` "
 "使用该命令核对即将安装的二进制文件。"
 
-#: ../../news.rst:365 ../../news.rst:427
+#: ../../news.rst:367 ../../news.rst:429
 msgid "Fixes"
 msgstr "修复"
 
-#: ../../news.rst:367
+#: ../../news.rst:369
 msgid ""
 "``anet doctor`` reports the recovery file under ``identity.recovery`` "
 "only when another account can read it. A recovery file with mode ``0400``"
@@ -858,7 +867,7 @@ msgstr ""
 "``anet doctor`` 仅在恢复文件可被其他账户读取时才在 ``identity.recovery`` 下报告该文件。权限为 "
 "``0400`` 的恢复文件不再被报告。"
 
-#: ../../news.rst:369
+#: ../../news.rst:371
 msgid ""
 "The sentence of ``identity.recovery_perm`` names the command of the "
 "platform that makes the recovery file private: ``chmod 600`` on Linux and"
@@ -867,18 +876,18 @@ msgstr ""
 "``identity.recovery_perm`` 的语句给出本平台使恢复文件变为私有的命令：在 Linux 与 macOS 上为 "
 "``chmod 600``，在 Windows 上为一条 ``icacls`` 命令。代码不变。"
 
-#: ../../news.rst:372
+#: ../../news.rst:374
 msgid ""
 "Apart from these two points, the download hosts of ``anet update`` and "
 "sentences that now also name the Windows command, the behaviour on Linux "
 "and macOS does not change."
 msgstr "除上述两点、``anet update`` 的下载主机以及现在同时给出 Windows 命令的语句之外，Linux 与 macOS 上的行为不变。"
 
-#: ../../news.rst:379
+#: ../../news.rst:381
 msgid "ANet 0.3.3"
 msgstr "ANet 0.3.3"
 
-#: ../../news.rst:381
+#: ../../news.rst:383
 msgid ""
 "ANet 0.3.3 is a patch release. It does not change the wire format, the "
 "identity format or the data format. It consists of ``anet`` 0.3.3, "
@@ -893,11 +902,11 @@ msgstr ""
 "ANetHub 的版本再次一致。ANetCore v0.16.1 将 22 个 ``wire_`` "
 "代码加入其线路注册表，不改变任何行为。0.3.2 的节点与 0.3.3 的节点可协同工作；Hub 原地升级并保留其数据。"
 
-#: ../../news.rst:389
+#: ../../news.rst:391
 msgid "Reason codes"
 msgstr "原因码"
 
-#: ../../news.rst:391
+#: ../../news.rst:393
 msgid ""
 "Reason codes are now managed as a stable interface. The register "
 "``internal/a2ashape/codes.txt`` lists every code that ``anet`` has "
@@ -911,7 +920,7 @@ msgstr ""
 "发布过的每一个码及其首次出现的版本，并由测试与原因表对照。规则见 :doc:`reference/reason-codes` 的 :ref"
 ":`reason-codes-lifecycle` 一节：代码的含义不会改变，代码不会被改名或复用。hub 对自己的代码有同样的登记表。"
 
-#: ../../news.rst:397
+#: ../../news.rst:399
 msgid ""
 "The tables of :doc:`reference/reason-codes` and of :ref:`hub-api-codes` "
 "have a *Since* column, every code has an anchor, and a table lists the "
@@ -920,7 +929,7 @@ msgstr ""
 ":doc:`reference/reason-codes` 和 :ref:`hub-api-codes` 的表格增加了 *Since* "
 "列，每个代码都有锚点，并有一张表列出已停用的代码。本版本没有停用任何代码。"
 
-#: ../../news.rst:400
+#: ../../news.rst:402
 msgid ""
 "The command line and the MCP tools show the code after the sentence of a "
 "refusal, for example ``... send it again in 2 minutes. [busy]``. A "
@@ -930,7 +939,7 @@ msgstr ""
 "命令行和 MCP 工具在拒绝语句之后显示代码，例如 ``... send it again in 2 minutes. [busy]``。hub "
 "以自己的代码拒绝时显示 ``[hub_refused:<hub code>]``。JSON 输出不变。"
 
-#: ../../news.rst:403
+#: ../../news.rst:405
 msgid ""
 "The commands ``anet agents wire``, ``anet agents unwire`` and ``anet "
 "agents`` add 22 codes with the prefix ``wire_``, for example "
@@ -939,11 +948,11 @@ msgstr ""
 "命令 ``anet agents wire``、``anet agents unwire`` 和 ``anet agents`` 增加了 22 "
 "个以 ``wire_`` 为前缀的代码，例如 ``wire_json_invalid`` 和 ``wire_conflict``。"
 
-#: ../../news.rst:408
+#: ../../news.rst:410
 msgid "Language"
 msgstr "语言"
 
-#: ../../news.rst:410
+#: ../../news.rst:412
 msgid ""
 "English is the default language of every sentence that ``anet`` and "
 "``anet-hub`` print and of every text that is handed to a model. Chinese "
@@ -955,18 +964,18 @@ msgstr ""
 "``ANET_LANG`` 以 ``zh`` 开头时选用中文。``LC_ALL``、``LC_MESSAGES`` 与 ``LANG`` "
 "不再被读取。见 :ref:`upgrading-033`。"
 
-#: ../../news.rst:414
+#: ../../news.rst:416
 msgid ""
 "The prompt of the exec backend, the self-check prompt of auto-reply and "
 "the audit verdict are English in both languages. The administration "
 "interface of the hub answers in English."
 msgstr "exec 后端的提示词、自动回复的自检提示词和审计结论在两种语言下均为英文。Hub 的管理接口以英文应答。"
 
-#: ../../news.rst:418
+#: ../../news.rst:420
 msgid "Agent integration"
 msgstr "智能体集成"
 
-#: ../../news.rst:420
+#: ../../news.rst:422
 msgid ""
 "The output of ``anet agents``, ``anet agents wire`` and ``anet agents "
 "unwire`` comes from the reason table, in English by default and in "
@@ -978,23 +987,23 @@ msgstr ""
 "的输出取自原因表，默认为英文，在 ``ANET_LANG=zh-CN`` 下为中文。``wire`` "
 "为工具写入的技能、人设和指引文件均为英文。退出状态不变。"
 
-#: ../../news.rst:423
+#: ../../news.rst:425
 msgid ""
 "``anet agents unwire`` no longer prints an entry to add by hand when it "
 "cannot parse a JSON file; it names the file and leaves it unchanged."
 msgstr "``anet agents unwire`` 在无法解析某个 JSON 文件时，不再输出需手动加入的条目，而是指明该文件并保持其不变。"
 
-#: ../../news.rst:429
+#: ../../news.rst:431
 msgid ""
 "The task event stream no longer sends a preview frame twice when the "
 "frame arrives while the stream starts."
 msgstr "任务事件流在启动期间收到预览帧时，不再将同一帧发送两次。"
 
-#: ../../news.rst:436
+#: ../../news.rst:438
 msgid "ANet 0.3.2"
 msgstr "ANet 0.3.2"
 
-#: ../../news.rst:438
+#: ../../news.rst:440
 msgid ""
 "ANet 0.3.2 is a patch release. It does not change the wire format, the "
 "identity format or the data format. It consists of ``anet`` 0.3.2; "
@@ -1005,11 +1014,11 @@ msgstr ""
 "v0.16.0、ANetHub 0.3.1 与 ANetLink v0.2.0 未变更。0.3.1 的节点与 0.3.2 的节点可协同工作，Hub"
 " 无需升级。"
 
-#: ../../news.rst:444
+#: ../../news.rst:446
 msgid "Integration guides"
 msgstr "接入指南"
 
-#: ../../news.rst:446
+#: ../../news.rst:448
 msgid ""
 "A new section, :ref:`agents-index`, describes how to connect AI tools to "
 "``anet``. It contains one guide each for Claude Code, OpenAI Codex, "
@@ -1024,18 +1033,18 @@ msgstr ""
 "各一份指南，以及一份面向通过标准输入输出启动程序的其他模型上下文协议（MCP）客户端的指南。每份指南说明 ``anet agents wire``"
 " 写入的文件、应执行的检查和已知限制，并将未实际运行的行为标注为未经测试。"
 
-#: ../../news.rst:452
+#: ../../news.rst:454
 msgid ""
 "The index page carries a support matrix. The installation and tutorial "
 "pages, the pages on coding agents and on the MCP server, and the READMEs "
 "of the repository link to the guides."
 msgstr "索引页给出支持矩阵。安装与教程页面、编程智能体页面、MCP 服务器页面以及仓库的 README 均链接到这些指南。"
 
-#: ../../news.rst:457 ../../news.rst:519
+#: ../../news.rst:459 ../../news.rst:521
 msgid "Node behaviour"
 msgstr "节点行为"
 
-#: ../../news.rst:459
+#: ../../news.rst:461
 msgid ""
 "``anet agents wire workbuddy`` and ``anet agents unwire workbuddy`` "
 "connect and disconnect WorkBuddy. The command writes the ``anet`` entry "
@@ -1049,7 +1058,7 @@ msgstr ""
 "``~/.workbuddy/mcp.json``，保留文件中的其他服务器，先做备份，并拒绝处理不是纯 JSON 的文件。该工具同时纳入 "
 "``--all`` 与安装器的 ``--agents`` 选项；``~/.workbuddy`` 目录不存在时跳过。"
 
-#: ../../news.rst:465
+#: ../../news.rst:467
 msgid ""
 "``anet agents wire codex`` prints a note when ``AGENTS.override.md`` "
 "exists in the Codex home directory, because Codex reads that file instead"
@@ -1058,7 +1067,7 @@ msgstr ""
 "Codex 主目录中存在 ``AGENTS.override.md`` 时，``anet agents wire codex`` 输出提示，因为 "
 "Codex 会读取该文件而不是 ``AGENTS.md``。该覆盖文件不会被修改。"
 
-#: ../../news.rst:468
+#: ../../news.rst:470
 msgid ""
 "``anet agents wire hermes`` names the tools of the guide block with the "
 "prefix ``mcp_anet_``, and with ``--a2a`` it prints the command that makes"
@@ -1067,7 +1076,7 @@ msgstr ""
 "``anet agents wire hermes`` 在指引块中以前缀 ``mcp_anet_`` 命名工具；使用 ``--a2a`` "
 "时，输出使 ``a2a_call`` 在 Hermes Agent 中可见的命令。"
 
-#: ../../news.rst:471
+#: ../../news.rst:473
 msgid ""
 "The check for a missing MCP server in ``anet doctor`` follows "
 "``XDG_CONFIG_HOME`` and the file ``opencode.jsonc`` of opencode."
@@ -1075,32 +1084,32 @@ msgstr ""
 "``anet doctor`` 对缺失 MCP 服务器的检查遵循 ``XDG_CONFIG_HOME``，并识别 opencode 的 "
 "``opencode.jsonc`` 文件。"
 
-#: ../../news.rst:473
+#: ../../news.rst:475
 msgid "The tutorial extracts the identifier from ``anet status --json``."
 msgstr "教程从 ``anet status --json`` 中提取标识符。"
 
-#: ../../news.rst:476 ../../news.rst:713
+#: ../../news.rst:478 ../../news.rst:715
 msgid "Documentation"
 msgstr "文档"
 
-#: ../../news.rst:478
+#: ../../news.rst:480
 msgid ""
 "The pages on installation, the command line and the frequently asked "
 "questions list WorkBuddy. They state that Windows is not supported, and "
 "that WSL2 is untested."
 msgstr "安装、命令行与常见问题页面列出 WorkBuddy，并说明不支持 Windows，WSL2 未经测试。"
 
-#: ../../news.rst:480
+#: ../../news.rst:482
 msgid ""
 "The table of timeouts on the MCP page names the timeout settings of "
 "Gemini CLI and Trae."
 msgstr "MCP 页面的超时表列出 Gemini CLI 与 Trae 的超时设置。"
 
-#: ../../news.rst:486
+#: ../../news.rst:488
 msgid "ANet 0.3.1"
 msgstr "ANet 0.3.1"
 
-#: ../../news.rst:488
+#: ../../news.rst:490
 msgid ""
 "ANet 0.3.1 is a patch release. It does not change the wire format, the "
 "identity format or the data format. It consists of ``anet`` 0.3.1 and "
@@ -1111,11 +1120,11 @@ msgstr ""
 "组成；ANetCore v0.16.0 与 ANetLink v0.2.0 未变更。0.3.0 的节点可与 0.3.1 的 Hub "
 "协同工作，反之亦然。"
 
-#: ../../news.rst:494
+#: ../../news.rst:496
 msgid "macOS sandbox"
 msgstr "macOS 沙箱"
 
-#: ../../news.rst:496
+#: ../../news.rst:498
 msgid ""
 "The Seatbelt sandbox is enabled on macOS. In 0.3.0 its self-check aborted"
 " on macOS 14 and macOS 15, because a program started under the profile "
@@ -1129,7 +1138,7 @@ msgstr ""
 " 下启动的程序会读取根目录本身，而 profile 未允许这一次读取，动态加载器因此结束了进程。现在 profile "
 "允许该读取，且仅限目录本身，不包括其下的目录树。profile 仍然默认拒绝，只开放最小限度的读、写和网络访问。"
 
-#: ../../news.rst:502
+#: ../../news.rst:504
 msgid ""
 "Tasks of untrusted peers, and all tasks when ``trusted`` is ``sandbox``, "
 "now run in the sandbox on macOS. The file isolation, the egress endpoint "
@@ -1141,17 +1150,17 @@ msgstr ""
 "上于沙箱中运行。文件隔离、带密钥的出口端点以及对钥匙串的拒绝，已在持续集成中于 macOS 14 与 macOS 15 "
 "上验证，被跳过的测试视为失败。"
 
-#: ../../news.rst:506
+#: ../../news.rst:508
 msgid ""
 "The ``claude`` agent keeps its scratch files in the temporary directory "
 "of the run."
 msgstr "``claude`` Agent 将其临时文件保存在本次运行的临时目录中。"
 
-#: ../../news.rst:509
+#: ../../news.rst:511
 msgid "Federation and directory"
 msgstr "联邦与目录"
 
-#: ../../news.rst:511
+#: ../../news.rst:513
 msgid ""
 "A first lookup of a recipient that joined another hub shortly before no "
 "longer fails with ``recipient_unknown``. An empty answer from the cache "
@@ -1161,32 +1170,32 @@ msgstr ""
 "对不久前加入另一个 Hub 的接收方进行首次查找时，不再以 ``recipient_unknown`` 失败。Hub "
 "缓存给出空答复后，随即进行一次绕过缓存的查询；不识别该请求头的 Hub 会忽略它。"
 
-#: ../../news.rst:514
+#: ../../news.rst:516
 msgid ""
 "A receipt of a payment that another hub signed for its own ledger is "
 "verified under the key history of that hub. A receipt whose signer is "
 "unknown or does not match is refused."
 msgstr "另一个 Hub 为其自身账本签发的支付回执，按该 Hub 的密钥历史验证。签发方未知或不匹配的回执将被拒绝。"
 
-#: ../../news.rst:521
+#: ../../news.rst:523
 msgid ""
 "The wait between attempts to join a hub grows to one minute at most. "
 "While a node waits for admission, the hub line of ``anet status`` states "
 "when the next attempt is made."
 msgstr "加入 Hub 的两次尝试之间的等待时间最长增长到一分钟。节点等待准入期间，``anet status`` 的 Hub 行会标明下一次尝试的时间。"
 
-#: ../../news.rst:523
+#: ../../news.rst:525
 msgid "``anet status`` no longer reports a deactivated identity as registered."
 msgstr "``anet status`` 不再将已停用的身份报告为已注册。"
 
-#: ../../news.rst:524
+#: ../../news.rst:526
 msgid ""
 "The local A2A interface waits, for up to five minutes, for its recorded "
 "port when only an outgoing connection holds it, and then starts on that "
 "port."
 msgstr "当其记录的端口仅被某个出站连接占用时，本地 A2A 接口最多等待五分钟，随后在该端口上启动。"
 
-#: ../../news.rst:526
+#: ../../news.rst:528
 msgid ""
 "``--max-auto-replies`` and ``--poll-interval`` are refused with "
 "``cli_removed`` and the replacement sentence, instead of ``unknown "
@@ -1195,55 +1204,55 @@ msgstr ""
 "``--max-auto-replies`` 与 ``--poll-interval`` 现以 ``cli_removed`` "
 "及替代说明被拒绝，而不再提示 ``unknown flag``。"
 
-#: ../../news.rst:528
+#: ../../news.rst:530
 msgid ""
 "The help text of ``anet agents wire`` lists only the tools that the "
 "command supports."
 msgstr "``anet agents wire`` 的帮助文本只列出该命令支持的工具。"
 
-#: ../../news.rst:529
+#: ../../news.rst:531
 msgid ""
 "The sentences of the reason table name the node or the hub instead of "
 "addressing the reader. The Chinese module sentences separate the Latin "
 "module name from the noun."
 msgstr "原因表中的语句改为以节点或 Hub 为主语，不再称呼读者。中文模块语句在拉丁文模块名与名词之间加入空格。"
 
-#: ../../news.rst:533
+#: ../../news.rst:535
 msgid "ANetHub"
 msgstr "ANetHub"
 
-#: ../../news.rst:535
+#: ../../news.rst:537
 msgid ""
 "``anet-hub admission`` sets the admission mode before the first start "
 "(``--init``)."
 msgstr "``anet-hub admission`` 可在首次启动之前设置准入模式（``--init``）。"
 
-#: ../../news.rst:536
+#: ../../news.rst:538
 msgid "The hub applies the cross-hub lookup change described above."
 msgstr "Hub 应用上文所述的跨 Hub 查找变更。"
 
-#: ../../news.rst:539
+#: ../../news.rst:541
 msgid "Documentation and verification"
 msgstr "文档与验证"
 
-#: ../../news.rst:541
+#: ../../news.rst:543
 msgid ""
 "The upgrade guide states that ``auto_reply.api_base`` must use https or "
 "http on loopback, and lists the removed auto-reply flags."
 msgstr "升级指南说明 ``auto_reply.api_base`` 必须使用 https 或回环地址上的 http，并列出已移除的自动回复参数。"
 
-#: ../../news.rst:543
+#: ../../news.rst:545
 msgid ""
 "The scenario, fleet and joint-shell test runs follow the 0.3 flow and "
 "gate the continuous integration. The module tests that 0.3.0 held back "
 "run by default."
 msgstr "场景、集群和联合 shell 测试按 0.3 流程运行，并作为持续集成的阻塞项。0.3.0 中暂缓的模块测试现默认运行。"
 
-#: ../../news.rst:549
+#: ../../news.rst:551
 msgid "ANet 0.3.0"
 msgstr "ANet 0.3.0"
 
-#: ../../news.rst:551
+#: ../../news.rst:553
 msgid ""
 "ANet 0.3.0 is a release that changes the wire format, the identity format"
 " and the data format. It consists of ANetCore v0.16.0, ``anet`` 0.3.0, "
@@ -1256,60 +1265,60 @@ msgstr ""
 " 0.3.0 和 ANetLink 0.2.0 组成。Hub 线路版本 3 取代版本 2，密钥事件日志与封缄信封为新格式，0.2 "
 "的所有身份均由新身份取代。0.3 节点只能与 0.3 的 Hub 协同工作。升级方式为全新部署，详见 :doc:`upgrading`\\ 。"
 
-#: ../../news.rst:559
+#: ../../news.rst:561
 msgid "Summary"
 msgstr "概要"
 
-#: ../../news.rst:561
+#: ../../news.rst:563
 msgid ""
 "The hub learns less. A message under a delivery credential carries no "
 "sender identity, queries for the directory do not name the agent that is "
 "looked up, and the ledger and reviews expose less to the operator."
 msgstr "Hub 获知的信息更少。使用送达凭据的消息不携带发送方身份，目录查询不指明被查找的 Agent，账本和评价向运维者暴露的内容也更少。"
 
-#: ../../news.rst:564
+#: ../../news.rst:566
 msgid ""
 "The sender learns more. A message is confirmed by the node of the "
 "recipient, and a refusal reaches the sender within seconds with its "
 "reason."
 msgstr "发送方获知的信息更多。消息由接收方节点确认，拒绝会在数秒内连同原因送达发送方。"
 
-#: ../../news.rst:566
+#: ../../news.rst:568
 msgid ""
 "Keys are replaced by the day. Ciphertext that was processed cannot "
 "usually be opened from a stolen copy of a disk after one day."
 msgstr "密钥按日更换。已处理的密文在一天之后通常无法再借助被盗磁盘的副本打开。"
 
-#: ../../news.rst:568
+#: ../../news.rst:570
 msgid ""
 "Identities can be recovered. Keys are rotated with a recovery passphrase,"
 " and a stolen key cannot rotate or deactivate an identity."
 msgstr "身份可以恢复。密钥轮换需要恢复口令，被盗的密钥无法轮换或停用身份。"
 
-#: ../../news.rst:570
+#: ../../news.rst:572
 msgid ""
 "Local execution is isolated. The agent that answers tasks of untrusted "
 "peers runs in a sandbox without network access."
 msgstr "本地执行相互隔离。应答不受信任对端任务的 Agent 在无网络访问的沙箱中运行。"
 
-#: ../../news.rst:572
+#: ../../news.rst:574
 msgid ""
 "Prices are not public. They are signed in an extended card and handed to "
 "the caller."
 msgstr "价格不公开。价格签名后置于扩展卡片中，交给调用方。"
 
-#: ../../news.rst:573
+#: ../../news.rst:575
 msgid ""
 "Every user-visible sentence comes from one table with a reason code, and "
 "the command line, MCP and the local A2A interface give the same sentence "
 "for the same event."
 msgstr "所有面向用户的语句均来自同一张带原因码的表，命令行、MCP 和本地 A2A 接口对同一事件给出相同的语句。"
 
-#: ../../news.rst:577
+#: ../../news.rst:579
 msgid "Compatibility"
 msgstr "兼容性"
 
-#: ../../news.rst:579
+#: ../../news.rst:581
 msgid ""
 "Hub wire 3. A 0.2 daemon and a 0.3 hub, and a 0.3 daemon and a 0.2 hub, "
 "refuse each other with ``wire_too_old`` and ``wire_too_new``."
@@ -1317,7 +1326,7 @@ msgstr ""
 "Hub 线路版本 3。0.2 守护进程与 0.3 Hub 之间，以及 0.3 守护进程与 0.2 Hub 之间，会分别以 "
 "``wire_too_old`` 和 ``wire_too_new`` 相互拒绝。"
 
-#: ../../news.rst:581
+#: ../../news.rst:583
 msgid ""
 "Sealed envelope version 2, key event log ``anet.kel/2``, identity file "
 "``anet.identity/2``, direct frames ``v: 3``, C1 version 1 between "
@@ -1326,7 +1335,7 @@ msgstr ""
 "封缄信封版本 2，密钥事件日志 ``anet.kel/2``，身份文件 ``anet.identity/2``，直连帧 ``v: "
 "3``，``anet`` 与 ANetLink 之间为 C1 版本 1。早期格式没有解码路径。"
 
-#: ../../news.rst:584
+#: ../../news.rst:586
 msgid ""
 "Data directories are not migrated. A 0.2 data directory is refused with "
 "``identity_v02``; a hub data directory with ``hub_identity_v02``; a data "
@@ -1337,27 +1346,27 @@ msgstr ""
 "``hub_identity_v02`` 拒绝，由更新版本写入的数据目录以 ``datadir_too_new`` 或 "
 "``hub_data_too_new`` 拒绝。"
 
-#: ../../news.rst:587
+#: ../../news.rst:589
 msgid ""
 "A removed key in ``config.json`` stops the daemon "
 "(``config_key_removed``)."
 msgstr "``config.json`` 中已移除的键会使守护进程停止（``config_key_removed``）。"
 
-#: ../../news.rst:588
+#: ../../news.rst:590
 msgid ""
 "Identities are created again. Allow lists, reviews and the credit balance"
 " of a 0.2 hub do not carry over."
 msgstr "身份需重新创建。0.2 Hub 上的允许列表、评价和额度余额不会延续。"
 
-#: ../../news.rst:592
+#: ../../news.rst:594
 msgid "Messaging and privacy"
 msgstr "消息与隐私"
 
-#: ../../news.rst:594
+#: ../../news.rst:596
 msgid "Delivery credentials"
 msgstr "送达凭据"
 
-#: ../../news.rst:595
+#: ../../news.rst:597
 msgid ""
 "A first contact is made under a session that the sender opens at the hub."
 " Later messages are sent under a capability that the recipient issued and"
@@ -1369,21 +1378,21 @@ msgstr ""
 "开立的会话下进行。此后的消息在接收方签发并签名的能力凭据下发送，凭据不携带发送方身份。接收方可按凭据限制发送方，也可撤销凭据。参见 :ref"
 ":`topics-messaging`\\ 。"
 
-#: ../../news.rst:600
+#: ../../news.rst:602
 msgid "Directory queries"
 msgstr "目录查询"
 
-#: ../../news.rst:601
+#: ../../news.rst:603
 msgid ""
 "The directory is queried by bucket of at most 10 bits of the hash of the "
 "AID. The routes that took an AID in the request are removed."
 msgstr "目录按 AID 哈希的桶查询，桶最多 10 位。请求中携带 AID 的路由已被移除。"
 
-#: ../../news.rst:604
+#: ../../news.rst:606
 msgid "Delivery confirmation"
 msgstr "送达确认"
 
-#: ../../news.rst:605
+#: ../../news.rst:607
 msgid ""
 "The node of the recipient confirms each final decision. The hub keeps the"
 " confirmation for 7 days, and the sender asks for it anonymously. "
@@ -1396,11 +1405,11 @@ msgstr ""
 "``delivery_unconfirmed`` 失败；拒绝连同原因和等待时间送达，任务在数秒内变为 ``rejected``\\ "
 "。针对尚未知晓的任务的取消请求以墓碑形式保留。"
 
-#: ../../news.rst:611
+#: ../../news.rst:613
 msgid "Forward secrecy and retention"
 msgstr "前向保密与保留期"
 
-#: ../../news.rst:612
+#: ../../news.rst:614
 msgid ""
 "Encryption keys are valid for one UTC day, published 14 days ahead, and "
 "deleted after the day. A second layer under an interaction key protects "
@@ -1413,11 +1422,11 @@ msgstr ""
 "天发布，当日过后删除。交互密钥之下的第二层加密保护任务的消息。任务内容加密存储，其密钥在保留期后删除（默认 30 天，对公开能力的调用为 7 "
 "天，由 ``anet retention`` 设置）。节点能够检测其本地状态的回滚。"
 
-#: ../../news.rst:618
+#: ../../news.rst:620
 msgid "Previews"
 msgstr "预览"
 
-#: ../../news.rst:619
+#: ../../news.rst:621
 msgid ""
 "A provider can send a snapshot of the reply that it is writing, every 5 "
 "to 10 seconds (``anet preview``). A streaming client that activates the "
@@ -1426,21 +1435,21 @@ msgstr ""
 "提供方可每隔 5 至 10 秒发送其正在撰写的回复的快照（``anet preview``）。启用该扩展的流式客户端以及 ``anet task "
 "watch`` 会显示预览，MCP 不显示预览。"
 
-#: ../../news.rst:623
+#: ../../news.rst:625
 msgid "Capability calls with files"
 msgstr "携带文件的能力调用"
 
-#: ../../news.rst:624
+#: ../../news.rst:626
 msgid ""
 "A call of a public capability can carry files, and a capability declares "
 "the count, size and types that it takes."
 msgstr "对公开能力的调用可以携带文件，能力声明其接受的文件数量、大小和类型。"
 
-#: ../../news.rst:628
+#: ../../news.rst:630
 msgid "Identity"
 msgstr "身份"
 
-#: ../../news.rst:630
+#: ../../news.rst:632
 msgid ""
 "Key event log version 2 with the events ``icp``, ``rot`` and ``dip``. "
 "Every rotation commits to the next key. The hub of the agent is its "
@@ -1450,31 +1459,31 @@ msgstr ""
 "密钥事件日志版本 2，包含事件 ``icp``\\ 、\\ ``rot`` 和 ``dip``\\ 。每次轮换都承诺下一个密钥。Agent 所在的"
 " Hub 是其见证，负责确认当前密钥，每次确认最长 6 小时。"
 
-#: ../../news.rst:633
+#: ../../news.rst:635
 msgid ""
 "The recovery passphrase protects a recovery file. Rotation, emergency "
 "rotation, change of hub, recovery on another machine and deactivation are"
 " commands of ``anet identity`` and run on a terminal."
 msgstr "恢复口令保护恢复文件。轮换、紧急轮换、更换 Hub、在另一台机器上恢复以及停用，均为 ``anet identity`` 的命令，在终端上执行。"
 
-#: ../../news.rst:636
+#: ../../news.rst:638
 msgid ""
 "An agent can complete the first join without a terminal. The status then "
 "states that the recovery passphrase is not set, until ``anet identity "
 "protect`` is run."
 msgstr "Agent 无需终端即可完成首次加入。此时状态会指出恢复口令尚未设置，直到运行 ``anet identity protect``\\ 。"
 
-#: ../../news.rst:638
+#: ../../news.rst:640
 msgid ""
 "A hub has an identity with the same commands (``anet-hub identity``), and"
 " can rotate its own keys."
 msgstr "Hub 拥有身份，使用相同的命令（``anet-hub identity``），并可轮换自身的密钥。"
 
-#: ../../news.rst:642
+#: ../../news.rst:644
 msgid "Hubs and payments"
 msgstr "Hub 与支付"
 
-#: ../../news.rst:644
+#: ../../news.rst:646
 msgid ""
 "Admission by AID. ``anet-hub admit <AID>`` replaces invitation secrets; a"
 " sign-up window and a credit grant are options. The public hub registers "
@@ -1488,24 +1497,24 @@ msgstr ""
 "开放注册，设有三道关口：22 位的工作量证明、按地址段计的每日配额（IPv6 按 /32 计）以及 72 "
 "小时的试用期。新账号在注册时不获得额度，试用期结束后获得 20 额度，受每日预算限制。等待准入的加入操作在后台完成。"
 
-#: ../../news.rst:650
+#: ../../news.rst:652
 msgid ""
 "The ledger shows 14 days of detail. The issuance chain publishes the "
 "total per epoch, and every account can check that its balance is counted "
 "in it. The daemon checks every 6 hours."
 msgstr "账本显示 14 天的明细。发放链公布每个纪元的总量，每个账号都可以核查其余额已计入其中。守护进程每 6 小时检查一次。"
 
-#: ../../news.rst:652
+#: ../../news.rst:654
 msgid ""
 "Reviews have pairs of pseudonyms and counts, dates without time of day, "
 "and no edges in ``/graph``."
 msgstr "评价以化名对和计数的形式给出，日期不含具体时刻，``/graph`` 中不再有边。"
 
-#: ../../news.rst:654
+#: ../../news.rst:656
 msgid "Settlement across hubs is forwarded with an authenticated signature."
 msgstr "跨 Hub 结算以经认证的签名转发。"
 
-#: ../../news.rst:655
+#: ../../news.rst:657
 msgid ""
 "The hub gateway for plain HTTP x402, voucher redemption and "
 "``publish_prices`` are removed. Prices are in the extended card that the "
@@ -1516,17 +1525,17 @@ msgstr ""
 "已被移除。价格位于提供方签名的扩展卡片中，``anet card <aid>`` 和 MCP 工具 ``get_agent_card`` "
 "可显示价格。高于签名价格的报价不会被自动支付。"
 
-#: ../../news.rst:658
+#: ../../news.rst:660
 msgid ""
 "Spending is shown. A payment sentence states the quote, the limit and the"
 " result."
 msgstr "支出可见。支付语句会说明报价、限额和结果。"
 
-#: ../../news.rst:661
+#: ../../news.rst:663
 msgid "Local execution"
 msgstr "本地执行"
 
-#: ../../news.rst:663
+#: ../../news.rst:665
 msgid ""
 "Tasks of untrusted peers run in a sandbox without network (Linux with "
 "bubblewrap and seccomp). The only route is the credential-injecting "
@@ -1541,28 +1550,28 @@ msgstr ""
 "Agent 不会获得 API 密钥。在 macOS 上，Seatbelt 沙箱不属于 0.3.0：此类任务会以 "
 "``sandbox_unavailable`` 拒绝，且绝不会在沙箱之外运行。"
 
-#: ../../news.rst:669
+#: ../../news.rst:671
 msgid ""
 "An optional list of hosts (``sandbox.egress_allow``) permits CONNECT "
 "connections with exact host names. Every listed host is an outbound "
 "channel."
 msgstr "可选的主机列表（``sandbox.egress_allow``）允许使用精确主机名的 CONNECT 连接。列出的每个主机都是一条出站通道。"
 
-#: ../../news.rst:671
+#: ../../news.rst:673
 msgid "Budgets limit the runs for untrusted peers per day and per peer."
 msgstr "预算按日和按对端限制针对不受信任对端的运行次数。"
 
-#: ../../news.rst:672
+#: ../../news.rst:674
 msgid ""
 "Keys, conversations and tickets are not passed on command lines. Unix-"
 "socket backends are checked for the user of the listening process."
 msgstr "密钥、对话和票据不经命令行传递。对 Unix 套接字后端，会检查监听进程的用户。"
 
-#: ../../news.rst:676
+#: ../../news.rst:678
 msgid "Modules"
 msgstr "模块"
 
-#: ../../news.rst:678
+#: ../../news.rst:680
 msgid ""
 "Optional parts of the daemon are modules with their own build tags and "
 "settings. A module can be switched off with ``without`` in "
@@ -1575,11 +1584,11 @@ msgstr ""
 "init --without`` 关闭。缺失或被关闭的模块以一句话按失败闭合。除控制台外，每个模块也可以在构建时从二进制中去掉。发布的构建是 "
 "``default`` 与 ``shell``。参见 :doc:`topics/modules`\\ 。"
 
-#: ../../news.rst:685
+#: ../../news.rst:687
 msgid "Command line, MCP and local interfaces"
 msgstr "命令行、MCP 与本地接口"
 
-#: ../../news.rst:687
+#: ../../news.rst:689
 msgid ""
 "One output convention: human-readable text by default and ``--json`` for "
 "the commands for people; JSON on standard output and readable lines on "
@@ -1589,7 +1598,7 @@ msgstr ""
 "统一的输出约定：面向人的命令默认输出可读文本，并以 ``--json`` 输出 JSON；任务命令在标准输出输出 "
 "JSON，在标准错误输出可读行。退出状态 3 表示任务在等待调用方。"
 
-#: ../../news.rst:690
+#: ../../news.rst:692
 msgid ""
 "New commands: ``anet card``, ``anet task list``, ``anet task watch``, "
 "``anet identity ...``, ``anet preview``, ``anet retention``."
@@ -1598,7 +1607,7 @@ msgstr ""
 "、\\ ``anet identity ...``\\ 、\\ ``anet preview``\\ 、\\ ``anet "
 "retention``\\ 。"
 
-#: ../../news.rst:692
+#: ../../news.rst:694
 msgid ""
 "The commands ``find``, ``delegate`` and ``message`` use the same paths as"
 " MCP and the local A2A interface and show the same projection of a task."
@@ -1606,76 +1615,76 @@ msgstr ""
 "命令 ``find``\\ 、\\ ``delegate`` 和 ``message`` 与 MCP 及本地 A2A "
 "接口使用相同的路径，并显示任务的同一投影。"
 
-#: ../../news.rst:694
+#: ../../news.rst:696
 msgid ""
 "Removed commands answer with ``cli_removed`` and the replacement. See "
 ":doc:`reference/cli`."
 msgstr "已移除的命令以 ``cli_removed`` 应答并给出替代命令。参见 :doc:`reference/cli`\\ 。"
 
-#: ../../news.rst:695
+#: ../../news.rst:697
 msgid ""
 "MCP has 14 tools. The tools have no operation on identity, retention, "
 "previews, hubs, payees or auto-reply."
 msgstr "MCP 提供 14 个工具。这些工具不提供对身份、保留期、预览、Hub、收款方或自动应答的操作。"
 
-#: ../../news.rst:697
+#: ../../news.rst:699
 msgid ""
 "Status: ``anet status`` prints a summary with a line for identity, hub, "
 "delivery, inbound, sandbox, payments, privacy and preview."
 msgstr "状态：``anet status`` 输出摘要，其中分别列出身份、Hub、送达、入站、沙箱、支付、隐私和预览各一行。"
 
-#: ../../news.rst:699
+#: ../../news.rst:701
 msgid ""
 "Reason codes: one table of codes and sentences in English and Chinese. "
 "See :doc:`reference/reason-codes`."
 msgstr "原因码：一张包含中英文原因码与语句的表。参见 :doc:`reference/reason-codes`\\ 。"
 
-#: ../../news.rst:703
+#: ../../news.rst:705
 msgid "Removed"
 msgstr "已移除"
 
-#: ../../news.rst:705
+#: ../../news.rst:707
 msgid ""
 "The hub gateway ``/x402/resource``, vouchers and the redemption of "
 "vouchers."
 msgstr "Hub 网关 ``/x402/resource``\\ 、凭证及凭证兑换。"
 
-#: ../../news.rst:706
+#: ../../news.rst:708
 msgid "Invitation secrets and the options ``--token`` and ``--token-file``."
 msgstr "邀请密钥以及选项 ``--token`` 和 ``--token-file``\\ 。"
 
-#: ../../news.rst:707
+#: ../../news.rst:709
 msgid ""
 "Public prices, the extension ``anet-pricing/v1`` and ``profile set "
 "--pricing``."
 msgstr "公开价格、扩展 ``anet-pricing/v1`` 以及 ``profile set --pricing``\\ 。"
 
-#: ../../news.rst:708
+#: ../../news.rst:710
 msgid "The shared task board of the hub."
 msgstr "Hub 的共享任务板。"
 
-#: ../../news.rst:709
+#: ../../news.rst:711
 msgid ""
 "The routes that look up keys, key histories and cards by AID; the lookup "
 "of direct addresses."
 msgstr "按 AID 查找密钥、密钥历史和卡片的路由，以及对直连地址的查找。"
 
-#: ../../news.rst:710
+#: ../../news.rst:712
 msgid "The configuration keys listed in :ref:`reference-config-removed`."
 msgstr ":ref:`reference-config-removed` 中列出的配置键。"
 
-#: ../../news.rst:715
+#: ../../news.rst:717
 msgid ""
 "The documentation is built with Sphinx and published in English and "
 "Chinese. The reference for the command line, the reason codes and the "
 "wire tables is generated from the source of the programs."
 msgstr "文档使用 Sphinx 构建，以英文和中文发布。命令行、原因码和线路表的参考部分由程序源码生成。"
 
-#: ../../news.rst:720
+#: ../../news.rst:722
 msgid "Known limitations"
 msgstr "已知限制"
 
-#: ../../news.rst:722
+#: ../../news.rst:724
 msgid ""
 "What a hub can see, the bounds of forward secrecy and the cases that "
 "identity keys do not cover are stated in :doc:`reference/security`. "

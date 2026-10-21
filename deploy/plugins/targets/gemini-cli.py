@@ -52,8 +52,8 @@ Output (dist/gemini-cli/ is the extension root):
     bin/anet-install.sh  the official installer as one plain command (common/bin/anet-install.sh)
     README.md README_CN.md LICENSE
 
-Site (--site): the reproducible archives linux.anet.tar.gz and darwin.anet.tar.gz
-(identical content) and SHA256SUMS. Attached to a GitHub release of a repository,
+Site (--site): the reproducible archives linux.anet.tar.gz, darwin.anet.tar.gz and
+win32.anet.tar.gz (identical content) and SHA256SUMS. Attached to a GitHub release of a repository,
 they make `gemini extensions install <owner>/<repo>` install the extension from
 the release asset, whose name Gemini CLI matches by the platform prefix, so
 that the repository itself needs no manifest at its root.
@@ -254,8 +254,8 @@ def build(ctx):
 def site(ctx, site):
     """The release assets: Gemini CLI picks the asset whose name starts with <platform>. ."""
     name = ctx.meta["name"]
-    first = site.archive(f"linux.{name}.tar.gz", kind="tar.gz")
-    second = site.archive(f"darwin.{name}.tar.gz", kind="tar.gz")
-    if first["sha256"] != second["sha256"]:
-        raise ValueError("the two release assets must be identical")
-    site.add("SHA256SUMS", f"{first['sha256']}  linux.{name}.tar.gz\n{second['sha256']}  darwin.{name}.tar.gz\n")
+    names = [f"{platform}.{name}.tar.gz" for platform in ("linux", "darwin", "win32")]
+    sums = [site.archive(n, kind="tar.gz")["sha256"] for n in names]
+    if len(set(sums)) != 1:
+        raise ValueError("the release assets must be identical")
+    site.add("SHA256SUMS", "".join(f"{s}  {n}\n" for s, n in zip(sums, names)))

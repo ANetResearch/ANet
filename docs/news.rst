@@ -38,6 +38,8 @@ Plugins for coding agents
   where the host supports one, and the setup. They name no tools and no features, so later
   releases of anet need no new plugin version. A plugin 0.2.0 needs anet 0.3.7 or later.
 * The plugins run on Windows. See :doc:`agents/index`.
+* The releases of the Gemini CLI extension carry ``win32.anet.tar.gz`` next to the archives
+  for Linux and macOS, so ``gemini extensions install`` uses a release archive on Windows too.
 
 Wiring Trae and ZCode
 ~~~~~~~~~~~~~~~~~~~~~
