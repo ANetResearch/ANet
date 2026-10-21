@@ -112,7 +112,7 @@ func resultText(t *testing.T, res *mcp.CallToolResult, err error) (string, bool)
 var theTools = []string{
 	"list_agents", "get_agent_card", "send_message", "get_task", "list_tasks", "wait_task",
 	"cancel_task", "reply_task", "submit_payment", "reject_payment", "get_balance", "audit",
-	"node_status", "inbound_pending",
+	"node_status", "inbound_pending", "guide",
 }
 
 // The surface an agent actually sees (A2A-DESIGN §12). If a tool is
@@ -392,6 +392,16 @@ func TestEachToolSendsTheRequestTheRouteExpects(t *testing.T) {
 			t.Errorf("%s sent %v, want %v", tc.tool, got.body, tc.body)
 		}
 		covered[tc.tool] = true
+	}
+	// guide is local text: no request at all.
+	n := len(f.calls)
+	gres, gerr := sess.CallTool(context.Background(), &mcp.CallToolParams{Name: "guide", Arguments: map[string]any{}})
+	if msg, isErr := resultText(t, gres, gerr); isErr {
+		t.Errorf("guide: %s", msg)
+	} else if len(f.calls) != n {
+		t.Errorf("guide made %d control-plane calls, want 0", len(f.calls)-n)
+	} else {
+		covered["guide"] = true
 	}
 	for _, name := range theTools {
 		if !covered[name] {

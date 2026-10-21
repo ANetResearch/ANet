@@ -40,7 +40,7 @@ func TestMCPToolSetWhenAvailable(t *testing.T) {
 	}
 	slices.Sort(got)
 	mcpInfo, _ := module.Lookup("mcp")
-	if len(got) != 14 || !slices.Equal(got, mcpInfo.MCPTools) {
+	if len(got) != 15 || !slices.Equal(got, mcpInfo.MCPTools) {
 		t.Fatalf("tools %v\nname table %v", got, mcpInfo.MCPTools)
 	}
 }

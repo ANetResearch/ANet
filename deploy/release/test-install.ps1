@@ -129,6 +129,17 @@ $o = Get-AnetOptions -Given @{ Shell = [switch]$true }
 Check '-Shell: shell build, started and joined' ($o.Variant -eq 'shell' -and $o.Start -and $o.Join)
 $o = Get-AnetOptions -Given @{ Hub = 'https://h.example' }
 Check '-Hub alone: default build and a join of that hub' ($o.Variant -eq 'default' -and $o.Join -and $o.Hub -eq 'https://h.example')
+$o = Get-AnetOptions -Given @{}
+Check 'no parameters: no agents are wired' (@($o.Agents).Count -eq 0)
+$o = Get-AnetOptions -Given @{ Agents = [switch]$true }
+Check '-Agents: every agent found (--all)' ((@($o.Agents) -join ' ') -eq '--all')
+$o = Get-AnetOptions -Given @{ AgentList = @('claude,codex', 'claude', ' zcode ') }
+Check '-AgentList: the agents named, once each' ((@($o.Agents) -join ' ') -eq 'claude codex zcode')
+$o = Get-AnetOptions -Given @{ Agents = [switch]$true; AgentList = @('trae') }
+Check '-AgentList with -Agents: the list' ((@($o.Agents) -join ' ') -eq 'trae')
+foreach ($bad in @('', 'Claude', '--all', 'claude;calc', 'a b')) {
+  Check ('-AgentList ''' + $bad + ''' is refused') (Refuses { Get-AnetOptions -Given @{ AgentList = @($bad) } } 'is not the name of an agent')
+}
 foreach ($bad in @('', 'bafyrei', ('bafyrei' + ('a' * 51)), ('bafyrei' + ('a' * 53)), ('BAFYREI' + ('a' * 52)),
                   ('bafyrei' + ('a' * 51) + '1'), ('bafyrei' + ('a' * 51) + 'A'), (' ' + $aid), ($aid + ';calc'))) {
   Check ('-Controller ''' + $bad + ''' is refused') (Refuses { Get-AnetOptions -Given @{ Controller = $bad } } 'is not an AID')

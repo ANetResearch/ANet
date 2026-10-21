@@ -118,6 +118,7 @@ func helpSections() []helpSection {
 			{"agents unwire [--all|<tool>…] [--a2a <aid>…]", "撤销 wire 写入的内容", "remove what wire added", false},
 			{"agents", "哪些编码 agent 已接入", "which coding agents are wired", false},
 			{"mcp", "经 stdio 提供 MCP 服务（由 anet agents wire 登记）", "serve MCP over stdio (anet agents wire registers it)", false},
+			{"guide [<topic>] [--list]", "给编码 agent 的使用指南（本版本；主题 overview、setup、status）", "the guide for coding agents, of this release (topics overview, setup, status)", false},
 			{"console [--url]", "打开本机控制台；--url 只打印一次性网址（60 秒内有效）", "open the local console; --url prints a single-use address (valid 60 seconds)", true},
 		}},
 	}

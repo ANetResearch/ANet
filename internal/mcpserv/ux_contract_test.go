@@ -16,7 +16,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-func TestToolNamesAreTheFourteenOfUX44(t *testing.T) {
+func TestToolNamesAreTheToolsOfUX44(t *testing.T) {
 	got := listTools(t, connect(t, &fakeControl{}))
 	var names []string
 	for n := range got {
@@ -28,8 +28,8 @@ func TestToolNamesAreTheFourteenOfUX44(t *testing.T) {
 	if strings.Join(names, ",") != strings.Join(want, ",") {
 		t.Fatalf("tools %v, want %v", names, want)
 	}
-	if len(names) != 14 {
-		t.Fatalf("%d tools, want 14", len(names))
+	if len(names) != 15 {
+		t.Fatalf("%d tools, want 15", len(names))
 	}
 	// UX-M2: no tool is named for identity, rotation, recovery, deactivation,
 	// retention, previews, auto-reply, the hub or payees.

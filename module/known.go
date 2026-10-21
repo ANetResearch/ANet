@@ -154,7 +154,7 @@ func (i Info) MayStatus(key string) bool { return slices.Contains(i.StatusKeys, 
 
 // The 14 MCP tools. They exist whenever the mcp module is available and do
 // not depend on any other module (MOD-P6).
-var mcpTools = []string{"audit", "cancel_task", "get_agent_card", "get_balance", "get_task", "inbound_pending",
+var mcpTools = []string{"audit", "cancel_task", "get_agent_card", "get_balance", "get_task", "guide", "inbound_pending",
 	"list_agents", "list_tasks", "node_status", "reject_payment", "reply_task", "send_message", "submit_payment",
 	"wait_task"}
 
@@ -202,7 +202,7 @@ var known = []Info{
 			"POST /console/ticket"},
 		CLICommands: []string{"console"}, AbsenceReady: true},
 	{Name: "mcp", Tag: "no_mcp", Packages: []string{"internal/mcpserv", "internal/agentwire"},
-		Zh: "MCP", En: "MCP", MCPTools: mcpTools, CLICommands: []string{"agents", "mcp"},
+		Zh: "MCP", En: "MCP", MCPTools: mcpTools, CLICommands: []string{"agents", "guide", "mcp"},
 		DoctorIDs: []string{"agents", "agents.*", "hermes.*"}, AbsenceReady: true},
 	{Name: "org", Tag: "no_org", Packages: []string{"module/org"}, ConfigKey: "modules.org",
 		Zh: "组织", En: "organisation",

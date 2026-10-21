@@ -141,6 +141,9 @@ func main() {
 	case "agents": // register the MCP server with local coding agents; files only, no daemon
 		fail(requireModule(layout, "mcp"))
 		fail(runAgents(layout, rest))
+	case "guide": // the guide for coding agents; text only, no daemon
+		fail(requireModule(layout, "mcp"))
+		fail(runGuide(rest))
 	case "update":
 		fail(runUpdate(rest))
 	case "init": // write the SI-5 safe defaults explicitly (A2A-DESIGN §13.1); needs no daemon
@@ -1025,6 +1028,7 @@ var knownFlags = map[string][]string{
 	"ids":      {"purge", "all", "json", "new-recovery", "emergency", "recovery-file", "hub", "name"},
 	"identity": {"purge", "all", "json", "new-recovery", "emergency", "recovery-file", "hub", "name"},
 	"agents":   {"all", "refresh", "a2a"},
+	"guide":    {"list"},
 	"verify":   {"receipt", "kel", "result", "hub", "attestation", "chain", "head"},
 	"logs":     {"all"},
 	"help":     {"all"},

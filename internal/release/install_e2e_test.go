@@ -52,14 +52,28 @@ const e2eAID = "bafyreie2etestaid4installsh7summary2golden5output3fresh6take"
 
 // fakeAnetScript answers like anet. Its data directory is that of anet;
 // FAKE_HUB=pending makes hub-register answer as a hub that admits by AID.
-func fakeAnetScript(ver string) string {
+func fakeAnetScript(ver string) string { return fakeAnetScriptVariant(ver, "default") }
+
+// fakeAnetScriptVariant is fakeAnetScript for the build variant: the shell
+// build reports the shell module and has `anet init --shell-controller`,
+// which, as anet's own, refuses while a node runs.
+func fakeAnetScriptVariant(ver, variant string) string {
+	mods, initHelp := "cas,mcp,x402", "anet init"
+	if variant == "shell" {
+		mods, initHelp = "cas,mcp,shell,x402", "anet init [--shell-controller <aid> [--yes]]"
+	}
 	return `#!/bin/sh
 d=${ANET_DATA_DIR:-${ANET_HOME:-$HOME/.anet}}
 echo "anet $*" >> "$HOME/anet-calls.log"
 case "$1" in
-  version) echo 'anet ` + ver + ` (commit abc, built 2026-10-20T00:00:00Z)'; echo 'modules: cas,mcp,x402' ;;
-  help) printf '  anet init\n  anet up\n  anet status\n  anet stop\n  anet hub-register <url>\n  anet agents wire\n  anet doctor\n' ;;
-  init) mkdir -p "$d"; echo 'init: inbound closed; no public capabilities; spending limits 0' ;;
+  version) echo 'anet ` + ver + ` (commit abc, built 2026-10-20T00:00:00Z)'; echo 'modules: ` + mods + `' ;;
+  help) printf '  ` + initHelp + `\n  anet up\n  anet status\n  anet stop\n  anet hub-register <url>\n  anet agents wire\n  anet doctor\n' ;;
+  init) mkdir -p "$d"
+        if [ "$2" = --shell-controller ]; then
+          [ -f "$d/.running" ] && { echo 'a node is running; stop it first' >&2; exit 1; }
+          printf '%s\n' "$3" > "$d/.controller"; echo "anet init --shell-controller"; exit 0
+        fi
+        echo 'init: inbound closed; no public capabilities; spending limits 0' ;;
   up) mkdir -p "$d"; touch "$d/.running"; echo 'anet ` + ver + ` is running in the background' ;;
   status) [ -f "$d/.running" ] || { echo 'no daemon is running' >&2; exit 1; }
           printf '{\n  "aid": "` + e2eAID + `",\n  "hub_url": "%s",\n  "version": "` + ver + `"\n}\n' "$(cat "$d/.hub" 2>/dev/null)" ;;
@@ -74,15 +88,22 @@ esac
 `
 }
 
-func newSHRelease(t *testing.T, ver string) *shRelease {
+func newSHRelease(t *testing.T, ver string) *shRelease { return newSHReleaseVariant(t, ver, "default") }
+
+// newSHReleaseVariant is a release of one build variant, default or shell.
+func newSHReleaseVariant(t *testing.T, ver, variant string) *shRelease {
 	t.Helper()
 	pub, priv := newKey(t)
+	prefix, tags, mods := "anet", "", `"cas", "mcp", "x402"`
+	if variant == "shell" {
+		prefix, tags, mods = "anet-shell", "shell", `"cas", "mcp", "shell", "x402"`
+	}
 	r := &shRelease{t: t, pub: pub, priv: priv, version: ver,
-		asset: "anet-" + runtime.GOOS + "-" + runtime.GOARCH, pkg: NPMPackage("default", runtime.GOOS, runtime.GOARCH)}
+		asset: prefix + "-" + runtime.GOOS + "-" + runtime.GOARCH, pkg: NPMPackage(variant, runtime.GOOS, runtime.GOARCH)}
 	if r.pkg == "" {
 		t.Skip("no npm package for this platform")
 	}
-	r.bin = []byte(fakeAnetScript(ver))
+	r.bin = []byte(fakeAnetScriptVariant(ver, variant))
 	var zb bytes.Buffer
 	zw, _ := gzip.NewWriterLevel(&zb, 9)
 	zw.Write(r.bin)
@@ -100,13 +121,13 @@ func newSHRelease(t *testing.T, ver string) *shRelease {
   "key_fingerprint": "%s",
   "next_key_fingerprint": "",
   "variants": {
-    "default": {"asset_prefix": "anet", "tags": "", "modules": ["cas", "mcp", "x402"]}
+    "%s": {"asset_prefix": "%s", "tags": "%s", "modules": [%s]}
   },
   "assets": {
-    "%s": {"variant": "default", "os": "%s", "arch": "%s", "gz_sha256": "%s", "gz_size": %d, "sha256": "%s", "size": %d}
+    "%s": {"variant": "%s", "os": "%s", "arch": "%s", "gz_sha256": "%s", "gz_size": %d, "sha256": "%s", "size": %d}
   }
 }
-`, ver, expires, Fingerprint(pub), r.asset, runtime.GOOS, runtime.GOARCH, hexsum(r.gz), len(r.gz), hexsum(r.bin), len(r.bin)))
+`, ver, expires, Fingerprint(pub), variant, prefix, tags, mods, r.asset, variant, runtime.GOOS, runtime.GOARCH, hexsum(r.gz), len(r.gz), hexsum(r.bin), len(r.bin)))
 	r.sig = signSSHSIG(priv, r.manifest, Namespace)
 	return r
 }
@@ -369,6 +390,66 @@ func TestInstallShGoldenFresh(t *testing.T) {
 	}
 	if b, err := os.ReadFile(filepath.Join(e.home, ".local", "bin", "anet")); err != nil || !bytes.Equal(b, r.bin) {
 		t.Errorf("installed binary: %v", err)
+	}
+}
+
+// --controller AID: the shell build, and the grant of anet init
+// --shell-controller AID --yes, written while no node runs (a running node
+// is stopped first and started again); the summary names the AID and how to
+// revoke it. An AID that is not whole stops the install before anything is
+// downloaded.
+func TestInstallShController(t *testing.T) {
+	const ctl = "bafyreiamv7l6aww6oeup3i4mrtvbes5ha7xg4sr2x4gqakzqt3xkxg6g44"
+	ver := installedVersion(t)
+	r := newSHReleaseVariant(t, ver, "shell")
+	srv := r.server(newHitCount())
+	for _, running := range []bool{false, true} {
+		e := e2eEnv(t, srv, false)
+		if running {
+			if err := os.MkdirAll(filepath.Join(e.home, ".anet"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(e.home, ".anet", ".running"), nil, 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		script := e2eScript(t, r, e2eSources(srv, false), e.root, freePort(t))
+		res := runE2E(t, e, script, "--controller", ctl)
+		if res.code != 0 {
+			t.Fatalf("running=%v: exit %d\nstdout:\n%s\nstderr:\n%s", running, res.code, res.stdout, res.stderr)
+		}
+		mustContain(t, "stdout", res.stdout, "anet "+ver+" is installed and running.\n",
+			"Remote control: allowed for "+ctl+" only; revoke with: anet peers remove "+ctl+"\n")
+		grant := "anet init --shell-controller " + ctl + " --yes\n"
+		gi, ui := strings.Index(res.calls, grant), strings.LastIndex(res.calls, "anet up\n")
+		if gi < 0 || ui < gi {
+			t.Errorf("running=%v: the grant is not written before the node starts:\n%s", running, res.calls)
+		}
+		if running && !strings.Contains(res.calls[:gi], "anet stop\n") {
+			t.Errorf("the running node was not stopped before the grant:\n%s", res.calls)
+		}
+		if b, err := os.ReadFile(filepath.Join(e.home, ".anet", ".controller")); err != nil || string(b) != ctl+"\n" {
+			t.Errorf("running=%v: grant %q %v", running, b, err)
+		}
+		if b, err := os.ReadFile(filepath.Join(e.home, ".local", "bin", "anet")); err != nil || !bytes.Equal(b, r.bin) {
+			t.Errorf("installed binary is not the shell build: %v", err)
+		}
+		checkLog(t, e.home, r.asset+".gz (shell variant", "granted, as --controller on the command line requested",
+			"to revoke: anet peers remove "+ctl)
+	}
+
+	e := e2eEnv(t, srv, false)
+	script := e2eScript(t, r, e2eSources(srv, false), e.root, freePort(t))
+	res := runE2E(t, e, script, "--controller", ctl[:40])
+	if res.code == 0 || !strings.Contains(res.stderr, "is not an AID") {
+		t.Errorf("a partial AID: exit %d, stderr %q", res.code, res.stderr)
+	}
+	if _, err := os.Stat(filepath.Join(e.home, ".local", "bin", "anet")); err == nil {
+		t.Error("a partial AID installed anet")
+	}
+	res = runE2E(t, e, script, "--controller", ctl, "--without", "shell")
+	if res.code == 0 || !strings.Contains(res.stderr, "--without shell") {
+		t.Errorf("--controller with --without shell: exit %d, stderr %q", res.code, res.stderr)
 	}
 }
 

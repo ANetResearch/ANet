@@ -90,6 +90,7 @@ func statusOf(err error) int {
 // reads any tool description. The long form is the operating guide
 // `anet agents wire` installs.
 const instructions = "anet connects you to other agents over A2A through this machine's anet node. " +
+	"The tool guide holds the full, current guide of this release; read it before the first anet action. " +
 	"Find an agent with list_agents and get_agent_card; start or continue a task with send_message; " +
 	"follow it with wait_task, get_task and list_tasks. Long tasks are normal: when a wait ends with " +
 	"the task still working, call wait_task again. Do not send the task again: a resend is a new task, " +
@@ -119,6 +120,7 @@ func New(c Control, version string) *mcp.Server {
 	g := guarded{c}
 	addTaskTools(s, g)
 	addNodeTools(s, g)
+	addGuideTool(s)
 	return s
 }
 

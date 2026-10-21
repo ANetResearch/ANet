@@ -40,6 +40,11 @@
 #   -Controller AID  Install the shell build and give the agent with this AID
 #                    the right to run commands on this machine as this user.
 #   -Shell           Install the shell build without giving anyone access.
+#   -Agents          After installing, give the coding agents found on this
+#                    computer the tools and guide of anet (anet agents wire
+#                    --all); every file it edits is backed up first.
+#   -AgentList LIST  As -Agents, for these agents only (comma-separated, such
+#                    as claude,codex).
 #   -Hub URL         Join this hub instead of https://hub.agentnetwork.org.cn.
 #   -NoJoin          Start the node, but do not register it at a hub; register
 #                    later with anet hub-register.
@@ -217,7 +222,7 @@
 param(
   [string]$Controller, [switch]$Shell, [string]$Hub, [string]$Name, [string]$Prefix,
   [string[]]$Without, [string]$Base, [switch]$NoAutostart, [switch]$NoPath, [switch]$Elevated,
-  [switch]$NoJoin, [switch]$NoStart
+  [switch]$NoJoin, [switch]$NoStart, [switch]$Agents, [string[]]$AgentList
 )
 
 # BEGIN RELEASE PINS (written by deploy/release/build-release.sh; do not edit)
@@ -293,6 +298,7 @@ $AnetMessages = @{
   note_uac_off = @('the node runs with the rights of this elevated window, because User Account Control is off', '\u8282\u70b9\u4ee5\u6b64\u63d0\u5347\u6743\u9650\u7a97\u53e3\u7684\u6743\u9650\u8fd0\u884c\uff0c\u56e0\u4e3a\u7528\u6237\u8d26\u6237\u63a7\u5236\u5df2\u5173\u95ed')
   note_builtin_admin = @('the node runs with the rights of this elevated window, because this is the built-in Administrator account', '\u8282\u70b9\u4ee5\u6b64\u63d0\u5347\u6743\u9650\u7a97\u53e3\u7684\u6743\u9650\u8fd0\u884c\uff0c\u56e0\u4e3a\u8fd9\u662f\u5185\u7f6e Administrator \u8d26\u6237')
   note_record = @('the release record could not be written beside {exe}; anet doctor reports the signature as unknown', '\u65e0\u6cd5\u5728 {exe} \u65c1\u5199\u5165\u53d1\u5e03\u8bb0\u5f55\uff1banet doctor \u4f1a\u5c06\u7b7e\u540d\u62a5\u544a\u4e3a\u672a\u77e5')
+  note_agents = @('anet agents wire did not complete (see the log); run it: anet agents wire {list}', 'anet agents wire \u672a\u5b8c\u6210\uff08\u89c1\u65e5\u5fd7\uff09\uff1b\u8bf7\u8fd0\u884c\uff1aanet agents wire {list}')
   note_grant = @('the grant could not be read back from {config}; check it with: anet doctor', '\u65e0\u6cd5\u4ece {config} \u8bfb\u56de\u6388\u6743\uff1b\u8bf7\u7528 anet doctor \u68c0\u67e5')
   error = @('Error: {text}', '\u9519\u8bef\uff1a{text}')
   nothing = @('Nothing was installed or changed.', '\u672a\u5b89\u88c5\u6216\u66f4\u6539\u4efb\u4f55\u5185\u5bb9\u3002')
@@ -478,7 +484,7 @@ function Get-AnetOptions {
     Controller = ''; Variant = 'default'; AssetPrefix = 'anet'; Hub = ''; Join = $false; Start = $true; Name = '';
     Prefix = ''; PrefixGiven = $false; Without = @(); Base = ''; NoAutostart = [bool]$Given['NoAutostart'];
     NoPath = [bool]$Given['NoPath']; Elevated = [bool]$Given['Elevated']; NoJoin = [bool]$Given['NoJoin'];
-    NoStart = [bool]$Given['NoStart']
+    NoStart = [bool]$Given['NoStart']; Agents = @()
   }
   $controller = [string]$Given['Controller']
   if ($Given.ContainsKey('Controller')) {
@@ -534,6 +540,22 @@ function Get-AnetOptions {
     throw (New-AnetFailure 'the shell build is requested (-Shell or -Controller) and -Without shell turns it off; use one of them')
   }
   $o.Without = $without.ToArray()
+  # -Agents: every agent found (--all); -AgentList: the agents named.
+  if ($Given.ContainsKey('AgentList')) {
+    $agents = New-Object System.Collections.Generic.List[string]
+    foreach ($item in @($Given['AgentList'])) {
+      foreach ($a in ([string]$item).Split(',')) {
+        $a = $a.Trim()
+        if (-not ($a -cmatch '^[a-z][a-z0-9-]{0,31}$')) {
+          throw (New-AnetFailure ('-AgentList: ''' + $a + ''' is not the name of an agent (lower-case letters, digits and hyphens, comma-separated, such as claude,codex)'))
+        }
+        if (-not $agents.Contains($a)) { $agents.Add($a) }
+      }
+    }
+    $o.Agents = $agents.ToArray()
+  } elseif ([bool]$Given['Agents']) {
+    $o.Agents = @('--all')
+  }
   if ($Given.ContainsKey('Prefix')) {
     $p = [string]$Given['Prefix']
     if (-not ($p -match '^[A-Za-z]:[\\/]') -or $p -match '[\*\?"<>\|]' -or $p -match '^[A-Za-z]:[\\/]+$') {
@@ -3144,7 +3166,7 @@ function Install-Anet {
   param(
     [string]$Controller, [switch]$Shell, [string]$Hub, [string]$Name, [string]$Prefix,
     [string[]]$Without, [string]$Base, [switch]$NoAutostart, [switch]$NoPath, [switch]$Elevated,
-    [switch]$NoJoin, [switch]$NoStart
+    [switch]$NoJoin, [switch]$NoStart, [switch]$Agents, [string[]]$AgentList
   )
   $previousEAP = $ErrorActionPreference
   $previousProgress = $ProgressPreference
@@ -3344,6 +3366,14 @@ function Install-Anet {
       return
     }
     $completion.RemoveAt(0)
+
+    # 12b. -Agents or -AgentList: the coding agents get the tools and guide
+    # of anet. A failure is a note; the installation goes on.
+    if (@($o.Agents).Count -gt 0) {
+      Write-AnetLine ('-> anet agents wire ' + ($o.Agents -join ' '))
+      $r = Invoke-AnetCommand -Exe $S.Exe -ArgumentList (@('agents', 'wire') + @($o.Agents)) -TimeoutSeconds 120
+      if ($r['Code'] -ne 0) { $notes.Add((Get-AnetText 'note_agents' @{ list = ($o.Agents -join ' ') })) }
+    }
 
     # 13. A node that runs: stopped to change its configuration (-Controller)
     # or to run the new binary (when it is started again below).

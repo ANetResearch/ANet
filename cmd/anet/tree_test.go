@@ -31,7 +31,7 @@ var commandTree = []string{
 	"inbox", "thread", "results", "pull", "end", "review",
 	"peers", "inbound", "autoreply", "preview", "retention",
 	"pay", "payments", "payees", "balance", "redeem", "reconcile", "audit-hub", "audit", "verify",
-	"agents", "mcp", "console",
+	"agents", "mcp", "guide", "console",
 }
 
 // pendingCommands are the ux §4.2 commands this binary does not have yet, each with the work package

@@ -11,6 +11,7 @@
 #   … | sh -s -- --system          → /usr/local/bin (sudo)
 #   … | sh -s -- --prefix DIR
 #   … | sh -s -- --agents          also wire anet into the coding agents found here
+#   … | sh -s -- --controller AID  the shell build, and AID may run commands here
 #   … | sh -s -- --no-join         start the node, but do not join a hub
 #   … | sh -s -- --no-start        install only
 #
@@ -70,6 +71,11 @@
 #                   see "DOWNLOAD SOURCES" below.
 #   --shell         Install the variant that can run operator-approved commands
 #                   on this machine. See "--shell" below before using it.
+#   --controller AID
+#                   Install the shell variant and let the agent AID, and no
+#                   other, run any command on this machine as this user: see
+#                   "--controller" below. The flag on the command line is the
+#                   consent; nothing is asked.
 #   --without LIST  Turn these modules off in config.json (a comma-separated
 #                   list; names are those of `anet version`'s modules line).
 #                   Written before anything is installed, only ever added to.
@@ -123,6 +129,14 @@
 #   缺省二进制不执行远程命令（shell 模块不在其中）。运营者配置自动回复之后，它会为对端运行本机 agent，未信任对端只在沙箱里运行。不想要这项功能：--without autoreply 让它永不启动；要二进制里没有这段代码：按 https://docs.agentnetwork.org.cn/docs/zh-cn/latest/topics/modules.html 用 build.sh --without autoreply 自建。
 #   The default binary does not run remote commands (the shell module is not in it). Once the operator configures auto-reply, it runs a local agent for peers, and untrusted peers only inside a sandbox. If you do not want this feature: --without autoreply keeps it from ever starting; to leave the code out of the binary, build it yourself with build.sh --without autoreply as described at https://docs.agentnetwork.org.cn/docs/en/latest/topics/modules.html.
 #
+# --controller AID writes what `anet init --shell-controller AID --yes`
+# writes, while no node runs (a running node is stopped first and started
+# again afterwards): in config.json, modules.shell with allow = [AID] and
+# allow_arbitrary = true; and AID in peers.allow. Nothing else is opened.
+# To revoke: anet peers remove AID, then remove the modules.shell block from
+# config.json and restart the node (anet stop, then anet up). The same grant
+# is install.ps1 -Controller on Windows.
+#
 # --without installs a setting, not a different binary: the names are written
 # into the `without` list of config.json by `anet init --without`, run by the
 # downloaded binary after its checks and before it replaces anything. A name
@@ -159,6 +173,7 @@ the node and joins https://hub.agentnetwork.org.cn.
   --prefix DIR      install into DIR
   --base URL        download base, https only (or ANET_INSTALL_BASE)
   --shell           the variant that can run operator-approved commands
+  --controller AID  the shell variant; AID may run any command here
   --without LIST    turn these modules off (comma-separated), e.g. autoreply
   --agents[=LIST]   wire anet into coding agents found here (all, or LIST)
   --hub URL         the hub to join (default https://hub.agentnetwork.org.cn)
@@ -471,7 +486,7 @@ add_without() {
 parse_args() {
   PREFIX=""; USER_MODE=1; BASE_OVERRIDE=""; HUB=""; NODE_NAME=""
   VARIANT="default"; ASSET_PREFIX="anet"; AGENTS=""; WITHOUT=""; MODIFY_PATH=1
-  START=1; JOIN=1; HUB_EXPLICIT=0
+  START=1; JOIN=1; HUB_EXPLICIT=0; CONTROLLER=""
   while [ $# -gt 0 ]; do
     case "$1" in
       --system)     USER_MODE=0 ;;
@@ -489,6 +504,8 @@ parse_args() {
       --token|--token=*) removed_flag --token ;;
       --token-file|--token-file=*) removed_flag --token-file ;;
       --shell)      VARIANT="shell"; ASSET_PREFIX="anet-shell" ;;
+      --controller) [ $# -ge 2 ] || die "--controller needs the AID of the agent that is to control this machine"; CONTROLLER="$2"; shift ;;
+      --controller=*) CONTROLLER="${1#--controller=}" ;;
       --without)    [ $# -ge 2 ] || die "--without needs a module name, e.g. --without autoreply"; add_without "$2"; shift ;;
       --without=*)  add_without "${1#--without=}" ;;
       --agents)     AGENTS="--all" ;;
@@ -500,8 +517,13 @@ parse_args() {
     shift
   done
 
+  if [ -n "$CONTROLLER" ]; then
+    printf '%s' "$CONTROLLER" | LC_ALL=C grep -Eq '^bafyrei[a-z2-7]{52}$' \
+      || die "--controller $CONTROLLER is not an AID (bafyrei followed by 52 characters a-z and 2-7)"
+    VARIANT="shell"; ASSET_PREFIX="anet-shell"
+  fi
   case ",$WITHOUT," in
-    *,shell,*) [ "$VARIANT" != shell ] || die "--shell installs the shell module and --without shell turns it off; use one of them" ;;
+    *,shell,*) [ "$VARIANT" != shell ] || die "--shell and --controller install the shell module and --without shell turns it off; use one of them" ;;
   esac
 
   [ -n "$HUB" ] || HUB=https://hub.agentnetwork.org.cn
@@ -1989,6 +2011,43 @@ wire_agents() {
   fi
 }
 
+# grant_controller: --controller AID, through `anet init --shell-controller
+# AID --yes`, which writes only while no node runs: a running node is
+# stopped first (start_node starts it again). GRANT is granted, failed or "".
+grant_controller() {
+  GRANT=""
+  [ -n "$CONTROLLER" ] || return 0
+  _gc="anet stop; anet init --shell-controller $CONTROLLER --yes && anet up"
+  if [ "$DATA_HELD" = 1 ] || [ "${INIT_FAILED:-0}" = 1 ]; then
+    GRANT=failed
+    note manual "$(m "--controller was not applied; once anet init has run: $_gc" "--controller 未生效；anet init 完成后请运行：$_gc")"
+    return 0
+  fi
+  if ! "$DEST" help --all 2>/dev/null | grep -q -- '--shell-controller'; then
+    GRANT=failed
+    note manual "$(m "anet $VERSION has no anet init --shell-controller; --controller was not applied" "anet $VERSION 没有 anet init --shell-controller；--controller 未生效")"
+    return 0
+  fi
+  if status_json "$TMP/status.json"; then
+    say "a node is running; stopping it to write the --controller grant"
+    run_timeout 60 "$DEST" stop </dev/null >>"$(logto)" 2>&1 || true
+    _sw=0
+    while [ "$_sw" -lt 15 ] && status_json "$TMP/status.json"; do sleep 1; _sw=$((_sw + 1)); done
+    if [ "$START" = 0 ]; then
+      note manual "$(m "the node was stopped to apply --controller; start it with: anet up" "为应用 --controller 已停止节点；请用以下命令启动：anet up")"
+    fi
+  fi
+  say "anet init --shell-controller $CONTROLLER --yes"
+  if run_timeout 60 "$DEST" init --shell-controller "$CONTROLLER" --yes </dev/null >>"$(logto)" 2>&1; then
+    GRANT=granted
+    say "granted, as --controller on the command line requested: modules.shell allow = [$CONTROLLER], allow_arbitrary = true; peers.allow $CONTROLLER"
+    say "to revoke: anet peers remove $CONTROLLER, then remove modules.shell from $DATA_DIR/config.json and restart the node"
+  else
+    GRANT=failed
+    note manual "$(m "--controller was not applied (see the log); run: $_gc" "--controller 未生效（见日志）；请运行：$_gc")"
+  fi
+}
+
 # status_json FILE: the node's `anet status --json` into FILE; fails when no
 # node answers, or when the node that answers is not that of the data
 # directory of this install.
@@ -2105,6 +2164,9 @@ summary() {
     failed)  show "  Hub   $HUB_SHOWN $(m "(not joined)" "（未加入）")" ;;
     off)     show "  Hub   $(m "not joined (--no-join)" "未加入（--no-join）")" ;;
   esac
+  if [ "${GRANT:-}" = granted ]; then
+    show "$(m "Remote control: allowed for $CONTROLLER only; revoke with: anet peers remove $CONTROLLER" "远程控制：仅允许 ${CONTROLLER}；撤销：anet peers remove ${CONTROLLER}")"
+  fi
   if grep -Eq '^(stopped|removed|replaced|moved)[|]' "$TMP/notes"; then
     _tk=${TAKEOVER_LABEL:-${MOVED_LABEL:-}}
     if [ -n "$_tk" ] && [ -n "$MOVED_TO" ]; then
@@ -2179,10 +2241,11 @@ main() {
   install_binary
   run_init
   wire_agents
+  grant_controller
   start_node
   summary
   # Installed, but the last step did not complete (as install.ps1): 3.
-  case "$NODE:$HUB_STATE" in failed:*|*:failed) exit 3 ;; esac
+  case "$NODE:$HUB_STATE:${GRANT:-}" in failed:*|*:failed:*|*:failed) exit 3 ;; esac
 }
 
 main "$@"
