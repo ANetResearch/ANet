@@ -547,8 +547,9 @@ jobs:
       - name: install.sh of this commit, piped to sh
         run: |
           set -eu
-          cat deploy/release/install.sh | sh -s -- --no-join > /tmp/install.out 2> /tmp/install.err
+          rc=0; cat deploy/release/install.sh | sh -s -- --no-join > /tmp/install.out 2> /tmp/install.err || rc=$?
           cat /tmp/install.out /tmp/install.err
+          if [ "$rc" != 0 ]; then cat ~/.anet/logs/install-*.log 2>/dev/null || true; exit "$rc"; fi
           # The concise output (spec C/E): a few lines, the summary block,
           # the takeover line, and the log named last.
           test "$(wc -l < /tmp/install.out | tr -d ' ')" -le 12
