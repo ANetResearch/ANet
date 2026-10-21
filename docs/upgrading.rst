@@ -282,6 +282,26 @@ After the upgrade
   to be kept, for example exported evidence.
 
 
+.. _upgrading-037:
+
+Upgrading to 0.3.7
+------------------
+
+Version 0.3.7 is an in-place upgrade of 0.3.x. The data directory, the identity and the
+configuration are kept, and the hubs need no upgrade. Update the node and restart its
+daemons:
+
+.. code-block:: console
+
+   $ anet update
+   $ anet stop --all && anet up --all
+
+The plugins of the coding agents move to version 0.2.0. A plugin 0.2.0 reads the guide of
+the installed anet through the tool ``guide`` and needs anet 0.3.7 or later; update anet
+before or together with the plugin. A coding agent wired with ``anet agents wire`` receives
+the new guide with ``anet agents wire --refresh``.
+
+
 .. _upgrading-036:
 
 Upgrading to 0.3.6

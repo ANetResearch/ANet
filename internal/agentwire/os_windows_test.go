@@ -165,7 +165,7 @@ func TestWindowsTraeWireAndUnwire(t *testing.T) {
 	o := h.opts()
 	o.Bin = filepath.Join(h.home, "AppData", "Local", "Programs", "anet", "anet.exe")
 	r := one(t, h.wireWith(o, ToolTrae), Written)
-	if len(r.Changes) != 2 || !h.exists(`AppData/Roaming/Trae/User/mcp.json`) || !h.exists(".trae/user_rules/anet.md") {
+	if len(r.Changes) != 2 || !h.exists(`AppData/Roaming/Trae/User/mcp.json`) || !h.exists(".trae/user_rules/agentnetwork.md") {
 		t.Fatalf("changes %v", r.Changes)
 	}
 	one(t, h.wireWith(o, ToolTrae), UpToDate)

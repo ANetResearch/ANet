@@ -21,7 +21,7 @@ import (
 //   - User rules are the Markdown files of <home>/<data folder>/user_rules/
 //     (data folder .trae, or .trae-cn for Trae CN); a file without front
 //     matter, or with alwaysApply: true, applies to every session. wire
-//     writes the short guide as user_rules/anet.md there.
+//     writes the short guide as user_rules/agentnetwork.md there.
 //
 // Trae documents that the command of an MCP server must not contain spaces;
 // wire writes the absolute path of anet as the command all the same (it has
@@ -82,7 +82,7 @@ func traeMCP(o *Options, p traeProduct) string {
 }
 
 func traeRulePath(o *Options, p traeProduct) string {
-	return filepath.Join(o.Home, p.dataFolder, "user_rules", "anet.md")
+	return filepath.Join(o.Home, p.dataFolder, "user_rules", "agentnetwork.md")
 }
 
 func (traeTool) productDetected(o *Options, p traeProduct) bool {

@@ -56,7 +56,7 @@ func TestTraeUserDataPerOS(t *testing.T) {
 	if got, want := traeMCP(&o, traeProducts[1]), filepath.Join(`C:\Users\A B\AppData\Roaming`, "Trae CN", "User", "mcp.json"); got != want {
 		t.Errorf("Trae CN: %s, want %s", got, want)
 	}
-	if got, want := traeRulePath(&o, traeProducts[1]), filepath.Join(h.home, ".trae-cn", "user_rules", "anet.md"); got != want {
+	if got, want := traeRulePath(&o, traeProducts[1]), filepath.Join(h.home, ".trae-cn", "user_rules", "agentnetwork.md"); got != want {
 		t.Errorf("Trae CN rule: %s, want %s", got, want)
 	}
 }
@@ -72,7 +72,7 @@ func TestTraeBothProducts(t *testing.T) {
 		t.Fatalf("changes %v, backups %v", r.Changes, r.Backups)
 	}
 	for _, rel := range []string{".config/Trae/User/mcp.json", ".config/Trae CN/User/mcp.json",
-		".trae/user_rules/anet.md", ".trae-cn/user_rules/anet.md"} {
+		".trae/user_rules/agentnetwork.md", ".trae-cn/user_rules/agentnetwork.md"} {
 		if !h.exists(rel) {
 			t.Fatalf("wire did not write %s", rel)
 		}
@@ -112,7 +112,7 @@ func TestTraeBundleEntryIsAConflict(t *testing.T) {
 
 func TestTraeForeignRuleFileIsAConflict(t *testing.T) {
 	h := newHost(t)
-	h.write(".trae/user_rules/anet.md", "My own notes about anet.\n", 0o644)
+	h.write(".trae/user_rules/agentnetwork.md", "My own notes about anet.\n", 0o644)
 	r := one(t, h.wire(ToolTrae), Conflict)
 	if m, _ := AsMsg(r.Err); m.Key != "wire_conflict.rule_file" {
 		t.Fatalf("err %v", r.Err)
@@ -121,7 +121,7 @@ func TestTraeForeignRuleFileIsAConflict(t *testing.T) {
 		t.Fatal("a conflict wrote the MCP file")
 	}
 	one(t, h.unwire(ToolTrae), NotWired)
-	if h.read(".trae/user_rules/anet.md") != "My own notes about anet.\n" {
+	if h.read(".trae/user_rules/agentnetwork.md") != "My own notes about anet.\n" {
 		t.Fatal("unwire removed a rule anet did not write")
 	}
 }
@@ -129,10 +129,10 @@ func TestTraeForeignRuleFileIsAConflict(t *testing.T) {
 // An earlier guide is replaced, and a rule the user edited is backed up.
 func TestTraeRuleIsUpdatedWithABackup(t *testing.T) {
 	h := newHost(t)
-	h.write(".trae/user_rules/anet.md", "## AgentNetwork (anet)\n\nAn older text.\n", 0o644)
+	h.write(".trae/user_rules/agentnetwork.md", "## AgentNetwork (anet)\n\nAn older text.\n", 0o644)
 	r := one(t, h.wire(ToolTrae), Written)
-	if len(r.Backups) != 1 || h.read(".trae/user_rules/anet.md") != traeRule {
-		t.Fatalf("backups %v, rule:\n%s", r.Backups, h.read(".trae/user_rules/anet.md"))
+	if len(r.Backups) != 1 || h.read(".trae/user_rules/agentnetwork.md") != traeRule {
+		t.Fatalf("backups %v, rule:\n%s", r.Backups, h.read(".trae/user_rules/agentnetwork.md"))
 	}
 }
 
@@ -179,7 +179,7 @@ func TestTraeWindowsLayout(t *testing.T) {
 	if e := f.MCPServers["anet"]; e.Command != winBin || e.Env["ANET_DATA_DIR"] != winData {
 		t.Fatalf("entry %+v", e)
 	}
-	if !h.exists(".trae-cn/user_rules/anet.md") || h.exists(".trae/user_rules/anet.md") {
+	if !h.exists(".trae-cn/user_rules/agentnetwork.md") || h.exists(".trae/user_rules/agentnetwork.md") {
 		t.Fatal("only Trae CN is installed; only its rule is written")
 	}
 	if !strings.Contains(notesText(r.Notes), "must not contain one") {
@@ -192,7 +192,7 @@ func TestTraeWindowsLayout(t *testing.T) {
 	if r := finish(&o, Result{Tool: ToolTrae}, un, notes, err, Removed, NotWired); r.Status != Removed {
 		t.Fatalf("unwire: %+v", r)
 	}
-	if h.exists(".trae-cn/user_rules/anet.md") {
+	if h.exists(".trae-cn/user_rules/agentnetwork.md") {
 		t.Fatal("unwire left the rule file")
 	}
 }

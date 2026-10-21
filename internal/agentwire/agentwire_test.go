@@ -223,7 +223,7 @@ var wiredFiles = map[string][]string{
 	ToolOpenCode:  {".config/opencode/opencode.json", ".config/opencode/AGENTS.md"},
 	ToolHermes:    {".hermes/config.yaml", ".hermes/SOUL.md"},
 	ToolWorkBuddy: {".workbuddy/mcp.json"},
-	ToolTrae:      {".config/Trae/User/mcp.json", ".trae/user_rules/anet.md"},
+	ToolTrae:      {".config/Trae/User/mcp.json", ".trae/user_rules/agentnetwork.md"},
 }
 
 // Every tool, from the operator's existing configuration: wire writes an
@@ -368,7 +368,7 @@ func checkWired(t *testing.T, h *host, tool string) {
 		if e.Command != testBin || !sameStrings(e.Args, []string{"mcp"}) || e.Env["ANET_DATA_DIR"] != h.data {
 			t.Fatalf("trae entry: %+v", e)
 		}
-		rule := h.read(".trae/user_rules/anet.md")
+		rule := h.read(".trae/user_rules/agentnetwork.md")
 		if !strings.HasPrefix(rule, "---\nalwaysApply: true\n---\n\n") {
 			t.Fatalf("the Trae rule does not apply to every session:\n%s", rule)
 		}

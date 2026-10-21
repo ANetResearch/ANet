@@ -219,8 +219,8 @@ msgid ""
 msgstr "Trae 与 Trae CN 用户数据目录中 ``mcp.json`` 的成员 ``mcpServers.anet``\\ （参见 `Trae`_）"
 
 #: ../../howto/coding-agents.rst:89
-msgid "Rule ``~/.trae/user_rules/anet.md`` (Trae CN: ``~/.trae-cn``)"
-msgstr "规则 ``~/.trae/user_rules/anet.md``\\ （Trae CN：``~/.trae-cn``）"
+msgid "Rule ``~/.trae/user_rules/agentnetwork.md`` (Trae CN: ``~/.trae-cn``)"
+msgstr "规则 ``~/.trae/user_rules/agentnetwork.md``\\ （Trae CN：``~/.trae-cn``）"
 
 #: ../../howto/coding-agents.rst:90
 msgid "``APPDATA``, ``XDG_CONFIG_HOME``"
@@ -377,7 +377,7 @@ msgid ""
 "Support/Trae/User`` on macOS, and ``~/.config/Trae/User`` on Linux (or "
 "the directory named by ``XDG_CONFIG_HOME``); Trae CN uses ``Trae CN`` in "
 "place of ``Trae``. The entry has the stdio form of Cursor. The operating "
-"guide is written as the user rule ``user_rules/anet.md`` in ``~/.trae`` "
+"guide is written as the user rule ``user_rules/agentnetwork.md`` in ``~/.trae`` "
 "(Trae CN: ``~/.trae-cn``), with ``alwaysApply: true``, so that it applies"
 " to every session. When both products are present, both are wired; "
 "``unwire`` removes the entries and the rules of both."
@@ -386,7 +386,7 @@ msgstr ""
 "``%APPDATA%\\Trae\\User``，macOS 上为 ``~/Library/Application "
 "Support/Trae/User``，Linux 上为 ``~/.config/Trae/User``\\ （或 "
 "``XDG_CONFIG_HOME`` 所指的目录）；Trae CN 以 ``Trae CN`` 代替 ``Trae``。条目采用 Cursor "
-"的 stdio 格式。操作指南以用户规则 ``user_rules/anet.md`` 的形式写入 ``~/.trae``\\ （Trae CN"
+"的 stdio 格式。操作指南以用户规则 ``user_rules/agentnetwork.md`` 的形式写入 ``~/.trae``\\ （Trae CN"
 "：``~/.trae-cn``），并设置 ``alwaysApply: "
 "true``，使其适用于每个会话。两个产品都已安装时，两者都会接入；``unwire`` 会移除两者的条目与规则。"
 

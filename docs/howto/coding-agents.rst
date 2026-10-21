@@ -86,7 +86,7 @@ column. ``claude-code`` is accepted as an alias of ``claude``.
    * - ``trae``
      - Member ``mcpServers.anet`` in ``mcp.json`` of the user data directory
        of Trae and of Trae CN (see `Trae`_)
-     - Rule ``~/.trae/user_rules/anet.md`` (Trae CN: ``~/.trae-cn``)
+     - Rule ``~/.trae/user_rules/agentnetwork.md`` (Trae CN: ``~/.trae-cn``)
      - ``APPDATA``, ``XDG_CONFIG_HOME``
    * - ``zcode``
      - The plugin ``anet@agentnetwork``, installed with the ``zcode``
@@ -171,7 +171,7 @@ Windows, ``~/Library/Application Support/Trae/User`` on macOS, and
 ``~/.config/Trae/User`` on Linux (or the directory named by
 ``XDG_CONFIG_HOME``); Trae CN uses ``Trae CN`` in place of ``Trae``. The entry
 has the stdio form of Cursor. The operating guide is written as the user rule
-``user_rules/anet.md`` in ``~/.trae`` (Trae CN: ``~/.trae-cn``), with
+``user_rules/agentnetwork.md`` in ``~/.trae`` (Trae CN: ``~/.trae-cn``), with
 ``alwaysApply: true``, so that it applies to every session. When both products
 are present, both are wired; ``unwire`` removes the entries and the rules of
 both.

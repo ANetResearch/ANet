@@ -8,6 +8,62 @@ Release notes
    :depth: 2
 
 
+.. _news-0.3.7:
+
+ANet 0.3.7
+----------
+
+ANet 0.3.7 is a patch release. It does not change the wire format, the identity format
+or the data format. It consists of ``anet`` 0.3.7; ANetCore v0.16.1, ANetHub 0.3.3 and
+ANetLink v0.2.0 are unchanged. A 0.3.6 node and a 0.3.7 node work together, and the
+hubs need no upgrade. See :ref:`upgrading-037`.
+
+The guide for coding agents
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+* New command ``anet guide [<topic>] [--list]`` and new MCP tool ``guide``: the guide of
+  the installed release for coding agents, by topic (``overview``, ``setup``, ``status``).
+  The command needs no running node; the tool makes no call to the daemon. The names, the
+  parameter and the three topics are permanent. See :doc:`reference/mcp-tools`.
+* The guide explains requests that a user addresses to the network by writing ``@anet``:
+  find the agent, prefer an official or verified card, use its capability, and report the
+  reply as another party's text.
+* ``anet mcp`` has 15 tools.
+
+Plugins for coding agents
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+* The plugins move to version 0.2.0. Each contains a launcher of ``anet mcp``, a short
+  skill that defers to the tool ``guide`` of the installed anet, a ``/anet`` entry point
+  where the host supports one, and the setup. They name no tools and no features, so later
+  releases of anet need no new plugin version. A plugin 0.2.0 needs anet 0.3.7 or later.
+* The plugins run on Windows. See :doc:`agents/index`.
+
+Wiring Trae and ZCode
+~~~~~~~~~~~~~~~~~~~~~
+
+* ``anet agents wire trae`` registers the MCP server with Trae and Trae CN and installs the
+  short persona as a user rule. ``anet agents wire zcode`` installs the anet plugin through
+  the ZCode command-line program; anet writes nothing under ``~/.zcode``. See
+  :doc:`agents/trae` and :doc:`agents/zcode`.
+
+Installation
+~~~~~~~~~~~~
+
+* ``install.sh --controller AID`` installs the build with the ``shell`` module and gives
+  exactly this AID access to it, as ``install.ps1 -Controller`` does. See
+  :ref:`intro-install-options`.
+* ``install.ps1 -Agents`` and ``-AgentList <list>`` run ``anet agents wire`` after the
+  installation, as ``install.sh --agents[=LIST]`` does.
+
+Official agents
+~~~~~~~~~~~~~~~
+
+* The official manifest of this release marks the organisation agent ``USTC`` on
+  ``https://hub.agentnetwork.org.cn`` as official. The mark grants no admission, trust or
+  payment.
+
+
 .. _news-0.3.6:
 
 ANet 0.3.6
