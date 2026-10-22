@@ -190,7 +190,7 @@ extension opens is authoritative.
 Plugin
 ------
 
-The ``anet`` plugin (version 0.2.0) is an alternative to
+The ``anet`` plugin (version 0.3.0) is an alternative to
 :ref:`agents-codex-wire`. It registers the same MCP server (``anet mcp``) and
 adds three skills of Codex: the entry point for ``@anet`` requests, the setup
 procedure and the status check. Installing it does not change ``config.toml``
@@ -228,8 +228,7 @@ the plugin.
        and the state of the node.
    * - Skill
      - ``anet:anet-setup``
-     - Finds the ``anet`` executable, installs ANet when it is missing and the
-       user agrees, and follows the setup guide of the installed ``anet``.
+     - Finds the ``anet`` executable, installs ANet when it is still missing, and follows the setup guide of the installed ``anet``.
    * - Skill
      - ``anet:anet-status``
      - Reports the state of the node as the guide describes. It is started
@@ -273,15 +272,16 @@ Linux; on Windows it runs the ``.cmd`` launchers described above.
 Setting up the node
 ~~~~~~~~~~~~~~~~~~~
 
-The plugin does not require a prepared node. When ``anet`` is not installed,
-the following prompt starts the setup procedure:
+The plugin does not require a prepared node: its MCP server installs ``anet``
+when it is missing (:ref:`agents-plugin-install`). When the anet tools are
+missing nonetheless, the following prompt starts the setup procedure:
 
 .. code-block:: text
 
    Use the skill anet:anet-setup to set up anet on this machine.
 
 The procedure runs the runner with ``--resolve`` and reports that the
-executable is not found. After the user agrees, it runs the installer helper
+executable is not found. Without asking again (the installation of the plugin is the consent), it runs the installer helper
 of the plugin, ``bin/anet-install.sh`` on Linux and macOS or
 ``bin/anet-install.cmd`` on Windows, which runs the official installer from
 ``agentnetwork.org.cn``. The installer verifies the signature and the checksum
@@ -378,7 +378,7 @@ Updating and removing
 ~~~~~~~~~~~~~~~~~~~~~
 
 ``codex plugin marketplace upgrade agentnetwork`` refreshes the marketplace.
-Version 0.2.0 is the final version of the plugin; a new release of ANet needs
+Version 0.3.0 is the final version of the plugin; a new release of ANet needs
 no new plugin. The commands that remove the
 plugin and the marketplace are described by ``codex plugin --help`` in the
 installed version of Codex. The plugin keeps no data of its own; the node, its
@@ -540,8 +540,7 @@ Troubleshooting
      - Cause
      - Action
    * - Codex reports a failed start of the server ``anet``.
-     - No daemon answers. ``anet mcp`` exits with ``anet is not running ...
-       run anet up``.
+     - ``anet`` is not found, or an ANet release before 0.3.8 has no running node (``anet mcp`` exits with ``anet is not running ... run anet up``). From 0.3.8, ``anet mcp`` starts the node itself.
      - Run ``anet up``, then restart Codex or open a new session.
    * - ``wire`` reports ``conflict`` and exits with status 1.
      - A table ``[mcp_servers.anet]`` that ``wire`` did not write exists. A

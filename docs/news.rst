@@ -8,6 +8,42 @@ Release notes
    :depth: 2
 
 
+.. _news-0.3.8:
+
+ANet 0.3.8
+----------
+
+ANet 0.3.8 is in preparation. The entries below describe the changes so far.
+
+The MCP server brings the node up
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+* ``anet mcp`` starts the node of the selected identity when no daemon answers and the data
+  directory is set up, exactly as ``anet up`` does, and waits up to 20 seconds for it. The
+  daemon runs in the home directory of the user, not in the working directory of the
+  session. See :ref:`howto-mcp-without-node`.
+* When the node cannot run, ``anet mcp`` no longer exits with the status 1. It serves every
+  tool; ``guide`` works, ``node_status`` answers ``running: false`` with the reason code, the
+  sentence and the command that fixes it, and the other tools answer with the same reason.
+  The server finds the node at the next call once it runs, without a new session.
+* ``anet mcp`` does not create an identity in a data directory that has none: it reports
+  ``daemon_not_running`` with the new sentence key ``daemon_not_running.not_set_up`` and the
+  command ``anet up`` (``anet --id <name> up`` for a named identity).
+* The guide tells the agent to answer a question about anet itself from ``node_status`` and the
+  tools, and to run ``anet up`` when ``node_status`` names it.
+
+Plugins for coding agents
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+* The plugins move to version 0.3.0, their final version. Enabling a plugin installs ANet when
+  it is missing: the MCP launcher runs the official installer, which checks the signed release
+  manifest, installs ANet for the user, starts the node and joins the public hub. The output of
+  the installer goes to the error output of the MCP server, one installation runs at a time, and
+  ``ANET_PLUGIN_NO_INSTALL=1`` turns the installation off. See :ref:`agents-plugin-install`.
+* The skills treat the installation of the plugin as the consent of the user: when the anet tools
+  are missing, the agent runs the setup without asking, and it answers a question about anet from
+  the state of the node.
+
 .. _news-0.3.7:
 
 ANet 0.3.7

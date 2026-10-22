@@ -492,7 +492,7 @@ identity and its data are not changed by either method.
 Plugin
 ------
 
-The ``anet`` plugin (version 0.2.0) is an alternative to
+The ``anet`` plugin (version 0.3.0) is an alternative to
 ``anet agents wire claude``. It installs the tools of ``anet mcp`` as the MCP
 server ``plugin:anet:anet``, the skills ``anet:anet`` and ``anet:anet-setup``
 and the commands ``/anet:anet`` and ``/anet:anet-status``. Use one of the two
@@ -518,8 +518,7 @@ servers named ``anet``.
        holds the rules that always apply.
    * - Skill
      - ``anet:anet-setup``
-     - Finds the ``anet`` executable, installs ANet when it is missing and the
-       user agrees, and follows the setup guide of the installed ``anet``.
+     - Finds the ``anet`` executable, installs ANet when it is still missing, and follows the setup guide of the installed ``anet``.
    * - Command
      - ``/anet:anet``
      - The entry point: carries out an ``@anet`` request as the guide
@@ -538,10 +537,7 @@ executable alone and the plugin needs no update.
 The plugin has no hooks. Every ``anet`` command of the skills and of the
 commands runs through the runner of the plugin, ``bin/anet-run.sh`` on Linux
 and macOS and ``bin/anet-run.cmd`` on Windows, which resolves the executable
-and the identity from the two options described under `Plugin options`_. The
-installer runs only when the user agrees: ``bin/anet-install.sh`` on Linux and
-macOS and ``bin/anet-install.cmd`` on Windows run the official installer of
-``agentnetwork.org.cn``.
+and the identity from the two options described under `Plugin options`_. When ``anet`` is missing, the MCP launcher runs the official installer of ``agentnetwork.org.cn`` (:ref:`agents-plugin-install`); the setup skill runs the same installer through ``bin/anet-install.sh`` on Linux and macOS and ``bin/anet-install.cmd`` on Windows when ``anet`` is still missing.
 
 The MCP server is declared as ``${CLAUDE_PLUGIN_ROOT}/bin/anet-mcp``, without
 an extension and without arguments. On Linux and macOS this file is executable
@@ -549,17 +545,13 @@ and starts ``bin/anet-mcp.sh``. On Windows, Claude Code resolves the path with
 the extensions of ``PATHEXT`` and runs ``bin/anet-mcp.cmd``, which needs
 Windows PowerShell 5.1, a part of Windows.
 
-On Linux and macOS, the plugin does not stop when ``anet`` is missing or the
-node is not running. ``bin/anet-mcp.sh`` starts ``anet mcp`` when the node
-answers. Otherwise the server stays connected as a minimal MCP server whose
+When ``anet`` is missing, ``bin/anet-mcp.sh`` and ``bin/anet-mcp.cmd`` install it first (:ref:`agents-plugin-install`), and ``anet mcp`` starts the node when it is not running (:ref:`howto-mcp-without-node`). On Linux and macOS, the plugin also does not stop when the installation is turned off or fails, or with an ANet release before 0.3.8 whose node is not running. ``bin/anet-mcp.sh`` starts ``anet mcp`` when it starts. Otherwise the server stays connected as a minimal MCP server whose
 instructions state the reason and which offers one tool, ``connect``. After the
 setup, the agent calls ``connect``; as soon as the node answers, the launcher
 starts ``anet mcp`` and the tools of ``anet mcp`` become available in the same
 session. A later session finds the node running and starts ``anet mcp``
 directly. This design avoids the failed start that Claude Code would otherwise
-remember for the server. On Windows, ``bin/anet-mcp.cmd`` starts ``anet mcp``
-directly; when the node is not running, the server does not start, and the
-tools are available in a new session after the setup.
+remember for the server. On Windows, ``bin/anet-mcp.cmd`` starts ``anet mcp`` directly; when ``anet`` could not be installed, the server does not start, and the tools are available in a new session after the setup.
 
 Installing the plugin
 ~~~~~~~~~~~~~~~~~~~~~
@@ -590,7 +582,7 @@ the ANet repository, start Claude Code with
 Setting up the node from Claude Code
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-If ``anet`` is not installed or not running, ask in a session:
+The MCP server of the plugin installs ``anet`` and starts its node by itself (:ref:`agents-plugin-install`). To repeat the setup, or when a session has no anet tools, ask in a session:
 
 .. code-block:: text
 
@@ -600,8 +592,7 @@ The agent follows the skill ``anet:anet-setup``:
 
 * It runs the runner with ``--resolve``, which prints the executable, its
   version, the identity and the command line of the runner.
-* When ``anet`` is not found, it states what the installer does and runs it
-  only after the user agrees: ``bin/anet-install.sh`` on Linux and macOS,
+* When ``anet`` is still not found, it says in one sentence that ANet is being installed and runs the installer without asking again (the installation of the plugin is the consent): ``bin/anet-install.sh`` on Linux and macOS,
   ``bin/anet-install.cmd`` on Windows. Both run the official installer, which
   verifies the signed release manifest and installs into a directory of the
   user.
@@ -682,7 +673,7 @@ default identity.
 Updating and removing the plugin
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Version 0.2.0 is the final version of the plugin. A new release of ANet needs
+Version 0.3.0 is the final version of the plugin. A new release of ANet needs
 no new plugin, because the plugin reads the guide of the installed ``anet``.
 Claude Code caches a plugin by its version; ``claude plugin update
 anet@agentnetwork`` installs the version that the catalogue names. ``anet
@@ -725,9 +716,7 @@ Troubleshooting the plugin
      - Action
    * - The session has only the tool ``connect`` and no anet tools (Linux
        and macOS), or no anet tools at all (Windows).
-     - The node does not answer. Run ``anet status`` in a terminal;
-       ``[daemon_not_running]``: run ``anet up``, or ask the agent to run the
-       skill ``anet:anet-setup``. On Linux and macOS, let it call ``connect``;
+     - ``anet`` is missing (the automatic installation is turned off or failed; the error output of the MCP server names the reason), or an ANet release before 0.3.8 has no running node. Ask the agent to run the skill ``anet:anet-setup``. On Linux and macOS, let it call ``connect``;
        on Windows, start a new session.
    * - The setup reports an invalid setting ``anetPath``.
      - Correct the option to the absolute path of an executable ``anet``, or

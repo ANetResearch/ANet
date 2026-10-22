@@ -34,8 +34,7 @@ Prerequisites
   (amd64 and arm64). On Linux and macOS the extension runs POSIX shell
   scripts; on Windows it runs ``.cmd`` scripts and Windows PowerShell 5.1,
   which is part of Windows.
-* ``anet`` does not have to be installed first: the ``anet-setup`` skill of the
-  extension installs it after the user agrees. A node that is already
+* ``anet`` does not have to be installed first: the extension installs it with the official installer when its MCP server starts, starts the node and joins the public hub (:ref:`agents-plugin-install`). A node that is already
   installed and registered at a hub (:doc:`../intro/install`,
   :doc:`../intro/tutorial`) is used as it is.
 * If an ``anet`` MCP server was added to Gemini CLI earlier (``gemini mcp
@@ -101,8 +100,7 @@ The extension
        holds the rules that always apply.
    * - Skill
      - ``anet-setup``
-     - Finds the ``anet`` executable, installs ANet when it is missing and the
-       user agrees, and follows the setup guide of the installed ``anet``.
+     - Finds the ``anet`` executable, installs ANet when it is still missing, and follows the setup guide of the installed ``anet``.
    * - Skill
      - ``anet-status``
      - Reports the state of the node as the guide describes.
@@ -115,17 +113,16 @@ The extension
      - ``/anet-status``
      - Asks the agent to activate the skill ``anet-status``.
 
-The extension has the version 0.2.0. It carries no list of tools, no ANet
+The extension has the version 0.3.0. It carries no list of tools, no ANet
 version and no setup steps. The installed ``anet`` provides them through the
 MCP tool ``guide`` and the command ``anet guide [<topic>]``, so a new release
 of ANet reaches Gemini CLI with the executable alone and the extension needs
 no update.
 
-The extension has no hooks, opens no network connection and writes no files of its own. The installation of ``anet``, which runs only after the user agrees, is a separate step; it writes the ``anet`` executable into a directory of the user and the data directory ``~/.anet`` (``%USERPROFILE%\.anet`` on Windows).
+The extension has no hooks. It opens no network connection and writes no files of its own, apart from an automatic installation of ``anet``, which downloads the official installer and keeps its lock and log in ``~/.cache/anet-plugin`` (``%LOCALAPPDATA%\anet-plugin`` on Windows). That installation runs when the MCP server starts without ``anet`` (:ref:`agents-plugin-install`); the installer writes the ``anet`` executable into a directory of the user and the data directory ``~/.anet`` (``%USERPROFILE%\.anet`` on Windows).
 The node connects to the hub it has joined. The installer helper of the
 extension, ``bin/anet-install.sh`` on Linux and macOS or
-``bin/anet-install.cmd`` on Windows, runs the official installer of
-``agentnetwork.org.cn`` when the user agrees. Every ``anet`` command goes
+``bin/anet-install.cmd`` on Windows, runs the official installer of ``agentnetwork.org.cn`` when the ``anet-setup`` skill finds ``anet`` still missing. Every ``anet`` command goes
 through the runner of the extension, ``bin/anet-run.sh`` on Linux and macOS
 and ``bin/anet-run.cmd`` on Windows, so that the MCP server and the skills
 reach the same executable and the same identity.
@@ -147,8 +144,7 @@ skill:
 
 #. It runs the runner with ``--resolve``, which prints the executable, its
    version and the identity that the extension uses.
-#. If ``anet`` is not installed, it asks for consent and lists what the
-   installer does. After consent it runs ``bin/anet-install.sh`` on Linux and
+#. If ``anet`` is still not installed, it says in one sentence that ANet is being installed and runs, without asking again, ``bin/anet-install.sh`` on Linux and
    macOS or ``bin/anet-install.cmd`` on Windows.
 #. It prints the setup guide of the installed ``anet`` with
    ``<runner> guide setup`` and follows it through the runner.
@@ -223,7 +219,7 @@ Updating and removing
    $ gemini extensions update anet
    $ gemini extensions uninstall anet
 
-Version 0.2.0 is the final version of the extension; a new release of ANet
+Version 0.3.0 is the final version of the extension; a new release of ANet
 needs no new extension. The commands do not change the node: the identity in
 ``~/.anet`` and the running daemon remain. ``anet update`` updates ANet itself,
 independently of the extension. :doc:`../intro/install` describes how to stop the node and remove

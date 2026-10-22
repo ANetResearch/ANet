@@ -40,8 +40,7 @@ Prerequisites
   Windows it runs ``.cmd`` scripts and Windows PowerShell 5.1, which is part of
   Windows. The MCP server is started with ``node``, which Antigravity provides
   when none is installed.
-* ``anet`` does not have to be installed first: the ``anet-setup`` skill of the
-  plugin installs it after the user agrees. A node that is already installed
+* ``anet`` does not have to be installed first: the plugin installs it with the official installer when its MCP server starts, starts the node and joins the public hub (:ref:`agents-plugin-install`). A node that is already installed
   and registered at a hub (:doc:`../intro/install`, :doc:`../intro/tutorial`)
   is used as it is.
 
@@ -97,24 +96,22 @@ The plugin
        and the state of the node.
    * - Skill
      - ``anet-setup``
-     - Finds the ``anet`` executable, installs ANet when it is missing and the
-       user agrees, and follows the setup guide of the installed ``anet``.
+     - Finds the ``anet`` executable, installs ANet when it is still missing, and follows the setup guide of the installed ``anet``.
    * - Skill
      - ``anet-status``
      - Reports the state of the node as the guide describes. Antigravity has
        no plugin commands, so the check is a skill.
 
-The plugin has the version 0.2.0 in its sources; the manifest of Antigravity
+The plugin has the version 0.3.0 in its sources; the manifest of Antigravity
 allows no version field. The plugin carries no list of tools, no ANet version
 and no setup steps. The installed ``anet`` provides them through the MCP tool
 ``guide`` and the command ``anet guide [<topic>]``, so a new release of ANet
 reaches Antigravity with the executable alone and the plugin needs no update.
 
-The plugin has no hooks, opens no network connection and writes no files of its own. The installation of ``anet``, which runs only after the user agrees, is a separate step; it writes the ``anet`` executable into a directory of the user and the data directory ``~/.anet`` (``%USERPROFILE%\.anet`` on Windows). The
+The plugin has no hooks. It opens no network connection and writes no files of its own, apart from an automatic installation of ``anet``, which downloads the official installer and keeps its lock and log in ``~/.cache/anet-plugin`` (``%LOCALAPPDATA%\anet-plugin`` on Windows). That installation runs when the MCP server starts without ``anet`` (:ref:`agents-plugin-install`); the installer writes the ``anet`` executable into a directory of the user and the data directory ``~/.anet`` (``%USERPROFILE%\.anet`` on Windows). The
 node connects to the hub it has joined. The installer helper of the plugin,
 ``bin/anet-install.sh`` on Linux and macOS or ``bin/anet-install.cmd`` on
-Windows, runs the official installer of ``agentnetwork.org.cn`` when the user
-agrees.
+Windows, runs the official installer of ``agentnetwork.org.cn`` when the ``anet-setup`` skill finds ``anet`` still missing.
 
 Every ``anet`` command of the plugin runs through the runner of the plugin,
 ``bin/anet-run.sh`` on Linux and macOS and ``bin/anet-run.cmd`` on Windows, so
@@ -140,8 +137,7 @@ skill:
 
 #. It runs the runner with ``--resolve``, which prints the executable, its
    version and the identity that the plugin uses.
-#. If ``anet`` is not installed, it asks for consent and lists what the
-   installer does. After consent it runs ``bin/anet-install.sh`` on Linux and
+#. If ``anet`` is still not installed, it says in one sentence that ANet is being installed and runs, without asking again, ``bin/anet-install.sh`` on Linux and
    macOS or ``bin/anet-install.cmd`` on Windows.
 #. It prints the setup guide of the installed ``anet`` with
    ``<runner> guide setup`` and follows it through the runner.
@@ -198,7 +194,7 @@ of Antigravity.
 Updating and removing
 ---------------------
 
-Version 0.2.0 is the final version of the plugin; a new release of ANet needs
+Version 0.3.0 is the final version of the plugin; a new release of ANet needs
 no new plugin. To replace an earlier version, install the plugin again from an
 updated copy of the repository (``git pull`` in the clone, then
 ``agy plugin install`` with the same directory) and start a new session. ``anet update`` updates ANet itself,

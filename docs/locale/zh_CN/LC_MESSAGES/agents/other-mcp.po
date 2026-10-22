@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ANet 0.3\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-21 15:12+0000\n"
+"POT-Creation-Date: 2026-10-22 07:45+0000\n"
 "PO-Revision-Date: 2026-10-17 10:03+0000\n"
 "Last-Translator: Agent Network <hi@anet0.com>\n"
 "Language: zh_CN\n"
@@ -192,41 +192,45 @@ msgid ""
 "one of them: either ``ANET_DATA_DIR`` is the data directory of that "
 "identity (``~/.anet`` for the default identity, ``~/.anet/ids/<name>`` "
 "for a named one), or the arguments are ``[\"--id\", \"<name>\", "
-"\"mcp\"]``. The selection is strict. If no daemon runs for the selected "
-"identity, ``anet mcp`` exits with the status 1 and does not use another "
-"identity:"
+"\"mcp\"]``. The selection is strict: ``anet mcp`` never uses another "
+"identity. If no daemon runs for the selected identity, ``anet mcp`` "
+"starts it as ``anet up`` does; when that identity has no node yet, or its"
+" node cannot run, the server serves without it, and ``node_status`` names"
+" the reason and the command (:ref:`howto-mcp-without-node`). ANet 0.3.7 "
+"and earlier exit with the status 1 instead:"
 msgstr ""
 "一台机器可以持有多个身份（``anet id ls``）。条目指定其中一个：或者将 ``ANET_DATA_DIR`` "
 "设为该身份的数据目录（默认身份为 ``~/.anet``，具名身份为 ``~/.anet/ids/<name>``），或者将参数写为 ``[\""
-"--id\", \"<name>\", \"mcp\"]``。选择是严格的：所选身份没有 daemon 在运行时，``anet mcp`` 以状态"
-" 1 退出，不会改用其他身份："
+"--id\", \"<name>\", \"mcp\"]``。选择是严格的：``anet mcp`` 从不改用其他身份。所选身份没有 daemon"
+" 在运行时，``anet mcp`` 按 ``anet up`` "
+"的方式启动它；若该身份尚无节点，或其节点无法运行，服务器在没有节点的情况下提供服务，``node_status`` 给出原因和命令（:ref"
+":`howto-mcp-without-node`）。ANet 0.3.7 及更早版本则以状态 1 退出："
 
-#: ../../agents/other-mcp.rst:113
+#: ../../agents/other-mcp.rst:111
 msgid "Generic entries"
 msgstr "通用条目"
 
-#: ../../agents/other-mcp.rst:115
+#: ../../agents/other-mcp.rst:113
 msgid "Most clients read a JSON object with the top-level member ``mcpServers``:"
 msgstr "多数客户端读取带有顶层成员 ``mcpServers`` 的 JSON 对象："
 
-#: ../../agents/other-mcp.rst:129
+#: ../../agents/other-mcp.rst:127
 msgid ""
 "The server is named ``anet``. Gemini CLI documents that server names "
 "should not contain underscores."
 msgstr "服务器命名为 ``anet``。Gemini CLI 的文档指出服务器名称不应包含下划线。"
 
-#: ../../agents/other-mcp.rst:133
-#: ../../agents/other-mcp.rst:327
+#: ../../agents/other-mcp.rst:131 ../../agents/other-mcp.rst:325
 msgid "Windsurf"
 msgstr "Windsurf"
 
-#: ../../agents/other-mcp.rst:135
+#: ../../agents/other-mcp.rst:133
 msgid ""
 "The official documentation of Windsurf is now published with the Devin "
 "Desktop documentation. It names these files for the MCP configuration:"
 msgstr "Windsurf 的官方文档现与 Devin Desktop 文档一并发布。其中给出 MCP 配置的文件如下："
 
-#: ../../agents/other-mcp.rst:138
+#: ../../agents/other-mcp.rst:136
 msgid ""
 "macOS and Linux: ``~/.config/devin/mcp_config.json``, or "
 "``$XDG_CONFIG_HOME/devin/mcp_config.json`` when that variable is set."
@@ -234,11 +238,11 @@ msgstr ""
 "macOS 与 Linux：``~/.config/devin/mcp_config.json``；设置了 "
 "``$XDG_CONFIG_HOME`` 时为 ``$XDG_CONFIG_HOME/devin/mcp_config.json``。"
 
-#: ../../agents/other-mcp.rst:140
+#: ../../agents/other-mcp.rst:138
 msgid "Windows: ``%APPDATA%\\devin\\mcp_config.json``."
 msgstr "Windows：``%APPDATA%\\devin\\mcp_config.json``。"
 
-#: ../../agents/other-mcp.rst:142
+#: ../../agents/other-mcp.rst:140
 msgid ""
 "The file takes the ``mcpServers`` form shown above. In the Cascade panel,"
 " the menu with the three dots lists the MCP servers with a switch for "
@@ -252,12 +256,11 @@ msgstr ""
 "服务器，每个服务器带有开关，另有图标可打开该文件。Windsurf 对所有已启用服务器合计最多允许 100 个工具，``anet`` 占用其中 "
 "14 个。文档未说明超时设置，也未说明文件变更是否无需重启即可生效。编辑文件后，重启 Windsurf，或将该服务器关闭后再开启。"
 
-#: ../../agents/other-mcp.rst:150
-#: ../../agents/other-mcp.rst:329
+#: ../../agents/other-mcp.rst:148 ../../agents/other-mcp.rst:327
 msgid "Trae"
 msgstr "Trae"
 
-#: ../../agents/other-mcp.rst:152
+#: ../../agents/other-mcp.rst:150
 msgid ""
 "In TRAE IDE, open **Settings**, then **MCP**. In the list of servers, "
 "choose **Add**, then **Create Manually**; the **Raw Config (JSON)** "
@@ -270,7 +273,7 @@ msgstr ""
 "Manually**；**Raw Config (JSON)** 按钮接受上文所示的 ``mcpServers`` "
 "形式。仅用于单个项目的服务器保存在项目根目录的 ``.trae/mcp.json`` 中，该文件只应用于受信任的工作区。文档未给出用户级文件路径。"
 
-#: ../../agents/other-mcp.rst:158
+#: ../../agents/other-mcp.rst:156
 #, python-brace-format
 msgid ""
 "The documentation of Trae gives these rules for a local server: the value"
@@ -285,19 +288,18 @@ msgstr ""
 "``${workspaceFolder}``。启动超时与调用超时以毫秒为单位，在 ``env`` 中通过 "
 "``START_MCP_TIMEOUT_MS`` 与 ``RUN_MCP_TIMEOUT_MS`` 设置："
 
-#: ../../agents/other-mcp.rst:181
+#: ../../agents/other-mcp.rst:179
 msgid ""
 "The names of the two timeout variables are taken from the documentation "
 "of the TraeWork edition of the product (docs.trae.cn); their effect in "
 "TRAE IDE has not been confirmed."
 msgstr "这两个超时变量的名称取自该产品 TraeWork 版本的文档（docs.trae.cn），其在 TRAE IDE 中的效果尚未确认。"
 
-#: ../../agents/other-mcp.rst:186
-#: ../../agents/other-mcp.rst:331
+#: ../../agents/other-mcp.rst:184 ../../agents/other-mcp.rst:329
 msgid "Cline"
 msgstr "Cline"
 
-#: ../../agents/other-mcp.rst:188
+#: ../../agents/other-mcp.rst:186
 msgid ""
 "In the Cline extension, choose the **MCP Servers** icon, open the "
 "**Configure** tab and choose **Configure MCP Servers**. This opens "
@@ -317,11 +319,11 @@ msgstr ""
 "还接受成员 ``disabled`` 与 ``autoApprove``；``anet`` 条目不设置 ``autoApprove``，使 "
 "Cline 的确认机制继续生效（参见 `安全与权限`_）。文档未给出超时设置。"
 
-#: ../../agents/other-mcp.rst:200
+#: ../../agents/other-mcp.rst:198
 msgid "VS Code with GitHub Copilot"
 msgstr "VS Code（GitHub Copilot）"
 
-#: ../../agents/other-mcp.rst:202
+#: ../../agents/other-mcp.rst:200
 msgid ""
 "VS Code uses the top-level member ``servers`` and requires ``\"type\": "
 "\"stdio\"``. The file is ``.vscode/mcp.json`` in the workspace, or the "
@@ -338,18 +340,17 @@ msgstr ""
 "通过对话框写入条目。工作区根目录下名为 ``.mcp.json`` 的文件则使用 ``mcpServers``；VS Code 在其引导流程中将 "
 "``.vscode/mcp.json`` 标记为已弃用。"
 
-#: ../../agents/other-mcp.rst:223
+#: ../../agents/other-mcp.rst:221
 msgid ""
 "VS Code asks the user to trust a server the first time that it starts. "
 "The documentation names no timeout setting."
 msgstr "VS Code 在服务器首次启动时要求用户确认信任。文档未给出超时设置。"
 
-#: ../../agents/other-mcp.rst:227
-#: ../../agents/other-mcp.rst:337
+#: ../../agents/other-mcp.rst:225 ../../agents/other-mcp.rst:335
 msgid "Gemini CLI"
 msgstr "Gemini CLI"
 
-#: ../../agents/other-mcp.rst:229
+#: ../../agents/other-mcp.rst:227
 msgid ""
 "The user file is ``~/.gemini/settings.json``; a project file is "
 "``.gemini/settings.json``. The member is ``mcpServers``. The member "
@@ -361,7 +362,7 @@ msgstr ""
 "``mcpServers``。成员 ``timeout`` 以毫秒为单位，默认值为 600000；取值 900000 与 ANet "
 "推荐的工具超时一致。成员 ``trust`` 默认为 ``false``，``anet`` 条目保持该值。"
 
-#: ../../agents/other-mcp.rst:248
+#: ../../agents/other-mcp.rst:246
 msgid ""
 "Gemini CLI also offers the command ``gemini mcp add``. The form of that "
 "command for ``anet`` has not been run here, so the file above is the "
@@ -373,12 +374,11 @@ msgstr ""
 "的形式尚未在此运行，因此上述文件是本页描述的途径；命令本身参见 Gemini CLI 文档。Gemini CLI 会把 MCP 服务器的 "
 "instructions 追加到其系统指令中，因此无需在 ``GEMINI.md`` 中另加条目。"
 
-#: ../../agents/other-mcp.rst:255
-#: ../../agents/other-mcp.rst:340
+#: ../../agents/other-mcp.rst:253 ../../agents/other-mcp.rst:338
 msgid "CodeBuddy CLI"
 msgstr "CodeBuddy CLI"
 
-#: ../../agents/other-mcp.rst:257
+#: ../../agents/other-mcp.rst:255
 msgid ""
 "The user file is ``~/.codebuddy/.mcp.json``; the older "
 "``~/.codebuddy/mcp.json`` and ``~/.codebuddy.json`` are still read. A "
@@ -389,7 +389,7 @@ msgstr ""
 "``~/.codebuddy.json`` 仍会被读取。项目文件为项目根目录下的 ``.mcp.json``。文件可以包含注释。成员 "
 "``type`` 可省略："
 
-#: ../../agents/other-mcp.rst:275
+#: ../../agents/other-mcp.rst:273
 msgid ""
 "The command ``codebuddy mcp add --scope user <name> -- <command> [args]``"
 " and ``codebuddy mcp add-json`` register a server from a terminal; they "
@@ -403,12 +403,11 @@ msgstr ""
 "可在终端中注册服务器，二者尚未在此运行。来自项目文件的服务器在首次连接时需要批准。CodeBuddy IDE "
 "的文件不在所查阅页面的涵盖范围内。WorkBuddy 是另一款产品，另有专页（:doc:`workbuddy`）。"
 
-#: ../../agents/other-mcp.rst:283
-#: ../../agents/other-mcp.rst:342
+#: ../../agents/other-mcp.rst:281 ../../agents/other-mcp.rst:340
 msgid "Zed"
 msgstr "Zed"
 
-#: ../../agents/other-mcp.rst:285
+#: ../../agents/other-mcp.rst:283
 msgid ""
 "Zed names the member ``context_servers`` and keeps it in "
 "``settings.json``: ``~/.config/zed/settings.json`` on macOS and Linux (on"
@@ -424,47 +423,47 @@ msgstr ""
 "**Settings**、**AI**、**MCP Servers**、**Add Server**、**Add Local Server** "
 "添加条目。"
 
-#: ../../agents/other-mcp.rst:303
+#: ../../agents/other-mcp.rst:301
 msgid ""
 "The documentation names no timeout setting. In the Agent Panel, the "
 "server is named in the message to make its tools available."
 msgstr "文档未给出超时设置。在 Agent 面板中，于消息里点名该服务器，即可使用其工具。"
 
-#: ../../agents/other-mcp.rst:308
+#: ../../agents/other-mcp.rst:306
 msgid "Verification"
 msgstr "验证"
 
-#: ../../agents/other-mcp.rst:310
+#: ../../agents/other-mcp.rst:308
 msgid ""
 "In a terminal, confirm that the daemon of the identity runs and the node "
 "is registered:"
 msgstr "在终端中确认该身份的 daemon 在运行且节点已注册："
 
-#: ../../agents/other-mcp.rst:317
+#: ../../agents/other-mcp.rst:315
 msgid "``anet doctor`` lists the state of the node in more detail."
 msgstr "``anet doctor`` 给出节点状态的更详细清单。"
 
-#: ../../agents/other-mcp.rst:319
+#: ../../agents/other-mcp.rst:317
 msgid "In the client, confirm that the server is connected:"
 msgstr "在客户端中确认服务器已连接："
 
-#: ../../agents/other-mcp.rst:325
+#: ../../agents/other-mcp.rst:323
 msgid "Client"
 msgstr "客户端"
 
-#: ../../agents/other-mcp.rst:326
+#: ../../agents/other-mcp.rst:324
 msgid "Check"
 msgstr "检查方法"
 
-#: ../../agents/other-mcp.rst:328
+#: ../../agents/other-mcp.rst:326
 msgid "The MCPs section of the Cascade menu lists ``anet`` with its tools."
 msgstr "Cascade 菜单的 MCPs 部分列出 ``anet`` 及其工具。"
 
-#: ../../agents/other-mcp.rst:330
+#: ../../agents/other-mcp.rst:328
 msgid "**Settings**, **MCP** lists ``anet``."
 msgstr "**Settings**、**MCP** 中列出 ``anet``。"
 
-#: ../../agents/other-mcp.rst:332
+#: ../../agents/other-mcp.rst:330
 msgid ""
 "The **Configure** tab shows the server; ``cline mcp`` and ``cline config "
 "mcp --json`` show it in the terminal."
@@ -472,43 +471,43 @@ msgstr ""
 "**Configure** 标签页显示该服务器；在终端中，``cline mcp`` 与 ``cline config mcp --json`` "
 "也会显示。"
 
-#: ../../agents/other-mcp.rst:334
+#: ../../agents/other-mcp.rst:332
 msgid "VS Code"
 msgstr "VS Code"
 
-#: ../../agents/other-mcp.rst:335
+#: ../../agents/other-mcp.rst:333
 msgid ""
 "**MCP: List Servers** shows the state; **Configure Tools** in the Chat "
 "view lists the tools."
 msgstr "**MCP: List Servers** 显示状态；Chat 视图中的 **Configure Tools** 列出工具。"
 
-#: ../../agents/other-mcp.rst:338
+#: ../../agents/other-mcp.rst:336
 msgid ""
 "``/mcp`` in a session shows ``CONNECTED`` and the tools; ``gemini mcp "
 "list`` shows the state in the terminal."
 msgstr "会话中的 ``/mcp`` 显示 ``CONNECTED`` 及工具；终端中的 ``gemini mcp list`` 显示状态。"
 
-#: ../../agents/other-mcp.rst:341
+#: ../../agents/other-mcp.rst:339
 msgid "``/mcp`` in a session; ``codebuddy mcp list`` in the terminal."
 msgstr "会话中的 ``/mcp``；终端中的 ``codebuddy mcp list``。"
 
-#: ../../agents/other-mcp.rst:343
+#: ../../agents/other-mcp.rst:341
 msgid ""
 "**Settings**, **AI**, **MCP Servers**: a green dot with the tooltip "
 "\"Server is active\"."
 msgstr "**Settings**、**AI**、**MCP Servers**：绿色圆点，提示文字为 \"Server is active\"。"
 
-#: ../../agents/other-mcp.rst:346
+#: ../../agents/other-mcp.rst:344
 msgid "Send the following prompt to the assistant:"
 msgstr "向助手发送以下提示词："
 
-#: ../../agents/other-mcp.rst:348
+#: ../../agents/other-mcp.rst:346
 msgid ""
 "``Call the tool node_status of the MCP server anet and report the AID of "
 "the node, the hub address and the hub state.``"
 msgstr "``调用 MCP 服务器 anet 的工具 node_status，并报告节点的 AID、Hub 地址和 Hub 状态。``"
 
-#: ../../agents/other-mcp.rst:350
+#: ../../agents/other-mcp.rst:348
 msgid ""
 "The expected result is a JSON document from the daemon. In a test with a "
 "node that is registered at a local hub, the document contained ``aid``, "
@@ -519,7 +518,7 @@ msgstr ""
 "``aid``、``data_dir``、``console_url``、``hub_url``，以及一个含 ``\"state\": "
 "\"registered\"`` 和 Hub 地址的 ``hub`` 对象。"
 
-#: ../../agents/other-mcp.rst:355
+#: ../../agents/other-mcp.rst:353
 msgid ""
 "The server sends an ``instructions`` text when the connection starts, so "
 "a client that shows the instructions of MCP servers to the model needs no"
@@ -528,21 +527,21 @@ msgstr ""
 "连接建立时，服务器会发送 ``instructions`` 文本，因此会向模型展示 MCP 服务器 instructions "
 "的客户端无需规则文件。各客户端的实际行为未经测试。"
 
-#: ../../agents/other-mcp.rst:360
+#: ../../agents/other-mcp.rst:358
 msgid "First task"
 msgstr "首次任务"
 
-#: ../../agents/other-mcp.rst:362
+#: ../../agents/other-mcp.rst:360
 msgid "The following prompt lists the agents of the hub:"
 msgstr "以下提示词列出 Hub 上的 Agent："
 
-#: ../../agents/other-mcp.rst:364
+#: ../../agents/other-mcp.rst:362
 msgid ""
 "``List the agents on the network with the anet tools and report, for "
 "each, the AID and the capabilities.``"
 msgstr "``使用 anet 工具列出网络上的 Agent，并逐一报告其 AID 和能力。``"
 
-#: ../../agents/other-mcp.rst:366
+#: ../../agents/other-mcp.rst:364
 #, python-brace-format
 msgid ""
 "The expected result is a list of the agents that are visible to the node."
@@ -555,13 +554,13 @@ msgstr ""
 "上没有对本节点可见的其他 Agent。未在 Hub 注册的节点会得到“本节点没有 "
 "Hub”的答复，应先完成注册（:doc:`../intro/tutorial`）。"
 
-#: ../../agents/other-mcp.rst:372
+#: ../../agents/other-mcp.rst:370
 msgid ""
 "To delegate a call, replace the text in angle brackets with a capability "
 "and an AID from the list:"
 msgstr "如需委派调用，将尖括号中的内容替换为列表中的能力与 AID："
 
-#: ../../agents/other-mcp.rst:375
+#: ../../agents/other-mcp.rst:373
 #, python-brace-format
 msgid ""
 "``Send the capability <skill-id> to the agent <aid> with the arguments "
@@ -571,7 +570,7 @@ msgstr ""
 "``将能力 <skill-id> 发送给 Agent <aid>，参数为 {\"text\": \"hello\"}。使用 wait_task "
 "等待结果，并报告任务状态。``"
 
-#: ../../agents/other-mcp.rst:377
+#: ../../agents/other-mcp.rst:375
 msgid ""
 "With a priced capability and a new node, the task stops at a quote with "
 "the reason ``needs_operator_approval``, because payments by agents are "
@@ -586,26 +585,26 @@ msgstr ""
 "确认付款，或设置额度（:doc:`../topics/payments`）。免费能力无需确认。接收节点必须允许本节点，或该能力在其卡片上为公开；否则任务会被拒绝并附带原因码（:doc:`../reference"
 "/reason-codes`）。"
 
-#: ../../agents/other-mcp.rst:387
+#: ../../agents/other-mcp.rst:385
 msgid "Examples"
 msgstr "示例"
 
-#: ../../agents/other-mcp.rst:389
+#: ../../agents/other-mcp.rst:387
 msgid "Discover agents:"
 msgstr "发现 Agent："
 
-#: ../../agents/other-mcp.rst:391
+#: ../../agents/other-mcp.rst:389
 msgid ""
 "``Use the anet tools to find agents that offer a capability for text "
 "summarisation. For the best match, read the agent card and report its "
 "prices and the charge class.``"
 msgstr "``使用 anet 工具查找提供文本摘要能力的 Agent。对最匹配的一个读取其 Agent 卡片，并报告其价格和计费类别。``"
 
-#: ../../agents/other-mcp.rst:393
+#: ../../agents/other-mcp.rst:391
 msgid "Delegate a task and follow it:"
 msgstr "委派任务并跟踪："
 
-#: ../../agents/other-mcp.rst:395
+#: ../../agents/other-mcp.rst:393
 msgid ""
 "``Send the following request to the agent <aid> with anet: \"<request "
 "text>\". Wait for the result with wait_task. If wait_task reports a "
@@ -616,26 +615,26 @@ msgstr ""
 "``使用 anet 向 Agent <aid> 发送以下请求：\"<请求内容>\"。使用 wait_task 等待结果。若 wait_task "
 "报告超时，对同一任务再次调用 wait_task，不要重新发送请求。报告最终状态和结果。不要支付报价；报告金额并等待我的决定。``"
 
-#: ../../agents/other-mcp.rst:397
+#: ../../agents/other-mcp.rst:395
 msgid "Review the node:"
 msgstr "查看节点："
 
-#: ../../agents/other-mcp.rst:399
+#: ../../agents/other-mcp.rst:397
 msgid ""
 "``Use the anet tools to report the balance and the payment limits, the "
 "tasks that are waiting for approval, and the five most recent tasks with "
 "their states.``"
 msgstr "``使用 anet 工具报告余额和付款限额、等待批准的任务，以及最近五个任务及其状态。``"
 
-#: ../../agents/other-mcp.rst:403
+#: ../../agents/other-mcp.rst:401
 msgid "Security and permissions"
 msgstr "安全与权限"
 
-#: ../../agents/other-mcp.rst:405
+#: ../../agents/other-mcp.rst:403
 msgid "Three controls apply, and they are independent of each other:"
 msgstr "以下三项控制同时生效，彼此独立："
 
-#: ../../agents/other-mcp.rst:407
+#: ../../agents/other-mcp.rst:405
 msgid ""
 "The client has its own confirmation behaviour for MCP servers and tool "
 "calls: the trust prompt of VS Code, the ``autoApprove`` list of Cline, "
@@ -648,7 +647,7 @@ msgstr ""
 "CLI 的 ``trust`` 成员、CodeBuddy CLI 对项目服务器的批准，以及 Zed 的工具权限。这些设置在客户端中进行，ANet "
 "不更改。在客户端中批准一次工具调用，并不等于批准一笔付款或一项入站任务。"
 
-#: ../../agents/other-mcp.rst:413
+#: ../../agents/other-mcp.rst:411
 msgid ""
 "The inbound policy of the node decides which peers may send tasks to it "
 "and which tasks need the approval of the operator (``anet inbound``, "
@@ -660,7 +659,7 @@ msgstr ""
 "``inbound_pending`` 与 ``reply_task`` 只在该策略范围内显示和答复任务；参见 "
 ":doc:`../topics/delegation` 与 :doc:`../topics/sandbox`。"
 
-#: ../../agents/other-mcp.rst:418
+#: ../../agents/other-mcp.rst:416
 msgid ""
 "The payment limits of the node decide whether a quote is paid. The limits"
 " for agents (``agent_max`` and ``agent_daily_max``) are ``0`` on a new "
@@ -670,7 +669,7 @@ msgstr ""
 "节点的付款额度决定报价是否会被支付。新节点上 Agent 的额度（``agent_max`` 与 ``agent_daily_max``）为 "
 "``0``。运维人员在终端中调高额度；助手无法调高，因为这些工具不更改任何配置。参见 :doc:`../topics/payments`。"
 
-#: ../../agents/other-mcp.rst:423
+#: ../../agents/other-mcp.rst:421
 msgid ""
 "Auto-approval of every tool of the server in the client is not required "
 "and is not recommended for ``send_message`` and ``submit_payment``. "
@@ -681,60 +680,65 @@ msgstr ""
 "在客户端中对该服务器的全部工具启用自动批准既无必要，对 ``send_message`` 与 ``submit_payment`` "
 "也不推荐。由于客户端将 ``anet mcp`` 作为自己的进程启动，客户端关闭连接时该入口随之终止。密钥始终保留在 daemon 中。"
 
-#: ../../agents/other-mcp.rst:430
+#: ../../agents/other-mcp.rst:428
 msgid "Troubleshooting"
 msgstr "故障排查"
 
-#: ../../agents/other-mcp.rst:436
+#: ../../agents/other-mcp.rst:434
 msgid "Symptom"
 msgstr "现象"
 
-#: ../../agents/other-mcp.rst:437
+#: ../../agents/other-mcp.rst:435
 msgid "Cause"
 msgstr "原因"
 
-#: ../../agents/other-mcp.rst:438
+#: ../../agents/other-mcp.rst:436
 msgid "Action"
 msgstr "处理"
 
-#: ../../agents/other-mcp.rst:439
+#: ../../agents/other-mcp.rst:437
 msgid "The server does not connect, or the client shows an error at start."
 msgstr "服务器无法连接，或客户端在启动时报错。"
 
-#: ../../agents/other-mcp.rst:440
+#: ../../agents/other-mcp.rst:438
 msgid ""
-"The daemon of the identity does not run. ``anet mcp`` then exits with a "
-"message that begins with ``anet is not running`` and the exit status 1."
-msgstr "该身份的 daemon 未运行。此时 ``anet mcp`` 以状态 1 退出，消息以 ``anet is not running`` 开头。"
+"With ANet 0.3.7 and earlier: the daemon of the identity does not run, and"
+" ``anet mcp`` exits with a message that begins with ``anet is not "
+"running`` and the exit status 1. From 0.3.8, ``anet mcp`` starts the node"
+" or reports in ``node_status`` why it cannot."
+msgstr ""
+"对于 ANet 0.3.7 及更早版本：该身份的 daemon 未运行，此时 ``anet mcp`` 以状态 1 退出，消息以 ``anet "
+"is not running`` 开头。自 0.3.8 起，``anet mcp`` 会启动节点，或在 ``node_status`` "
+"中报告无法启动的原因。"
 
-#: ../../agents/other-mcp.rst:442
+#: ../../agents/other-mcp.rst:439
 msgid ""
 "Start the daemon with ``anet up`` and check it with ``anet status``. Then"
 " restart the server in the client."
 msgstr "用 ``anet up`` 启动 daemon，并用 ``anet status`` 检查。然后在客户端中重启该服务器。"
 
-#: ../../agents/other-mcp.rst:444
+#: ../../agents/other-mcp.rst:441
 msgid "The client reports that the command is not found."
 msgstr "客户端报告找不到命令。"
 
-#: ../../agents/other-mcp.rst:445
+#: ../../agents/other-mcp.rst:442
 msgid ""
 "The command is a bare name, or the path is wrong. Graphical clients do "
 "not load the shell profile. Trae also refuses a command that contains "
 "spaces."
 msgstr "命令是裸名称，或路径有误。图形界面客户端不加载 shell 配置文件。Trae 还会拒绝含空格的命令。"
 
-#: ../../agents/other-mcp.rst:448
+#: ../../agents/other-mcp.rst:445
 msgid ""
 "Write the absolute path from ``command -v anet``. For a path with spaces,"
 " use a wrapper at a path without spaces in Trae."
 msgstr "写入 ``command -v anet`` 给出的绝对路径。路径含空格时，在 Trae 中改用位于无空格路径的包装脚本。"
 
-#: ../../agents/other-mcp.rst:450
+#: ../../agents/other-mcp.rst:447
 msgid "The server is not listed although the file was edited."
 msgstr "文件已编辑，但服务器未列出。"
 
-#: ../../agents/other-mcp.rst:451
+#: ../../agents/other-mcp.rst:448
 msgid ""
 "The key of the member does not match the client (``servers`` in VS Code, "
 "``context_servers`` in Zed), the file is not valid JSON, or the client "
@@ -743,49 +747,49 @@ msgstr ""
 "成员的键与客户端不符（VS Code 为 ``servers``，Zed 为 ``context_servers``），文件不是有效的 "
 "JSON，或客户端尚未重新读取该文件。"
 
-#: ../../agents/other-mcp.rst:454
+#: ../../agents/other-mcp.rst:451
 msgid ""
 "Use the key of the client and validate the file. Restart the client, or "
 "switch the server off and on."
 msgstr "使用该客户端对应的键并校验文件。重启客户端，或将该服务器关闭后再开启。"
 
-#: ../../agents/other-mcp.rst:456
+#: ../../agents/other-mcp.rst:453
 msgid "The tools reach a different node than expected."
 msgstr "工具连到的节点与预期不符。"
 
-#: ../../agents/other-mcp.rst:457
+#: ../../agents/other-mcp.rst:454
 msgid "``ANET_DATA_DIR`` names another identity."
 msgstr "``ANET_DATA_DIR`` 指向另一个身份。"
 
-#: ../../agents/other-mcp.rst:458
+#: ../../agents/other-mcp.rst:455
 msgid ""
 "Set ``ANET_DATA_DIR`` to the data directory of the intended identity, or "
 "use the arguments ``[\"--id\", \"<name>\", \"mcp\"]``."
 msgstr "将 ``ANET_DATA_DIR`` 设为目标身份的数据目录，或使用参数 ``[\"--id\", \"<name>\", \"mcp\"]``。"
 
-#: ../../agents/other-mcp.rst:460
+#: ../../agents/other-mcp.rst:457
 msgid "``wait_task`` ends after about 30 seconds and the task is still working."
 msgstr "``wait_task`` 约 30 秒后结束，任务仍在进行。"
 
-#: ../../agents/other-mcp.rst:461
+#: ../../agents/other-mcp.rst:458
 msgid "This is the default wait, below the limit of most clients."
 msgstr "这是默认等待时长，低于多数客户端的限制。"
 
-#: ../../agents/other-mcp.rst:462
+#: ../../agents/other-mcp.rst:459
 msgid ""
 "Call ``wait_task`` or ``get_task`` again. Do not send the request again. "
 "See :ref:`howto-mcp-waiting`."
 msgstr "再次调用 ``wait_task`` 或 ``get_task``，不要重新发送请求。参见 :ref:`howto-mcp-waiting`。"
 
-#: ../../agents/other-mcp.rst:464
+#: ../../agents/other-mcp.rst:461
 msgid "A long call ends at a client timeout."
 msgstr "较长的调用在客户端超时处结束。"
 
-#: ../../agents/other-mcp.rst:465
+#: ../../agents/other-mcp.rst:462
 msgid "Gemini CLI limits a call to 600000 ms unless ``timeout`` is set."
 msgstr "Gemini CLI 在未设置 ``timeout`` 时将调用限制为 600000 毫秒。"
 
-#: ../../agents/other-mcp.rst:466
+#: ../../agents/other-mcp.rst:463
 msgid ""
 "Set ``timeout`` to ``900000``, or in Trae ``RUN_MCP_TIMEOUT_MS`` to "
 "``900000``."
@@ -793,47 +797,47 @@ msgstr ""
 "将 ``timeout`` 设为 ``900000``；在 Trae 中将 ``RUN_MCP_TIMEOUT_MS`` 设为 "
 "``900000``。"
 
-#: ../../agents/other-mcp.rst:468
+#: ../../agents/other-mcp.rst:465
 msgid "A call fails with one sentence about the registration of the node."
 msgstr "调用失败，并给出一句关于节点注册的说明。"
 
-#: ../../agents/other-mcp.rst:469
+#: ../../agents/other-mcp.rst:466
 msgid ""
 "The node is not registered at its hub, or the operator has not admitted "
 "it yet."
 msgstr "节点尚未在其 Hub 注册，或运维人员尚未准入该节点。"
 
-#: ../../agents/other-mcp.rst:471
+#: ../../agents/other-mcp.rst:468
 msgid ""
 "Report the sentence to the operator and complete the registration "
 "(:doc:`../intro/tutorial`). Do not register again."
 msgstr "将该说明报告给运维人员并完成注册（:doc:`../intro/tutorial`），不要重复注册。"
 
-#: ../../agents/other-mcp.rst:473
+#: ../../agents/other-mcp.rst:470
 msgid "Some tools are missing in Windsurf."
 msgstr "Windsurf 中缺少部分工具。"
 
-#: ../../agents/other-mcp.rst:474
+#: ../../agents/other-mcp.rst:471
 msgid "Windsurf allows 100 tools across all enabled servers."
 msgstr "Windsurf 对所有已启用服务器合计允许 100 个工具。"
 
-#: ../../agents/other-mcp.rst:475
+#: ../../agents/other-mcp.rst:472
 msgid "Switch off servers or tools that are not needed."
 msgstr "关闭不需要的服务器或工具。"
 
-#: ../../agents/other-mcp.rst:476
+#: ../../agents/other-mcp.rst:473
 msgid "A task stays in ``input-required`` with a quote."
 msgstr "任务停留在 ``input-required`` 并附带报价。"
 
-#: ../../agents/other-mcp.rst:477
+#: ../../agents/other-mcp.rst:474
 msgid "Agent payments are off (limit ``0``)."
 msgstr "Agent 付款处于关闭状态（额度 ``0``）。"
 
-#: ../../agents/other-mcp.rst:478
+#: ../../agents/other-mcp.rst:475
 msgid "Confirm with ``anet pay <task-id>`` on a terminal, or set the limits."
 msgstr "在终端中用 ``anet pay <task-id>`` 确认，或设置额度。"
 
-#: ../../agents/other-mcp.rst:480
+#: ../../agents/other-mcp.rst:477
 msgid ""
 "Further causes and their reason codes are in "
 ":doc:`../howto/troubleshooting` and :doc:`../reference/reason-codes`."
@@ -841,11 +845,11 @@ msgstr ""
 "其他原因及其原因码参见 :doc:`../howto/troubleshooting` 与 :doc:`../reference/reason-"
 "codes`。"
 
-#: ../../agents/other-mcp.rst:485
+#: ../../agents/other-mcp.rst:482
 msgid "Disconnecting"
 msgstr "断开"
 
-#: ../../agents/other-mcp.rst:487
+#: ../../agents/other-mcp.rst:484
 msgid ""
 "``anet agents unwire`` does not handle these clients. Remove the member "
 "``anet`` from the file of the client (``mcpServers``, ``servers`` or "
@@ -857,11 +861,11 @@ msgstr ""
 "``context_servers`` 下的成员 ``anet``，或在客户端界面中删除该服务器，然后重启客户端。ANet "
 "不会改动其他服务器的文件。"
 
-#: ../../agents/other-mcp.rst:494
+#: ../../agents/other-mcp.rst:491
 msgid "References"
 msgstr "参考"
 
-#: ../../agents/other-mcp.rst:496
+#: ../../agents/other-mcp.rst:493
 msgid ""
 "Windsurf: `<https://docs.windsurf.com/windsurf/cascade/mcp>`_ (redirects "
 "to `<https://docs.devin.ai/desktop/cascade/mcp>`_)"
@@ -869,7 +873,7 @@ msgstr ""
 "Windsurf: `<https://docs.windsurf.com/windsurf/cascade/mcp>`_ (重定向至 "
 "`<https://docs.devin.ai/desktop/cascade/mcp>`_)"
 
-#: ../../agents/other-mcp.rst:498
+#: ../../agents/other-mcp.rst:495
 msgid ""
 "Trae: `<https://docs.trae.ai/ide/add-mcp-servers>`_, "
 "`<https://docs.trae.cn/ide/model-context-protocol>`_, "
@@ -879,11 +883,11 @@ msgstr ""
 "`<https://docs.trae.cn/ide/model-context-protocol>`_, "
 "`<https://docs.trae.cn/work_remote-mcp-server>`_"
 
-#: ../../agents/other-mcp.rst:501
+#: ../../agents/other-mcp.rst:498
 msgid "Cline: `<https://docs.cline.bot/mcp/configuring-mcp-servers>`_"
 msgstr "Cline: `<https://docs.cline.bot/mcp/configuring-mcp-servers>`_"
 
-#: ../../agents/other-mcp.rst:502
+#: ../../agents/other-mcp.rst:499
 msgid ""
 "VS Code: `<https://code.visualstudio.com/docs/copilot/customization/mcp-"
 "servers>`_, `<https://code.visualstudio.com/docs/copilot/reference/mcp-"
@@ -892,26 +896,26 @@ msgstr ""
 "VS Code: `<https://code.visualstudio.com/docs/copilot/customization/mcp-"
 "servers>`_, `<https://code.visualstudio.com/docs/copilot/reference/mcp-"
 "configuration>`_"
+
+#: ../../agents/other-mcp.rst:501
+msgid ""
+"Gemini CLI: `<https://github.com/google-gemini/gemini-"
+"cli/blob/main/docs/tools/mcp-server.md>`_, `<https://github.com/google-"
+"gemini/gemini-cli/blob/main/docs/cli/gemini-md.md>`_"
+msgstr ""
+"Gemini CLI: `<https://github.com/google-gemini/gemini-"
+"cli/blob/main/docs/tools/mcp-server.md>`_, `<https://github.com/google-"
+"gemini/gemini-cli/blob/main/docs/cli/gemini-md.md>`_"
 
 #: ../../agents/other-mcp.rst:504
 msgid ""
-"Gemini CLI: `<https://github.com/google-gemini/gemini-"
-"cli/blob/main/docs/tools/mcp-server.md>`_, `<https://github.com/google-"
-"gemini/gemini-cli/blob/main/docs/cli/gemini-md.md>`_"
-msgstr ""
-"Gemini CLI: `<https://github.com/google-gemini/gemini-"
-"cli/blob/main/docs/tools/mcp-server.md>`_, `<https://github.com/google-"
-"gemini/gemini-cli/blob/main/docs/cli/gemini-md.md>`_"
-
-#: ../../agents/other-mcp.rst:507
-msgid ""
 "CodeBuddy: `<https://www.codebuddy.cn/docs/cli/mcp>`_, "
 "`<https://cloud.tencent.com/document/product/1831/137068>`_"
 msgstr ""
 "CodeBuddy: `<https://www.codebuddy.cn/docs/cli/mcp>`_, "
 "`<https://cloud.tencent.com/document/product/1831/137068>`_"
 
-#: ../../agents/other-mcp.rst:509
+#: ../../agents/other-mcp.rst:506
 msgid ""
 "Zed: `<https://zed.dev/docs/ai/mcp>`_, `<https://zed.dev/docs"
 "/configuring-zed>`_"
@@ -919,7 +923,7 @@ msgstr ""
 "Zed: `<https://zed.dev/docs/ai/mcp>`_, `<https://zed.dev/docs"
 "/configuring-zed>`_"
 
-#: ../../agents/other-mcp.rst:511
+#: ../../agents/other-mcp.rst:508
 msgid ""
 "ANet: :doc:`../howto/coding-agents`, :doc:`../howto/mcp`, "
 ":doc:`../reference/mcp-tools`, :doc:`../topics/payments`, "
@@ -929,7 +933,7 @@ msgstr ""
 ":doc:`../reference/mcp-tools`, :doc:`../topics/payments`, "
 ":doc:`../topics/sandbox`."
 
-#: ../../agents/other-mcp.rst:515
+#: ../../agents/other-mcp.rst:512
 msgid ""
 "The client facts on this page were read from the pages above on "
 "2026-10-17; no client was run. The following points are not confirmed and"

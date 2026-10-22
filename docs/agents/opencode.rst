@@ -48,7 +48,7 @@ Prerequisites
 Plugin
 ------
 
-The plugin (version 0.2.0) is an alternative to ``anet agents wire opencode``.
+The plugin (version 0.3.0) is an alternative to ``anet agents wire opencode``.
 It installs the MCP server, two skills and two commands as a single package,
 and it adds a guided setup of the node. The two channels can coexist; the interaction is
 described under :ref:`Plugin and automatic wiring <agents-opencode-plugin-wire>`.
@@ -78,8 +78,7 @@ adds the following components to the configuration.
        holds the rules that always apply.
    * - Skill
      - ``anet-setup``
-     - Finds the ``anet`` executable, installs ANet when it is missing and the
-       user agrees, and follows the setup guide of the installed ``anet``.
+     - Finds the ``anet`` executable, installs ANet when it is still missing, and follows the setup guide of the installed ``anet``.
    * - Command
      - ``/anet``
      - The entry point: carries out an ``@anet`` request as the guide
@@ -146,7 +145,7 @@ determined.
 Setting up the node
 ~~~~~~~~~~~~~~~~~~~
 
-Without any ``anet`` installation, start opencode and ask for the setup:
+The MCP server of the plugin installs ``anet`` by itself when opencode starts it without one (:ref:`agents-plugin-install`). To run the setup explicitly, start opencode and ask:
 
 .. code-block:: text
 
@@ -156,8 +155,7 @@ Without any ``anet`` installation, start opencode and ask for the setup:
 The model loads the skill ``anet-setup``. It runs the runner with
 ``--resolve`` to find ``anet``, runs the official installer through
 ``bin/anet-install.sh`` on Linux and macOS or ``bin/anet-install.cmd`` on
-Windows after the user agrees (the signature and the checksum are verified by
-the installer), and then prints the setup guide of the installed ``anet`` with
+Windows when the MCP server has not installed it already (the signature and the checksum are verified by the installer), and then prints the setup guide of the installed ``anet`` with
 ``<runner> guide setup`` and follows it through the runner. It then asks the
 user to restart opencode, because the MCP server could not start before
 ``anet`` existed. In a run with an earlier version of the plugin, every check
@@ -252,7 +250,7 @@ read from any other file. Restart opencode after a change.
 Updating and removing the plugin
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Version 0.2.0 is the final version of the plugin; a new release of ANet needs
+Version 0.3.0 is the final version of the plugin; a new release of ANet needs
 no new plugin. To replace an earlier version, install the package or directory
 with the command shown above, and restart opencode. A version can be pinned in the entry, for
 example ``@agentnetwork/opencode-anet@<version>``. To remove the plugin, delete its

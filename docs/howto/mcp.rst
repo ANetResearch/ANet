@@ -36,14 +36,58 @@ followed with ``wait_task``, ``get_task`` and ``list_tasks``. A result is an
 A2A Task, forwarded as the daemon produced it. Clients that know A2A need no
 further description of the shape of the result.
 
-The server refuses to start when no daemon answers. A client that connects and
-then fails every call teaches the model that the tools are broken; a client
-that fails to connect directs the operator to the daemon, where the cause is.
-The message names the data directory and the command that starts the node:
+.. _howto-mcp-without-node:
 
-.. code-block:: console
+Starting the node, and serving without it
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-   $ anet up
+A coding agent starts ``anet mcp`` with every session, so the server brings
+the node up itself. When no daemon answers for the selected identity and its
+data directory is set up, ``anet mcp`` starts the daemon exactly as
+``anet up`` does: detached, with the same checks, in the home directory of
+the user rather than in the working directory of the session. It waits up to
+20 seconds for the daemon to answer and then serves. Two sessions that start
+at the same moment start one daemon. Everything the server reports while it
+does so goes to its error output; standard output carries only the MCP
+session.
+
+When the node cannot be brought up, the server still starts and lists every
+tool. The tool ``guide`` works as usual; ``node_status`` answers
+``running: false`` with the reason code, the sentence and, in ``next``, the
+command that fixes it; every other tool answers with the same reason as a
+tool error, and the instructions of the server begin with it. The server
+looks for the daemon again at each call, so the tools work in the same session
+as soon as the node runs. The reasons are:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 35 65
+
+   * - Reason
+     - Meaning and command
+   * - ``daemon_not_running`` (no node set up)
+     - The data directory of the identity holds no identity and no
+       configuration. ``anet mcp`` does not create one: an identity is created
+       by the installer or by the operator, where the node also joins a hub,
+       and an identity name that is misspelt in a plugin setting must not
+       create and start a new identity. The command is ``anet up`` (for a
+       named identity ``anet --id <name> up``), which creates the identity with
+       safe defaults and starts it; the guide topic ``setup`` describes joining
+       a hub.
+   * - ``daemon_not_running``
+     - The daemon was started and did not answer in time, or exited; the
+       detail quotes its log. The command is ``anet up``, which prints the
+       reason.
+   * - ``daemon_not_answering``
+     - A daemon holds the data directory and does not answer.
+   * - The code of a refusal, for example ``config_key_removed`` or
+       ``module_absent``
+     - The daemon would refuse the data directory or its configuration; the
+       sentence names the change. Nothing is started.
+
+``anet mcp`` with the ``mcp`` module turned off in ``config.json`` still
+refuses with ``module_absent`` and the exit status 2: that is a decision of
+the operator.
 
 
 Configuring a client
@@ -471,7 +515,8 @@ Typical cases:
   hub. ``send_message`` fails at once, nothing is sent, and the sentence names
   the step to take. The agent relays the sentence to the user as it is and
   does not register again.
-* ``daemon_not_running``: no daemon answers; ``anet up``.
+* ``daemon_not_running``: no daemon answers and ``anet mcp`` could not start
+  one; ``node_status`` names the command (:ref:`howto-mcp-without-node`).
 * ``module_absent``: the function belongs to a module that is not available
   in this build or configuration.
 

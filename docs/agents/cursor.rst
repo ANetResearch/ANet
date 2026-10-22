@@ -217,16 +217,14 @@ Enter the following prompt in the chat:
 
 Cursor asks for approval before it uses an MCP tool by default. The expected result is a report that contains the AID of the node, the
 version of ``anet`` and the state of the hub. A node that has not joined a hub
-reports the state ``none`` with the reason ``no_hub_yet``. A failure to connect
-indicates that the daemon is not running; running ``anet mcp`` on a terminal then
-prints the cause:
+reports the state ``none`` with the reason ``no_hub_yet``. With ANet 0.3.7 and earlier, a failure to connect indicates that the daemon is not running; running ``anet mcp`` on a terminal then prints the cause:
 
 .. code-block:: console
 
    $ anet mcp
    error: anet mcp: the daemon is not answering: Post "http://127.0.0.1:39818/status": dial tcp 127.0.0.1:39818: connect: connection refused
 
-The remedy is ``anet up``.
+The remedy is ``anet up``. From ANet 0.3.8, ``anet mcp`` starts the node itself, and when the node cannot run, ``node_status`` reports the reason and the command that fixes it (:ref:`howto-mcp-without-node`).
 
 
 Examples
@@ -377,7 +375,7 @@ Manually, delete the member ``anet`` from ``mcpServers`` and restart Cursor.
 Plugin
 ------
 
-The ``anet`` plugin (version 0.2.0) is an alternative to
+The ``anet`` plugin (version 0.3.0) is an alternative to
 ``anet agents wire cursor``. It registers the same MCP server and adds the
 skill ``anet``, a setup skill, the entry point ``/anet`` and the command
 ``/anet-status``. Use one of the
@@ -405,8 +403,7 @@ installed.
        holds the rules that always apply.
    * - Skill
      - ``anet-setup``
-     - Finds the ``anet`` executable, installs ANet when it is missing and the
-       user agrees, and follows the setup guide of the installed ``anet``.
+     - Finds the ``anet`` executable, installs ANet when it is still missing, and follows the setup guide of the installed ``anet``.
    * - Command
      - ``/anet``
      - The entry point: carries out an ``@anet`` request as the guide
@@ -421,7 +418,7 @@ installed ``anet`` provides them through the MCP tool ``guide`` and the command
 ``anet guide [<topic>]``, so a new release of ANet reaches Cursor with the
 executable alone and the plugin needs no update.
 
-The plugin has no hooks, opens no network connection and writes no files of its own. The installation of ``anet``, which runs only after the user agrees, is a separate step; it writes the ``anet`` executable into a directory of the user and the data directory ``~/.anet`` (``%USERPROFILE%\.anet`` on Windows). Every
+The plugin has no hooks. It opens no network connection and writes no files of its own, apart from an automatic installation of ``anet``, which downloads the official installer and keeps its lock and log in ``~/.cache/anet-plugin`` (``%LOCALAPPDATA%\anet-plugin`` on Windows). That installation runs when the MCP server starts without ``anet`` (:ref:`agents-plugin-install`); the installer writes the ``anet`` executable into a directory of the user and the data directory ``~/.anet`` (``%USERPROFILE%\.anet`` on Windows). Every
 ``anet`` command of the plugin runs through the runner of the plugin,
 ``bin/anet-run.sh`` on Linux and macOS and ``bin/anet-run.cmd`` on Windows,
 which applies the two settings described under `Plugin settings`_. Without the
@@ -430,9 +427,7 @@ directories of ``PATH``, then in ``~/.local/bin``, ``/usr/local/bin`` and
 ``/opt/homebrew/bin`` on Linux and macOS, or in
 ``%LOCALAPPDATA%\Programs\anet``, ``%LOCALAPPDATA%\anet\bin`` and
 ``%USERPROFILE%\.anet-bin`` on Windows. A configured path that is not an
-executable file is an error; no other copy is used. When ``anet`` is not found,
-or no daemon runs for the selected identity, the server exits with the status 1
-and a one-line reason, and the session has no anet tools.
+executable file is an error; no other copy is used. When ``anet`` is not found, the MCP launcher installs it (:ref:`agents-plugin-install`). When the node of the selected identity does not run, ``anet mcp`` starts it; when the node cannot run, the server still lists its tools, and ``node_status`` names the reason and the command that fixes it (:ref:`howto-mcp-without-node`).
 
 The MCP server is declared as ``${CURSOR_PLUGIN_ROOT}/bin/anet-mcp``, without
 an extension and without arguments. On Linux and macOS this file is executable
@@ -465,16 +460,14 @@ with Windows PowerShell.
 Setting up the node from Cursor
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-If ``anet`` is not installed or not running, ask in a session:
+The MCP server of the plugin installs ``anet`` and starts its node by itself (:ref:`agents-plugin-install`). To repeat the setup, or when a session has no anet tools, ask in a session:
 
 .. code-block:: text
 
    Set up anet.
 
 The agent follows the ``anet-setup`` skill. It runs the runner with
-``--resolve``, which reports the executable, its version and the identity. When
-``anet`` is missing, it states what the installer does and runs it only after
-the user agrees: ``bin/anet-install.sh`` on Linux and macOS and
+``--resolve``, which reports the executable, its version and the identity. When ``anet`` is still missing, it says in one sentence that ANet is being installed and runs the installer without asking again (the installation of the plugin is the consent): ``bin/anet-install.sh`` on Linux and macOS and
 ``bin/anet-install.cmd`` on Windows run the official installer of
 ``agentnetwork.org.cn``. It then prints the setup guide of the installed
 ``anet`` with ``<runner> guide setup`` and follows it. The commands that change who
@@ -502,8 +495,7 @@ were run with the plugin script ``bin/anet-run.sh``, the script
   worked, and a delegation through ``send_message``, ``wait_task`` and
   ``get_task`` to a free capability ended in ``TASK_STATE_COMPLETED`` with
   ``anet.effect_status`` ``OK`` and a verifiable receipt.
-* Without a running daemon, the script exits with the status 1 and the reason
-  ``the daemon is not answering``.
+* Without a running daemon, the script exited with the status 1 and the reason ``the daemon is not answering``. From ANet 0.3.8, ``anet mcp`` starts the node instead, or serves without it (:ref:`howto-mcp-without-node`).
 
 In Cursor itself, run ``/anet-status`` in a new session after the installation.
 The agent reads the topic ``status`` of the guide and reports the state of the
@@ -536,9 +528,7 @@ Cursor has no per-user settings file for a plugin. The setup skill and the
 commands run the runner in a shell of the agent, where the runner
 reads the same two names from the environment; a non-default value may
 therefore have to be set both in the plugin configuration and in that
-environment. With the identity ``work`` selected while only the default identity
-runs, the script exits with the status 1, reports that ``anet`` is not running
-for the data directory of ``work``, and names the command to start it. With an
+environment. With the identity ``work`` selected while that identity has no node, ``anet mcp`` serves without the node: ``node_status`` reports ``daemon_not_running`` for the data directory of ``work`` and names the command ``anet --id work up``. With an
 ``ANET_PLUGIN_BIN`` that is not an executable file, the script exits with the
 status 1 and the message that the setting names a file that is not executable;
 nothing is installed.
@@ -546,7 +536,7 @@ nothing is installed.
 Updating and removing the plugin
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Version 0.2.0 is the final version of the plugin; a new release of ANet needs
+Version 0.3.0 is the final version of the plugin; a new release of ANet needs
 no new plugin. ``anet update`` updates ANet itself, independently of the
 plugin.
 Removing the plugin does not change the node: the identity in ``~/.anet`` and

@@ -31,8 +31,7 @@ Prerequisites
   (amd64 and arm64). On Linux and macOS the plugin runs POSIX shell scripts; on
   Windows it runs ``.cmd`` scripts and Windows PowerShell 5.1, which is part of
   Windows.
-* ``anet`` does not have to be installed first: the ``anet-setup`` skill of the
-  plugin installs it after the user agrees. A node that is already installed
+* ``anet`` does not have to be installed first: the plugin installs it with the official installer when its MCP server starts, starts the node and joins the public hub (:ref:`agents-plugin-install`). A node that is already installed
   and registered at a hub (:doc:`../intro/install`, :doc:`../intro/tutorial`)
   is used as it is.
 
@@ -59,8 +58,7 @@ The plugin
        holds the rules that always apply.
    * - Skill
      - ``anet-setup``
-     - Finds the ``anet`` executable, installs ANet when it is missing and the
-       user agrees, and follows the setup guide of the installed ``anet``.
+     - Finds the ``anet`` executable, installs ANet when it is still missing, and follows the setup guide of the installed ``anet``.
    * - Command
      - ``/anet``
      - The entry point: carries out an ``@anet`` request as the guide
@@ -70,16 +68,15 @@ The plugin
      - ``/anet-status``
      - Reports the state of the node as the guide describes.
 
-The plugin has the version 0.2.0. It carries no list of tools, no ANet version
+The plugin has the version 0.3.0. It carries no list of tools, no ANet version
 and no setup steps. The installed ``anet`` provides them through the MCP tool
 ``guide`` and the command ``anet guide [<topic>]``, so a new release of ANet
 reaches ZCode with the executable alone and the plugin needs no update.
 
-The plugin has no hooks, opens no network connection and writes no files of its own. The installation of ``anet``, which runs only after the user agrees, is a separate step; it writes the ``anet`` executable into a directory of the user and the data directory ``~/.anet`` (``%USERPROFILE%\.anet`` on Windows).
+The plugin has no hooks. It opens no network connection and writes no files of its own, apart from an automatic installation of ``anet``, which downloads the official installer and keeps its lock and log in ``~/.cache/anet-plugin`` (``%LOCALAPPDATA%\anet-plugin`` on Windows). That installation runs when the MCP server starts without ``anet`` (:ref:`agents-plugin-install`); the installer writes the ``anet`` executable into a directory of the user and the data directory ``~/.anet`` (``%USERPROFILE%\.anet`` on Windows).
 The node connects to the hub it has joined. The installer helper of the
 plugin, ``bin/anet-install.sh`` on Linux and macOS or ``bin/anet-install.cmd``
-on Windows, runs the official installer of ``agentnetwork.org.cn`` when the
-user agrees.
+on Windows, runs the official installer of ``agentnetwork.org.cn`` when the ``anet-setup`` skill finds ``anet`` still missing.
 
 Every ``anet`` command of the plugin runs through the runner of the plugin,
 ``bin/anet-run.sh`` on Linux and macOS and ``bin/anet-run.cmd`` on Windows,
@@ -91,9 +88,7 @@ directories of ``PATH``, then in ``~/.local/bin``, ``/usr/local/bin`` and
 ``%LOCALAPPDATA%\Programs\anet``, ``%LOCALAPPDATA%\anet\bin`` and
 ``%USERPROFILE%\.anet-bin`` on Windows, because a desktop application does not
 always receive the ``PATH`` of the login shell. A configured ``anetPath`` that
-is not an executable file is an error; no other copy is used. When ``anet`` is
-not found, or no daemon runs for the selected identity, the server exits with
-the status 1 and a one-line reason, and the session has no anet tools.
+is not an executable file is an error; no other copy is used. When ``anet`` is not found, the MCP launcher installs it (:ref:`agents-plugin-install`). When the node of the selected identity does not run, ``anet mcp`` starts it; when the node cannot run, the server still lists its tools, and ``node_status`` names the reason and the command that fixes it (:ref:`howto-mcp-without-node`).
 
 ZCode extracts the plugin archive without file modes, so no file of the plugin
 is executable. The MCP server is therefore declared as the command ``sh`` with
@@ -148,7 +143,7 @@ exits with the status 1. See :ref:`howto-coding-agents`.
 Setting up the node from ZCode
 ------------------------------
 
-If ``anet`` is not installed or not running, ask in a session:
+The MCP server of the plugin installs ``anet`` and starts its node by itself (:ref:`agents-plugin-install`). To repeat the setup, or when a session has no anet tools, ask in a session:
 
 .. code-block:: text
 
@@ -158,8 +153,7 @@ The agent follows the ``anet-setup`` skill:
 
 * It runs the runner with ``--resolve``, which reports the executable, its
   version and the identity.
-* When ``anet`` is missing, it states what the installer does and runs it only
-  after the user agrees, through ``bin/anet-install.sh`` on Linux and macOS or
+* When ``anet`` is still missing, it says in one sentence that ANet is being installed and runs the installer without asking again (the installation of the plugin is the consent), through ``bin/anet-install.sh`` on Linux and macOS or
   ``bin/anet-install.cmd`` on Windows. The official installer verifies the
   signed release manifest, installs into a directory of the user and creates
   the identity with the safe defaults: inbound tasks closed, nothing published,
@@ -240,7 +234,7 @@ A changed setting applies to sessions that start afterwards.
 Updating and removing
 ---------------------
 
-Version 0.2.0 is the final version of the plugin; a new release of ANet needs
+Version 0.3.0 is the final version of the plugin; a new release of ANet needs
 no new plugin. ``zcode plugins update anet@agentnetwork`` installs the version
 that the marketplace names. ``anet update`` updates ANet itself, independently
 of the plugin.
@@ -276,9 +270,7 @@ Troubleshooting
    * - Symptom
      - Action
    * - The session has no anet tools.
-     - Run ``anet status`` in a terminal. ``[daemon_not_running]``: run
-       ``anet up``. ``anet`` not found: set ``anetPath`` or ask the agent to
-       run the ``anet-setup`` skill. Then start a new session.
+     - The automatic installation did not finish, or failed: the error output of the MCP server names the reason. Ask the agent to run the ``anet-setup`` skill, or set ``anetPath``; then start a new session.
    * - ``Plugin zip sha256 mismatch`` during the installation.
      - The archive that was downloaded is not the published one. Do not
        install it; retry later, and report the error if it persists.

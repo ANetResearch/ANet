@@ -46,8 +46,7 @@ Prerequisites
     digest of the downloaded archive with the one in ``trae.json`` before
     the archive is unpacked.
 
-* ``anet`` does not have to be installed first: the ``anet-setup`` skill of
-  the bundle installs it after the user agrees. A node that is already
+* ``anet`` does not have to be installed first: the bundle installs it with the official installer when its MCP server starts, starts the node and joins the public hub (:ref:`agents-plugin-install`). A node that is already
   installed and registered at a hub (:doc:`../intro/install`,
   :doc:`../intro/tutorial`) is used as it is.
 
@@ -75,8 +74,7 @@ The plugin
        holds the rules that always apply.
    * - Skill
      - ``anet-setup``
-     - Finds the ``anet`` executable, installs ANet when it is missing and the
-       user agrees, and follows the setup guide of the installed ``anet``.
+     - Finds the ``anet`` executable, installs ANet when it is still missing, and follows the setup guide of the installed ``anet``.
    * - Command
      - ``/anet``
      - The entry point: carries out an ``@anet`` request as the guide
@@ -86,16 +84,19 @@ The plugin
      - ``/anet-status``
      - Reports the state of the node as the guide describes.
 
-The bundle has the version 0.2.0. It carries no list of tools, no ANet version
+The bundle has the version 0.3.0. It carries no list of tools, no ANet version
 and no setup steps. The installed ``anet`` provides them through the MCP tool
 ``guide`` and the command ``anet guide [<topic>]``, so a new release of ANet
 reaches Trae with the executable alone and the bundle needs no update.
 
-The bundle has no hooks and opens no network connection. The node connects to
-the hub it has joined. The installer helper of the bundle,
+The bundle has no hooks. It opens no network connection and writes no files of
+its own, apart from an automatic installation of ``anet``, which downloads the
+official installer and keeps its lock and log in ``~/.cache/anet-plugin``
+(``%LOCALAPPDATA%\anet-plugin`` on Windows); that installation runs when the MCP
+server starts without ``anet`` (:ref:`agents-plugin-install`). The node connects
+to the hub it has joined. The installer helper of the bundle,
 ``anet/bin/anet-install.sh`` on Linux and macOS or ``anet/bin/anet-install.cmd``
-on Windows, runs the official installer of ``agentnetwork.org.cn`` when the
-user agrees.
+on Windows, runs the official installer of ``agentnetwork.org.cn`` when the ``anet-setup`` skill finds ``anet`` still missing.
 
 Every ``anet`` command of the bundle runs through the runner of the bundle,
 ``anet/bin/anet-run.sh`` on Linux and macOS and ``anet/bin/anet-run.cmd`` on
@@ -237,7 +238,7 @@ first.
 Setting up the node from Trae
 -----------------------------
 
-If ``anet`` is not installed or not running, ask in a session:
+The MCP server of the bundle installs ``anet`` and starts its node by itself (:ref:`agents-plugin-install`). To repeat the setup, or when a session has no anet tools, ask in a session:
 
 .. code-block:: text
 
@@ -247,9 +248,7 @@ If ``anet`` is not installed or not running, ask in a session:
 The agent follows the ``anet-setup`` skill:
 
 * It runs the runner with ``--resolve``, which reports the executable, the
-  version and the identity, or ``not found``. When ``anet`` is missing, it
-  states what the installer does and runs it only after the user agrees,
-  through ``anet/bin/anet-install.sh`` on Linux and macOS or
+  version and the identity, or ``not found``. When ``anet`` is still missing, it says in one sentence that ANet is being installed and runs the installer without asking again (the installation of the plugin is the consent), through ``anet/bin/anet-install.sh`` on Linux and macOS or
   ``anet/bin/anet-install.cmd`` on Windows. The official installer verifies
   the signed release manifest, installs into a directory of the user and
   creates the identity with the safe defaults: inbound tasks closed, nothing
@@ -344,9 +343,8 @@ commands and the MCP server can use different identities.
 Updating and removing
 ---------------------
 
-Version 0.2.0 is the final version of the bundle; a new release of ANet needs
-no new bundle. To replace an earlier version, run the installer of version
-0.2.0 again with the same scope. The installer is idempotent. ``anet update``
+Version 0.3.0 is the final version of the bundle; a new release of ANet needs
+no new bundle. To replace an earlier version, run the installer of version 0.3.0 again with the same scope. The installer is idempotent. ``anet update``
 updates ANet itself, independently of the bundle.
 
 .. code-block:: console

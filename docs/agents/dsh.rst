@@ -26,8 +26,7 @@ Prerequisites
   (amd64 and arm64). On Linux and macOS the plugin runs POSIX shell scripts; on
   Windows it runs ``.cmd`` scripts and Windows PowerShell 5.1, which is part of
   Windows.
-* ``anet`` does not have to be installed first: the ``anet-setup`` skill
-  installs it after the user agrees. A node that is already installed and
+* ``anet`` does not have to be installed first: the plugin installs it with the official installer when its MCP server starts, starts the node and joins the public hub (:ref:`agents-plugin-install`). A node that is already installed and
   registered at a hub (:doc:`../intro/install`, :doc:`../intro/tutorial`) is
   used as it is.
 
@@ -62,21 +61,19 @@ profile that installs it.
        agents sent to the node and the state of the node.
    * - Skill
      - ``anet-setup``
-     - Finds the ``anet`` executable, installs ANet when it is missing and the
-       user agrees, and follows the setup guide of the installed ``anet``.
+     - Finds the ``anet`` executable, installs ANet when it is still missing, and follows the setup guide of the installed ``anet``.
    * - Skill
      - ``anet-status``
      - Reports the state of the node as the guide describes. The user or the
        agent can invoke it.
 
-The plugin has the version 0.2.0. It carries no list of tools, no ANet version
+The plugin has the version 0.3.0. It carries no list of tools, no ANet version
 and no setup steps. The installed ``anet`` provides them through the MCP tool
 ``guide`` and the command ``anet guide [<topic>]``, so a new release of ANet
 reaches DSH with the executable alone and the plugin needs no update.
 
 A bundle does not load skills by itself; the module ``skills.js`` of the
-plugin registers them with the skill registry of DSH. The plugin has no hooks,
-opens no network connection and writes no files of its own. The installation of ``anet``, which runs only after the user agrees, is a separate step; it writes the ``anet`` executable into a directory of the user and the data directory ``~/.anet`` (``%USERPROFILE%\.anet`` on Windows). Every ``anet`` command of the
+plugin registers them with the skill registry of DSH. The plugin has no hooks. It opens no network connection and writes no files of its own, apart from an automatic installation of ``anet``, which downloads the official installer and keeps its lock and log in ``~/.cache/anet-plugin`` (``%LOCALAPPDATA%\anet-plugin`` on Windows). That installation runs when the MCP server starts without ``anet`` (:ref:`agents-plugin-install`); the installer writes the ``anet`` executable into a directory of the user and the data directory ``~/.anet`` (``%USERPROFILE%\.anet`` on Windows). Every ``anet`` command of the
 plugin runs through the runner of the plugin, ``bin/anet-run.sh`` on Linux and
 macOS and ``bin/anet-run.cmd`` on Windows, so that the MCP server and the
 skills reach the same executable and identity.
@@ -107,15 +104,14 @@ server and the skills are available in sessions that start afterwards.
 Setting up the node from DSH
 ----------------------------
 
-If ``anet`` is not installed or not running, ask in a session:
+The MCP server of the plugin installs ``anet`` and starts its node by itself (:ref:`agents-plugin-install`). To repeat the setup, or when a session has no anet tools, ask in a session:
 
 .. code-block:: text
 
    Set up anet.
 
 The agent follows the ``anet-setup`` skill. It runs the runner with
-``--resolve`` and reports the executable. When ``anet`` is missing, it states
-what the installer does and runs it only after the user agrees, through
+``--resolve`` and reports the executable. When ``anet`` is still missing, it says in one sentence that ANet is being installed and runs the installer without asking again (the installation of the plugin is the consent), through
 ``bin/anet-install.sh`` on Linux and macOS or ``bin/anet-install.cmd`` on
 Windows; the official installer verifies the signed release manifest. The
 agent then prints the setup guide of the installed ``anet`` with
@@ -207,10 +203,9 @@ and the commands of the skills use the same executable and identity.
 Updating and removing
 ---------------------
 
-``anet update`` updates ANet itself, independently of the plugin. Version
-0.2.0 is the final version of the plugin; a new release of ANet needs no new
+``anet update`` updates ANet itself, independently of the plugin. Version 0.3.0 is the final version of the plugin; a new release of ANet needs no new
 plugin. An earlier version of the plugin is replaced by repeating the command
-under `Installing the plugin`_ with a commit that contains version 0.2.0. None of these changes the node:
+under `Installing the plugin`_ with a commit that contains version 0.3.0. None of these changes the node:
 the identity in ``~/.anet`` and the running daemon remain.
 :doc:`../intro/install` describes how to stop the node and remove ANet.
 

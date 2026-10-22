@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ANet 0.3\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-21 15:12+0000\n"
+"POT-Creation-Date: 2026-10-22 07:45+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: Agent Network Research\n"
 "Language: zh_Hans_CN\n"
@@ -322,7 +322,7 @@ msgstr "插件"
 
 #: ../../agents/codex.rst:193
 msgid ""
-"The ``anet`` plugin (version 0.2.0) is an alternative to :ref:`agents-"
+"The ``anet`` plugin (version 0.3.0) is an alternative to :ref:`agents-"
 "codex-wire`. It registers the same MCP server (``anet mcp``) and adds "
 "three skills of Codex: the entry point for ``@anet`` requests, the setup "
 "procedure and the status check. Installing it does not change "
@@ -330,7 +330,7 @@ msgid ""
 "codex`` are alternatives; use one of them, not both (see :ref:`agents-"
 "codex-plugin-conflict`)."
 msgstr ""
-"``anet`` 插件（版本 0.2.0）可替代 :ref:`agents-codex-wire`。它注册同一个 MCP 服务器（``anet "
+"``anet`` 插件（版本 0.3.0）可替代 :ref:`agents-codex-wire`。它注册同一个 MCP 服务器（``anet "
 "mcp``），并增加三项 Codex 技能：``@anet`` 请求的入口、设置流程和状态检查。安装插件不会修改 ``config.toml`` "
 "或 ``AGENTS.md``。插件与 ``anet agents wire codex`` 互为替代，二者择一使用，不应同时使用（参见 :ref"
 ":`agents-codex-plugin-conflict`）。"
@@ -379,7 +379,7 @@ msgstr ""
 "``guide`` 返回 ANet 的最新指南。"
 
 #: ../../agents/codex.rst:221 ../../agents/codex.rst:229
-#: ../../agents/codex.rst:233
+#: ../../agents/codex.rst:232
 msgid "Skill"
 msgstr "技能"
 
@@ -406,21 +406,21 @@ msgstr "``anet:anet-setup``"
 
 #: ../../agents/codex.rst:231
 msgid ""
-"Finds the ``anet`` executable, installs ANet when it is missing and the "
-"user agrees, and follows the setup guide of the installed ``anet``."
-msgstr "查找 ``anet`` 可执行文件，在其缺失且用户同意时安装 ANet，并按已安装 ``anet`` 的设置指南执行。"
+"Finds the ``anet`` executable, installs ANet when it is still missing, "
+"and follows the setup guide of the installed ``anet``."
+msgstr "查找 ``anet`` 可执行文件，在其仍缺失时安装 ANet，并按已安装 ``anet`` 的设置指南执行。"
 
-#: ../../agents/codex.rst:234
+#: ../../agents/codex.rst:233
 msgid "``anet:anet-status``"
 msgstr "``anet:anet-status``"
 
-#: ../../agents/codex.rst:235
+#: ../../agents/codex.rst:234
 msgid ""
 "Reports the state of the node as the guide describes. It is started with "
 "``$anet:anet-status``."
 msgstr "按指南所述报告节点状态。以 ``$anet:anet-status`` 启动。"
 
-#: ../../agents/codex.rst:238
+#: ../../agents/codex.rst:237
 msgid ""
 "Every ``anet`` command of the plugin runs through the runner of the "
 "plugin, ``bin/anet-run.sh`` on Linux and macOS and ``bin/anet-run.cmd`` "
@@ -430,7 +430,7 @@ msgstr ""
 "插件的每条 ``anet`` 命令都经由插件的运行脚本执行（Linux 和 macOS 上为 ``bin/anet-"
 "run.sh``，Windows 上为 ``bin/anet-run.cmd``），使 MCP 服务器与各项技能使用同一可执行文件和同一身份。"
 
-#: ../../agents/codex.rst:243
+#: ../../agents/codex.rst:242
 msgid ""
 "Codex reads ``.mcp.json`` without variable expansion and joins the "
 "working directory ``.`` to the installed plugin root. On Linux and macOS "
@@ -447,11 +447,11 @@ msgstr ""
 "Windows PowerShell 5.1。Agent 在 Windows 上通过 PowerShell 运行命令，因此各技能在 ``sh "
 "bin/anet-run.sh`` 之外还给出 Windows 运行脚本 ``bin/anet-run.cmd``。"
 
-#: ../../agents/codex.rst:253
+#: ../../agents/codex.rst:252
 msgid "Installing the plugin"
 msgstr "安装插件"
 
-#: ../../agents/codex.rst:261
+#: ../../agents/codex.rst:260
 msgid ""
 "The marketplace file is ``.agents/plugins/marketplace.json`` at the root "
 "of the repository. It names the marketplace ``agentnetwork`` and points "
@@ -464,7 +464,7 @@ msgstr ""
 "``agentnetwork``，并指向目录 ``deploy/plugins/dist/codex``。测试使用 Codex "
 "0.163.0；官方文档未说明最低版本。插件在 Linux 上运行过；在 Windows 上，插件运行上文所述的 ``.cmd`` 启动脚本。"
 
-#: ../../agents/codex.rst:267
+#: ../../agents/codex.rst:266
 msgid ""
 "``codex plugin list`` shows ``anet@agentnetwork`` as installed and "
 "enabled. ``codex mcp list`` shows the server ``anet`` with the command "
@@ -475,31 +475,37 @@ msgstr ""
 "list`` 显示服务器 ``anet``，命令为 ``./bin/anet-mcp``。新会话会启动该服务器。技能为 "
 "``anet:anet``、``anet:anet-setup`` 和 ``anet:anet-status``。"
 
-#: ../../agents/codex.rst:274
+#: ../../agents/codex.rst:273
 msgid "Setting up the node"
 msgstr "设置节点"
 
-#: ../../agents/codex.rst:276
+#: ../../agents/codex.rst:275
 msgid ""
-"The plugin does not require a prepared node. When ``anet`` is not "
-"installed, the following prompt starts the setup procedure:"
-msgstr "插件不要求事先准备好节点。尚未安装 ``anet`` 时，下列提示将启动设置流程："
+"The plugin does not require a prepared node: its MCP server installs "
+"``anet`` when it is missing (:ref:`agents-plugin-install`). When the anet"
+" tools are missing nonetheless, the following prompt starts the setup "
+"procedure:"
+msgstr ""
+"插件不要求事先准备好节点：``anet`` 缺失时，其 MCP 服务器会安装它（:ref:`agents-plugin-"
+"install`）。若仍缺少 anet 工具，下列提示将启动设置流程："
 
 #: ../../agents/codex.rst:283
 msgid ""
 "The procedure runs the runner with ``--resolve`` and reports that the "
-"executable is not found. After the user agrees, it runs the installer "
-"helper of the plugin, ``bin/anet-install.sh`` on Linux and macOS or ``bin"
-"/anet-install.cmd`` on Windows, which runs the official installer from "
-"``agentnetwork.org.cn``. The installer verifies the signature and the "
-"checksum of the release. The procedure then prints the setup guide of the"
-" installed ``anet`` with ``<runner> guide setup`` and follows it, running"
-" every ``anet`` command through the runner. The commands that only the "
-"operator may run, for example changes of the peer lists or of the "
-"spending limits, are not run by the procedure."
+"executable is not found. Without asking again (the installation of the "
+"plugin is the consent), it runs the installer helper of the plugin, ``bin"
+"/anet-install.sh`` on Linux and macOS or ``bin/anet-install.cmd`` on "
+"Windows, which runs the official installer from ``agentnetwork.org.cn``. "
+"The installer verifies the signature and the checksum of the release. The"
+" procedure then prints the setup guide of the installed ``anet`` with "
+"``<runner> guide setup`` and follows it, running every ``anet`` command "
+"through the runner. The commands that only the operator may run, for "
+"example changes of the peer lists or of the spending limits, are not run "
+"by the procedure."
 msgstr ""
-"该流程以 ``--resolve`` 运行运行脚本，并报告找不到可执行文件。用户同意后，它运行插件的安装辅助脚本（Linux 和 macOS 上为"
-" ``bin/anet-install.sh``，Windows 上为 ``bin/anet-install.cmd``），由其运行 "
+"该流程以 ``--resolve`` "
+"运行运行脚本，并报告找不到可执行文件。它不再征求同意（安装插件即表示同意），运行插件的安装辅助脚本（Linux 和 macOS 上为 ``bin"
+"/anet-install.sh``，Windows 上为 ``bin/anet-install.cmd``），由其运行 "
 "``agentnetwork.org.cn`` 的官方安装程序。安装程序校验发布版本的签名和校验和。随后，该流程用 ``<runner> "
 "guide setup`` 输出已安装 ``anet`` 的设置指南并按其执行，每条 ``anet`` "
 "命令均经由运行脚本运行。只有运营者可以运行的命令，例如变更对等方列表或支出限额，不由该流程运行。"
@@ -639,14 +645,14 @@ msgstr "更新与移除"
 #: ../../agents/codex.rst:380
 msgid ""
 "``codex plugin marketplace upgrade agentnetwork`` refreshes the "
-"marketplace. Version 0.2.0 is the final version of the plugin; a new "
+"marketplace. Version 0.3.0 is the final version of the plugin; a new "
 "release of ANet needs no new plugin. The commands that remove the plugin "
 "and the marketplace are described by ``codex plugin --help`` in the "
 "installed version of Codex. The plugin keeps no data of its own; the "
 "node, its identity and the data directory are not removed with the "
 "plugin."
 msgstr ""
-"``codex plugin marketplace upgrade agentnetwork`` 刷新市场。0.2.0 "
+"``codex plugin marketplace upgrade agentnetwork`` 刷新市场。0.3.0 "
 "是该插件的最终版本；ANet 发布新版本时无需新的插件。移除插件和市场的命令，见所安装 Codex 版本的 ``codex plugin "
 "--help``。插件自身不保存任何数据；节点、其身份及数据目录不会随插件一并移除。"
 
@@ -892,127 +898,130 @@ msgstr "Codex 报告服务器 ``anet`` 启动失败。"
 
 #: ../../agents/codex.rst:543
 msgid ""
-"No daemon answers. ``anet mcp`` exits with ``anet is not running ... run "
-"anet up``."
-msgstr "没有守护进程应答。``anet mcp`` 以 ``anet is not running ... run anet up`` 退出。"
+"``anet`` is not found, or an ANet release before 0.3.8 has no running "
+"node (``anet mcp`` exits with ``anet is not running ... run anet up``). "
+"From 0.3.8, ``anet mcp`` starts the node itself."
+msgstr ""
+"找不到 ``anet``，或 0.3.8 之前的 ANet 版本没有运行中的节点（``anet mcp`` 以 ``anet is not "
+"running ... run anet up`` 退出）。自 0.3.8 起，``anet mcp`` 会自行启动节点。"
 
-#: ../../agents/codex.rst:545
+#: ../../agents/codex.rst:544
 msgid "Run ``anet up``, then restart Codex or open a new session."
 msgstr "运行 ``anet up``,然后重启 Codex 或新开会话。"
 
-#: ../../agents/codex.rst:546
+#: ../../agents/codex.rst:545
 msgid "``wire`` reports ``conflict`` and exits with status 1."
 msgstr "``wire`` 报告 ``conflict`` 并以状态码 1 退出。"
 
-#: ../../agents/codex.rst:547
+#: ../../agents/codex.rst:546
 msgid ""
 "A table ``[mcp_servers.anet]`` that ``wire`` did not write exists. A "
 "second table of that name is invalid TOML."
 msgstr "已存在一张并非由 ``wire`` 写入的 ``[mcp_servers.anet]`` 表。同名的第二张表不是合法的 TOML。"
 
-#: ../../agents/codex.rst:549
+#: ../../agents/codex.rst:548
 msgid "Remove or rename the table named in the message, then run ``wire`` again."
 msgstr "删除或改名消息中指出的表,然后重新运行 ``wire``。"
 
-#: ../../agents/codex.rst:551
+#: ../../agents/codex.rst:550
 msgid "The model does not follow the operating guide."
 msgstr "模型未遵循操作指引。"
 
-#: ../../agents/codex.rst:552
+#: ../../agents/codex.rst:551
 msgid ""
 "``AGENTS.override.md`` exists in the Codex home directory and is read in "
 "place of ``AGENTS.md``."
 msgstr "Codex 主目录中存在 ``AGENTS.override.md``,Codex 读取它而不是 ``AGENTS.md``。"
 
-#: ../../agents/codex.rst:554
+#: ../../agents/codex.rst:553
 msgid ""
 "Merge the block between ``anet:begin`` and ``anet:end`` into the override"
 " file, or move the file away."
 msgstr "将 ``anet:begin`` 与 ``anet:end`` 之间的块并入覆盖文件,或将该文件移走。"
 
-#: ../../agents/codex.rst:556
+#: ../../agents/codex.rst:555
 msgid "The user file is correct and the tool is missing or differs."
 msgstr "用户文件正确,但工具缺失或与预期不同。"
 
-#: ../../agents/codex.rst:557
+#: ../../agents/codex.rst:556
 msgid ""
 "A trusted project defines ``mcp_servers.anet`` in ``.codex/config.toml``,"
 " which takes precedence."
 msgstr "受信任的项目在 ``.codex/config.toml`` 中定义了 ``mcp_servers.anet``,其优先级更高。"
 
-#: ../../agents/codex.rst:559
+#: ../../agents/codex.rst:558
 msgid "Change or remove the entry in the project file."
 msgstr "修改或删除项目文件中的该条目。"
 
-#: ../../agents/codex.rst:560
+#: ../../agents/codex.rst:559
 msgid "A call ends after about 60 seconds."
 msgstr "调用在约 60 秒后结束。"
 
-#: ../../agents/codex.rst:561
+#: ../../agents/codex.rst:560
 msgid ""
 "The default ``tool_timeout_sec`` of Codex applies because the entry was "
 "written by hand without the value."
 msgstr "条目由手工编写且未设置该值,因此适用 Codex 默认的 ``tool_timeout_sec``。"
 
-#: ../../agents/codex.rst:563
+#: ../../agents/codex.rst:562
 msgid "Set ``tool_timeout_sec = 900``. See :ref:`howto-mcp-waiting`."
 msgstr "设置 ``tool_timeout_sec = 900``。参见 :ref:`howto-mcp-waiting`。"
 
-#: ../../agents/codex.rst:564
+#: ../../agents/codex.rst:563
 msgid "A change of the file has no effect."
 msgstr "修改文件后没有效果。"
 
-#: ../../agents/codex.rst:565
+#: ../../agents/codex.rst:564
 msgid "Codex loaded the configuration at start."
 msgstr "Codex 在启动时已加载配置。"
 
-#: ../../agents/codex.rst:566
+#: ../../agents/codex.rst:565
 msgid "Use **Restart**, **Restart extension** or a new session."
 msgstr "使用 **Restart**、**Restart extension**,或新开会话。"
 
-#: ../../agents/codex.rst:567
+#: ../../agents/codex.rst:566
 msgid "A change inside the managed block is lost."
 msgstr "托管块内的修改丢失。"
 
-#: ../../agents/codex.rst:568
+#: ../../agents/codex.rst:567
 msgid "The next ``wire`` rewrites the block."
 msgstr "下一次 ``wire`` 会重写该块。"
 
-#: ../../agents/codex.rst:569
+#: ../../agents/codex.rst:568
 msgid ""
 "Make the change outside the block, or write the entry by hand and remove "
 "the block with ``unwire``."
 msgstr "在块之外修改,或手工编写条目并用 ``unwire`` 移除该块。"
 
-#: ../../agents/codex.rst:571
+#: ../../agents/codex.rst:570
 msgid "The tools show another identity than ``anet status``."
 msgstr "工具显示的身份与 ``anet status`` 不一致。"
 
-#: ../../agents/codex.rst:572
+#: ../../agents/codex.rst:571
 msgid ""
 "``ANET_DATA_DIR`` in the entry names another data directory, or "
 "``CODEX_HOME`` differs between the shell and Codex."
 msgstr "条目中的 ``ANET_DATA_DIR`` 指向另一个数据目录,或 shell 与 Codex 中的 ``CODEX_HOME`` 不同。"
 
-#: ../../agents/codex.rst:574
+#: ../../agents/codex.rst:573
 msgid ""
 "Run ``anet --id <name> agents wire codex``, and use the same "
 "``CODEX_HOME`` in both places."
 msgstr "运行 ``anet --id <name> agents wire codex``,并在两处使用相同的 ``CODEX_HOME``。"
 
-#: ../../agents/codex.rst:576
+#: ../../agents/codex.rst:575
 msgid "The entry written in WSL is not found by the Windows application."
 msgstr "在 WSL 中写入的条目未被 Windows 应用找到。"
 
-#: ../../agents/codex.rst:577
+#: ../../agents/codex.rst:576
 msgid "The two read different configuration homes."
 msgstr "两者读取不同的配置主目录。"
 
-#: ../../agents/codex.rst:578
+#: ../../agents/codex.rst:577
 msgid "Open the file through the extension and write the entry there."
 msgstr "通过扩展打开该文件,并在其中写入条目。"
 
-#: ../../agents/codex.rst:580
+#: ../../agents/codex.rst:579
 msgid ""
 "Further causes are grouped by reason code in "
 ":doc:`/howto/troubleshooting`; the codes are listed in :doc:`/reference"
@@ -1021,11 +1030,11 @@ msgstr ""
 "其他原因按原因码归类于 :doc:`/howto/troubleshooting`;原因码的完整列表见 :doc:`/reference"
 "/reason-codes`。"
 
-#: ../../agents/codex.rst:585
+#: ../../agents/codex.rst:584
 msgid "Removal"
 msgstr "断开"
 
-#: ../../agents/codex.rst:591
+#: ../../agents/codex.rst:590
 msgid ""
 "The command removes the managed block from ``config.toml`` and the guide "
 "from ``AGENTS.md``, keeps other tables and text, and copies each changed "
@@ -1041,37 +1050,43 @@ msgstr ""
 "``anet:end`` 两行之间的指引。对于用 ``codex mcp add`` 创建的条目,\\ ``codex-cli 0.163.0``"
 " 提供 ``codex mcp remove anet``。"
 
-#: ../../agents/codex.rst:603
+#: ../../agents/codex.rst:602
 msgid "References"
 msgstr "参考"
 
-#: ../../agents/codex.rst:605
+#: ../../agents/codex.rst:604
 msgid "Codex, MCP: `<https://developers.openai.com/codex/mcp>`_"
 msgstr "Codex,MCP:`<https://developers.openai.com/codex/mcp>`_"
 
-#: ../../agents/codex.rst:606
+#: ../../agents/codex.rst:605
 msgid ""
 "Codex, basic configuration: `<https://developers.openai.com/codex/config-"
 "basic>`_"
 msgstr "Codex,基础配置:`<https://developers.openai.com/codex/config-basic>`_"
 
-#: ../../agents/codex.rst:608
+#: ../../agents/codex.rst:607
 msgid ""
 "Codex, AGENTS.md: `<https://developers.openai.com/codex/guides/agents-"
 "md>`_"
 msgstr "Codex,AGENTS.md:`<https://developers.openai.com/codex/guides/agents-md>`_"
 
-#: ../../agents/codex.rst:610
+#: ../../agents/codex.rst:609
 msgid ""
 "The three addresses redirect to ``learn.chatgpt.com``. The official pages"
 " take precedence over this page where they differ."
 msgstr "以上三个地址会重定向到 ``learn.chatgpt.com``。官方页面与本页不一致时,以官方页面为准。"
 
-#: ../../agents/codex.rst:613
+#: ../../agents/codex.rst:612
 msgid ""
 "Related pages: :doc:`/howto/coding-agents`, :doc:`/howto/mcp`, "
 ":doc:`/reference/mcp-tools`, :doc:`/reference/cli`."
 msgstr ""
 "相关页面::doc:`/howto/coding-agents`、:doc:`/howto/mcp`、:doc:`/reference/mcp-"
 "tools`、:doc:`/reference/cli`。"
+
+#~ msgid ""
+#~ "No daemon answers. ``anet mcp`` exits"
+#~ " with ``anet is not running ... "
+#~ "run anet up``."
+#~ msgstr "没有守护进程应答。``anet mcp`` 以 ``anet is not running ... run anet up`` 退出。"
 

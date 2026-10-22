@@ -98,9 +98,7 @@ Selecting the identity
 A machine can hold several identities (``anet id ls``). The entry names one of
 them: either ``ANET_DATA_DIR`` is the data directory of that identity
 (``~/.anet`` for the default identity, ``~/.anet/ids/<name>`` for a named one),
-or the arguments are ``["--id", "<name>", "mcp"]``. The selection is strict. If
-no daemon runs for the selected identity, ``anet mcp`` exits with the status 1
-and does not use another identity:
+or the arguments are ``["--id", "<name>", "mcp"]``. The selection is strict: ``anet mcp`` never uses another identity. If no daemon runs for the selected identity, ``anet mcp`` starts it as ``anet up`` does; when that identity has no node yet, or its node cannot run, the server serves without it, and ``node_status`` names the reason and the command (:ref:`howto-mcp-without-node`). ANet 0.3.7 and earlier exit with the status 1 instead:
 
 .. code-block:: console
 
@@ -437,8 +435,7 @@ Troubleshooting
      - Cause
      - Action
    * - The server does not connect, or the client shows an error at start.
-     - The daemon of the identity does not run. ``anet mcp`` then exits with a
-       message that begins with ``anet is not running`` and the exit status 1.
+     - With ANet 0.3.7 and earlier: the daemon of the identity does not run, and ``anet mcp`` exits with a message that begins with ``anet is not running`` and the exit status 1. From 0.3.8, ``anet mcp`` starts the node or reports in ``node_status`` why it cannot.
      - Start the daemon with ``anet up`` and check it with ``anet status``.
        Then restart the server in the client.
    * - The client reports that the command is not found.

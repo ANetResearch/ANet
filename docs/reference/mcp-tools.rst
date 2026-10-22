@@ -20,7 +20,10 @@ Scope and limits
 The server runs as a child process of the coding agent, speaks MCP over standard
 input and output and forwards every tool call to the control plane of the daemon.
 ``anet agents wire`` writes the registration into the configuration of each
-supported tool.
+supported tool. When no daemon runs for the selected identity, the server starts
+it as ``anet up`` does; when the node cannot run, the server still lists every
+tool, ``node_status`` reports the reason and every other tool except ``guide``
+answers with it as a tool error (:ref:`howto-mcp-without-node`).
 
 * The server may call only 13 control-plane routes: ``/agents/list``,
   ``/agents/card``, ``/tasks/send``, ``/tasks/get``, ``/tasks/list``,
@@ -475,6 +478,24 @@ with one line for each topic; the text of the profile is ``profile.summary``.
   ``identity.recovery.message`` is relayed to the user unchanged. Only the user
   can set the recovery passphrase, by running ``anet identity protect`` on a
   terminal; the agent does not enter one.
+
+While the node is not running (:ref:`howto-mcp-without-node`), ``node_status``
+returns, as a result and not as an error:
+
+``running``
+   ``false``.
+
+``reason``, ``message``, ``next``
+   The reason code, its sentence, and the command that fixes it, for example
+   ``anet up``.
+
+``detail``
+   Present when the node was started and did not answer: the last lines of its
+   log, or how long it was waited for.
+
+``summary``, ``setup``
+   One sentence for the user, and the instruction to run ``next`` and to call
+   ``node_status`` again; no new session is needed.
 
 ``inbound_pending``
 ~~~~~~~~~~~~~~~~~~~
