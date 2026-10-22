@@ -462,10 +462,12 @@ func addNodeTools(s *mcp.Server, c Control) {
 			"admit line to send to the hub's operator), and do not register again. `identity` is this " +
 			"node's identity: when identity.recovery.state is unprotected, relay identity.recovery.message " +
 			"to the user as it is; only the user can set the recovery passphrase, by running anet " +
-			"identity protect in a terminal, so do not enter one for them.",
+			"identity protect in a terminal, so do not enter one for them. When the node is not running, the " +
+			"answer has running=false, the reason, and in `next` the command that starts or sets up the node.",
 		Annotations: readLocal(),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
-		return forward(ctx, c, "/status", map[string]any{})
+		out, err := nodeStatusAnswer(ctx, c)
+		return nil, out, err
 	})
 
 	mcp.AddTool(s, &mcp.Tool{

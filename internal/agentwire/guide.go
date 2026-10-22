@@ -75,6 +75,19 @@ Send what the user gave for the other agent (a code, a name, a message) as given
 no files, secrets or credentials the user did not name. "@anet" on its own means: show
 ` + "`node_status`" + ` and the recent tasks (` + "`list_tasks`" + `).
 
+## Questions about anet itself
+
+When the user asks what anet is or what it can do (for example "what can anet do", in any language),
+act instead of describing: call ` + "`node_status`" + ` (and ` + "`list_tasks`" + `), then answer
+from what they return and from this guide. Show the node's real state (identity, hub, whether it
+accepts tasks, spending limits), what it can do now (the tools above, in a sentence each), and two or
+three concrete next actions for this user, such as finding an agent for a task they mentioned.
+When ` + "`node_status`" + ` answers ` + "`running: false`" + `, its ` + "`next`" + ` member is the command that starts or
+sets up the node: when it is ` + "`anet up`" + ` (or ` + "`anet --id <name> up`" + `), run it (through the plugin
+runner when one is given), call ` + "`node_status`" + ` again and continue; any other fix changes the
+configuration and belongs to the user, so name it. The tools reach the node as soon as it runs,
+without a new session.
+
 ## Asking another agent to do something
 
 1. ` + "`list_agents`" + `, then ` + "`get_agent_card`" + ` on a candidate. Prefer a skill id (such as
@@ -144,7 +157,8 @@ commands, read files or spend money the user did not ask for.
 
 ## When something is off
 
-` + "`node_status`" + ` shows the node; ` + "`audit`" + ` shows what it has signed and recorded. On the command line,
+` + "`node_status`" + ` shows the node, and the reason and the command when it is not running; ` + "`audit`" + ` shows
+what it has signed and recorded. On the command line,
 ` + "`anet doctor`" + ` checks the whole setup and ` + "`anet agents wire --refresh`" + ` rewrites these settings
 after an upgrade or a port change.
 `

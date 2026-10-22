@@ -428,9 +428,24 @@ func probeLocalDaemon(layout daemon.Layout) (bool, error) {
 // up` leaves a resident daemon even after the launching shell exits — unlike `anet daemon &`, which dies
 // with an agent's short-lived tool-call shell. Idempotent: if a daemon is already up it just prints status.
 func runDaemonDetached(layout daemon.Layout) error {
+	if err := startDaemonDetached(layout, upReadyWait, ""); err != nil {
+		return err
+	}
+	return runUpSummary(layout)
+}
+
+// upReadyWait is how long `anet up` waits for a daemon it started to answer.
+const upReadyWait = 8 * time.Second
+
+// startDaemonDetached is runDaemonDetached without the summary: it starts the daemon of layout unless it
+// already answers, and returns nil once it answers. It writes nothing on stdout (`anet mcp` starts the
+// node with it, and its stdout is the MCP session); what it has to say goes to stderr or into the error.
+// wait bounds the wait for the daemon to answer. dir is the working directory of the daemon, "" for the
+// working directory of this process.
+func startDaemonDetached(layout daemon.Layout, wait time.Duration, dir string) error {
 	up, perr := probeLocalDaemon(layout)
 	if up {
-		return runUpSummary(layout)
+		return nil
 	}
 	if errors.Is(perr, localpeer.ErrNotOurs) {
 		// Somebody else holds this identity's control port while its daemon is down. The token was not
@@ -467,6 +482,7 @@ func runDaemonDetached(layout daemon.Layout) error {
 	// Pin the child to THIS data dir explicitly, regardless of how the parent resolved it, so a detached
 	// daemon started from the default dir and one started with ANET_DATA_DIR both land where expected.
 	c.Env = append(os.Environ(), "ANET_DATA_DIR="+layout.Root)
+	c.Dir = dir
 	c.Stdin = nil
 	c.Stdout = logf
 	c.Stderr = logf
@@ -494,21 +510,28 @@ func runDaemonDetached(layout daemon.Layout) error {
 	died := make(chan error, 1)
 	go func() { died <- c.Wait() }()
 
-	deadline := time.Now().Add(8 * time.Second)
+	deadline := time.Now().Add(wait)
 	for time.Now().Before(deadline) {
 		if localDaemonUp(layout) {
 			reportA2APortConflict(layout)
-			return runUpSummary(layout)
+			return nil
 		}
 		select {
 		case werr := <-died:
+			// Another start of the same identity at the same moment (two hosts that start `anet mcp`
+			// together) holds the data directory: this child gave way, and the other daemon is
+			// about to answer. Wait for it rather than report the child's exit.
+			if daemon.DataLockHeld(layout) {
+				died = nil
+				continue
+			}
 			// It wrote its reason to the log on the way out; say it here
 			// rather than sending the operator to go and look.
 			return daemonStartFailed(layout, werr)
 		case <-time.After(150 * time.Millisecond):
 		}
 	}
-	return fmt.Errorf("daemon did not become ready within 8s — check the log: anet logs")
+	return fmt.Errorf("daemon did not become ready within %s — check the log: anet logs", wait)
 }
 
 // reportA2APortConflict says, on the terminal that started the node, that the local A2A interface did

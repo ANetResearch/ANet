@@ -124,7 +124,7 @@ func TestUpDoesNotSendTheControlTokenToAPortSquatter(t *testing.T) {
 }
 
 // Every other way the CLI reaches the control plane goes through the same check: a command, the guide
-// printed by a bare `anet`, `anet mcp`, and doctor's liveness probe.
+// printed by a bare `anet`, and doctor's liveness probe (`anet mcp`: TestMCPDoesNotSendTheTokenToAPortSquatter).
 func TestNoCLIPathSendsTheControlTokenToAPortSquatter(t *testing.T) {
 	t.Setenv("ANET_HOME", t.TempDir())
 	rt := t.TempDir()
@@ -140,16 +140,6 @@ func TestNoCLIPathSendsTheControlTokenToAPortSquatter(t *testing.T) {
 	_ = captureStdout(t, func() { guide(layout) })
 	if daemonAnswersAt(sq.addr, layout.ControlTokenPath()) {
 		t.Error("doctor took the squatter for the daemon")
-	}
-	mcpDone := make(chan error, 1)
-	go func() { mcpDone <- runMCP(layout, true) }()
-	select {
-	case err := <-mcpDone:
-		if err == nil {
-			t.Error("anet mcp started against a squatter")
-		}
-	case <-time.After(10 * time.Second):
-		t.Error("anet mcp started serving against a squatter")
 	}
 	if got := sq.sent(); len(got) != 0 {
 		t.Fatalf("the squatter received %q", got)

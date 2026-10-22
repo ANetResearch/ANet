@@ -1521,6 +1521,12 @@ Requests that this node refused at once. Nothing was sent.
      - ``anet`` is not running (data directory {path}); run ``anet up``.
      - ``anet`` 没有在运行（数据目录 {path}）；请运行 ``anet up``\ 。
      - ``anet up``
+   * - ``daemon_not_running.not_set_up``
+     - 0.3.0
+     - C
+     - No ``anet`` node is set up for this identity yet (data directory {path}); run ``anet up`` to create and start it, then join a hub.
+     - 这个身份还没有设置 ``anet`` 节点（数据目录 {path}）；请运行 ``anet up`` 创建并启动节点，然后加入一个 hub。
+     - ``anet up``
    * - .. _reason-code-daemon-not-answering:
 
        ``daemon_not_answering``

@@ -182,6 +182,7 @@ extended_card_not_configured
 extended_card_unavailable
 extended_card_unavailable.bad_signature
 daemon_not_running
+daemon_not_running.not_set_up
 daemon_not_answering
 local_write_failed
 aid_invalid

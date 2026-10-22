@@ -10,12 +10,15 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/ANetResearch/ANet/internal/a2ashape"
 	"github.com/ANetResearch/ANet/internal/daemon"
 	"github.com/ANetResearch/ANet/internal/mcpserv"
 )
@@ -27,28 +30,35 @@ import (
 // client goes away — the daemon keeps running, keeps the keys, and keeps
 // the ledger.
 //
-// It refuses to start without a daemon rather than starting and failing
-// every call. An MCP client that connects successfully and then errors on
-// each tool teaches the model that the tools are broken; one that fails to
-// connect sends the operator to look at the daemon, which is where the
-// problem is.
+// It brings the node up first (mcpNode): when no daemon answers for the
+// selected identity and its data directory is set up, it starts the daemon as
+// `anet up` does. The plugins of the coding agents start `anet mcp` with the
+// session, and a node that is not running would otherwise leave the agent
+// with no anet tools at all and nothing to tell the user.
+//
+// When the node cannot be brought up (no node set up for the identity, a
+// configuration the daemon refuses, a daemon that does not answer), it serves
+// anyway rather than exit: every tool is listed, guide works, node_status
+// reports the reason and the command that fixes it, and the other tools
+// answer with the same reason. It keeps looking for the daemon at each call,
+// so the tools work as soon as the node runs, in the same session. An MCP
+// server that fails to start leaves the model with nothing but a plugin's
+// description, and some hosts remember the failure and do not start it again
+// for a while.
+//
+// Everything it says goes to stderr: stdout is the MCP session.
 //
 // With an explicitly selected identity (--id, ANET_ID, ANET_HOME, ANET_DATA_DIR or a non-default
 // `anet id use`) it resolves strictly: only that identity's own daemon, never the uid-wide pointer to
 // whichever daemon started last (A2A-DESIGN §7.8). An MCP client configured for one identity must not
 // end up driving another.
 func runMCP(layout daemon.Layout, explicit bool) error {
-	c, err := newControlClient(layout, explicit)
-	if err != nil {
-		return err
+	c, why := mcpNode(layout, explicit, os.Stderr)
+	if why != nil {
+		fmt.Fprintf(os.Stderr, "anet mcp: serving without the node: %s\n", why.Error())
 	}
-
-	// A quick liveness check, for the reason above.
-	if err := c.Call(context.Background(), "/status", map[string]any{}, new(json.RawMessage)); err != nil {
-		return fmt.Errorf("anet mcp: the daemon is not answering: %w", err)
-	}
-	srv := mcpserv.New(c, daemon.Version)
-	err = srv.Run(context.Background(), &mcp.StdioTransport{})
+	srv := mcpserv.NewWith(c, daemon.Version, mcpserv.Options{Unavailable: why})
+	err := srv.Run(context.Background(), &mcp.StdioTransport{})
 	// A client that goes away is how this process is supposed to end. It
 	// is spawned per session and dies with it, so reporting the
 	// disconnection as a failure would put an error in the operator's log
@@ -57,6 +67,221 @@ func runMCP(layout daemon.Layout, explicit bool) error {
 		return nil
 	}
 	return err
+}
+
+// mcpStartWait is how long `anet mcp` waits for a daemon it started (or one
+// that another start is bringing up) to answer.
+const mcpStartWait = 20 * time.Second
+
+// startNodeForMCP starts the daemon of layout as `anet up` does, without
+// printing on stdout, and returns once it answers or wait has passed. The
+// daemon's working directory is dir. A variable so that the tests can start a
+// daemon in the test process instead of this binary.
+var startNodeForMCP = func(layout daemon.Layout, wait time.Duration, dir string) error {
+	return startDaemonDetached(layout, wait, dir)
+}
+
+// mcpNode is the Control of `anet mcp` for layout, and why the node is
+// unavailable when it is (nil when a daemon answers). Progress goes to logw.
+//
+// The steps, in order:
+//
+//  1. A daemon that answers (strictly this identity's when explicit) is used.
+//  2. A data directory that holds no identity and no configuration is not set
+//     up by `anet mcp`: it reports daemon_not_running.not_set_up with the
+//     command that creates and starts the node. Creating an identity is the
+//     installer's or the operator's step (anet up, anet id new), where the
+//     node also joins a hub; `anet mcp` is started implicitly with every
+//     session of a coding agent, and an identity name that is misspelt in a
+//     plugin setting would otherwise create, and leave running, a new
+//     identity.
+//  3. A data directory that a daemon holds without answering is waited for
+//     (it may be starting, for example by another session at the same moment),
+//     and reported as daemon_not_answering when it does not answer in time.
+//  4. A data directory or configuration that the daemon would refuse is
+//     reported with the refusal's own reason and sentence; nothing is
+//     started.
+//  5. Otherwise the daemon is started (startNodeForMCP) and waited for.
+//
+// The returned Control is used either way: while the node is unavailable it
+// answers every call with the NodeUnavailable, and it looks for the daemon
+// again at each call, so that `anet up` run by the user or the agent makes the
+// tools work without a new session.
+func mcpNode(layout daemon.Layout, explicit bool, logw io.Writer) (*mcpControl, *mcpserv.NodeUnavailable) {
+	m := &mcpControl{connect: func() (*controlClient, error) { return connectMCP(layout, explicit) }}
+	if cc, err := m.connect(); err == nil {
+		m.cc = cc
+		return m, nil
+	}
+	why := mcpWhyNot(layout, logw)
+	if why == nil {
+		if cc, err := m.connect(); err == nil {
+			m.cc = cc
+			return m, nil
+		}
+		why = notRunning(layout, "The node was started, but this session could not reach its control plane.")
+	}
+	m.why = why
+	return m, why
+}
+
+// mcpWhyNot brings the node of layout up (steps 2 to 5 of mcpNode) and returns
+// nil when it answers, or why it does not.
+func mcpWhyNot(layout daemon.Layout, logw io.Writer) *mcpserv.NodeUnavailable {
+	if !layout.Initialized() {
+		return &mcpserv.NodeUnavailable{
+			Reason:  "daemon_not_running",
+			Message: a2ashape.Sentence("daemon_not_running.not_set_up", a2ashape.English, a2ashape.Args{"path": layout.Root}),
+			Next:    upCommand(layout),
+		}
+	}
+	if daemon.DataLockHeld(layout) {
+		if waitForDaemon(layout, mcpStartWait) {
+			return nil
+		}
+		return &mcpserv.NodeUnavailable{
+			Reason:  "daemon_not_answering",
+			Message: a2ashape.Sentence("daemon_not_answering", a2ashape.English, a2ashape.Args{"path": layout.Root, "dur": mcpStartWait}),
+			Next:    "anet status",
+		}
+	}
+	if why := startRefusal(layout); why != nil {
+		return why
+	}
+	fmt.Fprintf(logw, "anet mcp: the node is not running; starting it (data directory %s)\n", layout.Root)
+	if err := startNodeForMCP(layout, mcpStartWait, daemonWorkDir(layout)); err != nil {
+		return notRunning(layout, "The node did not start: "+err.Error())
+	}
+	return nil
+}
+
+// startRefusal is the refusal of the daemon to start with this data directory
+// or its config.json (the checks of refuseConfig), or nil.
+func startRefusal(layout daemon.Layout) *mcpserv.NodeUnavailable {
+	err := daemon.CheckDataDirForStart(layout)
+	if err == nil {
+		err = daemon.CheckConfigForStart(layout)
+	}
+	if err == nil {
+		return nil
+	}
+	var cr *daemon.ConfigRefusal
+	if errors.As(err, &cr) && len(cr.Refusals) > 0 {
+		var msgs []string
+		next := ""
+		for _, r := range cr.Refusals {
+			msgs = append(msgs, a2ashape.Sentence(r.Key, a2ashape.English, r.Args))
+			if next == "" {
+				next = a2ashape.Next(r.Key, a2ashape.English, r.Args)
+			}
+		}
+		if next == "" {
+			next = "anet doctor"
+		}
+		return &mcpserv.NodeUnavailable{Reason: a2ashape.ReasonCode(cr.Refusals[0].Key), Message: strings.Join(msgs, " "), Next: next}
+	}
+	return notRunning(layout, "The node cannot start: "+err.Error())
+}
+
+// notRunning is daemon_not_running for layout, with detail.
+func notRunning(layout daemon.Layout, detail string) *mcpserv.NodeUnavailable {
+	return &mcpserv.NodeUnavailable{
+		Reason:  "daemon_not_running",
+		Message: a2ashape.Sentence("daemon_not_running", a2ashape.English, a2ashape.Args{"path": layout.Root}),
+		Next:    upCommand(layout),
+		Detail:  detail,
+	}
+}
+
+// upCommand is the command that starts (and, on a data directory that is not
+// set up, creates) the node of layout: `anet up`, with the identity's name for
+// a named identity.
+func upCommand(layout daemon.Layout) string {
+	if name := daemon.IdentityNameForDir(layout.Root); name != "" && name != "default" {
+		return "anet --id " + name + " up"
+	}
+	return "anet up"
+}
+
+// waitForDaemon waits at most wait for the daemon of layout to answer.
+func waitForDaemon(layout daemon.Layout, wait time.Duration) bool {
+	deadline := time.Now().Add(wait)
+	for {
+		if localDaemonUp(layout) {
+			return true
+		}
+		if !time.Now().Before(deadline) {
+			return false
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+}
+
+// daemonWorkDir is the working directory of a daemon that `anet mcp` starts:
+// the user's home directory (the data directory when there is none), never
+// the working directory of the coding agent's session, which is a workspace.
+// The daemon outlives the session: it should neither keep that directory in
+// use (on Windows a directory in use cannot be removed or renamed) nor resolve
+// a relative path of its configuration against it.
+func daemonWorkDir(layout daemon.Layout) string {
+	if h, err := os.UserHomeDir(); err == nil && filepath.IsAbs(h) {
+		return h
+	}
+	if abs, err := filepath.Abs(layout.Root); err == nil {
+		return abs
+	}
+	return ""
+}
+
+// connectMCP finds the daemon of layout (strictly when explicit) and checks
+// that it answers.
+func connectMCP(layout daemon.Layout, explicit bool) (*controlClient, error) {
+	cc, err := newControlClient(layout, explicit)
+	if err != nil {
+		return nil, err
+	}
+	// A quick liveness check: a short bound, so that a call made while the
+	// node is down is answered with the reason at once.
+	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
+	defer cancel()
+	if err := cc.Call(ctx, "/status", map[string]any{}, new(json.RawMessage)); err != nil {
+		return nil, err
+	}
+	return cc, nil
+}
+
+// mcpControl is the Control of `anet mcp`: the control client of the node
+// once a daemon answers, and until then the reason it does not, with a new
+// attempt to find the daemon at each call.
+type mcpControl struct {
+	mu      sync.Mutex
+	cc      *controlClient
+	why     *mcpserv.NodeUnavailable
+	connect func() (*controlClient, error)
+}
+
+// client is the control client to send with, or why there is none.
+func (m *mcpControl) client() (*controlClient, *mcpserv.NodeUnavailable) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.cc != nil {
+		return m.cc, nil
+	}
+	if m.connect != nil {
+		if cc, err := m.connect(); err == nil {
+			m.cc, m.why = cc, nil
+			return cc, nil
+		}
+	}
+	return nil, m.why
+}
+
+func (m *mcpControl) Call(ctx context.Context, path string, body, out any) error {
+	cc, why := m.client()
+	if cc == nil {
+		return why
+	}
+	return cc.Call(ctx, path, body, out)
 }
 
 // controlClient adapts the CLI's control-plane client to the narrow face
@@ -90,7 +315,8 @@ type controlClient struct {
 
 // newControlClient is the control client of `anet mcp` for layout: with an
 // explicitly selected identity it resolves strictly, only that identity's
-// own daemon (A2A-DESIGN §7.8), the first time and after a 401.
+// own daemon (A2A-DESIGN §7.8), the first time and after a 401. It does not
+// contact the daemon; the error is the resolver's.
 func newControlClient(layout daemon.Layout, explicit bool) (*controlClient, error) {
 	resolve := daemon.ResolveControl
 	if explicit {
@@ -98,7 +324,7 @@ func newControlClient(layout daemon.Layout, explicit bool) (*controlClient, erro
 	}
 	base, token, err := resolve(layout)
 	if err != nil {
-		return nil, diagnoseNoDaemon("http://"+daemon.LocalControlAddr(layout), layout.Root, err)
+		return nil, err
 	}
 	return &controlClient{
 		c:       &client{base: base, token: token, timeout: 15 * time.Minute, dataDir: layout.Root},

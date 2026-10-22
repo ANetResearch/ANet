@@ -117,7 +117,8 @@ anet status
 ` + "```" + `
 
 - ` + "`[daemon_not_running]`" + `: run ` + "`anet up`" + `, then ` + "`anet status`" + ` again. The node runs in the
-  background and keeps running after this session.
+  background and keeps running after this session. On a data directory that has no node yet,
+  ` + "`anet up`" + ` creates the identity with safe defaults and starts it.
 
 ## 2. Join a hub
 
@@ -143,8 +144,11 @@ anet doctor
 Report every check that is not ` + "`ok`" + `, with the command it names. A warning about the recovery
 passphrase is expected until the user has run ` + "`anet identity protect`" + `.
 
-The MCP server of a coding agent starts with its session: tell the user to start a new session, in
-which the ` + "`node_status`" + ` tool of the ` + "`anet`" + ` server shows the node.
+The MCP server of a coding agent (` + "`anet mcp`" + `) starts the node of its identity when it can, and
+otherwise reports in ` + "`node_status`" + ` why it cannot and the command that fixes it; once the node
+runs, its tools reach it in the same session. When the ` + "`anet`" + ` tools are missing from the session
+altogether (the server did not start, for example because anet was not installed yet), tell the user
+to start a new session, in which the ` + "`node_status`" + ` tool of the ` + "`anet`" + ` server shows the node.
 
 ## Decisions that belong to the user
 

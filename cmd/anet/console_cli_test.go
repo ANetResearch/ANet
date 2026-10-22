@@ -74,32 +74,3 @@ func TestConsoleCommandPrintsATicketURL(t *testing.T) {
 		t.Fatalf("the printed ticket does not open a session: %d", resp.StatusCode)
 	}
 }
-
-// `anet mcp` with an explicitly selected identity resolves strictly: an identity without its own
-// daemon is an error even when the uid-wide pointer names a running daemon.
-func TestMCPResolvesStrictlyForAnExplicitIdentity(t *testing.T) {
-	rt := t.TempDir()
-	if err := os.Chmod(rt, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("XDG_RUNTIME_DIR", rt)
-	running, addr := servedDaemon(t)
-	if err := os.MkdirAll(filepath.Join(rt, "anet"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	ptr, _ := json.Marshal(map[string]string{"control_addr": addr, "data_dir": running.Root})
-	if err := os.WriteFile(filepath.Join(rt, "anet", "daemon.json"), ptr, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	other := daemon.NewLayout(t.TempDir()) // selected explicitly, has no daemon
-	done := make(chan error, 1)
-	go func() { done <- runMCP(other, true) }()
-	select {
-	case err := <-done:
-		if err == nil {
-			t.Fatal("anet mcp for an identity without a daemon connected to another daemon")
-		}
-	case <-time.After(10 * time.Second):
-		t.Fatal("anet mcp for an identity without a daemon started serving another daemon")
-	}
-}
