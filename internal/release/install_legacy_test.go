@@ -84,10 +84,16 @@ func (e *legacyEnv) fakeAnet(path, marker, versionLine string) string {
 		"esac\n", 0o755)
 }
 
-const (
-	markerV1   = "github.com/ChatChatTech/AgentNetwork/anet-cli"
-	markerANet = "github.com/ANetResearch/ANet/cmd/anet"
+// legacyRepo and markerV1 are put together at run time: install.sh recognises a
+// 1.x executable by these bytes, and the stand-in daemon of
+// TestInstallShStopsLingeringV1Daemon is a copy of this test binary, which must
+// not carry them unless the test appends them.
+var (
+	legacyRepo = strings.Join([]string{"github.com/ChatChat", "Tech/AgentNetwork"}, "")
+	markerV1   = legacyRepo + "/anet-cli"
 )
+
+const markerANet = "github.com/ANetResearch/ANet/cmd/anet"
 
 // npmTree is a global npm prefix holding @agentnetwork/anet at version,
 // with its command link in prefix/bin; for a 1.x tree, the shim and the
@@ -206,7 +212,7 @@ func mustNotContain(t *testing.T, what, s string, bad ...string) {
 func TestInstallShLegacyNpm(t *testing.T) {
 	e := newLegacyEnv(t)
 	prefix := filepath.Join(e.root, "npm-global")
-	link, pkg, platBin := e.npmTree(prefix, "1.1.15", "https://github.com/ChatChatTech/AgentNetwork")
+	link, pkg, platBin := e.npmTree(prefix, "1.1.15", "https://"+legacyRepo)
 	e.fakeNpm(prefix, false)
 	e.path = append([]string{filepath.Join(prefix, "bin")}, e.path...)
 
@@ -237,7 +243,7 @@ func TestInstallShLegacyNpm(t *testing.T) {
 func TestInstallShLegacyNpmFails(t *testing.T) {
 	e := newLegacyEnv(t)
 	prefix := filepath.Join(e.root, "npm-global")
-	link, pkg, _ := e.npmTree(prefix, "1.1.15", "https://github.com/ChatChatTech/AgentNetwork")
+	link, pkg, _ := e.npmTree(prefix, "1.1.15", "https://"+legacyRepo)
 	e.fakeNpm(prefix, true)
 	e.path = append([]string{filepath.Join(prefix, "bin")}, e.path...)
 	out, code := e.run(`survey_anets; remove_npm_legacy; upgrade_report`)
@@ -335,7 +341,7 @@ func TestInstallShSudoNonInteractive(t *testing.T) {
 	e.fakeSudo()
 	v1 := e.fakeAnet(filepath.Join(e.root, "sys", "anet"), markerV1, "1.1.15")
 	prefix := filepath.Join(e.root, "npm-root")
-	link, _, _ := e.npmTree(prefix, "1.1.15", "https://github.com/ChatChatTech/AgentNetwork")
+	link, _, _ := e.npmTree(prefix, "1.1.15", "https://"+legacyRepo)
 	e.fakeNpm(prefix, false)
 	ro := []string{filepath.Dir(v1), filepath.Join(prefix, "bin"), filepath.Join(prefix, "lib", "node_modules", "@agentnetwork")}
 	for _, d := range ro {
@@ -529,24 +535,38 @@ func merge(a, b map[string]string) map[string]string {
 // release on the current identity of a mixed directory) neither holds the
 // directory nor is signalled. Only a 1.x daemon that cannot be stopped
 // keeps the directory where it is, and no manual mv is asked for.
-func TestInstallShStopsLingeringV1Daemon(t *testing.T) {
-	sleep, err := exec.LookPath("sleep")
-	if err != nil {
-		t.Skip("no sleep")
+// sleeperEnv turns this test binary into a stand-in daemon: started with it set,
+// the binary sleeps and exits before any test runs. A copy of the system's sleep
+// would not do: where sleep is a multi-call program (Rust coreutils on Ubuntu
+// 26.04), a copy named anet does not know what to run and exits at once.
+const sleeperEnv = "ANET_RELEASE_TEST_SLEEPER"
+
+func init() {
+	if os.Getenv(sleeperEnv) == "1" {
+		time.Sleep(60 * time.Second)
+		os.Exit(0)
 	}
-	sleepBin, err := os.ReadFile(sleep)
+}
+
+func TestInstallShStopsLingeringV1Daemon(t *testing.T) {
+	self, err := os.Executable()
 	if err != nil {
 		t.Skip(err)
 	}
-	// start runs a copy of sleep named anet, with the 1.x module path
-	// appended when v1; the test ends it by its PID.
+	selfBin, err := os.ReadFile(self)
+	if err != nil {
+		t.Skip(err)
+	}
+	// start runs a copy of this test binary named anet as a sleeper, with the
+	// 1.x module path appended when v1; the test ends it by its PID.
 	start := func(t *testing.T, e *legacyEnv, v1 bool) *exec.Cmd {
-		body := append([]byte{}, sleepBin...)
+		body := append([]byte{}, selfBin...)
 		if v1 {
 			body = append(body, []byte("\x00"+markerV1+"\x00")...)
 		}
 		fake := e.write(filepath.Join(e.root, "proc", "anet"), string(body), 0o755)
-		p := exec.Command(fake, "60")
+		p := exec.Command(fake)
+		p.Env = append(os.Environ(), sleeperEnv+"=1")
 		if err := p.Start(); err != nil {
 			t.Skip(err)
 		}

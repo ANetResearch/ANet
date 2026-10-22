@@ -488,7 +488,7 @@ func TestInstallShGoldenTakeover(t *testing.T) {
 	e := e2eEnv(t, srv, false)
 	e.fakeSudo()
 	prefix := filepath.Join(e.root, "npm-global")
-	link, pkg, platBin := e.npmTree(prefix, "1.1.15", "https://github.com/ChatChatTech/AgentNetwork")
+	link, pkg, platBin := e.npmTree(prefix, "1.1.15", "https://"+legacyRepo)
 	e.fakeNpm(prefix, false)
 	sys := e.fakeAnet(filepath.Join(e.root, "sysbin", "anet"), markerV1, "1.1.15")
 	if err := os.Chmod(filepath.Dir(sys), 0o555); err != nil {

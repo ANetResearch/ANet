@@ -16,7 +16,11 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    # Linux jobs run on ubuntu-24.04, not ubuntu-latest: on the ubuntu-26.04
+    # image bwrap cannot configure the loopback interface of its network
+    # namespace (RTM_NEWADDR: operation not permitted), so the sandbox tests
+    # cannot run. Move to the newer image once the sandbox supports it.
+    runs-on: ubuntu-24.04
     env:
       CGO_ENABLED: "0"   # K207 A3: the distributed runtime is pure Go
     steps:
@@ -66,7 +70,7 @@ jobs:
           done
 
   race:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -94,7 +98,7 @@ jobs:
   # opt-in tag ships the module to everybody who never asked for it, which
   # is why it is a separate job rather than another row in the matrix.
   optin:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       CGO_ENABLED: "0"
     strategy:
@@ -128,7 +132,7 @@ jobs:
   # deleted lines. Every module gets pulled on its own, and then all of them
   # together, on every commit.
   pluggable:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       CGO_ENABLED: "0"
       # The PowerShell runner tests of the plugins take minutes and do not
@@ -227,7 +231,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-14]
+        os: [ubuntu-24.04, macos-14]
     runs-on: ${{ matrix.os }}
     env:
       CGO_ENABLED: "0"
@@ -385,7 +389,7 @@ jobs:
   # also gets install.ps1 with the fingerprint of the key, and dist-legacy/
   # the stand-in for anet 1.1.15 (deploy/release/testdata/legacy-anet).
   windows-dist:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     env:
@@ -517,7 +521,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, ubuntu-latest]
+        os: [macos-latest, ubuntu-24.04]
     runs-on: ${{ matrix.os }}
     permissions:
       contents: read
@@ -612,7 +616,7 @@ jobs:
   # read on Linux, macOS and FreeBSD, and on OpenBSD everything builds and
   # every Unix socket backend fails closed (peer_cred_unsupported).
   cross:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       CGO_ENABLED: "0"
     steps:
@@ -642,7 +646,7 @@ jobs:
   # by copying one side over the other: it is a wire change, made in both
   # repositories, and ANETLINK_REF moves with it.
   c1-golden-xrepo:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - name: the ANetLink release the vectors come from
@@ -693,7 +697,7 @@ jobs:
       fail-fast: false
       matrix:
         where: [host, debian12]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       CGO_ENABLED: "0"
       SANDBOX_PKGS: ./module/autoreply/... ./internal/daemon/
@@ -778,7 +782,7 @@ jobs:
   # run in `test`, which builds without it; ANetHub's identity_ops_test.go runs as a non-root user in its
   # own repository's `test` job, which is this runner's user too.
   premises:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       CGO_ENABLED: "0"
     steps:
@@ -828,7 +832,7 @@ jobs:
   # out, and a test that fails for reasons outside the diff teaches people
   # to ignore it.
   scenario:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Section 8 waits out the daemon's ten-minute key cache once; the whole run takes about half an hour.
     timeout-minutes: 60
     env:
@@ -862,7 +866,7 @@ jobs:
   # are stubbed: the real claude/codex/cursor/opencode need their own keys
   # and network, and what is under test here is the anet side.
   fleet:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       CGO_ENABLED: "0"
       HUB_SRC: ${{ github.workspace }}/.hub
@@ -888,7 +892,7 @@ jobs:
   # verified identity. Self-contained: builds a -tags shell daemon and the
   # hub, runs on loopback.
   joint-shell:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       CGO_ENABLED: "0"
       HUB_SRC: ${{ github.workspace }}/.hub
@@ -921,7 +925,7 @@ jobs:
   # the continue-on-error.
   joint:
     if: github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     continue-on-error: true
     env:
       CGO_ENABLED: "0"
