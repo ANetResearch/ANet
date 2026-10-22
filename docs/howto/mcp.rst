@@ -51,13 +51,26 @@ at the same moment start one daemon. Everything the server reports while it
 does so goes to its error output; standard output carries only the MCP
 session.
 
+``anet mcp`` starts only the identities of the anet home of the user: the
+default identity (``~/.anet``) and the named identities under it
+(``~/.anet/ids/<name>``). A data directory that ``ANET_DATA_DIR`` or
+``ANET_HOME`` names elsewhere is not started by ``anet mcp``, and neither is a
+node whose configuration enables the ``shell`` module; both are started with
+an explicit ``anet up``. The environment of ``anet mcp`` is that of the host,
+and a host may pass on variables that a project sets: a data directory of a
+workspace, with a configuration of its choosing, does not become a running
+node because a session started. A daemon that already runs is used in every
+case.
+
 When the node cannot be brought up, the server still starts and lists every
 tool. The tool ``guide`` works as usual; ``node_status`` answers
 ``running: false`` with the reason code, the sentence and, in ``next``, the
 command that fixes it; every other tool answers with the same reason as a
 tool error, and the instructions of the server begin with it. The server
 looks for the daemon again at each call, so the tools work in the same session
-as soon as the node runs. The reasons are:
+as soon as the node runs. What the server tells the model names the reason and
+the command, and no path: the data directory, the files of a refusal and the
+log of the daemon appear only in its error output. The reasons are:
 
 .. list-table::
    :header-rows: 1
@@ -74,10 +87,17 @@ as soon as the node runs. The reasons are:
        named identity ``anet --id <name> up``), which creates the identity with
        safe defaults and starts it; the guide topic ``setup`` describes joining
        a hub.
+   * - ``daemon_not_running`` (outside the anet home)
+     - The data directory is not an identity of the anet home of the user.
+       The command is ``anet up``, run with the same ``ANET_DATA_DIR`` or
+       ``ANET_HOME``.
+   * - ``daemon_not_running`` (shell module)
+     - The configuration enables the ``shell`` module, with which a controller
+       may run commands on this machine. The command is ``anet up``.
    * - ``daemon_not_running``
-     - The daemon was started and did not answer in time, or exited; the
-       detail quotes its log. The command is ``anet up``, which prints the
-       reason.
+     - The daemon was started and did not answer in time, or exited. The
+       command is ``anet up``, which prints the reason; the error output of
+       ``anet mcp`` quotes the log of the daemon.
    * - ``daemon_not_answering``
      - A daemon holds the data directory and does not answer.
    * - The code of a refusal, for example ``config_key_removed`` or

@@ -29,6 +29,14 @@ The MCP server brings the node up
 * ``anet mcp`` does not create an identity in a data directory that has none: it reports
   ``daemon_not_running`` with the new sentence key ``daemon_not_running.not_set_up`` and the
   command ``anet up`` (``anet --id <name> up`` for a named identity).
+* ``anet mcp`` starts only the identities of the anet home of the user (``~/.anet`` and
+  ``~/.anet/ids/<name>``), and no node whose configuration enables the ``shell`` module. A data
+  directory that ``ANET_DATA_DIR`` or ``ANET_HOME`` names elsewhere, and a node with the
+  ``shell`` module, are started with an explicit ``anet up`` (sentence keys
+  ``daemon_not_running.outside_home`` and ``daemon_not_running.shell_enabled``).
+* What ``anet mcp`` tells the model names no path and quotes no log of the daemon; the data
+  directory, the files of a refusal and the log appear only in its error output (sentence keys
+  ``daemon_not_running.mcp`` and ``daemon_not_answering.mcp``).
 * The guide tells the agent to answer a question about anet itself from ``node_status`` and the
   tools, and to run ``anet up`` when ``node_status`` names it.
 
@@ -43,6 +51,11 @@ Plugins for coding agents
 * The skills treat the installation of the plugin as the consent of the user: when the anet tools
   are missing, the agent runs the setup without asking, and it answers a question about anet from
   the state of the node.
+* The POSIX scripts of the plugins keep only the absolute directories of ``PATH`` before they
+  run their first program, so that a relative entry such as ``.`` cannot run a program of the
+  workspace. On Windows, the runner asks Windows for the system directory of the PowerShell that
+  runs the installer. The lock of the installation names its holder by process ID and start
+  time, and on Windows it names the installer, which a host that ends the MCP server does not end.
 
 .. _news-0.3.7:
 

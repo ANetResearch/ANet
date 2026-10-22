@@ -164,9 +164,16 @@ launcher installs ANet before it starts ``anet mcp``:
   and macOS (``bin/anet-install.sh --mcp``), and on Windows the documented
   command
   ``powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol=3072; & ([scriptblock]::Create((irm -UseBasicParsing https://agentnetwork.org.cn/install.ps1)))"``
-  with Windows PowerShell of the system directory (``bin/anet-run.ps1``,
-  started by ``bin/anet-mcp.cmd``). Nothing from the workspace or the session
-  is passed to the installer; the plugin settings select nothing of it.
+  with Windows PowerShell of the system directory, which the runner asks of
+  Windows rather than of the environment (``bin/anet-run.ps1``, started by
+  ``bin/anet-mcp.cmd``). Nothing from the workspace or the session is passed
+  to the installer; the plugin settings select nothing of it.
+* No program is taken from the working directory of the session, which can be
+  an untrusted workspace. The POSIX scripts of a plugin keep only the absolute
+  directories of ``PATH`` before they run their first program (``sh``,
+  ``sed``, ``uname``, ``curl``), so that a relative entry such as ``.`` finds
+  nothing of the workspace; the Windows scripts name every program by its full
+  path.
 * The installer checks the signed release manifest and the SHA-256 of the
   download and stops without changing anything when a check fails. It installs
   ANet for the current user, adds the install directory to ``PATH``, creates an
@@ -184,7 +191,12 @@ launcher installs ANet before it starts ``anet mcp``:
   file ``%LOCALAPPDATA%\anet-plugin\install.lock`` on Windows) while the
   installer runs. A second host that starts at the same moment waits for it,
   at most 10 minutes, and installs nothing when the first installation left an
-  executable behind. A lock whose holder no longer runs is removed.
+  executable behind. The lock names its holder by process ID and start time, so
+  that a process ID that the system has given to another process does not
+  keep it; a lock whose holder no longer runs is removed. On Windows the
+  installer is a process of its own, which a host that ends the MCP server does
+  not end with it; the lock file names it while it runs, and the next host
+  waits for it.
 * A setting ``anetPath`` that does not name an executable is reported as an
   error; nothing is installed in its place. Only the MCP launcher installs:
   the runner itself, the skills and the commands do not.

@@ -21,7 +21,7 @@ The server runs as a child process of the coding agent, speaks MCP over standard
 input and output and forwards every tool call to the control plane of the daemon.
 ``anet agents wire`` writes the registration into the configuration of each
 supported tool. When no daemon runs for the selected identity, the server starts
-it as ``anet up`` does; when the node cannot run, the server still lists every
+it as ``anet up`` does (for an identity of the anet home of the user); when the node cannot run, the server still lists every
 tool, ``node_status`` reports the reason and every other tool except ``guide``
 answers with it as a tool error (:ref:`howto-mcp-without-node`).
 
