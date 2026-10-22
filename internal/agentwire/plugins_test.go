@@ -274,7 +274,7 @@ func TestPluginRunnersShareTheRules(t *testing.T) {
 				t.Fatalf("--resolve printed no runner line: %q", out)
 			}
 			cmd := exec.Command("/bin/sh", "-c", line+" --resolve")
-			cmd.Env = []string{"HOME=" + home, "PATH=" + sysPath}
+			cmd.Env = []string{"HOME=" + home, "PATH=" + sysPath, "ANET_PLUGIN_NO_INSTALL=1"}
 			if got, err := cmd.CombinedOutput(); err != nil || !strings.Contains(string(got), "identity: default") {
 				t.Errorf("runner line %q does not run: %v, %q", line, err, got)
 			}

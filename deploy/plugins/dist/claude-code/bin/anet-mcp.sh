@@ -28,6 +28,27 @@
 # When the input ends in this waiting state the launcher exits with status 1
 # and the reason on stderr, as `anet mcp` does.
 set -u
+
+# Programs (sh, sed, uname and the others) are found only in the absolute
+# directories of PATH: a relative entry (such as "." or an empty one) would
+# find a file of the working directory of the session, which can be an
+# untrusted workspace. This comes before the first command that is not built
+# into the shell, and the scripts started from here inherit it.
+_abs=
+_ifs=$IFS
+IFS=:
+set -f
+for _d in ${PATH:-}; do
+  case $_d in
+    /*) _abs=${_abs:+$_abs:}$_d ;;
+  esac
+done
+IFS=$_ifs
+set +f
+PATH=${_abs:-/usr/bin:/bin}
+export PATH
+unset _abs _ifs _d
+
 ANET_PLUGIN_SETTINGS=env
 export ANET_PLUGIN_SETTINGS
 runner="$(dirname "$0")/anet-run.sh"

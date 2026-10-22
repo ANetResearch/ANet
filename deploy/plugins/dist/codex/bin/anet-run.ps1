@@ -172,7 +172,10 @@ function Find-AnetExecutable {
 # Install-AnetForMcp installs anet for the MCP launcher when it is missing,
 # so that enabling the plugin is enough to have anet installed and its node
 # running. It runs the official Windows installer exactly as the installation
-# guide gives it, with Windows PowerShell of the system directory:
+# guide gives it, with Windows PowerShell of the system directory, which is
+# asked of Windows ([Environment]::GetFolderPath('System')), so that no
+# environment variable can move it (off Windows, where PowerShell 7 runs the
+# tests of this script, SystemRoot stands in for it):
 #
 #   powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command
 #     "[Net.ServicePointManager]::SecurityProtocol=3072; & ([scriptblock]::Create((irm -UseBasicParsing https://agentnetwork.org.cn/install.ps1)))"
@@ -191,8 +194,12 @@ function Find-AnetExecutable {
 # %LOCALAPPDATA% is held open without sharing while the installer runs, so
 # that a second host that starts at the same moment waits for it (at most 10
 # minutes) and then installs nothing when an anet is there. Windows releases
-# the file when the process ends, however it ends. The installer is waited for
-# at most 15 minutes; it is not ended when that passes.
+# the file when the process ends, however it ends. The file also names the
+# installer while it runs (its process ID and start time), and is emptied
+# when it ends: when a host ends this script but not the installer (which is
+# a process of its own), the next one still waits for that installer rather
+# than start a second one. The installer is waited for at most 15 minutes;
+# it is not ended when that passes, and it stays named in the file.
 function Test-AnetInstallOptOut {
   $v = Get-AnetEnv 'ANET_PLUGIN_NO_INSTALL'
   return ($v -ne '' -and $v -ne '0')
@@ -208,10 +215,46 @@ function Write-AnetErrorLines([string]$Text) {
   }
 }
 
-function Install-AnetForMcp {
+# The system directory (System32): asked of Windows, never of the
+# environment. Off Windows there is none; the tests of this script run it
+# with PowerShell 7 and a SystemRoot of their own.
+function Get-AnetSystemDirectory {
+  if ($AnetOnWindows) { return [Environment]::GetFolderPath([Environment+SpecialFolder]::System) }
   $root = Get-AnetEnv 'SystemRoot'
-  if ($root -eq '' -or -not (Test-AnetAbsolutePath $root)) { return }
-  $ps = Join-Path (Join-Path (Join-Path (Join-Path $root 'System32') 'WindowsPowerShell') 'v1.0') 'powershell.exe'
+  if ($root -eq '' -or -not (Test-AnetAbsolutePath $root)) { return '' }
+  return (Join-Path $root 'System32')
+}
+
+# Whether the installer that the lock file names ("<process ID> <start time
+# in UTC ticks>") still runs: a process with that ID that started then (within
+# a second: off Windows, .NET derives the start time from the boot time,
+# which varies slightly between two readings).
+function Test-AnetLockHolderRuns($Stream) {
+  try {
+    $Stream.Position = 0
+    $buf = New-Object byte[] 64
+    $n = $Stream.Read($buf, 0, $buf.Length)
+    $text = [Text.Encoding]::ASCII.GetString($buf, 0, $n).Trim()
+    if ($text -notmatch '^([0-9]+) ([0-9]+)$') { return $false }
+    $ticks = [long]$Matches[2]
+    $proc = [Diagnostics.Process]::GetProcessById([int]$Matches[1])
+    try { return ((-not $proc.HasExited) -and [Math]::Abs($proc.StartTime.ToUniversalTime().Ticks - $ticks) -le 10000000) } finally { $proc.Dispose() }
+  } catch {
+    return $false
+  }
+}
+
+function Set-AnetLockHolder($Stream, [string]$Text) {
+  $Stream.SetLength(0)
+  $b = [Text.Encoding]::ASCII.GetBytes($Text)
+  $Stream.Write($b, 0, $b.Length)
+  $Stream.Flush()
+}
+
+function Install-AnetForMcp {
+  $sys = Get-AnetSystemDirectory
+  if ($sys -eq '' -or -not (Test-AnetAbsolutePath $sys)) { return }
+  $ps = Join-Path (Join-Path (Join-Path $sys 'WindowsPowerShell') 'v1.0') 'powershell.exe'
   if (-not (Test-Path -LiteralPath $ps -PathType Leaf)) { return }
   $local = Get-AnetEnv 'LOCALAPPDATA'
   if ($local -eq '' -or -not (Test-AnetAbsolutePath $local)) { return }
@@ -225,9 +268,19 @@ function Install-AnetForMcp {
     $deadline = [DateTime]::UtcNow.AddMinutes(10)
     $waited = $false
     while ($null -eq $lock) {
+      $busy = $false
       try {
         $lock = [IO.File]::Open($lockPath, [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+        if (Test-AnetLockHolderRuns $lock) {
+          # The installer of a host that ended without it still runs.
+          $lock.Dispose()
+          $lock = $null
+          $busy = $true
+        }
       } catch [IO.IOException] {
+        $busy = $true
+      }
+      if ($busy) {
         if ([DateTime]::UtcNow -ge $deadline) {
           [Console]::Error.WriteLine('Another installation of anet is still running; anet was not installed by this session.')
           return
@@ -262,6 +315,7 @@ function Install-AnetForMcp {
       return
     }
     try {
+      try { Set-AnetLockHolder $lock ([string]$p.Id + ' ' + [string]$p.StartTime.ToUniversalTime().Ticks) } catch { }
       $p.StandardInput.Close()
       $out = $p.StandardOutput.ReadToEndAsync()
       $err = $p.StandardError.ReadToEndAsync()
@@ -270,6 +324,7 @@ function Install-AnetForMcp {
         return
       }
       $p.WaitForExit()
+      try { Set-AnetLockHolder $lock '' } catch { }
       # The node that the installer started may hold the other end of the
       # pipes; what arrived within a few seconds is shown.
       if ($out.Wait(5000)) { Write-AnetErrorLines ([string]$out.Result) }

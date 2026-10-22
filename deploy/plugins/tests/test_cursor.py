@@ -29,6 +29,8 @@ PLUGINS = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PLUGINS))
 
 import generator as g  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import testguard  # noqa: E402,F401  (no test reaches the real anet or the installer)
 
 # Keys that .cursor-plugin/plugin.json accepts (schemas/plugin.schema.json of github.com/cursor/plugins,
 # additionalProperties false) and the keys of a marketplace file and of an entry.

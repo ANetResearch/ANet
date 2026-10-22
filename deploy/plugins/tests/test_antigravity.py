@@ -36,6 +36,8 @@ PLUGINS = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PLUGINS))
 
 import generator as g  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import testguard  # noqa: E402,F401  (no test reaches the real anet or the installer)
 
 PLUGIN_KEYS = {"$schema", "name", "description"}  # additionalProperties is false in the documented schema
 GEMINI_KEYS = {"name", "version", "description", "mcpServers", "contextFileName", "excludeTools", "migratedTo", "plan", "settings", "themes"}

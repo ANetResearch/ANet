@@ -36,6 +36,8 @@ PLUGINS = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PLUGINS))
 
 import generator as g  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import testguard  # noqa: E402,F401  (no test reaches the real anet or the installer)
 
 PWSH = None if os.environ.get("ANET_PWSH") == "off" else os.environ.get("ANET_PWSH") or shutil.which("pwsh")
 PS_SCRIPT = '& ([scriptblock]::Create([IO.File]::ReadAllText($env:ANET_RUN_SCRIPT)))'
@@ -126,8 +128,10 @@ class Fixture:
         self.work.mkdir()
 
     def env(self, **extra):
+        # ANET_PLUGIN_NO_INSTALL is given (empty: the installation is on), so that testguard leaves it
+        # to this test and checks that the curl it finds is the fake one.
         e = {"HOME": str(self.home), "PATH": f"{self.fakebin}:/usr/bin:/bin", "FAKE_STATE": str(self.state),
-             "ANET_PLUGIN_BIN": "", "ANET_PLUGIN_IDENTITY": "", "LC_ALL": "C"}
+             "ANET_PLUGIN_BIN": "", "ANET_PLUGIN_IDENTITY": "", "LC_ALL": "C", "ANET_PLUGIN_NO_INSTALL": ""}
         e.update(extra)
         return {k: v for k, v in e.items() if v is not None}
 
@@ -284,6 +288,22 @@ class PosixLauncherTests(unittest.TestCase):
         self.assertEqual((r.returncode, r.stdout, fx.runs()), (0, "ANET mcp\nPAYLOAD\n", 1), r.stderr)
         self.assertFalse(lock.exists())
 
+    def test_a_lock_of_a_reused_process_id_is_removed(self):
+        # The lock names a process ID that runs (this test) with another start time: the ID was
+        # reused, the holder is gone, and the lock is removed rather than waited for.
+        if subprocess.run(["ps", "-o", "lstart=", "-p", str(os.getpid())], capture_output=True).returncode != 0:
+            self.skipTest("ps -o lstart is not available")
+        fx = self.fixture()
+        lock = fx.home / ".cache" / "anet-plugin" / "install.lock"
+        lock.mkdir(parents=True)
+        (lock / "pid").write_text(f"{os.getpid()} Thu Jan 1 00:00:00 1970\n")
+        started = time.time()
+        r = self.launch(fx, self.launchers["zcode"])
+        self.assertEqual((r.returncode, r.stdout, fx.runs()), (0, "ANET mcp\nPAYLOAD\n", 1), r.stderr)
+        self.assertNotIn("waiting for it", r.stderr)
+        self.assertLess(time.time() - started, 60)
+        self.assertFalse(lock.exists())
+
     def test_a_failed_installation_is_reported_and_nothing_else_runs(self):
         fx = self.fixture()
         r = self.launch(fx, self.launchers["zcode"], FAKE_STATUS="3")
@@ -304,6 +324,40 @@ class PosixLauncherTests(unittest.TestCase):
         self.assertEqual((r.returncode, r.stdout), (0, "ANET mcp\nPAYLOAD\n"), r.stderr)
         self.assertFalse(marker.exists(), "a file of the workspace was run")
         self.assertEqual(fx.runs(), 1)
+
+    def test_no_program_of_the_workspace_runs(self):
+        # A PATH with relative entries (".", an empty one, a relative directory) and a workspace that
+        # holds a program of every name the scripts call. Each POSIX script of bin/, run as the host
+        # runs it (by its path, with its #!/bin/sh), with the installation turned off and with a
+        # configured anetPath, runs none of them: the scripts keep only the absolute entries of PATH
+        # before their first command.
+        names = ("sh", "uname", "sed", "dirname", "head", "cat", "tr", "awk", "mkdir", "mktemp", "rm", "mv", "find",
+                 "sleep", "ps", "kill", "setsid", "perl", "python3", "plutil", "xcode-select", "curl", "anet", "env")
+        for key in ("zcode", "claude-code", "codebuddy", "trae"):
+            bindir = self.launchers[key].parent
+            scripts = [bindir / n for n in ("anet-mcp", "anet-mcp.sh", "anet-run.sh", "anet-install.sh") if (bindir / n).exists()]
+            self.assertGreaterEqual(len(scripts), 4, key)
+            for script in scripts:
+                for mode in ("opted-out", "anetPath"):
+                    with self.subTest(target=key, script=script.name, mode=mode):
+                        fx = self.fixture()
+                        marker = fx.root / "workspace-program-ran"
+                        for n in names:
+                            write_exec(fx.work / n, f"#!/bin/sh\necho {n} >>{marker}\nexit 0\n")
+                            write_exec(fx.work / "rel" / n, f"#!/bin/sh\necho rel/{n} >>{marker}\nexit 0\n")
+                        failing = write_exec(fx.root / "failbin" / "curl", "#!/bin/sh\nexit 22\n").parent
+                        env = {"PATH": f".::rel:{failing}:/usr/bin:/bin", "ANET_PLUGIN_NO_INSTALL": "1"}
+                        if mode == "anetPath":
+                            env.update(ANET_PLUGIN_BIN=str(fx.state / "anet"), ANET_PLUGIN_SETTINGS="env")
+                        args = {"anet-run.sh": ["--resolve"], "anet-install.sh": ["--mcp"]}.get(script.name, [])
+                        os.chmod(script, 0o755)
+                        r = subprocess.run([str(script), *args], input="", capture_output=True, text=True,
+                                           env=fx.env(**env), cwd=fx.work, timeout=120)
+                        self.assertFalse(marker.exists(), f"ran {marker.read_text() if marker.exists() else ''}: {r.stderr}")
+                        self.assertEqual(fx.runs(), 0)
+                        if mode == "anetPath" and script.name == "anet-run.sh":
+                            self.assertIn("executable: " + str(fx.state / "anet"), r.stdout)
+                            self.assertIn("version: anet 9.9.9 (fake)", r.stdout)
 
     def test_the_setup_helper_waits_for_a_running_installation(self):
         fx = self.fixture()
@@ -360,7 +414,7 @@ class WindowsLauncherTests(unittest.TestCase):
              "SystemRoot": str(self.sysroot), "PATH": "/usr/bin:/bin", "FAKE_STATE": str(self.state),
              "ANET_RUN_SCRIPT": str(script), "ANET_RUN_SELF": "/plugins/anet/bin/anet-run.cmd", "ANET_RUN_MODE": "locate",
              "ANET_PLUGIN_SETTINGS": "env", "ANET_RUN_INSTALL": "missing", "ANET_PLUGIN_BIN": "", "ANET_PLUGIN_IDENTITY": "",
-             "DOTNET_CLI_TELEMETRY_OPTOUT": "1", "POWERSHELL_TELEMETRY_OPTOUT": "1"}
+             "DOTNET_CLI_TELEMETRY_OPTOUT": "1", "POWERSHELL_TELEMETRY_OPTOUT": "1", "ANET_PLUGIN_NO_INSTALL": ""}
         e.update(env)
         e = {k: v for k, v in e.items() if v is not None}
         r = subprocess.run([PWSH, "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", PS_SCRIPT], capture_output=True,
@@ -428,6 +482,65 @@ class WindowsLauncherTests(unittest.TestCase):
         for code, out, err in results:
             self.assertEqual((code, out.splitlines()), (0, ["E|" + self.installed()]), err)
         self.assertEqual(self.runs(), 1, "two installers ran")
+
+    def test_the_installer_is_never_taken_from_the_working_directory(self):
+        # A relative SystemRoot would name a powershell.exe of the working directory (a workspace).
+        work = self.root / "workspace"
+        write_exec(work / "Windows" / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe", FAKE_POWERSHELL)
+        e = {"SystemRoot": "Windows"}
+        r = subprocess.run([PWSH, "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", PS_SCRIPT], capture_output=True,
+                           text=True, stdin=subprocess.DEVNULL, cwd=work, timeout=180,
+                           env={**self.env_of(), **e})
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertNotIn("Installing", r.stderr)
+        self.assertEqual(self.runs(), 0)
+
+    def env_of(self):
+        e = {"HOME": str(self.home), "USERPROFILE": str(self.home), "LOCALAPPDATA": str(self.local),
+             "SystemRoot": str(self.sysroot), "PATH": "/usr/bin:/bin", "FAKE_STATE": str(self.state),
+             "ANET_RUN_SCRIPT": str(self.scripts["zcode"]), "ANET_RUN_SELF": "/plugins/anet/bin/anet-run.cmd",
+             "ANET_RUN_MODE": "locate", "ANET_PLUGIN_SETTINGS": "env", "ANET_RUN_INSTALL": "missing", "ANET_PLUGIN_BIN": "",
+             "ANET_PLUGIN_IDENTITY": "", "DOTNET_CLI_TELEMETRY_OPTOUT": "1", "POWERSHELL_TELEMETRY_OPTOUT": "1",
+             "ANET_PLUGIN_NO_INSTALL": ""}
+        return e
+
+    def start_ticks(self, pid):
+        r = subprocess.run([PWSH, "-NoLogo", "-NoProfile", "-NonInteractive", "-Command",
+                            f"([Diagnostics.Process]::GetProcessById({pid})).StartTime.ToUniversalTime().Ticks"],
+                           capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=60,
+                           env={"PATH": "/usr/bin:/bin", "HOME": str(self.home), "DOTNET_CLI_TELEMETRY_OPTOUT": "1",
+                                "POWERSHELL_TELEMETRY_OPTOUT": "1"})
+        return r.stdout.strip()
+
+    def test_an_installer_that_outlived_its_host_is_waited_for(self):
+        # The lock file names an installer that still runs (its host ended without it): the runner
+        # waits for it instead of starting a second one. A record of a process that is gone, or of
+        # a process ID with another start time, is not waited for.
+        lock = self.local / "anet-plugin" / "install.lock"
+        lock.parent.mkdir(parents=True)
+        installer = subprocess.Popen(["sleep", "4"])
+        # Reaped as soon as it ends, so that it does not stay a zombie, which still has its process ID.
+        reaper = threading.Thread(target=installer.wait, daemon=True)
+        reaper.start()
+        self.addCleanup(reaper.join, 30)
+        ticks = self.start_ticks(installer.pid)
+        self.assertTrue(ticks.isdigit(), ticks)
+        lock.write_text(f"{installer.pid} {ticks}")
+        started = time.time()
+        code, out, err = self.run_ps(self.scripts["zcode"])
+        self.assertEqual((code, out.splitlines()), (0, ["E|" + self.installed()]), err)
+        self.assertIn("waiting for it to finish", err)
+        self.assertGreater(time.time() - started, 2.5)
+        self.assertEqual(self.runs(), 1)
+        self.assertEqual(lock.read_text(), "", "the record of the installer is removed when it ends")
+        for record in (f"{installer.pid} {ticks}", f"{os.getpid()} 1"):
+            with self.subTest(record=record):
+                (self.local / "Programs" / "anet" / "anet").unlink()
+                lock.write_text(record)
+                code, out, err = self.run_ps(self.scripts["zcode"])
+                self.assertEqual(code, 0, err)
+                self.assertNotIn("waiting", err)
+        self.assertEqual(self.runs(), 3)
 
 
 if __name__ == "__main__":

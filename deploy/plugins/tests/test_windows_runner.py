@@ -27,6 +27,8 @@ PLUGINS = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PLUGINS))
 
 import generator as g  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import testguard  # noqa: E402,F401  (no test reaches the real anet or the installer)
 
 PWSH = None if os.environ.get("ANET_PWSH") == "off" else os.environ.get("ANET_PWSH") or shutil.which("pwsh")
 SCRIPT = '& ([scriptblock]::Create([IO.File]::ReadAllText($env:ANET_RUN_SCRIPT)))'

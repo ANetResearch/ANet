@@ -37,21 +37,25 @@
 #
 # One installation at a time. Both forms hold the lock directory
 # <state>/install.lock while the installer runs, with the process ID of the
-# holder in it; <state> is $XDG_CACHE_HOME/anet-plugin, or
-# ~/.cache/anet-plugin (an absolute path only; without one the --mcp form
-# installs nothing). Another host that starts at the same moment waits for it,
-# at most 10 minutes (5 for the plain form), and then installs nothing itself
-# when the first installation left an anet behind. A lock whose holder no
-# longer runs, or that is older than 30 minutes, is removed.
+# holder and its start time (as ps prints it) in the file pid; <state> is
+# $XDG_CACHE_HOME/anet-plugin, or ~/.cache/anet-plugin (an absolute path only;
+# without one the --mcp form installs nothing). Another host that starts at
+# the same moment waits for it, at most 10 minutes (5 for the plain form), and
+# then installs nothing itself when the first installation left an anet
+# behind. A lock whose holder no longer runs (no process with that ID, or one
+# that started at another time: the ID was reused), or that is older than 30
+# minutes, is removed.
 set -u
 
-# Programs (curl, sh) are found only in the absolute directories of PATH: a
-# relative one (such as ".") would find a file of the working directory of
-# the session, which can be an untrusted workspace.
-set -f
+# Programs (sh, sed, uname and the others) are found only in the absolute
+# directories of PATH: a relative entry (such as "." or an empty one) would
+# find a file of the working directory of the session, which can be an
+# untrusted workspace. This comes before the first command that is not built
+# into the shell, and the scripts started from here inherit it.
 _abs=
 _ifs=$IFS
 IFS=:
+set -f
 for _d in ${PATH:-}; do
   case $_d in
     /*) _abs=${_abs:+$_abs:}$_d ;;
@@ -61,6 +65,7 @@ IFS=$_ifs
 set +f
 PATH=${_abs:-/usr/bin:/bin}
 export PATH
+unset _abs _ifs _d
 
 here=$(cd "$(dirname "$0")" 2>/dev/null && pwd) || here=$(dirname "$0")
 self="$here/anet-install.sh"
@@ -86,6 +91,31 @@ anet_missing() {
   [ "$(sh "$here/anet-run.sh" --resolve 2>/dev/null | sed -n 1p)" = "executable: not found" ]
 }
 
+# started PID prints when the process PID started, as one line, or nothing
+# where ps cannot say.
+started() {
+  ps -o lstart= -p "$1" 2>/dev/null | sed -e 's/  */ /g' -e 's/^ //' -e 's/ $//' -e 1q
+}
+
+# holder_runs LINE: whether the holder that the line of a lock names ("PID
+# START") still runs: a process with that ID exists and, when the line has a
+# start time and ps gives one, it started then. (kill -0 sends no signal; it
+# only checks that the process exists.)
+holder_runs() {
+  _pid=${1%% *}
+  case $_pid in
+    '' | *[!0-9]*) return 1 ;;
+  esac
+  kill -0 "$_pid" 2>/dev/null || return 1
+  _was=
+  case $1 in
+    *" "*) _was=${1#* } ;;
+  esac
+  [ -n "$_was" ] || return 0
+  _now=$(started "$_pid")
+  [ -z "$_now" ] || [ "$_now" = "$_was" ]
+}
+
 # take_lock SECONDS: takes the lock, waiting at most SECONDS. Sets waited=1
 # when another installation held it.
 waited=0
@@ -93,7 +123,8 @@ take_lock() {
   _left=$1
   while :; do
     if mkdir "$lock" 2>/dev/null; then
-      printf '%s\n' "$$" >"$lock/pid" && return 0
+      _me=$(started "$$")
+      printf '%s\n' "$$${_me:+ $_me}" >"$lock/pid" && return 0
       rmdir "$lock" 2>/dev/null
       return 1
     fi
@@ -102,7 +133,7 @@ take_lock() {
     if [ -n "$(find "$lock" -prune -mmin +30 2>/dev/null)" ]; then
       _stale=1
     elif [ -n "$_holder" ]; then
-      kill -0 "$_holder" 2>/dev/null || _stale=1
+      holder_runs "$_holder" || _stale=1
     elif [ -n "$(find "$lock" -prune -mmin +1 2>/dev/null)" ]; then
       _stale=1 # created more than a minute ago and never given a holder
     fi
@@ -131,7 +162,8 @@ take_lock() {
 }
 
 release_lock() {
-  if [ -n "${lock:-}" ] && [ "$(cat "$lock/pid" 2>/dev/null)" = "$$" ]; then
+  _line=$(cat "${lock:-/nonexistent}/pid" 2>/dev/null) || _line=
+  if [ -n "${lock:-}" ] && [ "${_line%% *}" = "$$" ]; then
     rm -f "$lock/pid"
     rmdir "$lock" 2>/dev/null
   fi
@@ -140,7 +172,7 @@ release_lock() {
 # lock_live: whether a running process holds the lock.
 lock_live() {
   _h=$(cat "$lock/pid" 2>/dev/null) || _h=
-  [ -n "$_h" ] && kill -0 "$_h" 2>/dev/null
+  [ -n "$_h" ] && holder_runs "$_h"
 }
 
 # cleanup runs on exit: the lock of this process and the download directory.

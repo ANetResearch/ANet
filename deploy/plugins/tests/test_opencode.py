@@ -25,6 +25,8 @@ PLUGINS = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PLUGINS))
 
 import generator as g  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import testguard  # noqa: E402,F401  (no test reaches the real anet or the installer)
 
 
 def build():
@@ -163,7 +165,7 @@ class NodeTests(Base):
         work = Path(tempfile.mkdtemp(prefix="opencode-node-"))
         try:
             shutil.copy(PLUGINS / "src/opencode/test.mjs", work / "test.mjs")
-            env = dict(os.environ, PLUGIN_DIR=str(self.pkg))
+            env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": str(work), "PLUGIN_DIR": str(self.pkg)}
             r = subprocess.run([find_node(), "--test", str(work / "test.mjs")], env=env, capture_output=True, text=True, timeout=120)
             self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
             # The summary line is "# fail 0" (TAP) or "ℹ fail 0" (spec reporter), depending on the Node version.

@@ -250,6 +250,30 @@ class AutoInstallStructureTests(unittest.TestCase):
                     self.assertIn("[IO.FileShare]::None", text)
         self.assertEqual(n, len(res.contexts))
 
+    def test_the_posix_launchers_keep_only_absolute_path_entries_first(self):
+        # Every POSIX script of bin/ removes the relative entries of PATH before it runs any program
+        # that is not built into the shell: only the shebang, comments, blank lines and `set -u` come
+        # before the block, and the block is the same in every script.
+        block = None
+        res = g.build_all(None)
+        n = 0
+        for key, ctx in res.contexts.items():
+            for rel, f in ctx.files.items():
+                name = rel.rsplit("/", 1)[-1]
+                if "/bin/" not in "/" + rel or not (name.endswith(".sh") or name == "anet-mcp"):
+                    continue
+                n += 1
+                text = f.data.decode("utf-8")
+                start = text.index("# Programs (sh, sed, uname and the others) are found only in the absolute")
+                end = text.index("unset _abs _ifs _d\n", start) + len("unset _abs _ifs _d\n")
+                if block is None:
+                    block = text[start:end]
+                self.assertEqual(text[start:end], block, f"{key}/{rel}")
+                for line in text[:start].splitlines():
+                    line = line.strip()
+                    self.assertTrue(line == "" or line.startswith("#") or line == "set -u", f"{key}/{rel}: {line!r} before the block")
+        self.assertEqual(n, 4 * len(res.contexts))
+
     def test_the_installer_url_is_fixed(self):
         text = (g.COMMON / "bin" / "anet-install.sh").read_text(encoding="utf-8")
         self.assertEqual(text.count("https://agentnetwork.org.cn/install.sh -o"), 1)
