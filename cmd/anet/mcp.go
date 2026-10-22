@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -19,6 +20,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
+	"github.com/ANetResearch/ANet/internal/anethome"
 	"github.com/ANetResearch/ANet/internal/daemon"
 	"github.com/ANetResearch/ANet/internal/mcpserv"
 )
@@ -98,10 +100,25 @@ var startNodeForMCP = func(layout daemon.Layout, wait time.Duration, dir string)
 //  3. A data directory that a daemon holds without answering is waited for
 //     (it may be starting, for example by another session at the same moment),
 //     and reported as daemon_not_answering when it does not answer in time.
-//  4. A data directory or configuration that the daemon would refuse is
+//  4. Only an identity of the user's own anet home is started (mcpMayStart):
+//     the default identity (~/.anet) and the named ones (~/.anet/ids/<name>).
+//     A data directory that ANET_DATA_DIR or ANET_HOME names elsewhere is
+//     reported as daemon_not_running.outside_home and left to an explicit
+//     `anet up`. The environment of `anet mcp` is the host's, and a host may
+//     pass on what a project sets; a data directory of a workspace, with a
+//     config.json of the workspace's choosing, must not become a running node
+//     just because a session started.
+//  5. A configuration that enables the shell module (a controller may run
+//     commands on this machine) is not started implicitly either:
+//     daemon_not_running.shell_enabled, left to `anet up`.
+//  6. A data directory or configuration that the daemon would refuse is
 //     reported with the refusal's own reason and sentence; nothing is
 //     started.
-//  5. Otherwise the daemon is started (startNodeForMCP) and waited for.
+//  7. Otherwise the daemon is started (startNodeForMCP) and waited for.
+//
+// What the returned NodeUnavailable says goes to a model: it names the reason
+// and the command, never a path (the data directory, a log) and never the
+// daemon's log; those are written to logw, the standard error of `anet mcp`.
 //
 // The returned Control is used either way: while the node is unavailable it
 // answers every call with the NodeUnavailable, and it looks for the daemon
@@ -125,13 +142,15 @@ func mcpNode(layout daemon.Layout, explicit bool, logw io.Writer) (*mcpControl, 
 	return m, why
 }
 
-// mcpWhyNot brings the node of layout up (steps 2 to 5 of mcpNode) and returns
-// nil when it answers, or why it does not.
+// mcpWhyNot brings the node of layout up (steps 2 to 7 of mcpNode) and returns
+// nil when it answers, or why it does not. What it reports with a path or the
+// daemon's log goes to logw only.
 func mcpWhyNot(layout daemon.Layout, logw io.Writer) *mcpserv.NodeUnavailable {
 	if !layout.Initialized() {
+		fmt.Fprintf(logw, "anet mcp: no node is set up in the data directory %s\n", layout.Root)
 		return &mcpserv.NodeUnavailable{
 			Reason:  "daemon_not_running",
-			Message: a2ashape.Sentence("daemon_not_running.not_set_up", a2ashape.English, a2ashape.Args{"path": layout.Root}),
+			Message: a2ashape.Sentence("daemon_not_running.not_set_up", a2ashape.English, nil),
 			Next:    upCommand(layout),
 		}
 	}
@@ -139,25 +158,102 @@ func mcpWhyNot(layout daemon.Layout, logw io.Writer) *mcpserv.NodeUnavailable {
 		if waitForDaemon(layout, mcpStartWait) {
 			return nil
 		}
+		fmt.Fprintf(logw, "anet mcp: a daemon holds the data directory %s and did not answer within %s\n", layout.Root, mcpStartWait)
 		return &mcpserv.NodeUnavailable{
 			Reason:  "daemon_not_answering",
-			Message: a2ashape.Sentence("daemon_not_answering", a2ashape.English, a2ashape.Args{"path": layout.Root, "dur": mcpStartWait}),
+			Message: a2ashape.Sentence("daemon_not_answering.mcp", a2ashape.English, a2ashape.Args{"dur": mcpStartWait}),
 			Next:    "anet status",
 		}
 	}
-	if why := startRefusal(layout); why != nil {
+	if !mcpMayStart(layout) {
+		fmt.Fprintf(logw, "anet mcp: the data directory %s is not an identity of the anet home %s; "+
+			"anet mcp does not start it (run anet up with the same ANET_DATA_DIR or ANET_HOME)\n", layout.Root, userAnetHome())
+		return &mcpserv.NodeUnavailable{
+			Reason:  "daemon_not_running",
+			Message: a2ashape.Sentence("daemon_not_running.outside_home", a2ashape.English, nil),
+			Next:    upCommand(layout),
+		}
+	}
+	if shellModuleConfigured(layout) {
+		fmt.Fprintf(logw, "anet mcp: the configuration in %s enables the shell module; anet mcp does not start such a node (run anet up)\n", layout.Root)
+		return &mcpserv.NodeUnavailable{
+			Reason:  "daemon_not_running",
+			Message: a2ashape.Sentence("daemon_not_running.shell_enabled", a2ashape.English, nil),
+			Next:    upCommand(layout),
+		}
+	}
+	if why := startRefusal(layout, logw); why != nil {
 		return why
 	}
 	fmt.Fprintf(logw, "anet mcp: the node is not running; starting it (data directory %s)\n", layout.Root)
 	if err := startNodeForMCP(layout, mcpStartWait, daemonWorkDir(layout)); err != nil {
-		return notRunning(layout, "The node did not start: "+err.Error())
+		fmt.Fprintf(logw, "anet mcp: the node did not start: %v\n", err)
+		return notRunning(layout, fmt.Sprintf("The node was started and did not answer within %s, or it exited; "+
+			"run %s on a terminal to see the reason.", mcpStartWait, upCommand(layout)))
 	}
 	return nil
 }
 
+// userAnetHome is the anet home of the user's own account, ~/.anet, whatever
+// ANET_HOME says; "" when the home directory is unknown.
+func userAnetHome() string {
+	h, err := os.UserHomeDir()
+	if err != nil || !filepath.IsAbs(h) {
+		return ""
+	}
+	return filepath.Join(h, ".anet")
+}
+
+// mcpMayStart reports whether `anet mcp` may start the daemon of layout
+// itself: only for the default identity of the user's anet home (~/.anet)
+// and a named identity under it (~/.anet/ids/<name>). See step 4 of mcpNode.
+func mcpMayStart(layout daemon.Layout) bool {
+	home := userAnetHome()
+	if home == "" {
+		return false
+	}
+	root, err := filepath.Abs(layout.Root)
+	if err != nil {
+		return false
+	}
+	root = filepath.Clean(root)
+	if samePath(root, home) {
+		return true
+	}
+	return samePath(filepath.Dir(root), filepath.Join(home, anethome.IDsDir)) && anethome.ValidName(filepath.Base(root))
+}
+
+// samePath compares two clean absolute paths, without case on Windows.
+func samePath(a, b string) bool {
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(a, b)
+	}
+	return a == b
+}
+
+// shellModuleConfigured reports whether config.json of layout has a block for
+// the shell module, which lets a controller run commands on this machine.
+func shellModuleConfigured(layout daemon.Layout) bool {
+	b, err := os.ReadFile(layout.ConfigPath())
+	if err != nil {
+		return false
+	}
+	var c struct {
+		Modules map[string]json.RawMessage `json:"modules"`
+	}
+	if json.Unmarshal(b, &c) != nil {
+		// Not readable as JSON: startRefusal, which comes next, reports it,
+		// and nothing is started.
+		return false
+	}
+	v, ok := c.Modules["shell"]
+	return ok && strings.TrimSpace(string(v)) != "null"
+}
+
 // startRefusal is the refusal of the daemon to start with this data directory
-// or its config.json (the checks of refuseConfig), or nil.
-func startRefusal(layout daemon.Layout) *mcpserv.NodeUnavailable {
+// or its config.json (the checks of refuseConfig), or nil. The sentences name
+// a file by its name only; the full refusal is written to logw.
+func startRefusal(layout daemon.Layout, logw io.Writer) *mcpserv.NodeUnavailable {
 	err := daemon.CheckDataDirForStart(layout)
 	if err == nil {
 		err = daemon.CheckConfigForStart(layout)
@@ -165,14 +261,16 @@ func startRefusal(layout daemon.Layout) *mcpserv.NodeUnavailable {
 	if err == nil {
 		return nil
 	}
+	fmt.Fprintf(logw, "anet mcp: the node cannot start with the data directory %s: %v\n", layout.Root, err)
 	var cr *daemon.ConfigRefusal
 	if errors.As(err, &cr) && len(cr.Refusals) > 0 {
 		var msgs []string
 		next := ""
 		for _, r := range cr.Refusals {
-			msgs = append(msgs, a2ashape.Sentence(r.Key, a2ashape.English, r.Args))
+			args := withoutPaths(r.Args)
+			msgs = append(msgs, a2ashape.Sentence(r.Key, a2ashape.English, args))
 			if next == "" {
-				next = a2ashape.Next(r.Key, a2ashape.English, r.Args)
+				next = a2ashape.Next(r.Key, a2ashape.English, args)
 			}
 		}
 		if next == "" {
@@ -180,14 +278,43 @@ func startRefusal(layout daemon.Layout) *mcpserv.NodeUnavailable {
 		}
 		return &mcpserv.NodeUnavailable{Reason: a2ashape.ReasonCode(cr.Refusals[0].Key), Message: strings.Join(msgs, " "), Next: next}
 	}
-	return notRunning(layout, "The node cannot start: "+err.Error())
+	return notRunning(layout, "The node cannot start with its data directory; run "+upCommand(layout)+" on a terminal to see the reason.")
 }
 
-// notRunning is daemon_not_running for layout, with detail.
+// withoutPaths is args with every absolute path replaced by its last element
+// (config.json rather than the whole path), for a sentence that goes to a
+// model.
+func withoutPaths(args a2ashape.Args) a2ashape.Args {
+	if args == nil {
+		return nil
+	}
+	out := make(a2ashape.Args, len(args))
+	for k, v := range args {
+		switch x := v.(type) {
+		case string:
+			if filepath.IsAbs(x) {
+				v = filepath.Base(x)
+			}
+		case []string:
+			ys := make([]string, len(x))
+			for i, y := range x {
+				if filepath.IsAbs(y) {
+					y = filepath.Base(y)
+				}
+				ys[i] = y
+			}
+			v = ys
+		}
+		out[k] = v
+	}
+	return out
+}
+
+// notRunning is daemon_not_running for `anet mcp`, with detail.
 func notRunning(layout daemon.Layout, detail string) *mcpserv.NodeUnavailable {
 	return &mcpserv.NodeUnavailable{
 		Reason:  "daemon_not_running",
-		Message: a2ashape.Sentence("daemon_not_running", a2ashape.English, a2ashape.Args{"path": layout.Root}),
+		Message: a2ashape.Sentence("daemon_not_running.mcp", a2ashape.English, nil),
 		Next:    upCommand(layout),
 		Detail:  detail,
 	}

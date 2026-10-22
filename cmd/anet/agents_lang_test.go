@@ -71,6 +71,7 @@ func runAgentsCLI(t *testing.T, h *cliHome, args []string, extra ...string) (std
 	bin := agentsBin(t)
 	cmd := exec.Command(bin, args...)
 	cmd.Env = h.env(extra...)
+	guardCLIRun(t, cmd.Env, args)
 	cmd.Dir = h.root
 	detachFromTerminal(cmd)
 	var out, errb bytes.Buffer

@@ -145,6 +145,7 @@ func runCLIStdin(t *testing.T, h *cliHome, in string, args []string) (stdout, st
 	}
 	cmd := exec.Command(exe, args...)
 	cmd.Env = h.env()
+	guardCLIRun(t, cmd.Env, args)
 	cmd.Dir = h.root
 	cmd.Stdin = strings.NewReader(in)
 	var out, errb bytes.Buffer

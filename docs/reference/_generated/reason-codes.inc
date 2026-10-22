@@ -1524,8 +1524,26 @@ Requests that this node refused at once. Nothing was sent.
    * - ``daemon_not_running.not_set_up``
      - 0.3.0
      - C
-     - No ``anet`` node is set up for this identity yet (data directory {path}); run ``anet up`` to create and start it, then join a hub.
-     - 这个身份还没有设置 ``anet`` 节点（数据目录 {path}）；请运行 ``anet up`` 创建并启动节点，然后加入一个 hub。
+     - No ``anet`` node is set up for this identity yet; run ``anet up`` to create and start it, then join a hub.
+     - 这个身份还没有设置 ``anet`` 节点；请运行 ``anet up`` 创建并启动节点，然后加入一个 hub。
+     - ``anet up``
+   * - ``daemon_not_running.mcp``
+     - 0.3.0
+     - C
+     - The ``anet`` node of this identity is not running; run ``anet up``.
+     - 这个身份的 ``anet`` 节点没有在运行；请运行 ``anet up``\ 。
+     - ``anet up``
+   * - ``daemon_not_running.outside_home``
+     - 0.3.0
+     - C
+     - The ``anet`` node of this identity is not running, and ``anet mcp`` starts only identities in the ``anet`` home of the user; run ``anet up`` with the same selection of the identity.
+     - 这个身份的 ``anet`` 节点没有在运行，而 ``anet mcp`` 只启动用户 ``anet`` 主目录中的身份；请以相同的身份选择运行 ``anet up``\ 。
+     - ``anet up``
+   * - ``daemon_not_running.shell_enabled``
+     - 0.3.0
+     - C
+     - The ``anet`` node of this identity is not running, and ``anet mcp`` does not start a node whose configuration enables the shell module; run ``anet up``.
+     - 这个身份的 ``anet`` 节点没有在运行，而 ``anet mcp`` 不会启动配置中启用了 shell 模块的节点；请运行 ``anet up``\ 。
      - ``anet up``
    * - .. _reason-code-daemon-not-answering:
 
@@ -1534,6 +1552,12 @@ Requests that this node refused at once. Nothing was sent.
      - C
      - ``anet`` is running (data directory {path}) but did not answer within {dur}, so nothing was changed; try again later.
      - ``anet`` 正在运行（数据目录 {path}），但 {dur} 内没有应答，什么都没有改；请稍后再试。
+     - retry later
+   * - ``daemon_not_answering.mcp``
+     - 0.3.0
+     - C
+     - The ``anet`` node of this identity is running but did not answer within {dur}; try again later.
+     - 这个身份的 ``anet`` 节点正在运行，但 {dur} 内没有应答；请稍后再试。
      - retry later
    * - .. _reason-code-local-write-failed:
 

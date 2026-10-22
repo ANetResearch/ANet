@@ -71,6 +71,7 @@ func runCLIWithin(t *testing.T, h *cliHome, within time.Duration, args []string,
 	}
 	cmd := exec.Command(exe, args...)
 	cmd.Env = h.env(extraEnv...)
+	guardCLIRun(t, cmd.Env, args)
 	cmd.Dir = h.root
 	detachFromTerminal(cmd)
 	var out, errb bytes.Buffer

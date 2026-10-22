@@ -183,7 +183,11 @@ extended_card_unavailable
 extended_card_unavailable.bad_signature
 daemon_not_running
 daemon_not_running.not_set_up
+daemon_not_running.mcp
+daemon_not_running.outside_home
+daemon_not_running.shell_enabled
 daemon_not_answering
+daemon_not_answering.mcp
 local_write_failed
 aid_invalid
 cli_removed

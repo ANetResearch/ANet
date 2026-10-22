@@ -66,7 +66,15 @@ func newSquatter(t *testing.T) *squatter {
 // and its daemon not running.
 func victimLayout(t *testing.T, controlAddr string) (daemon.Layout, string) {
 	t.Helper()
-	root := t.TempDir()
+	return victimLayoutAt(t, t.TempDir(), controlAddr)
+}
+
+// victimLayoutAt is victimLayout in the data directory root.
+func victimLayoutAt(t *testing.T, root, controlAddr string) (daemon.Layout, string) {
+	t.Helper()
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
 	cfg, _ := json.Marshal(map[string]any{"control_addr": controlAddr})
 	if err := os.WriteFile(filepath.Join(root, "config.json"), cfg, 0o600); err != nil {
 		t.Fatal(err)

@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync/atomic"
@@ -26,20 +27,53 @@ import (
 	"github.com/ANetResearch/ANet/internal/mcpserv"
 )
 
-// setUpNotRunning is a data directory with a node set up (config.json with a
-// free control address) and no daemon, and the function that serves its
-// daemon in this process, as the starter of `anet mcp` would start it.
+// throwawayHome makes a new home directory the user's (HOME, USERPROFILE),
+// with no ANET_HOME and no ANET_DATA_DIR, and returns it.
+func throwawayHome(t *testing.T) string {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("ANET_HOME", "")
+	t.Setenv("ANET_DATA_DIR", "")
+	t.Setenv("ANET_ID", "")
+	rt := t.TempDir()
+	if err := os.Chmod(rt, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("XDG_RUNTIME_DIR", rt)
+	guardInProcess(t)
+	return home
+}
+
+// setUpNotRunning is the default identity of a throwaway home (~/.anet) with
+// a node set up (config.json with a free control address) and no daemon, and
+// the function that serves its daemon in this process, as the starter of
+// `anet mcp` would start it.
 func setUpNotRunning(t *testing.T) (daemon.Layout, func() error) {
 	t.Helper()
-	t.Setenv("ANET_HOME", t.TempDir())
+	home := throwawayHome(t)
+	return setUpNotRunningAt(t, filepath.Join(home, ".anet"), nil)
+}
+
+// setUpNotRunningAt is setUpNotRunning for the data directory root, with
+// extra members of config.json.
+func setUpNotRunningAt(t *testing.T, root string, extra map[string]any) (daemon.Layout, func() error) {
+	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
 	addr := ln.Addr().String()
 	_ = ln.Close()
-	root := t.TempDir()
-	cfg, _ := json.Marshal(map[string]any{"control_addr": addr})
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	conf := map[string]any{"control_addr": addr}
+	for k, v := range extra {
+		conf[k] = v
+	}
+	cfg, _ := json.Marshal(conf)
 	if err := os.WriteFile(filepath.Join(root, "config.json"), cfg, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -86,9 +120,7 @@ func stubStart(t *testing.T, start func(layout daemon.Layout, wait time.Duration
 // [mut] no start → why is daemon_not_running and this is red.
 func TestMCPStartsTheNodeOfItsIdentity(t *testing.T) {
 	layout, serve := setUpNotRunning(t)
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
+	home := os.Getenv("HOME")
 	var gotWait time.Duration
 	var gotDir string
 	n := stubStart(t, func(l daemon.Layout, wait time.Duration, dir string) error {
@@ -129,7 +161,7 @@ func TestMCPStartsTheNodeOfItsIdentity(t *testing.T) {
 // created or started, and the reason names the command that sets it up (with
 // the identity's name for a named identity).
 func TestMCPDoesNotSetUpANode(t *testing.T) {
-	t.Setenv("ANET_HOME", t.TempDir())
+	throwawayHome(t)
 	n := stubStart(t, func(daemon.Layout, time.Duration, string) error {
 		t.Error("anet mcp started a node in a data directory that is not set up")
 		return nil
@@ -143,7 +175,7 @@ func TestMCPDoesNotSetUpANode(t *testing.T) {
 	} {
 		_, why := mcpNode(c.layout, true, io.Discard)
 		if why == nil || why.Reason != "daemon_not_running" || why.Next != c.next ||
-			!strings.Contains(why.Message, "No anet node is set up for this identity yet") || !strings.Contains(why.Message, c.layout.Root) {
+			!strings.Contains(why.Message, "No anet node is set up for this identity yet") || strings.Contains(why.Error(), c.layout.Root) {
 			t.Errorf("%s: %#v", c.layout.Root, why)
 		}
 		if c.layout.Initialized() {
@@ -186,7 +218,8 @@ func TestMCPServesWithoutTheNode(t *testing.T) {
 		return io.ErrUnexpectedEOF
 	})
 	c, why := mcpNode(layout, true, io.Discard)
-	if why == nil || why.Reason != "daemon_not_running" || !strings.Contains(why.Detail, "did not start") {
+	if why == nil || why.Reason != "daemon_not_running" || !strings.Contains(why.Detail, "did not answer within") ||
+		strings.Contains(why.Error(), layout.Root) || strings.Contains(why.Error(), "unexpected EOF") {
 		t.Fatalf("a failed start: %#v", why)
 	}
 	ct, st := mcp.NewInMemoryTransports()
@@ -235,7 +268,7 @@ func TestMCPServesWithoutTheNode(t *testing.T) {
 	var status map[string]any
 	_ = json.Unmarshal([]byte(text), &status)
 	if res.IsError || status["running"] != false || status["reason"] != "daemon_not_running" || status["next"] != "anet up" ||
-		!strings.Contains(text, "did not start") {
+		!strings.Contains(text, "did not answer within") {
 		t.Errorf("node_status without the node: error %v, %s", res.IsError, text)
 	}
 	for _, name := range []string{"get_task", "list_agents", "get_balance"} {
@@ -266,16 +299,28 @@ func TestMCPCommandStartsTheDaemon(t *testing.T) {
 	if testing.Short() {
 		t.Skip("starts a daemon")
 	}
+	if runtime.GOOS != "linux" {
+		t.Skip("finds the started daemon through /proc, to stop it by its process ID")
+	}
 	h := newCLIHome(t, "en")
-	if _, stderr, code := runCLI(t, h, []string{"init"}); code != 0 {
+	// The default identity of the home (~/.anet): the only kind of data
+	// directory, with the named identities under it, that anet mcp starts.
+	// Every command names it with --id default, so that it resolves strictly:
+	// without an explicit identity the CLI falls back to the uid-wide pointer
+	// (/run/user/<uid>/anet/daemon.json), which names the daemon of the real
+	// user of this machine, and `anet stop` would stop that one.
+	inHome := []string{"ANET_HOME=", "ANET_DATA_DIR="}
+	data := filepath.Join(h.home, ".anet")
+	if _, stderr, code := runCLI(t, h, []string{"--id", "default", "init"}, inHome...); code != 0 {
 		t.Fatalf("anet init: %d %s", code, stderr)
 	}
 	exe, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command(exe, "mcp")
-	cmd.Env = h.env()
+	cmd := exec.Command(exe, "--id", "default", "mcp")
+	cmd.Env = h.env(inHome...)
+	guardCLIRun(t, cmd.Env, cmd.Args[1:])
 	cmd.Dir = h.root
 	detachFromTerminal(cmd)
 	in := strings.Join([]string{
@@ -296,9 +341,16 @@ func TestMCPCommandStartsTheDaemon(t *testing.T) {
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
+	// The daemon that this test starts is stopped by its process ID, which is recorded once it
+	// runs: the process of this test binary that holds the lock of this data directory. No
+	// other process, and no `anet stop` that could resolve to another daemon, is involved.
+	var daemonPID int
 	t.Cleanup(func() {
-		if _, se, code := runCLI(t, h, []string{"stop"}); code != 0 {
-			t.Errorf("anet stop: %d %s", code, se)
+		if daemonPID == 0 {
+			daemonPID = daemonHolding(t, filepath.Join(data, "daemon.lock"))
+		}
+		if daemonPID != 0 {
+			stopRecorded(t, daemonPID)
 		}
 	})
 	if _, err := io.WriteString(stdin, in); err != nil {
@@ -345,8 +397,11 @@ wait:
 		t.Errorf("stderr: %s", stderr.String())
 	}
 	// The daemon outlives the session.
-	if !localDaemonUp(daemon.NewLayout(h.data)) {
+	if !localDaemonUp(daemon.NewLayout(data)) {
 		t.Error("the daemon did not outlive the MCP session")
+	}
+	if daemonPID = daemonHolding(t, filepath.Join(data, "daemon.lock")); daemonPID == 0 {
+		t.Error("no process of this test holds the data directory of the started daemon")
 	}
 }
 
@@ -354,6 +409,7 @@ wait:
 // daemon is reported as such, and no call reaches another daemon, even when the uid-wide pointer names
 // a running one — neither at the start nor at a later call.
 func TestMCPResolvesStrictlyForAnExplicitIdentity(t *testing.T) {
+	throwawayHome(t)
 	rt := t.TempDir()
 	if err := os.Chmod(rt, 0o700); err != nil {
 		t.Fatal(err)
@@ -383,12 +439,12 @@ func TestMCPResolvesStrictlyForAnExplicitIdentity(t *testing.T) {
 // `anet mcp` takes a port squatter for no daemon: it starts its own (stubbed here; the daemon moves to a
 // free port), and neither the start nor a later call sends the token to the squatter (F18).
 func TestMCPDoesNotSendTheTokenToAPortSquatter(t *testing.T) {
-	t.Setenv("ANET_HOME", t.TempDir())
+	home := throwawayHome(t)
 	rt := t.TempDir()
 	_ = os.Chmod(rt, 0o700)
 	t.Setenv("XDG_RUNTIME_DIR", rt)
 	sq := newSquatter(t)
-	layout, token := victimLayout(t, sq.addr)
+	layout, token := victimLayoutAt(t, filepath.Join(home, ".anet"), sq.addr)
 	starts := stubStart(t, func(daemon.Layout, time.Duration, string) error { return errors.New("not started in this test") })
 	c, why := mcpNode(layout, true, io.Discard)
 	if why == nil {
@@ -400,5 +456,123 @@ func TestMCPDoesNotSendTheTokenToAPortSquatter(t *testing.T) {
 	_ = c.Call(context.Background(), "/status", map[string]any{}, new(json.RawMessage))
 	if got := sq.sent(); len(got) != 0 {
 		t.Fatalf("the squatter received %q (token %s)", got, token)
+	}
+}
+
+// `anet mcp` starts only an identity of the user's own anet home. A data
+// directory named by ANET_DATA_DIR (or under an ANET_HOME) elsewhere, for
+// example one of a workspace with a config.json of its choosing, is not
+// started: the reason is daemon_not_running and the command is anet up, and
+// nothing in the answer names the path. A named identity under ~/.anet/ids is
+// started.
+// [mut] mcpMayStart returns true → the raw directory is started and this is red.
+func TestMCPStartsOnlyIdentitiesOfTheAnetHome(t *testing.T) {
+	home := throwawayHome(t)
+	var started []string
+	stubStart(t, func(l daemon.Layout, _ time.Duration, _ string) error {
+		started = append(started, l.Root)
+		return errors.New("not started in this test")
+	})
+	workspace := filepath.Join(t.TempDir(), "project", ".anet-data")
+	raw, _ := setUpNotRunningAt(t, workspace, map[string]any{"hub_url": "https://hub.example.invalid"})
+	t.Setenv("ANET_DATA_DIR", workspace)
+	if got := daemon.ResolveLayout(""); got.Root != workspace {
+		t.Fatalf("ANET_DATA_DIR selects %s", got.Root)
+	}
+	_, why := mcpNode(raw, true, io.Discard)
+	if why == nil || why.Reason != "daemon_not_running" || why.Next != "anet up" ||
+		!strings.Contains(why.Message, "starts only identities in the anet home") || strings.Contains(why.Error(), workspace) {
+		t.Errorf("a data directory outside the anet home: %#v", why)
+	}
+	t.Setenv("ANET_DATA_DIR", "")
+	// An ANET_HOME elsewhere is not the user's anet home either.
+	other := t.TempDir()
+	t.Setenv("ANET_HOME", other)
+	elsewhere, _ := setUpNotRunningAt(t, filepath.Join(other, "ids", "work"), nil)
+	if _, why := mcpNode(elsewhere, true, io.Discard); why == nil || !strings.Contains(why.Message, "anet home") {
+		t.Errorf("an identity of another ANET_HOME: %#v", why)
+	}
+	if len(started) != 0 {
+		t.Fatalf("anet mcp started %v", started)
+	}
+	t.Setenv("ANET_HOME", "")
+	// A named identity of the user's anet home is started.
+	named, _ := setUpNotRunningAt(t, filepath.Join(home, ".anet", "ids", "work"), nil)
+	_, why = mcpNode(named, true, io.Discard)
+	if len(started) != 1 || started[0] != named.Root || why == nil || why.Next != "anet --id work up" {
+		t.Errorf("a named identity of the anet home: started %v, %#v", started, why)
+	}
+	for _, c := range []struct {
+		root string
+		ok   bool
+	}{
+		{filepath.Join(home, ".anet"), true},
+		{filepath.Join(home, ".anet", "ids", "work"), true},
+		{filepath.Join(home, ".anet", "ids", "work", ".."), false},
+		{filepath.Join(home, ".anet", "ids", "ids"), false},
+		{filepath.Join(home, ".anet", "ids"), false},
+		{filepath.Join(home, ".anet", "ids", "a", "b"), false},
+		{filepath.Join(home, "project"), false},
+		{"relative/.anet", false},
+	} {
+		if got := mcpMayStart(daemon.NewLayout(c.root)); got != c.ok {
+			t.Errorf("mcpMayStart(%s) = %v", c.root, got)
+		}
+	}
+}
+
+// A node whose configuration enables the shell module (a controller may run
+// commands on this machine) is not started by `anet mcp`; it is left to an
+// explicit anet up.
+// [mut] no shell check → the node is started and this is red.
+func TestMCPDoesNotStartANodeWithTheShellModule(t *testing.T) {
+	home := throwawayHome(t)
+	n := stubStart(t, func(daemon.Layout, time.Duration, string) error {
+		t.Error("anet mcp started a node with the shell module")
+		return nil
+	})
+	layout, _ := setUpNotRunningAt(t, filepath.Join(home, ".anet"),
+		map[string]any{"modules": map[string]any{"shell": map[string]any{"allow": []string{}}}})
+	if !shellModuleConfigured(layout) {
+		t.Fatal("the shell block is not seen")
+	}
+	_, why := mcpNode(layout, true, io.Discard)
+	if why == nil || why.Reason != "daemon_not_running" || why.Next != "anet up" ||
+		!strings.Contains(why.Message, "enables the shell module") {
+		t.Errorf("a node with the shell module: %#v", why)
+	}
+	if n.Load() != 0 {
+		t.Errorf("%d starts", n.Load())
+	}
+}
+
+// What `anet mcp` tells the model names no path: not the data directory, not
+// the file of a refusal, not the daemon's log. The paths and the log lines go
+// to its standard error.
+// [mut] the start error in Detail → the log line reaches the model and this is red.
+func TestMCPTellsTheModelNoPathAndNoLog(t *testing.T) {
+	layout, _ := setUpNotRunning(t)
+	secret := "log line with " + layout.Root + "/secret"
+	stubStart(t, func(daemon.Layout, time.Duration, string) error {
+		return errors.New("the daemon exited immediately:\n  " + secret)
+	})
+	var log bytes.Buffer
+	_, why := mcpNode(layout, true, &log)
+	if why == nil {
+		t.Fatal("no reason")
+	}
+	for _, text := range []string{why.Error(), why.Message, why.Detail, why.Next} {
+		if strings.Contains(text, layout.Root) || strings.Contains(text, "secret") || strings.Contains(text, os.Getenv("HOME")) {
+			t.Errorf("the model is told %q", text)
+		}
+	}
+	if !strings.Contains(log.String(), secret) || !strings.Contains(log.String(), layout.Root) {
+		t.Errorf("stderr lacks the detail: %q", log.String())
+	}
+	// A refusal that names a file names it by its name only.
+	args := withoutPaths(map[string]any{"path": filepath.Join(layout.Root, "identity.json"), "key": "x",
+		"paths": []string{filepath.Join(layout.Root, "a.json"), "b"}})
+	if args["path"] != "identity.json" || args["key"] != "x" || strings.Join(args["paths"].([]string), ",") != "a.json,b" {
+		t.Errorf("withoutPaths: %v", args)
 	}
 }
