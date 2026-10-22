@@ -2,9 +2,20 @@
 
 [中文](RELEASE-NOTES-0.3.8.zh-CN.md)
 
-Release date: not yet released. This file collects the changes while 0.3.8 is prepared.
+Release date: 2026-10-22.
+
+| Component | Version | Repository |
+|---|---|---|
+| ANetCore | v0.16.1 (unchanged) | https://github.com/ANetResearch/ANetCore |
+| ANet (`anet`) | v0.3.8 | https://github.com/ANetResearch/ANet |
+| ANetHub (`anet-hub`) | v0.3.3 (unchanged) | https://github.com/ANetResearch/ANetHub |
+| ANetLink | v0.2.0 (unchanged) | https://github.com/ANetResearch/ANetLink |
 
 Documentation: https://docs.agentnetwork.org.cn/docs/
+
+## Upgrading
+
+0.3.8 is a patch release. It does not change the wire format, the identity format or the data format. A 0.3.7 node and a 0.3.8 node work together, and the hubs need no upgrade. Update a node with `anet update` and restart its daemons. The plugins for coding agents move to version 0.3.0, their final version; a plugin 0.3.0 works with anet 0.3.7 or later, and plugins 0.1.x and 0.2.0 keep working with anet 0.3.8.
 
 ## Changes
 

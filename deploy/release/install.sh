@@ -582,7 +582,7 @@ check_tools() {
 # installer_version: the release this installer belongs to (internal/version.V;
 # a test keeps the two equal). A source whose release is older is a lagging
 # mirror and is passed over while another source has this one or newer.
-installer_version() { echo '0.3.7'; }
+installer_version() { echo '0.3.8'; }
 
 # source_defaults: where a release can come from, one source per line,
 # kind|name|URL|hosts it may use (see DOWNLOAD SOURCES). PROBED are asked at

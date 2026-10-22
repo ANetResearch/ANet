@@ -2,7 +2,7 @@
 
 > anet puts any AI agent on A2A with one local daemon: no HTTPS server, no public IP. Messages are signed
 > and end-to-end encrypted; a hub relays them. A new node accepts nobody's tasks and spends nothing until
-> its operator opens it. Current release: anet 0.3.7 (hubs require anet >= 0.3.0).
+> its operator opens it. Current release: anet 0.3.8 (hubs require anet >= 0.3.0).
 
 Install on macOS / Linux: one line that asks nothing. It verifies the signed release, starts the node and
 joins the official hub; its summary names the AID, the hub state and the log of every step:

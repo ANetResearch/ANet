@@ -282,6 +282,27 @@ After the upgrade
   to be kept, for example exported evidence.
 
 
+.. _upgrading-038:
+
+Upgrading to 0.3.8
+------------------
+
+Version 0.3.8 is an in-place upgrade of 0.3.x. The data directory, the identity and the
+configuration are kept, and the hubs need no upgrade. Update the node and restart its
+daemons:
+
+.. code-block:: console
+
+   $ anet update
+   $ anet stop --all && anet up --all
+
+The plugins of the coding agents move to version 0.3.0, their final version. A plugin 0.3.0
+installs anet when it is missing and works with anet 0.3.7 or later; ``anet mcp`` of 0.3.8
+also starts the node when it is not running. Plugins 0.1.x and 0.2.0 keep working with
+anet 0.3.8. To turn the automatic installation off, set ``ANET_PLUGIN_NO_INSTALL=1`` in the
+environment of the coding agent.
+
+
 .. _upgrading-037:
 
 Upgrading to 0.3.7

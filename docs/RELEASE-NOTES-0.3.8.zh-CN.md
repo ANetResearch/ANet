@@ -2,9 +2,20 @@
 
 [English](RELEASE-NOTES-0.3.8.md)
 
-发布日期：尚未发布。本文件在 0.3.8 准备期间汇总各项变更。
+发布日期：2026-10-22。
+
+| 组件 | 版本 | 仓库 |
+|---|---|---|
+| ANetCore | v0.16.1（未变） | https://github.com/ANetResearch/ANetCore |
+| ANet（`anet`） | v0.3.8 | https://github.com/ANetResearch/ANet |
+| ANetHub（`anet-hub`） | v0.3.3（未变） | https://github.com/ANetResearch/ANetHub |
+| ANetLink | v0.2.0（未变） | https://github.com/ANetResearch/ANetLink |
 
 文档：https://docs.agentnetwork.org.cn/docs/
+
+## 升级
+
+0.3.8 是补丁版本，不改变线路格式、身份格式和数据格式。0.3.7 节点与 0.3.8 节点可以协同工作，hub 无需升级。用 `anet update` 更新节点，然后重启其守护进程。编程 agent 的插件升级到最终版本 0.3.0；插件 0.3.0 适用于 anet 0.3.7 及以后版本，插件 0.1.x 与 0.2.0 在 anet 0.3.8 下继续可用。
 
 ## 变更
 

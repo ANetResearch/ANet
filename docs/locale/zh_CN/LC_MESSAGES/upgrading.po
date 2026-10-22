@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ANet 0.3\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-21 16:11+0000\n"
+"POT-Creation-Date: 2026-10-22 15:12+0000\n"
 "PO-Revision-Date: 2026-10-16 05:00+0000\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: zh_CN\n"
@@ -557,17 +557,41 @@ msgid ""
 msgstr "0.2 数据目录在不再需要时可以删除。删除之前，请先复制需要保留的文件，例如已导出的证据。"
 
 #: ../../upgrading.rst:288
+msgid "Upgrading to 0.3.8"
+msgstr "升级到 0.3.8"
+
+#: ../../upgrading.rst:290
+msgid ""
+"Version 0.3.8 is an in-place upgrade of 0.3.x. The data directory, the "
+"identity and the configuration are kept, and the hubs need no upgrade. "
+"Update the node and restart its daemons:"
+msgstr "0.3.8 是 0.3.x 的原地升级。数据目录、身份和配置都会保留，hub 无需升级。更新节点并重启其守护进程："
+
+#: ../../upgrading.rst:299
+msgid ""
+"The plugins of the coding agents move to version 0.3.0, their final "
+"version. A plugin 0.3.0 installs anet when it is missing and works with "
+"anet 0.3.7 or later; ``anet mcp`` of 0.3.8 also starts the node when it "
+"is not running. Plugins 0.1.x and 0.2.0 keep working with anet 0.3.8. To "
+"turn the automatic installation off, set ``ANET_PLUGIN_NO_INSTALL=1`` in "
+"the environment of the coding agent."
+msgstr ""
+"编程 agent 的插件升级到最终版本 0.3.0。插件 0.3.0 会在缺少 anet 时安装 anet，适用于 anet 0.3.7 "
+"及以后版本；0.3.8 的 ``anet mcp`` 还会在节点未运行时启动节点。插件 0.1.x 与 0.2.0 在 anet 0.3.8 "
+"下继续可用。要关闭自动安装，请在编程 agent 的环境中设置 ``ANET_PLUGIN_NO_INSTALL=1``\\ 。"
+
+#: ../../upgrading.rst:309
 msgid "Upgrading to 0.3.7"
 msgstr "升级到 0.3.7"
 
-#: ../../upgrading.rst:290
+#: ../../upgrading.rst:311
 msgid ""
 "Version 0.3.7 is an in-place upgrade of 0.3.x. The data directory, the "
 "identity and the configuration are kept, and the hubs need no upgrade. "
 "Update the node and restart its daemons:"
 msgstr "0.3.7 是 0.3.x 的原地升级。数据目录、身份和配置都会保留，hub 无需升级。更新节点并重启其守护进程："
 
-#: ../../upgrading.rst:299
+#: ../../upgrading.rst:320
 msgid ""
 "The plugins of the coding agents move to version 0.2.0. A plugin 0.2.0 "
 "reads the guide of the installed anet through the tool ``guide`` and "
@@ -579,18 +603,18 @@ msgstr ""
 "0.3.7 或更高版本；请先于插件或与插件同时更新 anet。用 ``anet agents wire`` 接入的编程 agent，运行 "
 "``anet agents wire --refresh`` 即可获得新指南。"
 
-#: ../../upgrading.rst:308
+#: ../../upgrading.rst:329
 msgid "Upgrading to 0.3.6"
 msgstr "升级到 0.3.6"
 
-#: ../../upgrading.rst:310
+#: ../../upgrading.rst:331
 msgid ""
 "Version 0.3.6 is an in-place upgrade of 0.3.x. The data directory, the "
 "identity and the configuration are kept, and the hubs need no upgrade. "
 "Update the node and restart its daemons:"
 msgstr "0.3.6 是 0.3.x 的原地升级。数据目录、身份和配置均保留，Hub 无需升级。更新节点并重启其守护进程："
 
-#: ../../upgrading.rst:319
+#: ../../upgrading.rst:340
 msgid ""
 "On Linux and macOS, the installation command is the single line ``curl "
 "--proto '=https' --tlsv1.2 -fsSL https://agentnetwork.org.cn/install.sh |"
@@ -612,7 +636,7 @@ msgstr ""
 " Hub，并以新的二进制文件重启正在运行的节点。不应加入 Hub 的脚本或 Agent 传入 ``--no-join``，或以 ``--no-"
 "start`` 使节点保持停止（参见 :ref:`intro-install-options`）。"
 
-#: ../../upgrading.rst:329
+#: ../../upgrading.rst:350
 msgid ""
 "The installer prints a few lines and a summary, and writes the details to"
 " ``~/.anet/logs/install-<UTC time>.log`` (see :ref:`intro-install-"
@@ -624,7 +648,7 @@ msgstr ""
 ":`intro-install-output`）。``Upgraded from anet <version>`` "
 "一节位于该日志中，不再出现在输出中。在输出中查找该节的脚本应改为读取日志，或读取摘要中的 ``Replaced <release>`` 一行。"
 
-#: ../../upgrading.rst:334
+#: ../../upgrading.rst:355
 msgid ""
 "``install.sh`` exits with status 3 when ``anet`` is installed but the "
 "node did not start or the join failed; the installed binary is kept. A "
@@ -634,7 +658,7 @@ msgstr ""
 "``anet`` 已安装但节点未能启动或加入失败时，``install.sh`` 以状态 3 "
 "退出，已安装的二进制文件保留。将任何非零状态视为“未安装任何内容”的脚本，需要区分 3 与 1。"
 
-#: ../../upgrading.rst:338
+#: ../../upgrading.rst:359
 msgid ""
 "In a terminal, the installer may ask for the password of ``sudo`` once, "
 "to remove an earlier release that only the superuser can remove, or to "
@@ -647,7 +671,7 @@ msgstr ""
 "``/usr/local/bin/anet``\\ （参见 :ref:`intro-install-"
 "sudo`）。没有终端时，与以往相同，不进行任何询问。"
 
-#: ../../upgrading.rst:344
+#: ../../upgrading.rst:365
 msgid ""
 "The download sources change for ``install.sh`` and ``anet update`` alike "
 "(see :ref:`intro-install-hosts`). npmmirror, as the tarball of the npm "
@@ -664,7 +688,7 @@ msgstr ""
 "``ANET_INSTALL_BASE`` 现在与 ``--base`` 一样取代 ``anet update`` "
 "的全部下载源，而不再在默认下载源之前尝试。检查保持不变。"
 
-#: ../../upgrading.rst:351
+#: ../../upgrading.rst:372
 msgid ""
 "On Windows, running the installation command again updates the node and "
 "restarts a node of an earlier version with the new binary. Without "
@@ -687,18 +711,18 @@ msgstr ""
 "output`）。下载源已更改（参见 :ref:`intro-install-windows-sources`）；指定 ``-Base`` 或 "
 "``ANET_INSTALL_BASE`` 的镜像或 CI 作业不受影响。"
 
-#: ../../upgrading.rst:366
+#: ../../upgrading.rst:387
 msgid "Upgrading to 0.3.5"
 msgstr "升级到 0.3.5"
 
-#: ../../upgrading.rst:368
+#: ../../upgrading.rst:389
 msgid ""
 "Version 0.3.5 is an in-place upgrade of 0.3.x. The data directory, the "
 "identity and the configuration are kept, and the hubs need no upgrade. "
 "Update the node and restart its daemons:"
 msgstr "0.3.5 是 0.3.x 的原地升级。数据目录、身份和配置均保留，Hub 无需升级。更新节点并重启其守护进程："
 
-#: ../../upgrading.rst:377
+#: ../../upgrading.rst:398
 msgid ""
 "Running the installation command again also updates a node: "
 "``install.sh`` on Linux and macOS, and the command of :ref:`intro-"
@@ -710,7 +734,7 @@ msgstr ""
 "install-windows` 中的命令。自 0.3.5 起，两种安装程序都会在同一次运行中接管 AgentNetwork 1.x、anet "
 "0.1 与 anet 0.2（参见 :ref:`upgrading-installer`），且不进行任何询问。"
 
-#: ../../upgrading.rst:382
+#: ../../upgrading.rst:403
 msgid ""
 "On Windows, the installer no longer asks a confirmation for "
 "``-Controller``: the parameter on the command line is the consent. A "
@@ -722,18 +746,18 @@ msgstr ""
 "请求确认：命令行中的该参数即为同意。依赖该确认作为第二步的脚本，现在会在命令运行时即授予访问权限。``install.sh --system`` "
 "不再询问密码，请先运行 ``sudo -v``。"
 
-#: ../../upgrading.rst:391
+#: ../../upgrading.rst:412
 msgid "Upgrading to 0.3.4"
 msgstr "升级到 0.3.4"
 
-#: ../../upgrading.rst:393
+#: ../../upgrading.rst:414
 msgid ""
 "Version 0.3.4 is an in-place upgrade of 0.3.x. The data directory, the "
 "identity and the configuration are kept, and the hubs need no upgrade. "
 "Update the node and restart its daemons:"
 msgstr "0.3.4 是 0.3.x 的原地升级。数据目录、身份和配置均保留，Hub 无需升级。更新节点并重启其守护进程："
 
-#: ../../upgrading.rst:402
+#: ../../upgrading.rst:423
 msgid ""
 "One check changes on Linux and macOS. ``anet doctor`` reports the "
 "recovery file under ``identity.recovery`` only when another account can "
@@ -746,7 +770,7 @@ msgstr ""
 "``identity.recovery`` 下报告该文件。权限为 ``0400`` 的恢复文件在 0.3.4 "
 "之前会被报告，现在报告为就位。``identity.recovery_perm`` 的语句给出本平台使该文件变为私有的命令；代码不变。"
 
-#: ../../upgrading.rst:408
+#: ../../upgrading.rst:429
 msgid ""
 "From 0.3.4, ``anet update`` also tries the npm packages of the build "
 "after the project hosts (see :ref:`intro-install-hosts`). The checks are "
@@ -756,7 +780,7 @@ msgstr ""
 "自 0.3.4 起，``anet update`` 在项目主机之后还会尝试该构建的 npm 包（参见 :ref:`intro-install-"
 "hosts`）。对每台主机的校验相同。通过 npm 安装的节点改用 npm 更新（参见 :ref:`intro-install-npm`）。"
 
-#: ../../upgrading.rst:412
+#: ../../upgrading.rst:433
 msgid ""
 "Windows is supported natively from 0.3.4. On Windows, ``anet`` is "
 "installed with the PowerShell script ``install.ps1``, as described in "
@@ -768,15 +792,15 @@ msgstr ""
 "``install.ps1`` 安装，详见 :ref:`intro-install-windows`。在 WSL2 中运行的节点是 Linux "
 "节点，拥有自己的数据目录和身份；Windows 版本不读取该目录。"
 
-#: ../../upgrading.rst:421
+#: ../../upgrading.rst:442
 msgid "Upgrading to 0.3.3"
 msgstr "升级到 0.3.3"
 
-#: ../../upgrading.rst:423
+#: ../../upgrading.rst:444
 msgid "Version 0.3.3 is an in-place upgrade of 0.3.x. One behavior changes."
 msgstr "0.3.3 是 0.3.x 的原地升级。有一项行为发生变化。"
 
-#: ../../upgrading.rst:425
+#: ../../upgrading.rst:446
 msgid ""
 "Output is English on every system, including a system with a Chinese "
 "locale. Before 0.3.3, anet and anet-hub chose Chinese when ``LC_ALL``, "
@@ -789,7 +813,7 @@ msgstr ""
 "``LANG`` 以 ``zh`` 开头时，anet 和 anet-hub 选择中文。自 0.3.3 起，只有变量 ``ANET_LANG`` "
 "选择中文，区域设置变量不再参与判断。要保留中文语句，请在守护进程、命令行和 hub 的环境中设置该变量："
 
-#: ../../upgrading.rst:435
+#: ../../upgrading.rst:456
 msgid ""
 "Any value that begins with ``zh`` in any letter case selects Chinese; any"
 " other value, or no value, selects English. Scripts that match the "

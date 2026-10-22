@@ -13,7 +13,10 @@ Release notes
 ANet 0.3.8
 ----------
 
-ANet 0.3.8 is in preparation. The entries below describe the changes so far.
+ANet 0.3.8 is a patch release. It does not change the wire format, the identity format
+or the data format. It consists of ``anet`` 0.3.8; ANetCore v0.16.1, ANetHub 0.3.3 and
+ANetLink v0.2.0 are unchanged. A 0.3.7 node and a 0.3.8 node work together, and the
+hubs need no upgrade. See :ref:`upgrading-038`.
 
 The MCP server brings the node up
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
