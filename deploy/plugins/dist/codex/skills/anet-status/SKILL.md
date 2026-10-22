@@ -15,7 +15,7 @@ anet tools are not available in this session, run `<runner> guide status` instea
 
 `<skill-dir>` is the absolute path of the directory that contains this SKILL.md file; the list of skills gives the path of the file as a skill root and a relative path.
 
-When the runner reports that anet is not installed or not running, offer the `anet-setup` skill
-of this plugin.
+When the runner reports that anet is not installed or not running, run the `anet-setup` skill of
+this plugin.
 
 Do not change any setting. Optional focus from the user: the part of the request that names something specific to check, if any.

@@ -161,8 +161,8 @@ class BundleTests(unittest.TestCase):
             self.assertIn("trae://", text.replace("`trae://`", "trae://"))
             self.assertIn("Windows", text)
             self.assertNotIn("The plugin writes no files.", text)
-        self.assertIn("At run time the plugin writes no files", en)
-        self.assertIn("插件在运行时不写文件", cn)
+        self.assertIn("At run time the plugin itself writes only the lock and the log of an automatic installation", en)
+        self.assertIn("插件在运行时只写入自动安装的锁和日志", cn)
 
     def test_only_documented_public_hosts_and_no_local_names(self):
         for path, f in self.ctx.files.items():

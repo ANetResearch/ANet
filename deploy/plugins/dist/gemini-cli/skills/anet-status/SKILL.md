@@ -13,7 +13,7 @@ anet tools are not available in this session, run `<runner> guide status` instea
 - Windows (PowerShell or cmd): `"${extensionPath}/bin/anet-run.cmd"`; in PowerShell, put `&` and a
   space before the quoted path.
 
-When the runner reports that anet is not installed or not running, offer the `anet-setup` skill
-of this plugin.
+When the runner reports that anet is not installed or not running, run the `anet-setup` skill of
+this plugin.
 
 Do not change any setting. If the host refuses a runner command, report the refusal together with the command and stop: do not write copies or wrapper scripts of the runner to work around it. Optional focus from the user: the part of the request that names something specific to check, if any.

@@ -15,7 +15,7 @@ anet tools are not available in this session, run `<runner> guide status` instea
 
 `<plugin-root>` is the root directory of the anet plugin: the directory that holds `bin`, `skills` and `.cursor-plugin`, which is two levels above the file `SKILL.md` of the `anet-setup` skill.
 
-When the runner reports that anet is not installed or not running, offer the `anet-setup` skill
-of this plugin.
+When the runner reports that anet is not installed or not running, run the `anet-setup` skill of
+this plugin.
 
 Do not change any setting. Optional focus from the user: any text that follows the command name

@@ -209,8 +209,9 @@ def transform(ctx, rel, text, lang):
 
 def build(ctx):
     meta = ctx.meta
-    # The shared launcher fails when the node is not ready, and Claude Code remembers
-    # such a failed start; the launcher of this target stays connected instead.
+    # The shared launcher fails when anet is missing (or, with anet before 0.3.8, when the node
+    # does not run), and Claude Code remembers such a failed start; the launcher of this target
+    # installs anet in the same way and then stays connected instead (src/claude-code/anet-mcp.sh).
     ctx.add_common(skip=("bin/anet-mcp.sh",))
     ctx.add("bin/anet-mcp.sh", _src("anet-mcp.sh") + "\n", executable=True)
 

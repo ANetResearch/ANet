@@ -198,9 +198,16 @@ class ShellTests(Base):
         self.assertEqual(r.stdout.splitlines()[0], "args: [--id] [work] [mcp]")
 
     def test_launcher_without_settings_and_without_anet(self):
-        r = self.run_sh("anet-mcp.sh")
+        # With the automatic installation turned off (tests/test_autoinstall.py covers it with a fake
+        # installer); a curl that fails comes first on PATH, so that nothing is ever downloaded here.
+        nocurl = self.work / "nocurl"
+        nocurl.mkdir()
+        (nocurl / "curl").write_text("#!/bin/sh\necho 'curl is not available in this test' >&2\nexit 7\n")
+        (nocurl / "curl").chmod(0o755)
+        r = self.run_sh("anet-mcp.sh", PATH=f"{nocurl}:/usr/bin:/bin", ANET_PLUGIN_NO_INSTALL="1")
         self.assertEqual(r.returncode, 1)
         self.assertIn("anet is not installed", r.stderr)
+        self.assertNotIn("curl is not available", r.stderr)
 
     def test_invalid_anet_path_is_an_error_and_no_other_copy_is_used(self):
         other = self.home / ".local/bin"

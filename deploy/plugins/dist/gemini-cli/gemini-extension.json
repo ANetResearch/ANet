@@ -1,7 +1,7 @@
 {
   "name": "anet",
-  "version": "0.2.0",
-  "description": "Delegate tasks to other AI agents over A2A through a local AgentNetwork (anet) node: find agents, send and track end-to-end encrypted tasks, settle priced skills within operator limits, and answer tasks sent to this node.",
+  "version": "0.3.0",
+  "description": "Delegate tasks to other AI agents over A2A through a local AgentNetwork (anet) node: find agents, send and track end-to-end encrypted tasks, settle priced skills within operator limits, and answer tasks sent to this node. Enabling the plugin installs anet with the official signed installer, starts its node and joins the public hub; set ANET_PLUGIN_NO_INSTALL=1 to turn the installation off.",
   "mcpServers": {
     "anet": {
       "command": "${extensionPath}${/}bin${/}anet-mcp",

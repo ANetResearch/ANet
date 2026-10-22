@@ -22,6 +22,10 @@
 #                      resolve: print the executable, its version, the
 #                      identity and the runner command, and exit 0.
 #   ANET_RUN_SELF      the full path of anet-run.cmd, for the runner line.
+#   ANET_RUN_INSTALL   missing: set by anet-mcp.cmd (the MCP launcher) and
+#                      by no other caller. In the mode locate, when no
+#                      anetPath is set and no anet.exe is found, anet is
+#                      installed first (Install-AnetForMcp, below).
 #
 # Rules (the same as anet-run.sh):
 #   * A configured anetPath is used as it is and never replaced by another
@@ -166,6 +170,122 @@ function Find-AnetExecutable {
     'Ask the agent to run the anet-setup skill of the anet plugin, or see https://docs.agentnetwork.org.cn/docs/en/latest/intro/install.html')
 }
 
+# Install-AnetForMcp installs anet for the MCP launcher when it is missing,
+# so that enabling the plugin is enough to have anet installed and its node
+# running. It runs the official Windows installer exactly as the installation
+# guide gives it, with Windows PowerShell of the system directory:
+#
+#   powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command
+#     "[Net.ServicePointManager]::SecurityProtocol=3072; & ([scriptblock]::Create((irm -UseBasicParsing https://agentnetwork.org.cn/install.ps1)))"
+#
+# install.ps1 checks the signed release manifest and the SHA-256 of the
+# binary, stops without changing anything when a check fails, installs anet
+# for this user, starts the node and joins the public hub. It receives no
+# argument and nothing from the workspace or the session: no input (its input
+# is closed at once), no window, the user's home directory as its working
+# directory. Its output and its errors are copied to standard error, line by
+# line, after it ends: standard output is read by anet-run.cmd and is then the
+# MCP session. Nothing is installed when ANET_PLUGIN_NO_INSTALL is set to a
+# value other than 0.
+#
+# One installation at a time: the file anet-plugin\install.lock in
+# %LOCALAPPDATA% is held open without sharing while the installer runs, so
+# that a second host that starts at the same moment waits for it (at most 10
+# minutes) and then installs nothing when an anet is there. Windows releases
+# the file when the process ends, however it ends. The installer is waited for
+# at most 15 minutes; it is not ended when that passes.
+function Test-AnetInstallOptOut {
+  $v = Get-AnetEnv 'ANET_PLUGIN_NO_INSTALL'
+  return ($v -ne '' -and $v -ne '0')
+}
+
+function Find-AnetQuietly {
+  try { return (Find-AnetExecutable) } catch { return $null }
+}
+
+function Write-AnetErrorLines([string]$Text) {
+  foreach ($line in ($Text -split "`r?`n")) {
+    if ($line.Trim() -ne '') { [Console]::Error.WriteLine($line) }
+  }
+}
+
+function Install-AnetForMcp {
+  $root = Get-AnetEnv 'SystemRoot'
+  if ($root -eq '' -or -not (Test-AnetAbsolutePath $root)) { return }
+  $ps = Join-Path (Join-Path (Join-Path (Join-Path $root 'System32') 'WindowsPowerShell') 'v1.0') 'powershell.exe'
+  if (-not (Test-Path -LiteralPath $ps -PathType Leaf)) { return }
+  $local = Get-AnetEnv 'LOCALAPPDATA'
+  if ($local -eq '' -or -not (Test-AnetAbsolutePath $local)) { return }
+  $userHome = Get-AnetUserHome
+  if ($userHome -eq '' -or -not (Test-AnetAbsolutePath $userHome)) { $userHome = $local }
+  $state = Join-Path $local 'anet-plugin'
+  $lock = $null
+  try {
+    $null = [IO.Directory]::CreateDirectory($state)
+    $lockPath = Join-Path $state 'install.lock'
+    $deadline = [DateTime]::UtcNow.AddMinutes(10)
+    $waited = $false
+    while ($null -eq $lock) {
+      try {
+        $lock = [IO.File]::Open($lockPath, [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+      } catch [IO.IOException] {
+        if ([DateTime]::UtcNow -ge $deadline) {
+          [Console]::Error.WriteLine('Another installation of anet is still running; anet was not installed by this session.')
+          return
+        }
+        if (-not $waited) { [Console]::Error.WriteLine('Another installation of anet is running; waiting for it to finish.') }
+        $waited = $true
+        Start-Sleep -Seconds 1
+      }
+    }
+    if ($waited -and $null -ne (Find-AnetQuietly)) {
+      [Console]::Error.WriteLine('Another installation of anet has finished.')
+      return
+    }
+    [Console]::Error.WriteLine('anet is not installed. Installing it with the official installer (https://agentnetwork.org.cn/install.ps1),')
+    [Console]::Error.WriteLine('which checks the signed release manifest, installs anet for this user, starts its node and joins the public hub.')
+    [Console]::Error.WriteLine('Set the environment variable ANET_PLUGIN_NO_INSTALL=1 to turn this off.')
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = $ps
+    $psi.Arguments = '-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol=3072; & ([scriptblock]::Create((irm -UseBasicParsing https://agentnetwork.org.cn/install.ps1)))"'
+    $psi.UseShellExecute = $false
+    $psi.RedirectStandardInput = $true
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    $psi.CreateNoWindow = $true
+    $psi.WorkingDirectory = $userHome
+    $p = New-Object System.Diagnostics.Process
+    $p.StartInfo = $psi
+    try {
+      $null = $p.Start()
+    } catch {
+      [Console]::Error.WriteLine('The anet installer could not be started: ' + $_.Exception.Message)
+      return
+    }
+    try {
+      $p.StandardInput.Close()
+      $out = $p.StandardOutput.ReadToEndAsync()
+      $err = $p.StandardError.ReadToEndAsync()
+      if (-not $p.WaitForExit(15 * 60 * 1000)) {
+        [Console]::Error.WriteLine('The installation of anet has not finished; it goes on in the background.')
+        return
+      }
+      $p.WaitForExit()
+      # The node that the installer started may hold the other end of the
+      # pipes; what arrived within a few seconds is shown.
+      if ($out.Wait(5000)) { Write-AnetErrorLines ([string]$out.Result) }
+      if ($err.Wait(1000)) { Write-AnetErrorLines ([string]$err.Result) }
+      [Console]::Error.WriteLine('The anet installer ended with status ' + [string]$p.ExitCode + '.')
+    } finally {
+      $p.Dispose()
+    }
+  } catch {
+    [Console]::Error.WriteLine('anet could not be installed: ' + $_.Exception.Message)
+  } finally {
+    if ($null -ne $lock) { $lock.Dispose() }
+  }
+}
+
 # The .cmd file reads the selection through the code page of the console. A
 # path with a character that this code page cannot represent is replaced by its
 # short (8.3) form; when that does not help either, the path is refused rather
@@ -221,6 +341,10 @@ if ($mode -eq 'resolve') {
   exit 0
 }
 if ($mode -eq 'locate') {
+  if ((Get-AnetEnv 'ANET_RUN_INSTALL') -eq 'missing' -and (Get-AnetEnv 'ANET_PLUGIN_SETTINGS') -eq 'env' -and
+      $AnetPath -eq '' -and -not (Test-AnetInstallOptOut) -and $null -eq (Find-AnetQuietly)) {
+    Install-AnetForMcp
+  }
   try {
     $exe = ConvertTo-AnetConsolePath (Find-AnetExecutable)
     Test-AnetIdentity

@@ -14,8 +14,8 @@ anet tools are not available in this session, run `<runner> guide status` instea
 
 `<trae-dir>` is the configuration directory of Trae that holds this command and the anet bundle: `~/.trae`, `~/.trae-cn` or the `.trae` directory of the project (on Windows `%USERPROFILE%\.trae` or `%USERPROFILE%\.trae-cn`).
 
-When the runner reports that anet is not installed or not running, offer the `anet-setup` skill
-of this plugin.
+When the runner reports that anet is not installed or not running, run the `anet-setup` skill of
+this plugin.
 
 Do not change any setting, and do not read or edit the Trae configuration (`mcp.json`);
 the runner reads the plugin settings itself. Optional focus from the user: any text that follows the command name

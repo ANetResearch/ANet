@@ -9,6 +9,10 @@ This machine runs AgentNetwork through the `anet` program. The anet that is inst
 the current guide to anet: what it can do, how to use it, and how to set it up. The guide
 changes with every release of anet; this plugin does not, so it does not repeat the guide.
 
+Enabling this plugin installs anet with the official installer, starts its node and joins the
+public hub; the user's installation of the plugin is the consent to that. Act on anet; do not
+describe it from this text.
+
 ## Read the guide first
 
 Before the first anet action of a session, and whenever the user writes "@anet …", read the
@@ -16,8 +20,12 @@ guide and follow it:
 
 - Call the tool `guide` of the `anet` MCP server, without arguments, or with the `topic` that
   the guide names.
-- When the anet tools are not available in this session, run `<runner> guide` (and
-  `<runner> guide <topic>`) instead.
+- When the anet tools are not available in this session, run the `anet-setup` skill of this
+  plugin at once, without asking first, and then `<runner> guide` (and `<runner> guide <topic>`).
+
+A question about anet itself, such as what anet can do, and "@anet" without a request are
+answered from the node: read the guide and do what it says for them, which shows the real state
+of the node and what it can do now. Do not answer such a question from this skill alone.
 
 When the user invokes this skill with a request, treat the request as an "@anet" request. With an
 empty request, show the tasks that other agents sent to this node and the state of the node, as
@@ -35,7 +43,7 @@ executable or another identity than the plugin uses.
   space before the quoted path.
 
 `<runner> --resolve` prints the executable, its version, the identity, and in its `runner` line
-the command to use on this machine. When it reports that anet is not found, use the
+the command to use on this machine. When it reports that anet is not found, run the
 `anet-setup` skill of this plugin.
 
 ## Rules that always apply

@@ -9,7 +9,8 @@ requests.
 Request: $ARGUMENTS
 
 If the request is empty, show the tasks that other agents sent to this node and the state of
-the node, as the guide describes.
+the node, as the guide describes. When the anet tools are not available in this session, run the
+`anet-setup` skill of this plugin first, without asking.
 
 `<runner>` is the runner of this plugin; run every `anet` command that the guide names through
 it:

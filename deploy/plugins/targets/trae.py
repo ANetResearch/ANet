@@ -180,9 +180,9 @@ def transform(ctx, rel, text, lang):
         )
         return _replace_once(
             text,
-            "The plugin writes no files.",
-            "At run time the plugin writes no files; the installer writes the files listed above once, when the user runs it, "
-            "and creates `.trae/mcp.json` in a project that has none.",
+            "The plugin itself writes only",
+            "The bundle installer of this plugin writes the files listed above once, when the user runs it, "
+            "and creates `.trae/mcp.json` in a project that has none. At run time the plugin itself writes only",
             rel,
         )
     if rel == "README_CN.md":
@@ -194,8 +194,8 @@ def transform(ctx, rel, text, lang):
         )
         return _replace_once(
             text,
-            "插件本身不写文件。",
-            "插件在运行时不写文件；安装脚本仅在用户运行时写入上文所列的文件一次，并在尚无 `.trae/mcp.json` 的项目中创建该文件。",
+            "插件本身只写入",
+            "本插件的安装脚本仅在用户运行时写入上文所列的文件一次，并在尚无 `.trae/mcp.json` 的项目中创建该文件。插件在运行时只写入",
             rel,
         )
     return text

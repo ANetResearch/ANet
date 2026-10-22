@@ -351,12 +351,19 @@ class LauncherTests(unittest.TestCase):
         self.assertIn("runner: sh ", r.stdout)
 
     def test_missing_anet_exits_1_with_a_reason(self):
-        env = {"HOME": str(self.plugin), "PATH": "/usr/bin:/bin"}
-        r = subprocess.run([str(self.plugin / "bin" / "anet-mcp")], env=env, capture_output=True, text=True, timeout=30)
         if Path("/usr/local/bin/anet").exists() or Path("/opt/homebrew/bin/anet").exists():
             self.skipTest("an anet executable exists in a system directory")
+        # With the automatic installation turned off (tests/test_autoinstall.py covers it with a fake
+        # installer); a curl that fails comes first on PATH, so that nothing is ever downloaded here.
+        nocurl = Path(tempfile.mkdtemp(prefix="anet-nocurl-"))
+        self.addCleanup(shutil.rmtree, nocurl, True)
+        (nocurl / "curl").write_text("#!/bin/sh\necho 'curl is not available in this test' >&2\nexit 7\n")
+        (nocurl / "curl").chmod(0o755)
+        env = {"HOME": str(self.plugin), "PATH": f"{nocurl}:/usr/bin:/bin", "ANET_PLUGIN_NO_INSTALL": "1"}
+        r = subprocess.run([str(self.plugin / "bin" / "anet-mcp")], env=env, capture_output=True, text=True, timeout=30)
         self.assertEqual(r.returncode, 1)
         self.assertIn("anet is not installed", r.stderr)
+        self.assertNotIn("curl is not available", r.stderr)
 
 
 @unittest.skipUnless(os.environ.get("ANET_CURSOR_VALIDATOR"), "set ANET_CURSOR_VALIDATOR to run the validator of github.com/cursor/plugins")

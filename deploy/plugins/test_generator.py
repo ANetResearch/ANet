@@ -146,7 +146,7 @@ class SharedTextTests(unittest.TestCase):
             self.assertIn(needle, body)
         setup = texts["skills/anet-setup/SKILL.md"]
         for needle in ("--resolve", "<runner> guide setup", "{{INSTALLER_FROM_SKILL}}", "{{INSTALLER_CMD_FROM_SKILL}}",
-                       "explicit yes", "{{RUNNER_CMD_FROM_SKILL}}"):
+                       "consent to install anet", "ANET_PLUGIN_NO_INSTALL=1", "{{RUNNER_CMD_FROM_SKILL}}"):
             self.assertIn(needle, setup)
         self.assertIn("topic `status`", texts["commands/anet-status.md"])
         self.assertIn("<runner> guide status", texts["commands/anet-status.md"])
@@ -215,6 +215,46 @@ class WindowsFileTests(unittest.TestCase):
                     self.assertNotIn("$args", text, f"{key}/{rel}")
                     self.assertNotRegex(text, r"Invoke-Expression|iex |Start-Process", f"{key}/{rel}")
                     self.assertNotIn("{{", text, f"{key}/{rel}")
+
+
+class AutoInstallStructureTests(unittest.TestCase):
+    """Only the MCP launcher installs anet, before the runner starts, with no input and its output on stderr."""
+
+    def test_the_posix_launchers_install_before_the_runner(self):
+        res = g.build_all(None)
+        n = 0
+        for key, ctx in res.contexts.items():
+            for rel, f in ctx.files.items():
+                text = f.data.decode("utf-8") if rel.endswith((".sh", ".cmd", ".ps1")) else ""
+                if rel.endswith("bin/anet-mcp.sh"):
+                    n += 1
+                    lines = [line.strip() for line in text.splitlines()]
+                    step = [i for i, line in enumerate(lines) if "anet-install.sh\" --mcp" in line]
+                    run = [i for i, line in enumerate(lines) if '"$runner"' in line or "anet-run.sh\" mcp" in line]
+                    self.assertEqual(len(step), 1, f"{key}/{rel}")
+                    self.assertTrue(lines[step[0]].endswith("--mcp </dev/null >&2"), f"{key}/{rel}: {lines[step[0]]}")
+                    self.assertLess(step[0], min(run), f"{key}/{rel}: the installation comes after the runner")
+                elif rel.endswith("bin/anet-run.sh") or rel.endswith("bin/anet-run.cmd"):
+                    self.assertNotIn("anet-install", text, f"{key}/{rel}")
+                if rel.endswith("bin/anet-mcp.cmd"):
+                    self.assertIn('set "ANET_RUN_INSTALL=missing"', text, f"{key}/{rel}")
+                if rel.endswith("bin/anet-run.cmd"):
+                    self.assertIn('if not "%~1"=="mcp" set "ANET_RUN_INSTALL="', text, f"{key}/{rel}")
+                    # Cleared before anet runs, so that nothing below anet sees it.
+                    self.assertLess(text.index('set "ANET_RUN_INSTALL="\r\nif defined ANET_RUN_ID'), text.index('"%ANET_RUN_EXE%" %*'))
+                if rel.endswith("bin/anet-run.ps1"):
+                    self.assertIn("(Get-AnetEnv 'ANET_RUN_INSTALL') -eq 'missing'", text)
+                    self.assertIn("$AnetPath -eq ''", text)
+                    self.assertIn("Test-AnetInstallOptOut", text)
+                    self.assertIn("RedirectStandardInput = $true", text)
+                    self.assertIn("[IO.FileShare]::None", text)
+        self.assertEqual(n, len(res.contexts))
+
+    def test_the_installer_url_is_fixed(self):
+        text = (g.COMMON / "bin" / "anet-install.sh").read_text(encoding="utf-8")
+        self.assertEqual(text.count("https://agentnetwork.org.cn/install.sh -o"), 1)
+        ps = (g.COMMON / "bin" / "anet-run.ps1").read_text(encoding="utf-8")
+        self.assertIn("irm -UseBasicParsing https://agentnetwork.org.cn/install.ps1", ps)
 
 
 class MarkerTests(unittest.TestCase):

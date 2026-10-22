@@ -314,7 +314,7 @@ class RunnerTests(Built):
         # The launcher is started with sh in .mcp.json and starts the runner with sh: the bit is not needed.
         copy = Path(self.home.name) / "copy"
         copy.mkdir()
-        for name in ("anet-run.sh", "anet-mcp.sh"):
+        for name in ("anet-run.sh", "anet-mcp.sh", "anet-install.sh"):
             (copy / name).write_text((self.plugin / "bin" / name).read_text())
             (copy / name).chmod(0o644)
         env = {"HOME": self.home.name, "PATH": f"{self.bin}:/usr/bin:/bin", "ANET_PLUGIN_BIN": "", "ANET_PLUGIN_IDENTITY": ""}

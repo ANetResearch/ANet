@@ -16,6 +16,8 @@ rem input of anet, for example the MCP session of anet-mcp.cmd.
 setlocal EnableExtensions DisableDelayedExpansion
 set "ANET_RUN_SCRIPT=%~dp0anet-run.ps1"
 set "ANET_RUN_SELF=%~f0"
+rem Only the MCP launcher (anet-mcp.cmd, "anet-run.cmd mcp") installs anet.
+if not "%~1"=="mcp" set "ANET_RUN_INSTALL="
 if "%~1"=="--resolve" goto resolve
 set "ANET_RUN_MODE=locate"
 set "ANET_RUN_EXE="
@@ -28,6 +30,7 @@ if not defined ANET_RUN_EXE exit /b 1
 set "ANET_RUN_MODE="
 set "ANET_RUN_SCRIPT="
 set "ANET_RUN_SELF="
+set "ANET_RUN_INSTALL="
 if defined ANET_RUN_ID goto with_identity
 "%ANET_RUN_EXE%" %*
 exit /b %ERRORLEVEL%

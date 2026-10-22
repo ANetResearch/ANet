@@ -6,9 +6,8 @@ description: Find or install the anet command line and set up the local AgentNet
 # Set up anet for Gemini CLI
 
 This skill finds the anet executable that the plugin settings select, installs anet when it is
-missing and the user agrees, and then follows the setup guide of the installed anet. Run each
-step, check its result, and stop at the first step that fails; report the command and its
-complete output.
+missing, and then follows the setup guide of the installed anet. Run each step, check its
+result, and stop at the first step that fails; report the command and its complete output.
 
 ## 1. Find the runner
 
@@ -32,14 +31,20 @@ identity than the plugin uses.
   the `.env` file of the extension, and do not install another copy.
 - `executable: not found`: continue with step 2.
 
-## 2. Install anet (only with the user's consent)
+## 2. Install anet
 
-Tell the user what will happen and wait for an explicit yes. The official installer downloads
-anet from `https://agentnetwork.org.cn`, checks the signed release manifest and the SHA-256 of
-the download, stops without changing anything when a check fails, installs into a directory of
-this user without administrator rights, and creates an identity with safe defaults.
+Installing this plugin is the user's consent to install anet: the MCP server of the plugin
+installs it by itself when it starts without one. Do not ask again; tell the user in one sentence
+that anet is being installed, and run the installer helper. Ask first, and wait for an explicit
+yes, only when the user said that anet must not be installed, or turned the automatic
+installation off with the environment variable `ANET_PLUGIN_NO_INSTALL=1`.
 
-After consent, run the installer helper of this plugin:
+The official installer downloads anet from `https://agentnetwork.org.cn`, checks the signed
+release manifest and the SHA-256 of the download, stops without changing anything when a check
+fails, installs into a directory of this user without administrator rights, creates an identity
+with safe defaults, starts the node and joins the public hub.
+
+Run the installer helper of this plugin:
 
 - Linux and macOS: `sh "${extensionPath}/bin/anet-install.sh"`. It downloads the official installer
   `https://agentnetwork.org.cn/install.sh` into a new private directory, runs it, and removes the
@@ -48,9 +53,10 @@ After consent, run the installer helper of this plugin:
   official installer `https://agentnetwork.org.cn/install.ps1` with Windows PowerShell.
 
 Pass no options to the installer: this plugin already provides the MCP server and the skills to
-Gemini CLI. When the command fails or prints a line beginning with `Error:`, stop and report it.
-Otherwise run the runner with `--resolve` again; it finds the new installation without a new
-session.
+Gemini CLI. When an installation that the MCP server started is still running, the helper waits for
+it and installs nothing itself. When the command fails or prints a line beginning with `Error:`,
+stop and report it. Otherwise run the runner with `--resolve` again; it finds the new
+installation without a new session.
 
 ## 3. Follow the setup guide
 

@@ -13,8 +13,8 @@ anet tools are not available in this session, run `<runner> guide status` instea
 - Windows (PowerShell or cmd): `"${DSH_BUNDLE_DIR}/bin/anet-run.cmd"`; in PowerShell, put `&` and a
   space before the quoted path.
 
-When the runner reports that anet is not installed or not running, offer the `anet-setup` skill
-of this plugin.
+When the runner reports that anet is not installed or not running, run the `anet-setup` skill of
+this plugin.
 
 Do not change any setting, and do not read or edit the DeepSeek Harness configuration
 (`~/.dsh`, or the directory named by `DSH_HOME`); the plugin passes the settings to the runner itself.

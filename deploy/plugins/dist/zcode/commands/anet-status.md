@@ -12,8 +12,8 @@ anet tools are not available in this session, run `<runner> guide status` instea
 - Windows (PowerShell or cmd): `"${ZCODE_PLUGIN_ROOT}/bin/anet-run.cmd"`; in PowerShell, put `&` and a
   space before the quoted path.
 
-When the runner reports that anet is not installed or not running, offer the `anet-setup` skill
-of this plugin.
+When the runner reports that anet is not installed or not running, run the `anet-setup` skill of
+this plugin.
 
 Do not change any setting, and do not read or edit the ZCode configuration (`~/.zcode`);
 the runner reads the plugin settings itself. Optional focus from the user: $ARGUMENTS

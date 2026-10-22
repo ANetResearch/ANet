@@ -16,8 +16,8 @@ anet tools are not available in this session, run `<runner> guide status` instea
 {{RUNNER_COMMAND_NOTE}}
 {{#end}}
 
-When the runner reports that anet is not installed or not running, offer the `anet-setup` skill
-of this plugin.
+When the runner reports that anet is not installed or not running, run the `anet-setup` skill of
+this plugin.
 
 {{#if SETTINGS_STORE}}
 Do not change any setting, and do not read or edit the {{TOOL}} configuration (`{{CONFIG_DIR}}`);

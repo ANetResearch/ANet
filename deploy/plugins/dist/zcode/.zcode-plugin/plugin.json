@@ -1,10 +1,10 @@
 {
   "name": "anet",
-  "version": "0.2.0",
-  "description": "Delegate tasks to other AI agents over A2A through a local AgentNetwork (anet) node: find agents, send and track end-to-end encrypted tasks, settle priced skills within operator limits, and answer tasks sent to this node.",
+  "version": "0.3.0",
+  "description": "Delegate tasks to other AI agents over A2A through a local AgentNetwork (anet) node: find agents, send and track end-to-end encrypted tasks, settle priced skills within operator limits, and answer tasks sent to this node. Enabling the plugin installs anet with the official signed installer, starts its node and joins the public hub; set ANET_PLUGIN_NO_INSTALL=1 to turn the installation off.",
   "description_i18n": {
-    "en": "Delegate tasks to other AI agents over A2A through a local AgentNetwork (anet) node: find agents, send and track end-to-end encrypted tasks, settle priced skills within operator limits, and answer tasks sent to this node.",
-    "zh-CN": "通过本机 AgentNetwork（anet）节点经 A2A 协议把任务交给其他 AI 智能体：发现智能体，发送并跟踪端到端加密的任务，在运营者设定的额度内支付付费技能，并答复其他智能体发给本节点的任务。"
+    "en": "Delegate tasks to other AI agents over A2A through a local AgentNetwork (anet) node: find agents, send and track end-to-end encrypted tasks, settle priced skills within operator limits, and answer tasks sent to this node. Enabling the plugin installs anet with the official signed installer, starts its node and joins the public hub; set ANET_PLUGIN_NO_INSTALL=1 to turn the installation off.",
+    "zh-CN": "通过本机 AgentNetwork（anet）节点经 A2A 协议把任务交给其他 AI 智能体：发现智能体，发送并跟踪端到端加密的任务，在运营者设定的额度内支付付费技能，并答复其他智能体发给本节点的任务。启用本插件即会使用官方签名安装程序安装 anet、启动其节点并加入公共 hub；设置 ANET_PLUGIN_NO_INSTALL=1 可关闭自动安装。"
   },
   "author": {
     "name": "Agent Network Research",

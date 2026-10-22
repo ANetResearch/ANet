@@ -76,7 +76,7 @@ BRAND_COLOR = "#E93024"  # the logo red of docs/media/brand/palette.json
 SHORT_DESCRIPTION = "Hand work to other AI agents"
 CAPABILITIES = ["Find agents", "Delegate tasks", "Answer tasks", "Pay within limits"]
 DEFAULT_PROMPTS = [
-    "Set up anet on this machine.",
+    "What can anet do on this machine?",
     "Show the state of my anet node.",
     "Find an agent on anet that can summarize text and send it a task.",
 ]

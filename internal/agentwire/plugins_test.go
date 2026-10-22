@@ -31,11 +31,14 @@ func requirePython(t *testing.T) string {
 }
 
 // runScript runs `sh <script> <args>` with HOME set to home, PATH set to path
-// and the extra environment env, and returns its output and exit status.
+// and the extra environment env, and returns its output and exit status. The
+// automatic installation of anet by the MCP launcher is turned off: it is
+// tested with a fake installer by deploy/plugins/tests/test_autoinstall.py, and
+// nothing here may download.
 func runScript(t *testing.T, script, home, path string, env []string, args ...string) (string, int) {
 	t.Helper()
 	cmd := exec.Command("/bin/sh", append([]string{script}, args...)...)
-	cmd.Env = append([]string{"HOME=" + home, "PATH=" + path}, env...)
+	cmd.Env = append([]string{"HOME=" + home, "PATH=" + path, "ANET_PLUGIN_NO_INSTALL=1"}, env...)
 	out, err := cmd.CombinedOutput()
 	code := 0
 	if ee, ok := err.(*exec.ExitError); ok {
@@ -213,7 +216,7 @@ func TestPluginRunnersShareTheRules(t *testing.T) {
 				t.Errorf("%s is missing or not executable: %v", direct, err)
 			} else {
 				cmd := exec.Command(direct)
-				cmd.Env = []string{"HOME=" + home, "PATH=" + sysPath, "ANET_PLUGIN_BIN=" + bin, "ANET_PLUGIN_IDENTITY=work"}
+				cmd.Env = []string{"HOME=" + home, "PATH=" + sysPath, "ANET_PLUGIN_BIN=" + bin, "ANET_PLUGIN_IDENTITY=work", "ANET_PLUGIN_NO_INSTALL=1"}
 				if got, err := cmd.CombinedOutput(); err != nil || strings.TrimSpace(string(got)) != bin+" --id work mcp" {
 					t.Errorf("%s: %v, output %q", direct, err, got)
 				}
