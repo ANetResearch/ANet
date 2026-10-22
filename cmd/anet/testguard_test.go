@@ -117,12 +117,17 @@ func TestTestGuard(t *testing.T) {
 		"no runtime directory": {h.env("XDG_RUNTIME_DIR="), []string{"status"}},
 		"a data dir elsewhere": {h.env("ANET_DATA_DIR=/var/lib/anet"), []string{"status"}},
 	} {
-		if realUserHome == "" && name == "the real home" {
+		if name == "the real home" && (realUserHome == "" || within(realUserHome, tempRoot())) {
+			// The tests run with a HOME in the temporary directory: temporaryDir accepts
+			// that directory (it cannot be told from a throwaway one), as asserted below.
 			continue
 		}
 		if err := checkCLIRun(c.env, c.args); err == nil {
 			t.Errorf("%s: let through", name)
 		}
+	}
+	if realUserHome != "" && within(realUserHome, tempRoot()) && !temporaryDir(realUserHome) {
+		t.Errorf("a home in the temporary directory (%s) is refused", realUserHome)
 	}
 }
 

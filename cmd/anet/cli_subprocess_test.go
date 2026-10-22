@@ -20,6 +20,12 @@ import (
 
 func TestMain(m *testing.M) {
 	if os.Getenv("ANET_TEST_RUN_MAIN") == "1" {
+		// The test binary run as anet: the account's home is the throwaway home of the run
+		// (HOME), so that `anet mcp` may start the identities under it. Only this test binary
+		// reads HOME for it; anet itself asks the user database (accountHome in mcp.go).
+		if h := os.Getenv("HOME"); filepath.IsAbs(h) {
+			accountHome = func() string { return h }
+		}
 		main()
 		os.Exit(0)
 	}

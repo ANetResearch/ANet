@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/user"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -101,7 +102,8 @@ var startNodeForMCP = func(layout daemon.Layout, wait time.Duration, dir string)
 //     (it may be starting, for example by another session at the same moment),
 //     and reported as daemon_not_answering when it does not answer in time.
 //  4. Only an identity of the user's own anet home is started (mcpMayStart):
-//     the default identity (~/.anet) and the named ones (~/.anet/ids/<name>).
+//     the default identity (~/.anet) and the named ones (~/.anet/ids/<name>),
+//     where ~ is the home of the account in the user database (accountHome).
 //     A data directory that ANET_DATA_DIR or ANET_HOME names elsewhere is
 //     reported as daemon_not_running.outside_home and left to an explicit
 //     `anet up`. The environment of `anet mcp` is the host's, and a host may
@@ -194,11 +196,30 @@ func mcpWhyNot(layout daemon.Layout, logw io.Writer) *mcpserv.NodeUnavailable {
 	return nil
 }
 
-// userAnetHome is the anet home of the user's own account, ~/.anet, whatever
-// ANET_HOME says; "" when the home directory is unknown.
+// accountHome is the home directory of the account that runs anet, as the
+// user database records it (os/user: the passwd entry on Unix, the profile
+// directory that Windows reports for the account), not as the environment
+// says: HOME, like ANET_HOME, is a variable that a host may pass on from a
+// project. os.UserHomeDir is used only when the lookup fails. An anet home
+// that HOME spells differently is therefore outside, and is not started
+// implicitly (the safe direction). A variable so that the tests of this
+// package can name a throwaway home (cli_subprocess_test.go).
+var accountHome = func() string {
+	if u, err := user.Current(); err == nil && filepath.IsAbs(u.HomeDir) {
+		return u.HomeDir
+	}
+	if h, err := os.UserHomeDir(); err == nil && filepath.IsAbs(h) {
+		return h
+	}
+	return ""
+}
+
+// userAnetHome is the anet home of the user's own account, ~/.anet of
+// accountHome, whatever ANET_HOME or HOME says; "" when the home directory is
+// unknown.
 func userAnetHome() string {
-	h, err := os.UserHomeDir()
-	if err != nil || !filepath.IsAbs(h) {
+	h := accountHome()
+	if h == "" {
 		return ""
 	}
 	return filepath.Join(h, ".anet")

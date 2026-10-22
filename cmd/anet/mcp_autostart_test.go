@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -43,6 +44,9 @@ func throwawayHome(t *testing.T) string {
 	}
 	t.Setenv("XDG_RUNTIME_DIR", rt)
 	guardInProcess(t)
+	old := accountHome
+	accountHome = func() string { return home }
+	t.Cleanup(func() { accountHome = old })
 	return home
 }
 
@@ -502,6 +506,16 @@ func TestMCPStartsOnlyIdentitiesOfTheAnetHome(t *testing.T) {
 	if len(started) != 1 || started[0] != named.Root || why == nil || why.Next != "anet --id work up" {
 		t.Errorf("a named identity of the anet home: started %v, %#v", started, why)
 	}
+	// The anet home is the one of the account in the user database, not the one HOME names:
+	// with HOME elsewhere, ~/.anet of that HOME is outside.
+	accountHome = func() string { return filepath.Join(home, "account") }
+	if mcpMayStart(daemon.NewLayout(filepath.Join(home, ".anet"))) {
+		t.Error("an anet home under HOME but not under the account's home is started")
+	}
+	if !mcpMayStart(daemon.NewLayout(filepath.Join(home, "account", ".anet", "ids", "work"))) {
+		t.Error("an identity of the account's anet home is not started")
+	}
+	accountHome = func() string { return home }
 	for _, c := range []struct {
 		root string
 		ok   bool
@@ -550,6 +564,20 @@ func TestMCPDoesNotStartANodeWithTheShellModule(t *testing.T) {
 // the file of a refusal, not the daemon's log. The paths and the log lines go
 // to its standard error.
 // [mut] the start error in Detail → the log line reaches the model and this is red.
+// accountHome is the user database's answer, not HOME: a HOME that a host sets
+// (for example from a project) does not move the anet home of the account.
+func TestAccountHomeComesFromTheUserDatabase(t *testing.T) {
+	u, err := user.Current()
+	if err != nil || !filepath.IsAbs(u.HomeDir) {
+		t.Skip("the user database has no home for this account")
+	}
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", os.Getenv("HOME"))
+	if got := accountHome(); got != u.HomeDir {
+		t.Errorf("accountHome = %q, want the account's %q", got, u.HomeDir)
+	}
+}
+
 func TestMCPTellsTheModelNoPathAndNoLog(t *testing.T) {
 	layout, _ := setUpNotRunning(t)
 	secret := "log line with " + layout.Root + "/secret"
