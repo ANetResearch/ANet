@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ANet 0.3\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-16 14:35+0000\n"
+"POT-Creation-Date: 2026-10-23 07:38+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: zh_CN\n"
@@ -312,6 +312,53 @@ msgid ""
 msgstr "单次调用的时限，以及保存发送给服务的 bearer 令牌的文件。二者也可以为整个模块统一设置。默认时限为两分钟。"
 
 #: ../../topics/capabilities.rst:181
+msgid "``internal``"
+msgstr "``internal``"
+
+#: ../../topics/capabilities.rst:182
+msgid ""
+"``true`` marks a capability that only this node calls (since 0.3.9). It "
+"is not offered: it appears on no card and in no registration, and a call "
+"from the network is answered as for a capability that the node does not "
+"have, without any request to the service. The node uses such a capability"
+" for ``inbound.admit`` (see :doc:`delegation`). An internal capability "
+"has no price and is not an agent tool."
+msgstr ""
+"``true`` 表示该能力只由本节点调用（自 0.3.9 "
+"起）。该能力不对外提供：它不出现在任何卡片和注册信息中，来自网络的调用按节点不具备该能力的情形应答，不会向服务发出任何请求。节点将此类能力用于 "
+"``inbound.admit``\\ （参见 :doc:`delegation`）。内部能力没有价格，也不是 agent 工具。"
+
+#: ../../topics/capabilities.rst:189
+msgid "``agent_tool``, ``input_schema``"
+msgstr "``agent_tool``、``input_schema``"
+
+#: ../../topics/capabilities.rst:190
+msgid ""
+"``agent_tool: true`` marks a capability that an agent which runs for a "
+"peer may call as that peer (since 0.3.9). The node sends the call to the "
+"same backend, with the same token and time limit, as a call from the "
+"network, and sets ``X-ANet-Caller`` to the AID of the peer and ``X-ANet-"
+"Via`` to the origin of the call, for example ``agent``. The service "
+"therefore applies the rights and rate limits of that peer. A call to a "
+"capability without the flag is refused with ``not_agent_tool`` before "
+"anything is sent, and a peer on the ``deny`` list cannot make such a "
+"call. ``input_schema`` is an optional JSON Schema object of at most 16 "
+"KiB that describes the arguments; the agent receives it with "
+"``description``. A refusal of the service keeps its code and message; an "
+"unreachable or failing service is reported as ``unavailable``, ``busy``, "
+"``timeout``, ``connection_lost`` or ``backend_failed``."
+msgstr ""
+"``agent_tool: true`` 表示为某个对端运行的 agent 可以以该对端的身份调用该能力（自 0.3.9 "
+"起）。节点把调用发送到与来自网络的调用相同的后端，使用相同的令牌和时限，并将 ``X-ANet-Caller`` 设为该对端的 AID，将 ``X"
+"-ANet-Via`` 设为调用的来源，例如 "
+"``agent``。因此，服务会对该调用适用该对端的权限和速率限制。对未带此标记的能力的调用，在发送任何内容之前即以 "
+"``not_agent_tool`` 拒绝；``deny`` 名单中的对端不能发起此类调用。``input_schema`` 是可选的 JSON "
+"Schema 对象，最大 16 KiB，用于描述参数；agent 会连同 ``description`` "
+"一并收到它。服务作出的拒绝保留其代码和消息；服务无法连接或出现故障时，报告为 "
+"``unavailable``、``busy``、``timeout``、``connection_lost`` 或 "
+"``backend_failed``。"
+
+#: ../../topics/capabilities.rst:203
 msgid ""
 "A capability call is a request from a remote peer to a program on the "
 "operator's machine. For this reason a service listens on a Unix domain "
@@ -323,28 +370,28 @@ msgstr ""
 "域套接字，守护进程会拒绝其他用户可以替换的套接字。模块说明见 :doc:`modules`，全部配置键见 :ref:`reference-"
 "config`\\ 。"
 
-#: ../../topics/capabilities.rst:188
+#: ../../topics/capabilities.rst:210
 msgid "The public card"
 msgstr "公开卡片"
 
-#: ../../topics/capabilities.rst:190
+#: ../../topics/capabilities.rst:212
 msgid ""
 "The public card describes a node to anyone. The node signs it, registers "
 "it with its hub when it joins, and publishes a new version when its "
 "capabilities or settings change. The hub lists the card in its directory."
 msgstr "公开卡片向任何人描述一个节点。节点对其签名，在加入时将其注册到 Hub，并在能力或设置变化时发布新版本。Hub 在其目录中列出该卡片。"
 
-#: ../../topics/capabilities.rst:194
+#: ../../topics/capabilities.rst:216
 msgid "The public card contains:"
 msgstr "公开卡片包含："
 
-#: ../../topics/capabilities.rst:196
+#: ../../topics/capabilities.rst:218
 msgid ""
 "the name and description of the node, from ``anet hub-register --name`` "
 "and ``anet profile set``;"
 msgstr "节点的名称和描述，来自 ``anet hub-register --name`` 与 ``anet profile set``；"
 
-#: ../../topics/capabilities.rst:198
+#: ../../topics/capabilities.rst:220
 msgid ""
 "one skill for each public capability that is not ``allow_only``. When the"
 " inbound policy is ``open``, the card also lists a ``chat`` skill, which "
@@ -353,55 +400,55 @@ msgstr ""
 "每项非 ``allow_only`` 的公开能力对应一个技能。入站策略为 ``open`` 时，卡片还列出一个 ``chat`` "
 "技能，它代表文本任务，且从不标价；"
 
-#: ../../topics/capabilities.rst:201
+#: ../../topics/capabilities.rst:223
 msgid ""
 "the relay interface, which tells a client to reach the node through its "
 "hub, with the node's AID as the tenant;"
 msgstr "中继接口，指示客户端经由其 Hub 访问该节点，并以节点的 AID 作为租户；"
 
-#: ../../topics/capabilities.rst:203
+#: ../../topics/capabilities.rst:225
 msgid "a signature made with the current key of the node's identity;"
 msgstr "以节点身份的当前密钥生成的签名；"
 
-#: ../../topics/capabilities.rst:204
+#: ../../topics/capabilities.rst:226
 msgid ""
 "the ``capabilities.extendedAgentCard`` flag, always ``true`` (see `The "
 "extended card`_);"
 msgstr "``capabilities.extendedAgentCard`` 标志，恒为 ``true``\\ （参见 `扩展卡片`_）；"
 
-#: ../../topics/capabilities.rst:206
+#: ../../topics/capabilities.rst:228
 msgid "the extensions listed in the table below."
 msgstr "下表列出的扩展。"
 
-#: ../../topics/capabilities.rst:212
+#: ../../topics/capabilities.rst:234
 msgid "Extension"
 msgstr "扩展"
 
-#: ../../topics/capabilities.rst:213
+#: ../../topics/capabilities.rst:235
 msgid "Meaning"
 msgstr "含义"
 
-#: ../../topics/capabilities.rst:214
+#: ../../topics/capabilities.rst:236
 msgid "``https://agentnetwork.org.cn/a2a/ext/anet-card/v1``"
 msgstr "``https://agentnetwork.org.cn/a2a/ext/anet-card/v1``"
 
-#: ../../topics/capabilities.rst:215
+#: ../../topics/capabilities.rst:237
 msgid ""
 "The AID, the sequence number of the card, and the time it was issued. A "
 "newer sequence number replaces an older card."
 msgstr "AID、卡片序号和签发时间。序号较新的卡片取代较旧的卡片。"
 
-#: ../../topics/capabilities.rst:217
+#: ../../topics/capabilities.rst:239
 msgid "``https://agentnetwork.org.cn/a2a/ext/anet-evidence/v1``"
 msgstr "``https://agentnetwork.org.cn/a2a/ext/anet-evidence/v1``"
 
-#: ../../topics/capabilities.rst:218
+#: ../../topics/capabilities.rst:240
 msgid ""
 "A completed task carries a receipt signed by the provider and ``anet.*`` "
 "evidence metadata."
 msgstr "已完成的任务携带由提供方签名的回执和 ``anet.*`` 证据元数据。"
 
-#: ../../topics/capabilities.rst:220
+#: ../../topics/capabilities.rst:242
 msgid ""
 "``https://github.com/google-agentic-"
 "commerce/a2a-x402/blob/main/spec/v0.2``"
@@ -409,23 +456,23 @@ msgstr ""
 "``https://github.com/google-agentic-"
 "commerce/a2a-x402/blob/main/spec/v0.2``"
 
-#: ../../topics/capabilities.rst:221
+#: ../../topics/capabilities.rst:243
 msgid ""
 "Present when at least one skill listed on the card is priced. Declared as"
 " required only when every listed skill is priced. See :doc:`payments`."
 msgstr "卡片上列出的技能中至少有一项标价时出现。仅当所列技能全部标价时才声明为必需。参见 :doc:`payments`\\ 。"
 
-#: ../../topics/capabilities.rst:223
+#: ../../topics/capabilities.rst:245
 msgid "``https://agentnetwork.org.cn/a2a/ext/anet-preview/v1``"
 msgstr "``https://agentnetwork.org.cn/a2a/ext/anet-preview/v1``"
 
-#: ../../topics/capabilities.rst:224
+#: ../../topics/capabilities.rst:246
 msgid ""
 "Present when the module that sends previews is available and "
 "``stream_preview`` is not ``off``. See :doc:`preview`."
 msgstr "发送预览的模块可用且 ``stream_preview`` 不为 ``off`` 时出现。参见 :doc:`preview`\\ 。"
 
-#: ../../topics/capabilities.rst:227
+#: ../../topics/capabilities.rst:249
 msgid ""
 "The public card never contains a price. A price on a public card would "
 "allow the hub, and every reader of a settlement record, to name the "
@@ -433,19 +480,18 @@ msgid ""
 "card instead."
 msgstr "公开卡片从不包含价格。若公开卡片带有价格，Hub 以及结算记录的每一位读取者都可以据此判断一笔付款购买了哪项能力。价格改在扩展卡片中发布。"
 
-#: ../../topics/capabilities.rst:231
+#: ../../topics/capabilities.rst:253
 msgid ""
 "A node that has no public capability and an inbound policy other than "
 "``open`` publishes no card, because A2A requires at least one skill on "
 "every card."
 msgstr "既没有公开能力、入站策略又不是 ``open`` 的节点不发布卡片，因为 A2A 要求每张卡片至少包含一个技能。"
 
-#: ../../topics/capabilities.rst:235
-#: ../../topics/capabilities.rst:316
+#: ../../topics/capabilities.rst:257 ../../topics/capabilities.rst:338
 msgid "The extended card"
 msgstr "扩展卡片"
 
-#: ../../topics/capabilities.rst:237
+#: ../../topics/capabilities.rst:259
 msgid ""
 "The extended card is the card that a node gives to a caller that asks for"
 " it. A2A defines it as the result of ``GetExtendedAgentCard``. In ANet "
@@ -456,43 +502,43 @@ msgstr ""
 "扩展卡片是节点交给提出请求的调用方的卡片，在 A2A 中是 ``GetExtendedAgentCard`` 的结果。在 ANet "
 "中，请求与应答在两个节点之间端到端传递，经过加密和签名，不经过 Hub 的目录，Hub 也无法读取。"
 
-#: ../../topics/capabilities.rst:242
+#: ../../topics/capabilities.rst:264
 msgid "A node signs two variants of the extended card."
 msgstr "节点签署两种扩展卡片。"
 
-#: ../../topics/capabilities.rst:244
+#: ../../topics/capabilities.rst:266
 msgid "``general``"
 msgstr "``general``"
 
-#: ../../topics/capabilities.rst:245
+#: ../../topics/capabilities.rst:267
 msgid ""
 "The public card with the price of each priced skill. Every caller "
 "receives it."
 msgstr "带有各收费技能价格的公开卡片，所有调用方均可获得。"
 
-#: ../../topics/capabilities.rst:248
+#: ../../topics/capabilities.rst:270
 msgid "``list``"
 msgstr "``list``"
 
-#: ../../topics/capabilities.rst:249
+#: ../../topics/capabilities.rst:271
 msgid ""
 "The public card, the ``allow_only`` capabilities, and the prices of all "
 "of them. Peers on the ``allow`` or ``trust`` list of the provider receive"
 " it."
 msgstr "公开卡片、\\ ``allow_only`` 能力，以及它们全部的价格。提供方 ``allow`` 或 ``trust`` 名单中的对端可以获得。"
 
-#: ../../topics/capabilities.rst:252
+#: ../../topics/capabilities.rst:274
 msgid ""
 "A node answers ``not_configured`` when the variant for the caller would "
 "state nothing that the public card does not state: no price and no "
 "additional skill."
 msgstr "当面向调用方的那一种卡片所陈述的内容并未超出公开卡片，即既无价格也无额外技能时，节点应答 ``not_configured``\\ 。"
 
-#: ../../topics/capabilities.rst:256
+#: ../../topics/capabilities.rst:278
 msgid "Prices"
 msgstr "价格"
 
-#: ../../topics/capabilities.rst:258
+#: ../../topics/capabilities.rst:280
 msgid ""
 "An extended card carries prices in one extension, "
 "``https://agentnetwork.org.cn/a2a/ext/anet-price/v1``. Its parameters "
@@ -501,7 +547,7 @@ msgstr ""
 "扩展卡片通过一个扩展 ``https://agentnetwork.org.cn/a2a/ext/anet-price/v1`` "
 "携带价格。其参数如下："
 
-#: ../../topics/capabilities.rst:274
+#: ../../topics/capabilities.rst:296
 msgid ""
 "``network`` names the ledger of the hub in which the amounts are "
 "denominated. Each ``amount`` is a decimal string for a whole number from "
@@ -513,90 +559,89 @@ msgstr ""
 "``network`` 指明金额所用的 Hub 账本。每个 ``amount`` 是十进制字符串，表示 1 到 2\\ :sup:`63` 减 1"
 " 之间的整数。列表中未列出的技能免费。价目表与卡片其余部分一并签名，因此提供方事后无法就其已签名的卡片声称另一价格，Hub 也无法伪造价格。"
 
-#: ../../topics/capabilities.rst:280
+#: ../../topics/capabilities.rst:302
 msgid ""
 "The price list is declared on the card but is not a requirement: a client"
 " that does not understand the extension can ignore it."
 msgstr "价目表在卡片上声明，但不构成要求：不理解该扩展的客户端可以忽略它。"
 
-#: ../../topics/capabilities.rst:284
+#: ../../topics/capabilities.rst:306
 msgid "When a node reads a card"
 msgstr "节点何时读取卡片"
 
-#: ../../topics/capabilities.rst:286
+#: ../../topics/capabilities.rst:308
 msgid ""
 "A node asks for the extended card of another node only when one of the "
 "following holds and no recent copy is cached:"
 msgstr "仅当下列条件之一成立，且没有近期的缓存副本时，节点才会请求另一节点的扩展卡片："
 
-#: ../../topics/capabilities.rst:289
+#: ../../topics/capabilities.rst:311
 msgid "the public card of the other node declares a2a-x402; or"
 msgstr "对方的公开卡片声明了 a2a-x402；或者"
 
-#: ../../topics/capabilities.rst:290
+#: ../../topics/capabilities.rst:312
 msgid ""
 "the node holds a valid delivery credential issued by the other node at "
 "contact level, which is the case when the other node has the node on its "
 "``allow`` or ``trust`` list and the two have exchanged a first message."
 msgstr "节点持有对方签发的、联系人级别的有效投递凭据，即对方将本节点列入其 ``allow`` 或 ``trust`` 名单，且双方已交换过第一条消息。"
 
-#: ../../topics/capabilities.rst:294
+#: ../../topics/capabilities.rst:316
 msgid ""
 "When neither holds, the node does not contact the other node, and it "
 "shows the public card. Listing agents never fetches an extended card."
 msgstr "两个条件均不成立时，节点不会联系对方，而是显示其公开卡片。列出 Agent 时从不获取扩展卡片。"
 
-#: ../../topics/capabilities.rst:297
+#: ../../topics/capabilities.rst:319
 msgid ""
 "The wait for an answer is at most 10 seconds, a fetched card is kept for "
 "24 hours, and a card is not fetched again within 60 seconds. A provider "
 "answers at most six requests per minute from one sender."
 msgstr "等待应答的时间最长为 10 秒，获取到的卡片保存 24 小时，60 秒内不会重复获取同一张卡片。提供方对同一发送方每分钟最多应答六次请求。"
 
-#: ../../topics/capabilities.rst:301
+#: ../../topics/capabilities.rst:323
 msgid ""
 "The result is the same in the command line, in MCP and in the local A2A "
 "interface:"
 msgstr "命令行、MCP 与本地 A2A 接口的结果一致："
 
-#: ../../topics/capabilities.rst:308
+#: ../../topics/capabilities.rst:330
 msgid "Situation"
 msgstr "情形"
 
-#: ../../topics/capabilities.rst:309
+#: ../../topics/capabilities.rst:331
 msgid "``anet card`` and ``get_agent_card``"
 msgstr "``anet card`` 与 ``get_agent_card``"
 
-#: ../../topics/capabilities.rst:310
+#: ../../topics/capabilities.rst:332
 msgid "``GetExtendedAgentCard``"
 msgstr "``GetExtendedAgentCard``"
 
-#: ../../topics/capabilities.rst:311
+#: ../../topics/capabilities.rst:333
 msgid "The conditions above do not hold"
 msgstr "上述条件不成立"
 
-#: ../../topics/capabilities.rst:312
-#: ../../topics/capabilities.rst:318
+#: ../../topics/capabilities.rst:334 ../../topics/capabilities.rst:340
 msgid "Public card"
 msgstr "公开卡片"
 
-#: ../../topics/capabilities.rst:313
+#: ../../topics/capabilities.rst:335
 msgid "``UnsupportedOperationError``, code ``extended_card_not_offered``"
 msgstr "``UnsupportedOperationError``，代码 ``extended_card_not_offered``"
 
-#: ../../topics/capabilities.rst:314
+#: ../../topics/capabilities.rst:336
 msgid "The card was fetched and its signature is valid"
 msgstr "已获取卡片且签名有效"
 
-#: ../../topics/capabilities.rst:315
+#: ../../topics/capabilities.rst:337
 msgid "All skills and prices"
 msgstr "全部技能与价格"
 
-#: ../../topics/capabilities.rst:317
+#: ../../topics/capabilities.rst:339
 msgid "The provider answered ``not_configured``"
 msgstr "提供方应答 ``not_configured``"
 
-#: ../../topics/capabilities.rst:319
+#: ../../topics/capabilities.rst:341
 msgid ""
 "``ExtendedAgentCardNotConfiguredError``, code "
 "``extended_card_not_configured``"
@@ -604,67 +649,67 @@ msgstr ""
 "``ExtendedAgentCardNotConfiguredError``，代码 "
 "``extended_card_not_configured``"
 
-#: ../../topics/capabilities.rst:321
+#: ../../topics/capabilities.rst:343
 msgid "The provider is busy, did not answer, or could not be reached"
 msgstr "提供方繁忙、未应答或无法连接"
 
-#: ../../topics/capabilities.rst:322
+#: ../../topics/capabilities.rst:344
 msgid "Public card and a sentence for ``extended_card_unavailable``"
 msgstr "公开卡片，以及 ``extended_card_unavailable`` 对应的说明语句"
 
-#: ../../topics/capabilities.rst:323
+#: ../../topics/capabilities.rst:345
 msgid ""
 "Error ``extended_card_unavailable``; ``Retry-After`` is 60 seconds when "
 "the provider is busy and 15 seconds otherwise"
 msgstr "错误 ``extended_card_unavailable``；提供方繁忙时 ``Retry-After`` 为 60 秒，其他情况为 15 秒"
 
-#: ../../topics/capabilities.rst:325
+#: ../../topics/capabilities.rst:347
 msgid "The signature is not valid"
 msgstr "签名无效"
 
-#: ../../topics/capabilities.rst:326
+#: ../../topics/capabilities.rst:348
 msgid "Public card and a sentence for ``extended_card_unavailable.bad_signature``"
 msgstr "公开卡片，以及 ``extended_card_unavailable.bad_signature`` 对应的说明语句"
 
-#: ../../topics/capabilities.rst:328
+#: ../../topics/capabilities.rst:350
 msgid "``InvalidAgentResponseError``"
 msgstr "``InvalidAgentResponseError``"
 
-#: ../../topics/capabilities.rst:330
+#: ../../topics/capabilities.rst:352
 msgid "The sentences for these codes are listed in :ref:`reference-reason-codes`."
 msgstr "这些代码对应的说明语句见 :ref:`reference-reason-codes`\\ 。"
 
-#: ../../topics/capabilities.rst:333
+#: ../../topics/capabilities.rst:355
 msgid "Reading a card"
 msgstr "读取卡片"
 
-#: ../../topics/capabilities.rst:335
+#: ../../topics/capabilities.rst:357
 msgid ""
 "The ``anet card`` command prints the card of one agent. The argument is "
 "the complete AID of the agent, as printed by ``anet find``."
 msgstr "``anet card`` 命令输出一个 Agent 的卡片。参数为该 Agent 的完整 AID，即 ``anet find`` 输出的 AID。"
 
-#: ../../topics/capabilities.rst:351
+#: ../../topics/capabilities.rst:373
 msgid ""
 "The ``charge`` column of ``anet find`` is derived from the a2a-x402 "
 "declaration of the public card, without contacting the agent:"
 msgstr "``anet find`` 的 ``charge`` 列根据公开卡片中的 a2a-x402 声明得出，无需联系该 Agent："
 
-#: ../../topics/capabilities.rst:354
+#: ../../topics/capabilities.rst:376
 msgid "``free``: the card does not declare a2a-x402;"
 msgstr "``free``：卡片未声明 a2a-x402；"
 
-#: ../../topics/capabilities.rst:355
+#: ../../topics/capabilities.rst:377
 msgid ""
 "``some skills paid``: the card declares a2a-x402 and does not mark it as "
 "required;"
 msgstr "``some skills paid``：卡片声明了 a2a-x402，但未标记为必需；"
 
-#: ../../topics/capabilities.rst:357
+#: ../../topics/capabilities.rst:379
 msgid "``paid``: the card declares a2a-x402 as required."
 msgstr "``paid``：卡片将 a2a-x402 声明为必需。"
 
-#: ../../topics/capabilities.rst:359
+#: ../../topics/capabilities.rst:381
 msgid ""
 "Viewing the card of a paid agent contacts that agent. The agent can learn"
 " that the node asked for its prices, and the node's hub learns of the "
@@ -674,7 +719,7 @@ msgstr ""
 "查看收费 Agent 的卡片会联系该 Agent。该 Agent 可以得知节点查询过其价格，节点所在的 Hub "
 "会得知首次联系但不予存储。列出和搜索 Agent 从不联系它们。"
 
-#: ../../topics/capabilities.rst:363
+#: ../../topics/capabilities.rst:385
 msgid ""
 "``anet card --json`` prints the same data as the ``get_agent_card`` tool "
 "of MCP (see :ref:`reference-mcp-tools`). The local A2A interface returns "
@@ -685,18 +730,18 @@ msgstr ""
 ":`reference-mcp-tools`）。本地 A2A 接口通过 ``GetExtendedAgentCard`` 返回扩展卡片（参见 "
 ":ref:`howto-local-a2a`）。"
 
-#: ../../topics/capabilities.rst:367
+#: ../../topics/capabilities.rst:389
 msgid ""
 "A skill that is open only to the provider's lists is not visible before "
 "the first exchange between the two nodes. A caller that already knows the"
 " identifier of such a capability can call it directly."
 msgstr "仅对提供方名单开放的技能，在两个节点首次交换消息之前不可见。已知此类能力标识的调用方可以直接调用。"
 
-#: ../../topics/capabilities.rst:372
+#: ../../topics/capabilities.rst:394
 msgid "Notes"
 msgstr "说明"
 
-#: ../../topics/capabilities.rst:374
+#: ../../topics/capabilities.rst:396
 msgid ""
 "A price on the extended card limits what the node pays automatically. A "
 "quote that is higher than the signed price is never paid without a "
@@ -706,13 +751,13 @@ msgstr ""
 "扩展卡片上的价格限定节点自动支付的范围。高于已签名价格的报价，未经人工决定不会支付；文本任务没有已签名价格。参见 "
 ":doc:`payments`\\ 。"
 
-#: ../../topics/capabilities.rst:377
+#: ../../topics/capabilities.rst:399
 msgid ""
 "The ``chat`` skill is not a capability. It stands for text tasks, and it "
 "appears only while the inbound policy is ``open``."
 msgstr "``chat`` 技能不是能力。它代表文本任务，且仅在入站策略为 ``open`` 时出现。"
 
-#: ../../topics/capabilities.rst:379
+#: ../../topics/capabilities.rst:401
 msgid ""
 "The listed skills describe what a node is willing to do for peers. They "
 "do not prove that a service is running. A call to a capability the node "
@@ -721,7 +766,7 @@ msgstr ""
 "所列技能描述节点愿意为对端提供的服务，并不证明相应服务正在运行。调用节点已不再提供的能力会失败，返回 "
 "``capability_not_served``\\ 。"
 
-#: ../../topics/capabilities.rst:382
+#: ../../topics/capabilities.rst:404
 msgid ""
 "Prices are not secret. Any peer, including the operator of a hub, can "
 "register an identity and ask for an extended card or a quote, and the "
@@ -733,25 +778,25 @@ msgstr ""
 "价格不是秘密。任何对端，包括 Hub 的运营人员，都可以注册一个身份并请求扩展卡片或报价，提供方将其作为普通请求处理。收集了某个 Hub 上各 "
 "Agent 价格的运营人员，可以根据收款方和金额推断一笔付款购买了哪项能力。参见 :ref:`reference-security`\\ 。"
 
-#: ../../topics/capabilities.rst:389
+#: ../../topics/capabilities.rst:411
 msgid "See also"
 msgstr "另请参阅"
 
-#: ../../topics/capabilities.rst:391
+#: ../../topics/capabilities.rst:413
 msgid ""
 ":doc:`delegation` for who may call a capability and who may send text "
 "tasks."
 msgstr ":doc:`delegation`：谁可以调用能力，谁可以发送文本任务。"
 
-#: ../../topics/capabilities.rst:392
+#: ../../topics/capabilities.rst:414
 msgid ":doc:`payments` for quotes, limits and settlement."
 msgstr ":doc:`payments`：报价、限额与结算。"
 
-#: ../../topics/capabilities.rst:393
+#: ../../topics/capabilities.rst:415
 msgid ":doc:`modules` for the ``service`` module."
 msgstr ":doc:`modules`：``service`` 模块。"
 
-#: ../../topics/capabilities.rst:394
+#: ../../topics/capabilities.rst:416
 msgid ":ref:`reference-config` for the keys of ``config.json``."
 msgstr ":ref:`reference-config`：``config.json`` 的配置键。"
 

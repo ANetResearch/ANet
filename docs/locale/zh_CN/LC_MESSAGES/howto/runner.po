@@ -1,0 +1,564 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) Agent Network
+# This file is distributed under the same license as the ANet package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: ANet 0.3\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-10-23 07:38+0000\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language: zh_CN\n"
+"Language-Team: zh_CN <LL@li.org>\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.18.0\n"
+
+#: ../../howto/runner.rst:4
+msgid "Running the agent as another account"
+msgstr "以另一个账户运行 agent"
+
+#: ../../howto/runner.rst:6
+msgid ""
+"A node that answers tasks with a local coding agent "
+"(``auto_reply.backend`` set to ``exec``) runs that agent directly, as the"
+" account of the node, for trusted peers, and in the sandbox for other "
+"peers (see :doc:`../topics/sandbox`). A direct run gives the agent the "
+"network, the tools and the files of that account. This is appropriate "
+"when the peers are the operator's own agents. It is not appropriate when "
+"the peers are many people, for example the members of an organisation, "
+"each of whom can steer the agent into running any program."
+msgstr ""
+"以本地编程 agent 应答任务的节点（``auto_reply.backend`` 设为 "
+"``exec``），对受信任的对端以节点所用的账户直接运行该 agent，对其他对端则在沙箱中运行（参见 "
+":doc:`../topics/sandbox`）。直接运行使 agent 获得该账户的网络、工具和文件。对端都是运营人员自己的 agent "
+"时，这种方式是合适的；对端为众多人员时（例如一个组织的成员），这种方式并不合适，因为其中每个人都可以引导 agent 运行任意程序。"
+
+#: ../../howto/runner.rst:14
+msgid ""
+"This page describes how to run the agent of direct runs as a separate "
+"local account, how to keep the model keys with the node, and how the "
+"agent uses the capabilities of the node on behalf of the peer it serves. "
+"Three settings work together:"
+msgstr ""
+"本页说明如何以单独的本地账户运行直接运行的 agent、如何将模型密钥保留在节点上，以及 agent "
+"如何代表其所服务的对端使用节点的能力。以下三项设置协同工作："
+
+#: ../../howto/runner.rst:19
+msgid "``auto_reply.runner``"
+msgstr "``auto_reply.runner``"
+
+#: ../../howto/runner.rst:20
+msgid ""
+"Sends every direct run to ``anet runner serve``, a process that runs as "
+"another account and starts the agent there."
+msgstr "将每一次直接运行发送给 ``anet runner serve``；该进程以另一个账户运行，并在该账户下启动 agent。"
+
+#: ../../howto/runner.rst:22
+msgid "``auto_reply.model_proxy``"
+msgstr "``auto_reply.model_proxy``"
+
+#: ../../howto/runner.rst:23
+msgid ""
+"A listener of the node on the loopback interface that forwards the model "
+"requests of a run to the configured model services and adds their keys. "
+"The agent holds a key that is valid for one run only."
+msgstr "节点在回环接口上的一个监听器，将一次运行的模型请求转发到已配置的模型服务，并附加这些服务的密钥。agent 持有的密钥仅在一次运行中有效。"
+
+#: ../../howto/runner.rst:26
+msgid "``anet turn-mcp``"
+msgstr "``anet turn-mcp``"
+
+#: ../../howto/runner.rst:27
+msgid ""
+"An MCP server, started by the agent, that offers the capabilities of the "
+"service module marked ``agent_tool`` and calls them as the peer of the "
+"run."
+msgstr ""
+"由 agent 启动的 MCP 服务器，提供 service 模块中标记为 ``agent_tool`` "
+"的能力，并以该次运行所对应对端的身份调用这些能力。"
+
+#: ../../howto/runner.rst:30
+msgid ""
+"The runner is available on Linux and macOS. On other platforms the "
+"command and the setting are refused with ``runner_unsupported``."
+msgstr ""
+"运行器（runner）可在 Linux 和 macOS 上使用。在其他平台上，该命令和该设置均以 ``runner_unsupported`` "
+"拒绝。"
+
+#: ../../howto/runner.rst:39
+msgid "What the separation provides"
+msgstr "隔离带来的保障"
+
+#: ../../howto/runner.rst:41
+msgid ""
+"With the three settings in place, the following holds even though a peer "
+"can make the agent run arbitrary programs:"
+msgstr "三项设置就位后，即使对端能够让 agent 运行任意程序，以下各项仍然成立："
+
+#: ../../howto/runner.rst:44
+msgid ""
+"The agent runs as the runner account. It cannot read the identity keys, "
+"the control token, the configuration or the data of the service module, "
+"which belong to the account of the node."
+msgstr "agent 以运行器账户运行。它无法读取属于节点账户的身份密钥、控制令牌、配置以及 service 模块的数据。"
+
+#: ../../howto/runner.rst:47
+msgid ""
+"The agent never holds a model key of the operator. Its environment "
+"contains the address of the model proxy and a random key that the proxy "
+"accepts only while the run is under way. The proxy adds the key of the "
+"model service itself."
+msgstr "agent 从不持有运营人员的模型密钥。其环境中只有模型代理的地址，以及一个仅在该次运行进行期间被代理接受的随机密钥。模型服务的密钥由代理自行附加。"
+
+#: ../../howto/runner.rst:51
+msgid ""
+"The agent acts on the node only as the peer whose task it serves. The "
+"turn token in its environment is bound by the node to the caller, the "
+"interaction and the run. A request names a capability and its arguments, "
+"never a caller."
+msgstr "agent 只能以其所服务任务的对端的身份作用于节点。其环境中的回合令牌由节点绑定到调用方、交互和该次运行。请求只指明能力及其参数，从不指明调用方。"
+
+#: ../../howto/runner.rst:54
+msgid ""
+"Every connection to the runner is checked with the peer credentials of "
+"the Unix socket, in both directions. The runner accepts jobs only from "
+"the account of the node, and the node sends jobs only to a listener that "
+"runs as the expected account."
+msgstr ""
+"与运行器之间的每一个连接，都在两个方向上通过 Unix "
+"套接字的对端凭据进行检查。运行器只接受来自节点账户的作业，节点也只把作业发送给以预期账户运行的监听器。"
+
+#: ../../howto/runner.rst:59
+msgid ""
+"The following risks remain and are accepted by this design. Every program"
+" that the agent starts runs as the runner account, so it can read the "
+"work directories of other peers on the runner, and, while another run is "
+"under way, the environment of that run, including its run key and turn "
+"token. With that token it can act as the other peer until that run ends. "
+"Writes that a service receives through the turn tools carry ``X-ANet-Via:"
+" agent`` so that the service can mark them. Operators who cannot accept "
+"these risks use the sandbox instead."
+msgstr ""
+"以下风险依然存在，并为本设计所接受。agent "
+"启动的每个程序都以运行器账户运行，因此它可以读取运行器上其他对端的工作目录；在另一次运行进行期间，还可以读取该次运行的环境，包括其运行密钥和回合令牌。凭借该令牌，它可以在那次运行结束之前以另一个对端的身份行事。服务通过回合工具收到的写入操作带有"
+" ``X-ANet-Via: agent``，以便服务对其加以标记。无法接受这些风险的运营人员应改用沙箱。"
+
+#: ../../howto/runner.rst:69
+msgid "Preparing the accounts"
+msgstr "准备账户"
+
+#: ../../howto/runner.rst:71
+msgid ""
+"The examples use two accounts: ``anet-org`` runs the node, ``anet-"
+"hermes`` runs the runner and the agent. The socket lives in a directory "
+"that both can reach and only ``anet-hermes`` and root can change."
+msgstr ""
+"示例使用两个账户：``anet-org`` 运行节点，``anet-hermes`` 运行运行器和 agent。套接字位于一个两者都能访问、且只有"
+" ``anet-hermes`` 和 root 能够更改的目录中。"
+
+#: ../../howto/runner.rst:82
+msgid ""
+"The socket is created with mode ``0660``. With ``--socket-group anet-"
+"runner`` the runner gives it that group, so that ``anet-org`` can "
+"connect. Directories on the path that are writable by a group are "
+"accepted by the node only when ``auto_reply.runner.socket_group`` names "
+"that group, or when the group is the private group of the owner."
+msgstr ""
+"套接字以权限模式 ``0660`` 创建。指定 ``--socket-group anet-runner`` 时，运行器将套接字的属组设为该组，使"
+" ``anet-org`` 能够连接。对于路径上可由某个组写入的目录，仅当 ``auto_reply.runner.socket_group`` "
+"指明该组，或该组是所有者的私有组时，节点才会接受。"
+
+#: ../../howto/runner.rst:88
+msgid ""
+"Install the agent (for example hermes) for ``anet-hermes``, and remove "
+"any model key from its configuration and environment: the agent receives "
+"its model address and key from the run."
+msgstr ""
+"为 ``anet-hermes`` 安装 agent（例如 hermes），并从其配置和环境中删除所有模型密钥：agent "
+"会从运行中获得模型地址和密钥。"
+
+#: ../../howto/runner.rst:94
+msgid "Starting the runner"
+msgstr "启动运行器"
+
+#: ../../howto/runner.rst:96
+msgid ""
+"Run the runner as ``anet-hermes``, typically as a systemd user unit of "
+"that account:"
+msgstr "以 ``anet-hermes`` 身份运行运行器，通常作为该账户的 systemd 用户单元："
+
+#: ../../howto/runner.rst:113
+msgid ""
+"The options are described in :ref:`reference-cli-runner`. The runner uses"
+" no data directory and no identity. It writes one log line per job, with "
+"the short form of the peer, the agent, the exit and the duration; it "
+"never logs the conversation, the reply or the environment."
+msgstr ""
+"各选项的说明见 :ref:`reference-cli-"
+"runner`。运行器不使用数据目录，也不使用身份。它为每个作业写入一行日志，包含对端的简短形式、agent、退出状态和持续时间；它从不记录对话、回复或环境。"
+
+#: ../../howto/runner.rst:118
+msgid "Each job runs in a work directory of the runner account:"
+msgstr "每个作业都在运行器账户的一个工作目录中运行："
+
+#: ../../howto/runner.rst:120
+msgid "``per-peer`` (default)"
+msgstr "``per-peer``\\ （默认）"
+
+#: ../../howto/runner.rst:121
+msgid ""
+"``<cache>/anet/runner/<peer>/``, where ``<peer>`` is the last 16 "
+"characters of the AID of the peer. The directory is kept for ``--keep-"
+"days`` days after its last job (14 by default), so that a peer finds the "
+"results of earlier tasks. ``<cache>`` is ``$XDG_CACHE_HOME`` or "
+"``~/.cache`` on Linux and ``~/Library/Caches`` on macOS."
+msgstr ""
+"``<cache>/anet/runner/<peer>/``，其中 ``<peer>`` 是对端 AID 的最后 16 "
+"个字符。该目录在其最后一个作业结束后保留 ``--keep-days`` 天（默认 14 天），使对端可以找到先前任务的结果。在 Linux "
+"上，``<cache>`` 为 ``$XDG_CACHE_HOME`` 或 ``~/.cache``；在 macOS 上为 "
+"``~/Library/Caches``。"
+
+#: ../../howto/runner.rst:126
+msgid "``per-run``"
+msgstr "``per-run``"
+
+#: ../../howto/runner.rst:127
+msgid "A new directory for every job, removed when the job ends."
+msgstr "每个作业使用一个新目录，作业结束时删除。"
+
+#: ../../howto/runner.rst:129
+msgid ""
+"Each job also gets an input directory for the conversation and its "
+"images, and an outbox; both are removed when the job ends. Files that the"
+" agent writes to ``$ANET_OUTBOX`` are returned to the node and sent with "
+"the reply, within the limits of the outbox (16 files, 64 MiB in total)."
+msgstr ""
+"每个作业还会获得一个存放对话及其图像的输入目录，以及一个发件目录；两者均在作业结束时删除。agent 写入 ``$ANET_OUTBOX`` "
+"的文件会返回给节点，并在发件目录的限制范围内（16 个文件，总计 64 MiB）随回复一起发送。"
+
+#: ../../howto/runner.rst:136
+msgid "Configuring the node"
+msgstr "配置节点"
+
+#: ../../howto/runner.rst:138
+msgid ""
+"Add the three blocks to the ``auto_reply`` block of the node and keep the"
+" model keys in files that only the account of the node can read:"
+msgstr "在节点的 ``auto_reply`` 块中添加这三个块，并将模型密钥保存在只有节点账户能够读取的文件中："
+
+#: ../../howto/runner.rst:165
+msgid ""
+"The keys are described in :ref:`reference-config-runner`. Restart the "
+"daemon, or apply the block with the control plane; ``anet autoreply show "
+"--json`` then lists the runner, the listener of the model proxy and the "
+"names of the upstreams, and never a key or a key file."
+msgstr ""
+"各键的说明见 :ref:`reference-config-runner`。重启守护进程，或通过控制平面应用该块；此后 ``anet "
+"autoreply show --json`` 会列出运行器、模型代理的监听器和各上游的名称，从不列出密钥或密钥文件。"
+
+#: ../../howto/runner.rst:170
+msgid ""
+"A direct run, for a trusted peer or for a peer that ``inbound.admit`` "
+"admitted, is then sent to the runner as a job instead of being started by"
+" the node. Sandboxed runs are unchanged and do not use the runner, the "
+"model proxy or the turn tools."
+msgstr ""
+"此后，直接运行（无论是针对受信任的对端，还是针对 ``inbound.admit`` "
+"准入的对端）都作为作业发送给运行器，而不再由节点启动。沙箱中的运行保持不变，不使用运行器、模型代理或回合工具。"
+
+#: ../../howto/runner.rst:175
+msgid ""
+"Direct runs proceed side by side: the node sends at most "
+"``runner.max_jobs`` jobs at once (4 by default; set it to the ``--max-"
+"jobs`` of the runner), and at most one per peer. A long task of one peer "
+"therefore does not delay the tasks of other peers. A further task of the "
+"same peer, or a task that finds every place taken, starts when a place "
+"becomes free."
+msgstr ""
+"直接运行可以并行进行：节点同时发送的作业最多为 ``runner.max_jobs`` 个（默认 4；请设为运行器的 ``--max-"
+"jobs``），每个对端最多一个。因此，某个对端的耗时任务不会延误其他对端的任务。同一对端的后续任务，或遇到所有位置均已占满的任务，会在有位置空出时开始。"
+
+#: ../../howto/runner.rst:183
+msgid "Configuring the agent"
+msgstr "配置 agent"
+
+#: ../../howto/runner.rst:185
+msgid "A run receives four variables in its environment:"
+msgstr "一次运行会在其环境中收到四个变量："
+
+#: ../../howto/runner.rst:191
+msgid "Variable"
+msgstr "变量"
+
+#: ../../howto/runner.rst:192
+msgid "Value"
+msgstr "值"
+
+#: ../../howto/runner.rst:193
+msgid "``ANET_MODEL_BASE``"
+msgstr "``ANET_MODEL_BASE``"
+
+#: ../../howto/runner.rst:194
+#, python-brace-format
+msgid ""
+"``http://127.0.0.1:<port>/anet-upstream``. The upstream named ``plan`` is"
+" at ``${ANET_MODEL_BASE}/plan``."
+msgstr ""
+"``http://127.0.0.1:<port>/anet-upstream``。名为 ``plan`` 的上游位于 "
+"``${ANET_MODEL_BASE}/plan``。"
+
+#: ../../howto/runner.rst:196
+msgid "``ANET_MODEL_KEY``"
+msgstr "``ANET_MODEL_KEY``"
+
+#: ../../howto/runner.rst:197
+msgid "The key of the run, sent as ``Authorization: Bearer``."
+msgstr "该次运行的密钥，以 ``Authorization: Bearer`` 发送。"
+
+#: ../../howto/runner.rst:198
+msgid "``ANET_TURN_URL``"
+msgstr "``ANET_TURN_URL``"
+
+#: ../../howto/runner.rst:199
+msgid "``http://127.0.0.1:<port>/anet-turn/v1``, the address of the turn tools."
+msgstr "``http://127.0.0.1:<port>/anet-turn/v1``，即回合工具的地址。"
+
+#: ../../howto/runner.rst:200
+msgid "``ANET_TURN_TOKEN``"
+msgstr "``ANET_TURN_TOKEN``"
+
+#: ../../howto/runner.rst:201
+msgid "The turn token of the run."
+msgstr "该次运行的回合令牌。"
+
+#: ../../howto/runner.rst:203
+msgid ""
+"The model variables are present when the model proxy has at least one "
+"upstream. The turn variables are present for an inbound task of a trusted"
+" or admitted peer when the service module of the node declares at least "
+"one capability with ``\"agent_tool\": true``."
+msgstr ""
+"模型代理至少配置了一个上游时，才提供模型变量。对于受信任或已准入对端的入站任务，仅当节点的 service 模块至少声明了一项带 "
+"``\"agent_tool\": true`` 的能力时，才提供回合变量。"
+
+#: ../../howto/runner.rst:208
+msgid ""
+"A hermes configuration (``~/.hermes/config.yaml`` of ``anet-hermes``) "
+"that uses them, with the model names of the deployment added where hermes"
+" expects them:"
+msgstr ""
+"以下是使用这些变量的 hermes 配置（``anet-hermes`` 的 ``~/.hermes/config.yaml``），并在 "
+"hermes 需要的位置补充了部署所用的模型名称："
+
+#: ../../howto/runner.rst:231
+#, python-brace-format
+msgid ""
+"``anet turn-mcp`` treats a variable that is empty, or that still holds "
+"the text ``${...}`` because it was not set, as absent. In that case it "
+"starts, offers no tools, and its instructions state that no turn tools "
+"are available."
+msgstr ""
+"对于为空的变量，或因未设置而仍为文本 ``${...}`` 的变量，``anet turn-mcp`` "
+"视为不存在。在这种情况下，它照常启动，但不提供任何工具，其说明会指出没有可用的回合工具。"
+
+#: ../../howto/runner.rst:237
+msgid "The model proxy"
+msgstr "模型代理"
+
+#: ../../howto/runner.rst:239
+msgid ""
+"The proxy forwards ``POST /anet-upstream/<name>/chat/completions`` and "
+"``GET /anet-upstream/<name>/models`` to the upstream ``<name>``: the "
+"paths of the OpenAI-compatible chat completions API, relative to "
+"``api_base``. It applies the request policy of the sandbox's model route."
+" The body must be one uncompressed JSON object; the output limit of a "
+"request is at most 8192 tokens; server-side tools, MCP connectors and "
+"media given by URL are refused; the credentials and cookies that the "
+"agent sends are dropped and the key of the upstream is added. When an "
+"upstream sets ``model``, every request is pinned to that model; otherwise"
+" the model of the request is forwarded."
+msgstr ""
+"代理将 ``POST /anet-upstream/<name>/chat/completions`` 和 ``GET /anet-"
+"upstream/<name>/models`` 转发到上游 ``<name>``：即兼容 OpenAI 的 chat completions "
+"API 中相对于 ``api_base`` 的路径。它适用沙箱模型路由的请求策略：正文必须是单个未压缩的 JSON 对象；单个请求的输出上限最多为"
+" 8192 个 token；服务端工具、MCP 连接器以及以 URL 给出的媒体均被拒绝；agent 发送的凭据和 cookie "
+"被丢弃，并附加上游的密钥。上游设置了 ``model`` 时，每个请求都固定使用该模型；否则转发请求中的模型。"
+
+#: ../../howto/runner.rst:249
+msgid ""
+"Every refusal is answered in the error format of the model service, with "
+"a sentence that begins with ``anet:``, so that the agent can report what "
+"it could not do. A request without the key of a run that is under way is "
+"answered with status 401 and ``model_proxy_unauthorized``. The key of a "
+"run is random and is accepted only from the start of the run until its "
+"end. Every local account can reach the listener; without such a key it "
+"receives the refusal and nothing else. Requests and answers are not "
+"logged or stored."
+msgstr ""
+"每一次拒绝都以模型服务的错误格式应答，其语句以 ``anet:`` 开头，以便 agent "
+"报告其无法完成的事项。不带正在进行的运行的密钥的请求，以状态 401 和 ``model_proxy_unauthorized`` "
+"应答。运行密钥是随机的，只在该次运行开始到结束期间被接受。每个本地账户都能访问该监听器；没有此类密钥时，它只会收到拒绝，别无其他。请求和应答既不记录也不存储。"
+
+#: ../../howto/runner.rst:257
+msgid ""
+"The key is the authority; the connections are bounded besides, so that no"
+" local account can occupy the listener. On Linux the node determines the "
+"account of each connection from the socket table of the kernel and closes"
+" a connection of any account other than its own and the runner account "
+"(``expected_user``, or the owner of the socket when it is not set) as "
+"soon as it is accepted. Each account holds at most 64 connections, and "
+"the listener at most 128. A request must send its header within 5 seconds"
+" and its body within 30 seconds; a run reads one request body at a time, "
+"so that a run that sends its body slowly delays only its own requests. An"
+" idle connection is closed after 30 seconds. The answer of the model "
+"service is not bounded in time and may be streamed for as long as the run"
+" lasts. On other platforms only the bounds on the listener and the "
+"timeouts apply."
+msgstr ""
+"密钥是授权的依据；此外，连接本身也受到限制，使任何本地账户都无法独占该监听器。在 Linux "
+"上，节点根据内核的套接字表确定每个连接所属的账户，并在接受连接后立即关闭节点自身账户和运行器账户（``expected_user``；未设置时为套接字的所有者）以外的任何账户的连接。每个账户最多持有"
+" 64 个连接，监听器总计最多 128 个。请求必须在 5 秒内发送请求头，在 30 "
+"秒内发送正文；一次运行同一时间只读取一个请求正文，因此缓慢发送正文的运行只会延误自己的请求。空闲连接在 30 "
+"秒后关闭。模型服务的应答不受时间限制，可以在运行持续期间一直以流式返回。在其他平台上，只适用监听器的连接数限制和各项超时。"
+
+#: ../../howto/runner.rst:270
+msgid ""
+"A run of a trusted peer may make up to 1000 model requests. A run of an "
+"admitted peer may make ``admitted_budget.requests_per_run`` requests, and"
+" the runs of admitted peers are counted per local calendar day against "
+"``runs_per_day`` and ``runs_per_peer_per_day``. A task of an admitted "
+"peer that finds the day's budget used up is refused before its run "
+"starts, with the reason ``budget`` and the time until the next local "
+"midnight, as a sandboxed run is; neither the agent nor a job on the "
+"runner is started. A run that has no place in the budget for another "
+"reason (the model proxy was configured while it was under way) receives "
+"status 429 and ``model_budget_spent`` for each model request. After a "
+"restart of the daemon the counts of the day are read back from the "
+"evidence chain."
+msgstr ""
+"受信任对端的一次运行最多可发出 1000 个模型请求。已准入对端的一次运行可发出 "
+"``admitted_budget.requests_per_run`` 个请求，且已准入对端的运行按本地日历日计入 "
+"``runs_per_day`` 和 "
+"``runs_per_peer_per_day``。已准入对端的任务若遇到当日预算已用尽，会在其运行开始之前被拒绝，原因为 "
+"``budget``，并给出距下一个本地午夜的时间，与沙箱中的运行相同；agent "
+"和运行器上的作业均不会启动。因其他原因在预算中没有位置的运行（模型代理是在该运行进行期间配置的），其每个模型请求都会收到状态 429 和 "
+"``model_budget_spent``。守护进程重启后，当日的计数从证据链中读回。"
+
+#: ../../howto/runner.rst:282
+msgid ""
+"A change of the ``model_proxy`` block restarts the listener; a run that "
+"is under way at that moment loses its key."
+msgstr "``model_proxy`` 块发生更改时会重启监听器；此时正在进行的运行将失去其密钥。"
+
+#: ../../howto/runner.rst:287
+msgid "The turn tools"
+msgstr "回合工具"
+
+#: ../../howto/runner.rst:289
+msgid ""
+"The turn tools are the capabilities of the service module of the node "
+"that its configuration marks ``\"agent_tool\": true``. The node serves "
+"them on the listener of the model proxy:"
+msgstr ""
+"回合工具是节点 service 模块中、在其配置中标记为 ``\"agent_tool\": true`` "
+"的能力。节点在模型代理的监听器上提供这些工具："
+
+#: ../../howto/runner.rst:293
+msgid "``GET /anet-turn/v1/tools``"
+msgstr "``GET /anet-turn/v1/tools``"
+
+#: ../../howto/runner.rst:294
+msgid ""
+"The tools: for each, its name for a model (the capability with every "
+"character other than letters, digits, ``-`` and ``_`` replaced by ``_``, "
+"at most 64 characters), the capability, its description and the JSON "
+"Schema of its arguments."
+msgstr ""
+"工具列表：每个工具包含其供模型使用的名称（将能力标识中字母、数字、``-`` 和 ``_`` 以外的每个字符替换为 ``_``，最多 64 "
+"个字符）、能力、能力描述及其参数的 JSON Schema。"
+
+#: ../../howto/runner.rst:298
+msgid "``POST /anet-turn/v1/call``"
+msgstr "``POST /anet-turn/v1/call``"
+
+#: ../../howto/runner.rst:299
+#, python-brace-format
+msgid ""
+"``{\"capability\": \"board.post\", \"args\": {...}}``. The node calls the"
+" capability as the peer of the run, with ``X-ANet-Caller`` set to the AID"
+" of that peer and ``X-ANet-Via`` set to ``agent``. The answer is "
+"``{\"result\": ...}``, or ``{\"error\": {\"code\": ..., \"message\": "
+"...}}`` with the code and message of the service."
+msgstr ""
+"``{\"capability\": \"board.post\", \"args\": "
+"{...}}``。节点以该次运行所对应对端的身份调用该能力，将 ``X-ANet-Caller`` 设为该对端的 AID，将 ``X-ANet-"
+"Via`` 设为 ``agent``。应答为 ``{\"result\": ...}``，或带有服务的代码和消息的 ``{\"error\": "
+"{\"code\": ..., \"message\": ...}}``。"
+
+#: ../../howto/runner.rst:305
+msgid ""
+"Both require ``Authorization: Bearer <turn token>``. The token is minted "
+"for one run and is refused (``turn_unauthorized``) once the run has "
+"ended. A request with any member other than ``capability`` and ``args``, "
+"or with arguments that are not a JSON object, is refused with "
+"``turn_call_invalid``; a capability that is not a tool of the run with "
+"``turn_tool_unknown``. A run makes at most 200 calls "
+"(``turn_calls_spent``)."
+msgstr ""
+"两者都要求 ``Authorization: Bearer <turn "
+"token>``。该令牌为一次运行签发，运行结束后即被拒绝（``turn_unauthorized``）。含有 ``capability`` 和 "
+"``args`` 以外任何成员的请求，或参数不是 JSON 对象的请求，以 ``turn_call_invalid`` "
+"拒绝；调用并非该次运行工具的能力，以 ``turn_tool_unknown`` 拒绝。一次运行最多进行 200 "
+"次调用（``turn_calls_spent``）。"
+
+#: ../../howto/runner.rst:312
+msgid ""
+"``anet turn-mcp`` presents these tools to the agent as MCP tools. It "
+"sends the token only to an ``http`` address on the loopback interface."
+msgstr "``anet turn-mcp`` 将这些工具作为 MCP 工具提供给 agent。它只把令牌发送到回环接口上的 ``http`` 地址。"
+
+#: ../../howto/runner.rst:317
+msgid "Checking the setup"
+msgstr "检查配置"
+
+#: ../../howto/runner.rst:319
+msgid ""
+"``anet autoreply show --json`` lists ``runner`` and ``model_proxy`` with "
+"the address of the listener."
+msgstr "``anet autoreply show --json`` 列出 ``runner`` 和 ``model_proxy``，以及监听器的地址。"
+
+#: ../../howto/runner.rst:321
+msgid ""
+"Send a task from a trusted peer. The runner logs one line for the job, "
+"and the node records ``anet.autoreply.invoked`` with ``mode`` set to "
+"``direct``."
+msgstr ""
+"从受信任的对端发送一个任务。运行器为该作业记录一行日志，节点记录 ``anet.autoreply.invoked``，其中 ``mode`` 为"
+" ``direct``。"
+
+#: ../../howto/runner.rst:323
+msgid ""
+"A runner that the node cannot reach, or that runs as an account other "
+"than ``expected_user``, makes the turn fail with ``backend_failed`` for "
+"the peer; the log of the node names the reason, for example "
+"``peer_uid_mismatch``."
+msgstr ""
+"节点无法连接运行器，或运行器以 ``expected_user`` 以外的账户运行时，该轮对该对端以 ``backend_failed`` "
+"失败；节点日志会给出原因，例如 ``peer_uid_mismatch``。"
+
+#: ../../howto/runner.rst:326
+msgid ""
+"A job for an agent that the runner does not run is refused with "
+"``runner_agent_not_allowed``; a job that the runner does not understand, "
+"usually because the node and the runner are of different releases, with "
+"``runner_job_invalid``."
+msgstr ""
+"针对运行器不运行的 agent 的作业，以 ``runner_agent_not_allowed`` "
+"拒绝；运行器无法理解的作业（通常因为节点与运行器属于不同的发布版本），以 ``runner_job_invalid`` 拒绝。"
+

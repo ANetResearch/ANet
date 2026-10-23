@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ANet 0.3\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-21 14:37+0000\n"
+"POT-Creation-Date: 2026-10-23 07:38+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: zh_Hans_CN\n"
@@ -42,7 +42,7 @@ msgstr ""
 msgid "On this page"
 msgstr "本页内容"
 
-#: ../../intro/install.rst:22 ../../intro/install.rst:615
+#: ../../intro/install.rst:22 ../../intro/install.rst:626
 msgid "Requirements"
 msgstr "环境要求"
 
@@ -165,54 +165,59 @@ msgstr ""
 msgid ""
 "Before anything is written outside a temporary directory, the installer "
 "performs these checks. A failure of any check ends the installation and "
-"leaves the installed version unchanged."
-msgstr "在向临时目录之外写入任何内容之前，安装程序执行以下检查。任何一项检查失败都会终止安装，并保持已安装的版本不变。"
+"leaves the installed version unchanged. The one exception concerns checks"
+" 1 and 2: a download source whose manifest fails them is passed over, and"
+" the next source is checked in the same way (see :ref:`intro-install-"
+"hosts`)."
+msgstr ""
+"在向临时目录之外写入任何内容之前，安装程序执行以下检查。任何一项检查失败都会终止安装，并保持已安装的版本不变。唯一的例外涉及检查 1 和 "
+"2：清单未通过这两项检查的下载源会被跳过，并以同样方式检查下一个下载源（参见 :ref:`intro-install-hosts`）。"
 
-#: ../../intro/install.rst:89
+#: ../../intro/install.rst:91
 msgid "``release.json`` carries a valid signature by the ANet release key."
 msgstr "``release.json`` 带有 ANet 发布密钥的有效签名。"
 
-#: ../../intro/install.rst:90
+#: ../../intro/install.rst:92
 msgid "The manifest has not expired."
 msgstr "清单未过期。"
 
-#: ../../intro/install.rst:91
+#: ../../intro/install.rst:93
 msgid ""
 "The manifest does not name a version older than the ``anet`` already "
 "installed at the destination."
 msgstr "清单所列版本不低于目标位置已安装的 ``anet``\\ 。"
 
-#: ../../intro/install.rst:93
+#: ../../intro/install.rst:95
 msgid ""
 "The SHA-256 digest of the downloaded archive, and of the binary inside "
 "it, equals the digest in the manifest."
 msgstr "所下载归档及其中二进制文件的 SHA-256 摘要，与清单中的摘要一致。"
 
-#: ../../intro/install.rst:95
+#: ../../intro/install.rst:97
 msgid ""
 "The new binary reports the version and the module set that the manifest "
 "names for its variant. The default variant must not contain the ``shell``"
 " module."
 msgstr "新二进制文件报告的版本和模块集合，与清单中为其变体所列的一致。默认变体不得包含 ``shell`` 模块。"
 
-#: ../../intro/install.rst:99
+#: ../../intro/install.rst:101
 msgid ""
 "The manifest and its signature are stored next to the binary, so that "
 "``anet doctor`` can repeat the check later."
 msgstr "清单及其签名存放于二进制文件旁，以便 ``anet doctor`` 日后重复该检查。"
 
-#: ../../intro/install.rst:105
+#: ../../intro/install.rst:107
 msgid "Output and log"
 msgstr "输出与日志"
 
-#: ../../intro/install.rst:107
+#: ../../intro/install.rst:109
 msgid ""
 "The installer prints one short line for each phase: the download, the "
 "takeover of an earlier release and the start of the node. A fresh "
 "installation prints:"
 msgstr "安装脚本为每个阶段输出一行简短文字：下载、接管较早版本和启动节点。全新安装的输出如下："
 
-#: ../../intro/install.rst:121
+#: ../../intro/install.rst:123
 msgid ""
 "When standard error is a terminal, the first line reads ``Downloading "
 "anet 0.3.6 for darwin-arm64 from npmmirror`` and is followed by a "
@@ -229,33 +234,33 @@ msgstr ""
 " ``NO_COLOR`` 取消颜色，非 UTF-8 区域设置下进度条以 ASCII 字符绘制。没有终端时，以单独一行 ``Downloaded "
 "...`` 代替这两行。"
 
-#: ../../intro/install.rst:131
+#: ../../intro/install.rst:133
 msgid ""
 "The takeover of an earlier release adds a phase line and a line in the "
 "summary:"
 msgstr "接管较早版本时，增加一行阶段说明，摘要中也增加一行："
 
-#: ../../intro/install.rst:147
+#: ../../intro/install.rst:149
 msgid "The summary takes these other forms:"
 msgstr "摘要还可能采用以下形式："
 
-#: ../../intro/install.rst:153
+#: ../../intro/install.rst:155
 msgid "Line"
 msgstr "输出行"
 
-#: ../../intro/install.rst:154 ../../intro/install.rst:1237
+#: ../../intro/install.rst:156 ../../intro/install.rst:1270
 msgid "Meaning"
 msgstr "含义"
 
-#: ../../intro/install.rst:155
+#: ../../intro/install.rst:157
 msgid "``Hub   not joined (--no-join)``"
 msgstr "``Hub   not joined (--no-join)``"
 
-#: ../../intro/install.rst:156
+#: ../../intro/install.rst:158
 msgid "The node runs and has not joined a hub."
 msgstr "节点正在运行，未加入 Hub。"
 
-#: ../../intro/install.rst:157
+#: ../../intro/install.rst:159
 msgid ""
 "``Hub   <hub> (awaiting admission; its operator runs: anet-hub admit "
 "<AID>)``"
@@ -263,59 +268,59 @@ msgstr ""
 "``Hub   <hub> (awaiting admission; its operator runs: anet-hub admit "
 "<AID>)``"
 
-#: ../../intro/install.rst:158
+#: ../../intro/install.rst:160
 msgid ""
 "The hub admits nodes by AID. Send the ``anet-hub admit`` command to the "
 "operator of the hub; the node completes the join by itself once the "
 "operator has run it."
 msgstr "该 Hub 按 AID 准入节点。请将 ``anet-hub admit`` 命令发送给 Hub 运维者；运维者运行该命令后，节点自行完成加入。"
 
-#: ../../intro/install.rst:161
+#: ../../intro/install.rst:163
 msgid "``Hub   <hub>``"
 msgstr "``Hub   <hub>``"
 
-#: ../../intro/install.rst:162
+#: ../../intro/install.rst:164
 msgid "The node had joined this hub before and keeps it."
 msgstr "节点此前已加入该 Hub，并予以保留。"
 
-#: ../../intro/install.rst:163
+#: ../../intro/install.rst:165
 msgid "``Hub   <hub> (registering; it completes on its own)``"
 msgstr "``Hub   <hub> (registering; it completes on its own)``"
 
-#: ../../intro/install.rst:164
+#: ../../intro/install.rst:166
 msgid ""
 "The hub accepted the request but did not confirm it within the wait of "
 "the installer. The node retries by itself; ``anet status`` shows the "
 "result."
 msgstr "Hub 已接受请求，但未在安装脚本的等待时间内确认。节点会自行重试；``anet status`` 显示结果。"
 
-#: ../../intro/install.rst:167
+#: ../../intro/install.rst:169
 msgid "``Hub   <hub> (not joined)``"
 msgstr "``Hub   <hub> (not joined)``"
 
-#: ../../intro/install.rst:168
+#: ../../intro/install.rst:170
 msgid "The join did not complete; a ``Note`` line names the command to repeat it."
 msgstr "加入未完成；一行 ``Note`` 给出重新加入的命令。"
 
-#: ../../intro/install.rst:170
+#: ../../intro/install.rst:172
 msgid "``anet 0.3.6 is installed.`` and ``Run 'anet up' to get started.``"
 msgstr "``anet 0.3.6 is installed.`` 与 ``Run 'anet up' to get started.``"
 
-#: ../../intro/install.rst:171
+#: ../../intro/install.rst:173
 msgid "The node was not started (``--no-start``)."
 msgstr "节点未启动（``--no-start``）。"
 
-#: ../../intro/install.rst:172
+#: ../../intro/install.rst:174
 msgid "``Note: <text>``"
 msgstr "``Note: <text>``"
 
-#: ../../intro/install.rst:173
+#: ../../intro/install.rst:175
 msgid ""
 "A step that is left to the user, with the exact command, for example an "
 "earlier binary that only the superuser can remove."
 msgstr "留给用户执行的步骤，附确切命令，例如只有超级用户才能删除的较早二进制文件。"
 
-#: ../../intro/install.rst:176
+#: ../../intro/install.rst:178
 msgid ""
 "The exit status of the installer is 0 when the binary is installed and, "
 "unless ``--no-start`` or ``--no-join`` leaves them out, the node runs and"
@@ -329,7 +334,7 @@ msgstr ""
 "省略了相应步骤）节点正在运行、加入已完成、等待准入或仍在注册中时，安装脚本的退出状态为 0。二进制文件已安装但节点未能启动或加入失败时，退出状态为"
 " 3，摘要给出重复该步骤的命令。其他任何失败都以退出状态 1 结束安装，已安装的版本保持不变。"
 
-#: ../../intro/install.rst:183
+#: ../../intro/install.rst:185
 msgid ""
 "``anet`` without arguments prints a short overview: the version, the main"
 " commands, the identity, the hub state with the next command, four common"
@@ -338,7 +343,7 @@ msgstr ""
 "不带参数运行 ``anet`` 时输出简要概览：版本、主要命令、身份、Hub 状态及下一步命令、四个常用命令，以及列出全部命令的 ``anet "
 "help --all``。"
 
-#: ../../intro/install.rst:187
+#: ../../intro/install.rst:189
 msgid ""
 "Everything else is written to the log ``<data "
 "directory>/logs/install-<UTC time>.log``: the download sources tried and "
@@ -355,17 +360,17 @@ msgstr ""
 "``ANET_DATA_DIR``，未设置时为 ``ANET_HOME``，再未设置时为 ``~/.anet``。``logs`` 目录的权限为 "
 "``0700``，日志文件为 ``0600``。输出的最后一行给出日志路径。"
 
-#: ../../intro/install.rst:196
+#: ../../intro/install.rst:198
 msgid "When ``ANET_LANG`` begins with ``zh``, the lines are printed in Chinese."
 msgstr "``ANET_LANG`` 以 ``zh`` 开头时，各行以中文输出。"
 
-#: ../../intro/install.rst:198
+#: ../../intro/install.rst:200
 msgid ""
 "A failure prints the reason and what to do, then whether anything was "
 "changed, then the log:"
 msgstr "失败时依次输出原因与处理方法、是否已更改任何内容，以及日志："
 
-#: ../../intro/install.rst:207
+#: ../../intro/install.rst:209
 msgid ""
 "When the failure occurs after an earlier release has been taken over, the"
 " second line is ``The new binary was not installed. Already done:``, "
@@ -374,35 +379,35 @@ msgstr ""
 "若失败发生在接管较早版本之后，第二行为 ``The new binary was not installed. Already "
 "done:``，其后列出已执行的步骤。"
 
-#: ../../intro/install.rst:214
+#: ../../intro/install.rst:216
 msgid "Installer options"
 msgstr "安装程序选项"
 
-#: ../../intro/install.rst:216
+#: ../../intro/install.rst:218
 msgid "Options follow ``sh -s --`` when the script is read from a pipe."
 msgstr "从管道读取脚本时，选项跟在 ``sh -s --`` 之后。"
 
-#: ../../intro/install.rst:222
+#: ../../intro/install.rst:224
 msgid "Option"
 msgstr "选项"
 
-#: ../../intro/install.rst:223 ../../intro/install.rst:990
+#: ../../intro/install.rst:225 ../../intro/install.rst:1006
 msgid "Effect"
 msgstr "作用"
 
-#: ../../intro/install.rst:224
+#: ../../intro/install.rst:226
 msgid "``--user``"
 msgstr "``--user``"
 
-#: ../../intro/install.rst:225
+#: ../../intro/install.rst:227
 msgid "Install to ``~/.local/bin``. This is the default."
 msgstr "安装到 ``~/.local/bin``，为默认值。"
 
-#: ../../intro/install.rst:226
+#: ../../intro/install.rst:228
 msgid "``--system``"
 msgstr "``--system``"
 
-#: ../../intro/install.rst:227
+#: ../../intro/install.rst:229
 msgid ""
 "Install to ``/usr/local/bin``. ``sudo -n`` is used when required; the "
 "installer never asks for a password for this option. When ``sudo`` needs "
@@ -412,19 +417,19 @@ msgstr ""
 "安装到 ``/usr/local/bin``。需要时使用 ``sudo -n``；使用此选项时安装脚本从不询问密码。``sudo`` "
 "需要密码时，安装脚本停止并说明原因；请在同一终端运行 ``sudo -v``，然后重新执行该命令。"
 
-#: ../../intro/install.rst:231
+#: ../../intro/install.rst:233
 msgid "``--prefix DIR``"
 msgstr "``--prefix DIR``"
 
-#: ../../intro/install.rst:232
+#: ../../intro/install.rst:234
 msgid "Install to ``DIR``. Overrides ``--user`` and ``--system``."
 msgstr "安装到 ``DIR``，优先于 ``--user`` 和 ``--system``\\ 。"
 
-#: ../../intro/install.rst:233
+#: ../../intro/install.rst:235
 msgid "``--base URL``"
 msgstr "``--base URL``"
 
-#: ../../intro/install.rst:234
+#: ../../intro/install.rst:236
 msgid ""
 "Download from ``URL/dl/`` and from no other source (see :ref:`intro-"
 "install-hosts`). Only ``https://`` is accepted. The environment variable "
@@ -434,21 +439,21 @@ msgstr ""
 "仅从 ``URL/dl/`` 下载，不使用其他任何下载源（参见 :ref:`intro-install-hosts`）。仅接受 "
 "``https://``。环境变量 ``ANET_INSTALL_BASE`` 的作用相同。所有下载源的检查均相同。"
 
-#: ../../intro/install.rst:238
+#: ../../intro/install.rst:240
 msgid "``--shell``"
 msgstr "``--shell``"
 
-#: ../../intro/install.rst:239
+#: ../../intro/install.rst:241
 msgid ""
 "Install the variant that can run operator-approved commands. This is a "
 "different binary, not a setting; see :ref:`intro-install-modules`."
 msgstr "安装可运行经运维者批准的命令的变体。这是另一个二进制文件，而不是一项设置，参见 :ref:`intro-install-modules`\\ 。"
 
-#: ../../intro/install.rst:241
+#: ../../intro/install.rst:243
 msgid "``--controller AID``"
 msgstr "``--controller AID``"
 
-#: ../../intro/install.rst:242
+#: ../../intro/install.rst:244
 msgid ""
 "Install the variant with the ``shell`` module and give exactly this AID "
 "access to it: the installer runs ``anet init --shell-controller AID "
@@ -463,11 +468,11 @@ msgstr ""
 "及撤销访问的命令。它与 ``install.ps1 -Controller`` 相对应（参见 :ref:`intro-install-"
 "windows-controller`\\ ）。"
 
-#: ../../intro/install.rst:249
+#: ../../intro/install.rst:251
 msgid "``--agents[=LIST]``"
 msgstr "``--agents[=LIST]``"
 
-#: ../../intro/install.rst:250
+#: ../../intro/install.rst:252
 msgid ""
 "After installation, run ``anet agents wire`` for the coding agents found "
 "on the machine, or only for the comma-separated ``LIST`` (``claude``, "
@@ -477,11 +482,11 @@ msgstr ""
 "运行（``claude``\\ 、\\ ``codex``\\ 、\\ ``cursor``\\ 、\\ ``opencode``\\ 、\\ "
 "``hermes``\\ 、\\ ``workbuddy``）。"
 
-#: ../../intro/install.rst:253
+#: ../../intro/install.rst:255
 msgid "``--hub URL``"
 msgstr "``--hub URL``"
 
-#: ../../intro/install.rst:254
+#: ../../intro/install.rst:256
 msgid ""
 "Join the hub at ``URL`` instead of ``https://hub.agentnetwork.org.cn``. A"
 " node that has joined another hub before joins this one."
@@ -489,65 +494,65 @@ msgstr ""
 "加入位于 ``URL`` 的 Hub，而非 ``https://hub.agentnetwork.org.cn``。此前已加入其他 Hub "
 "的节点改为加入此 Hub。"
 
-#: ../../intro/install.rst:256
+#: ../../intro/install.rst:258
 msgid "``--name NAME``"
 msgstr "``--name NAME``"
 
-#: ../../intro/install.rst:257
+#: ../../intro/install.rst:259
 msgid "The name to join under. The default is the host name."
 msgstr "加入时使用的名称，默认为主机名。"
 
-#: ../../intro/install.rst:258
+#: ../../intro/install.rst:260
 msgid "``--no-join``"
 msgstr "``--no-join``"
 
-#: ../../intro/install.rst:259
+#: ../../intro/install.rst:261
 msgid "Start the node, but do not join a hub."
 msgstr "启动节点，但不加入 Hub。"
 
-#: ../../intro/install.rst:260
+#: ../../intro/install.rst:262
 msgid "``--no-start``"
 msgstr "``--no-start``"
 
-#: ../../intro/install.rst:261
+#: ../../intro/install.rst:263
 msgid "Neither start the node nor join a hub."
 msgstr "既不启动节点，也不加入 Hub。"
 
-#: ../../intro/install.rst:262
+#: ../../intro/install.rst:264
 msgid "``--without MODULES``"
 msgstr "``--without MODULES``"
 
-#: ../../intro/install.rst:263
+#: ../../intro/install.rst:265
 msgid ""
 "Switch off the listed modules in the configuration. See :ref:`intro-"
 "install-modules`."
 msgstr "在配置中关闭所列模块。参见 :ref:`intro-install-modules`\\ 。"
 
-#: ../../intro/install.rst:265
+#: ../../intro/install.rst:267
 msgid "``--no-modify-path``"
 msgstr "``--no-modify-path``"
 
-#: ../../intro/install.rst:266
+#: ../../intro/install.rst:268
 msgid ""
 "Do not change the shell profiles and do not create the command link. The "
 "installer names the line to add instead (see :ref:`intro-install-path`)."
 msgstr "不修改 shell 配置文件，也不创建命令链接，改为给出需要加入的那一行（参见 :ref:`intro-install-path`）。"
 
-#: ../../intro/install.rst:269
+#: ../../intro/install.rst:271
 msgid "``--help``"
 msgstr "``--help``"
 
-#: ../../intro/install.rst:270
+#: ../../intro/install.rst:272
 msgid "Print the option summary."
 msgstr "输出选项摘要。"
 
-#: ../../intro/install.rst:272
+#: ../../intro/install.rst:274
 msgid ""
 "The options may be combined, for example to join another hub under a "
 "chosen name and to connect the local coding agents in one command:"
 msgstr "选项可以组合使用，例如以一条命令按指定名称加入另一个 Hub，并连接本地编程 Agent："
 
-#: ../../intro/install.rst:280
+#: ../../intro/install.rst:282
 msgid ""
 "On a hub that admits by AID, the summary names the ``anet-hub admit`` "
 "command that the hub operator runs; the join then completes without "
@@ -556,17 +561,17 @@ msgstr ""
 "在按 AID 准入的 Hub 上，摘要给出 Hub 运维者需要运行的 ``anet-hub admit`` "
 "命令，此后加入无需进一步输入即可完成。完整流程参见 :doc:`tutorial`。"
 
-#: ../../intro/install.rst:284
+#: ../../intro/install.rst:286
 msgid ""
 "Hubs no longer use invitation codes. The installer rejects the former "
 "options ``--token`` and ``--token-file`` and says so."
 msgstr "Hub 不再使用邀请码。安装程序会拒绝原有的 ``--token`` 与 ``--token-file`` 选项，并予以说明。"
 
-#: ../../intro/install.rst:290 ../../intro/install.rst:740
+#: ../../intro/install.rst:292 ../../intro/install.rst:751
 msgid "Download sources"
 msgstr "下载源"
 
-#: ../../intro/install.rst:292
+#: ../../intro/install.rst:294
 msgid ""
 "The installer asks two sources at the same time, each with a limit of "
 "three seconds, and tries those that answer, the fastest first. A source "
@@ -574,19 +579,19 @@ msgid ""
 "remaining sources in order:"
 msgstr "安装脚本同时询问两个下载源，各自时限为 3 秒，并按响应速度从快到慢尝试作出响应的下载源。在时限内未响应的下载源不予使用。随后按顺序尝试其余下载源："
 
-#: ../../intro/install.rst:301
+#: ../../intro/install.rst:303
 msgid "Source"
 msgstr "下载源"
 
-#: ../../intro/install.rst:302 ../../intro/install.rst:1047
+#: ../../intro/install.rst:304 ../../intro/install.rst:1063
 msgid "Location"
 msgstr "位置"
 
-#: ../../intro/install.rst:303
+#: ../../intro/install.rst:305
 msgid "``npmmirror``"
 msgstr "``npmmirror``"
 
-#: ../../intro/install.rst:304
+#: ../../intro/install.rst:306
 msgid ""
 "``https://registry.npmmirror.com``: the npm package of the build, "
 "downloaded as the tarball of the registry. Asked first, together with "
@@ -595,11 +600,11 @@ msgstr ""
 "``https://registry.npmmirror.com``：该版本的 npm 包，以注册表的 tarball 下载。与 GitHub "
 "一同最先询问。"
 
-#: ../../intro/install.rst:307
+#: ../../intro/install.rst:309
 msgid "``GitHub``"
 msgstr "``GitHub``"
 
-#: ../../intro/install.rst:308
+#: ../../intro/install.rst:310
 msgid ""
 "``https://github.com/ANetResearch/ANet/releases/latest/download/<file>``."
 " Asked first, together with npmmirror."
@@ -607,27 +612,34 @@ msgstr ""
 "``https://github.com/ANetResearch/ANet/releases/latest/download/<file>``。与"
 " npmmirror 一同最先询问。"
 
-#: ../../intro/install.rst:310
+#: ../../intro/install.rst:312
 msgid "``npmjs``"
 msgstr "``npmjs``"
 
-#: ../../intro/install.rst:311
+#: ../../intro/install.rst:313
 msgid "``https://registry.npmjs.org``: the same tarball."
 msgstr "``https://registry.npmjs.org``：同一 tarball。"
 
-#: ../../intro/install.rst:312
+#: ../../intro/install.rst:314
 msgid "``jsDelivr``"
 msgstr "``jsDelivr``"
 
-#: ../../intro/install.rst:313
-msgid "``https://cdn.jsdelivr.net/npm/<package>@latest/dl/<file>``."
-msgstr "``https://cdn.jsdelivr.net/npm/<package>@latest/dl/<file>``。"
+#: ../../intro/install.rst:315
+msgid ""
+"``https://cdn.jsdelivr.net/npm/<package>``: the installer reads the "
+"latest version from ``<package>@latest/package.json`` and then downloads "
+"every file from ``<package>@<version>/dl/<file>``, so that the manifest "
+"and its signature come from the same version."
+msgstr ""
+"``https://cdn.jsdelivr.net/npm/<package>``：安装脚本先从 "
+"``<package>@latest/package.json`` 读取最新版本，再从 "
+"``<package>@<version>/dl/<file>`` 下载每个文件，以确保清单及其签名来自同一版本。"
 
-#: ../../intro/install.rst:314
+#: ../../intro/install.rst:319
 msgid "``agentnetwork.org.cn``, ``hub.agentnetwork.org.cn``"
 msgstr "``agentnetwork.org.cn``、``hub.agentnetwork.org.cn``"
 
-#: ../../intro/install.rst:315
+#: ../../intro/install.rst:320
 msgid ""
 "The project hosts: ``https://agentnetwork.org.cn/dl/<file>`` and "
 "``https://hub.agentnetwork.org.cn/dl/<file>``."
@@ -635,7 +647,7 @@ msgstr ""
 "项目主机：``https://agentnetwork.org.cn/dl/<file>`` 和 "
 "``https://hub.agentnetwork.org.cn/dl/<file>``。"
 
-#: ../../intro/install.rst:318
+#: ../../intro/install.rst:323
 msgid ""
 "The npm package of the build is ``@agentnetwork/anet-<os>-<cpu>`` "
 "(``@agentnetwork/anet-shell-<os>-<cpu>`` with ``--shell``), where "
@@ -654,19 +666,19 @@ msgstr ""
 "下提供的文件完全相同。安装脚本从 ``<registry>/<package>/latest`` 读取版本，据此构造 tarball "
 "的地址，并仅解压这三个文件，每个文件都必须是大小有界的普通文件。"
 
-#: ../../intro/install.rst:327
+#: ../../intro/install.rst:332
 msgid ""
 "The source decides how fast and whether the files arrive, not what is "
 "accepted:"
 msgstr "下载源决定文件到达的速度以及能否到达，而不决定接受哪些文件："
 
-#: ../../intro/install.rst:330
+#: ../../intro/install.rst:335
 msgid ""
 "The signed manifest and the SHA-256 digests decide, by the checks of :ref"
 ":`intro-install-script`, for every source alike."
 msgstr "由已签名的清单和 SHA-256 摘要按 :ref:`intro-install-script` 中的检查作出决定，对所有下载源一视同仁。"
 
-#: ../../intro/install.rst:332
+#: ../../intro/install.rst:337
 msgid ""
 "A source that does not serve a release is passed over: an HTTP error, a "
 "time-out, an HTML page where a manifest is expected, a missing file, a "
@@ -675,20 +687,30 @@ msgstr ""
 "未提供发布的下载源被跳过：HTTP 错误、超时、应为清单之处返回 HTML 页面、文件缺失、重定向至该下载源不使用的主机，或 tarball "
 "格式错误。"
 
-#: ../../intro/install.rst:335
+#: ../../intro/install.rst:340
 msgid ""
-"A source that serves a release that fails a check ends the installation. "
-"The installer does not move on to another source."
-msgstr "所提供的发布未通过检查的下载源使安装终止。安装脚本不会转而尝试其他下载源。"
+"A source whose manifest does not verify is passed over, and the log "
+"records the reason in one line: a signature that is not by the release "
+"key, or a manifest that has expired. The next source is checked in the "
+"same way. The installation ends only when no source serves a manifest "
+"that verifies; the message names the sources that were not verified."
+msgstr "清单未通过验证的下载源会被跳过，日志以一行记录原因：签名并非由发布密钥签署，或清单已过期。随后以同样方式检查下一个下载源。只有在没有任何下载源提供可通过验证的清单时，安装才会终止；此时的消息会列出未通过验证的下载源。"
 
-#: ../../intro/install.rst:337
+#: ../../intro/install.rst:345
+msgid ""
+"A release that verifies and then fails a later check, such as a SHA-256 "
+"digest or the version that the binary reports, ends the installation. The"
+" installer does not move on to another source."
+msgstr "发布通过验证后又未通过后续检查（例如 SHA-256 摘要或二进制文件报告的版本）时，安装终止。安装脚本不会转而尝试其他下载源。"
+
+#: ../../intro/install.rst:348
 msgid ""
 "A source whose release is older than the installer itself, or than the "
 "``anet`` already installed, is a mirror that lags behind. It is passed "
 "over while another source serves the current release."
 msgstr "所提供的发布早于安装脚本自身或已安装的 ``anet`` 的下载源，视为滞后的镜像。只要另有下载源提供当前发布，即跳过该下载源。"
 
-#: ../../intro/install.rst:341
+#: ../../intro/install.rst:352
 msgid ""
 "The installer follows redirects itself, at most five, over ``https://`` "
 "only, and only to the hosts of that source: ``registry.npmmirror.com`` "
@@ -706,11 +728,11 @@ msgstr ""
 "``https://`` 主机。``anet update`` 使用相同的下载源和相同的顺序（参见 :ref:`intro-install-"
 "update`）。"
 
-#: ../../intro/install.rst:353 ../../intro/install.rst:873
+#: ../../intro/install.rst:364 ../../intro/install.rst:889
 msgid "Earlier installations"
 msgstr "较早的安装"
 
-#: ../../intro/install.rst:355
+#: ../../intro/install.rst:366
 msgid ""
 "The installer replaces earlier releases without asking for input. It "
 "examines every ``anet`` on the search path, the ``anet`` in the global "
@@ -722,21 +744,21 @@ msgstr ""
 "``/usr/local/bin/anet``、``/opt/homebrew/bin/anet`` 和 "
 "``~/.local/bin/anet``，并按下表处理。"
 
-#: ../../intro/install.rst:364
+#: ../../intro/install.rst:375
 msgid "Found"
 msgstr "检查结果"
 
-#: ../../intro/install.rst:365
+#: ../../intro/install.rst:376
 msgid "Action"
 msgstr "处理方式"
 
-#: ../../intro/install.rst:366
+#: ../../intro/install.rst:377
 msgid ""
 "AgentNetwork 1.x installed with npm (the package ``@agentnetwork/anet`` "
 "1.x)"
 msgstr "通过 npm 安装的 AgentNetwork 1.x（npm 包 ``@agentnetwork/anet`` 1.x）"
 
-#: ../../intro/install.rst:368
+#: ../../intro/install.rst:379
 msgid ""
 "The daemon is stopped with the ``anet stop`` command of that release. The"
 " package is removed with ``npm uninstall -g @agentnetwork/anet`` under "
@@ -745,7 +767,7 @@ msgstr ""
 "用该版本自身的 ``anet stop`` 命令停止守护进程，并在其所在的 npm 前缀下用 ``npm uninstall -g "
 "@agentnetwork/anet`` 删除该包。"
 
-#: ../../intro/install.rst:371
+#: ../../intro/install.rst:382
 msgid ""
 "AgentNetwork 1.x, anet 0.1 or anet 0.2 as a binary, for example from "
 "``https://clawnet.cc/install.sh`` or from an earlier ``install.sh``"
@@ -753,7 +775,7 @@ msgstr ""
 "以二进制文件形式安装的 AgentNetwork 1.x、anet 0.1 或 anet 0.2，例如来自 "
 "``https://clawnet.cc/install.sh`` 或早期的 ``install.sh``"
 
-#: ../../intro/install.rst:373
+#: ../../intro/install.rst:384
 msgid ""
 "The daemon is stopped with ``anet stop`` (1.x) or ``anet stop --all`` "
 "(0.1 and 0.2). In a directory that the user can write, the binary is "
@@ -764,22 +786,22 @@ msgstr ""
 "用 ``anet stop``\\ （1.x）或 ``anet stop --all``\\ （0.1 和 "
 "0.2）停止守护进程。在用户可写的目录中，该二进制文件被替换为指向新二进制文件的符号链接，使引用旧路径的脚本和配置运行新版本。在只有超级用户可写的目录中，该二进制文件被删除。"
 
-#: ../../intro/install.rst:378
+#: ../../intro/install.rst:389
 msgid "``anet`` 0.3 or later, and the npm launcher of 0.3 or later"
 msgstr "``anet`` 0.3 或更高版本，以及 0.3 或更高版本的 npm 启动器"
 
-#: ../../intro/install.rst:379
+#: ../../intro/install.rst:390
 msgid ""
 "Left in place and named in the log. The installation directory is placed "
 "before it on the search path. An npm launcher whose command is the "
 "installation target itself is removed with npm."
 msgstr "保留原处，并在日志中列出。安装目录在搜索路径中被放在它之前。若 npm 启动器的命令恰好就是安装目标本身，则用 npm 将其删除。"
 
-#: ../../intro/install.rst:382
+#: ../../intro/install.rst:393
 msgid "A file named ``anet`` that is not a program of AgentNetwork"
 msgstr "名为 ``anet`` 但不是 AgentNetwork 程序的文件"
 
-#: ../../intro/install.rst:383
+#: ../../intro/install.rst:394
 msgid ""
 "Not run, not changed, and named in the log. At the installation target "
 "itself (``~/.local/bin/anet`` by default), such a file is refused before "
@@ -788,7 +810,7 @@ msgstr ""
 "不运行、不更改，并在日志中列出。若此类文件位于安装目标本身（默认为 "
 "``~/.local/bin/anet``），则安装在更改任何内容之前被拒绝；指向已不存在文件的链接会被替换。"
 
-#: ../../intro/install.rst:388
+#: ../../intro/install.rst:399
 msgid ""
 "An earlier release is recognized by the Go module path in its binary, or "
 "by the ``repository`` field of its npm package. Its version is read with "
@@ -798,7 +820,7 @@ msgstr ""
 "早期版本依据其二进制文件中的 Go 模块路径，或其 npm 包的 ``repository`` 字段识别。其版本号通过 ``anet "
 "version`` 读取，运行时使用空的主目录并设有时限。除此之外，只运行其 ``stop`` 命令。"
 
-#: ../../intro/install.rst:393
+#: ../../intro/install.rst:404
 msgid ""
 "On Linux, a systemd unit named ``anet-daemon`` whose ``ExecStart`` runs a"
 " binary of AgentNetwork 1.x is disabled and stopped before the daemon, "
@@ -817,7 +839,7 @@ msgstr ""
 "systemctl disable --now anet-daemon`` 停用（参见 :ref:`intro-install-"
 "sudo`）。单元文件不被删除。系统单元无法停用时，一行 ``Note`` 给出相应命令。"
 
-#: ../../intro/install.rst:403
+#: ../../intro/install.rst:414
 msgid ""
 "The data directory of an earlier release is renamed and never deleted. "
 "The directory concerned is the one that the new release uses: "
@@ -826,7 +848,7 @@ msgstr ""
 "早期版本的数据目录只会被改名，绝不删除。所涉及的目录是新版本使用的目录：``ANET_DATA_DIR``，否则为 "
 "``ANET_HOME``，否则为 ``~/.anet``。"
 
-#: ../../intro/install.rst:407
+#: ../../intro/install.rst:418
 msgid ""
 "A directory with the identity file of anet 0.1 or 0.2, or with the files "
 "of AgentNetwork 1.x and no identity of 0.3, is renamed to "
@@ -841,7 +863,7 @@ msgstr ""
 "legacy-1.1.15-20261020T120000Z``，时间为 UTC。0.3 的 ``anet init`` "
 "可能已写入其中的文件不含身份，随目录一起移走。随后 ``anet init`` 写入新的配置，第一次 ``anet up`` 创建新的身份。"
 
-#: ../../intro/install.rst:414
+#: ../../intro/install.rst:425
 msgid ""
 "A directory with the files of AgentNetwork 1.x and an identity of 0.3 "
 "(``identity.kel``, or ``ids/<name>/identity.kel``) stays in place. Only "
@@ -850,17 +872,17 @@ msgstr ""
 "同时含有 AgentNetwork 1.x 文件和 0.3 身份（``identity.kel`` 或 "
 "``ids/<name>/identity.kel``）的目录保留原处，只有 1.x 的文件被移入新目录。"
 
-#: ../../intro/install.rst:417
+#: ../../intro/install.rst:428
 msgid "A directory of 0.3, or of a newer release, is not changed."
 msgstr "0.3 或更新版本的目录不作任何修改。"
 
-#: ../../intro/install.rst:419
+#: ../../intro/install.rst:430
 msgid ""
 "The daemon applies the same rule. It does not start in a data directory "
 "of an earlier release and reports ``identity_v02``."
 msgstr "守护进程采用同一规则。它不在较早版本的数据目录中启动，并报告 ``identity_v02``。"
 
-#: ../../intro/install.rst:422
+#: ../../intro/install.rst:433
 msgid ""
 "A daemon of AgentNetwork 1.x can still hold the data directory after the "
 "``stop`` commands above, for example when its binary was deleted by hand "
@@ -869,7 +891,7 @@ msgstr ""
 "执行上述 ``stop`` 命令之后，AgentNetwork 1.x 的守护进程仍可能占用数据目录，例如其二进制文件已被手动删除，或该守护进程由"
 " MCP 客户端启动。此时安装脚本自行停止它："
 
-#: ../../intro/install.rst:426
+#: ../../intro/install.rst:437
 msgid ""
 "through the shutdown interface of 1.x on ``127.0.0.1:3998``, with the API"
 " token from the data directory. The token is passed to ``curl`` in a "
@@ -878,7 +900,7 @@ msgstr ""
 "通过 1.x 在 ``127.0.0.1:3998`` 上的关闭接口，使用数据目录中的 API 令牌。该令牌通过私有配置文件传递给 "
 "``curl``，从不出现在命令行中；"
 
-#: ../../intro/install.rst:429
+#: ../../intro/install.rst:440
 msgid ""
 "if the daemon still runs, with ``SIGTERM`` to the process named in "
 "``daemon.pid``, and only after the executable of that process has been "
@@ -887,7 +909,7 @@ msgstr ""
 "若守护进程仍在运行，则向 ``daemon.pid`` 所指进程发送 ``SIGTERM``，且仅在根据该进程的可执行文件确认其为 "
 "AgentNetwork 1.x 之后发送。"
 
-#: ../../intro/install.rst:433
+#: ../../intro/install.rst:444
 msgid ""
 "Each step is followed by a wait of at most 10 seconds. A daemon of this "
 "release that runs on the identity of 0.3 in the same directory is never "
@@ -901,7 +923,7 @@ msgstr ""
 "守护进程无法停止，或 anet 0.2 守护进程仍在其控制地址上响应时，该目录才保留原处；此时跳过 ``anet init`` "
 "和节点启动，并以一行 ``Note`` 说明在重新运行安装脚本之前需要停止什么。"
 
-#: ../../intro/install.rst:441
+#: ../../intro/install.rst:452
 msgid ""
 "The output names the takeover in the phase line ``Replacing <release>`` "
 "and in the summary line ``Replaced <release>; its data is kept in "
@@ -911,22 +933,22 @@ msgstr ""
 "输出以阶段行 ``Replacing <release>`` 和摘要行 ``Replaced <release>; its data is "
 "kept in <directory>`` 指明接管。日志在 ``Upgraded from anet <version>`` 一节中列出每一步："
 
-#: ../../intro/install.rst:458
+#: ../../intro/install.rst:469
 msgid ""
 "The renamed directory keeps the identity and the API tokens of the "
 "earlier release. Release 0.3 does not read them. See :doc:`/upgrading` "
 "for the steps after the installation."
 msgstr "改名后的目录保存早期版本的身份和 API 令牌，0.3 版不读取它们。安装后的步骤参见 :doc:`/upgrading`。"
 
-#: ../../intro/install.rst:465
+#: ../../intro/install.rst:476
 msgid "Administrator rights"
 msgstr "管理员权限"
 
-#: ../../intro/install.rst:467
+#: ../../intro/install.rst:478
 msgid "A per-user installation needs administrator rights only in these cases:"
 msgstr "按用户安装仅在以下情形需要管理员权限："
 
-#: ../../intro/install.rst:469
+#: ../../intro/install.rst:480
 msgid ""
 "an earlier release sits where only the superuser can remove it, for "
 "example ``/usr/local/bin/anet`` owned by ``root``, or a 1.x npm package "
@@ -935,23 +957,23 @@ msgstr ""
 "较早版本位于只有超级用户才能删除的位置，例如属于 ``root`` 的 ``/usr/local/bin/anet``，或位于属于 "
 "``root`` 的前缀下的 1.x npm 包；"
 
-#: ../../intro/install.rst:472
+#: ../../intro/install.rst:483
 msgid "a system unit of AgentNetwork 1.x is to be disabled;"
 msgstr "需要停用 AgentNetwork 1.x 的系统单元；"
 
-#: ../../intro/install.rst:473
+#: ../../intro/install.rst:484
 msgid ""
 "the command link of :ref:`intro-install-path` is to be created in a "
 "directory owned by ``root``."
 msgstr "需要在属于 ``root`` 的目录中创建 :ref:`intro-install-path` 所述的命令链接。"
 
-#: ../../intro/install.rst:476
+#: ../../intro/install.rst:487
 msgid ""
 "In these cases, and only when a terminal is available, the installer "
 "prints one line with the reason, for example:"
 msgstr "在这些情形下，且仅在有终端可用时，安装脚本输出一行说明原因，例如："
 
-#: ../../intro/install.rst:483
+#: ../../intro/install.rst:494
 msgid ""
 "It then runs ``sudo -v`` once. ``sudo`` reads the password from the "
 "terminal, never from the input of the script. The steps that need the "
@@ -964,7 +986,7 @@ msgstr ""
 " -n`` 运行。``sudo`` 被拒绝或失败时，安装继续进行，摘要中为每个未执行的步骤给出一行附命令的 ``Note``。若 ``sudo "
 "-n`` 已可成功执行，则不询问密码。"
 
-#: ../../intro/install.rst:490
+#: ../../intro/install.rst:501
 msgid ""
 "Without a terminal, as in the tool call of a coding agent or a CI job, "
 "nothing is asked: ``sudo`` is used only as ``sudo -n``, and the ``Note`` "
@@ -973,17 +995,17 @@ msgstr ""
 "没有终端时（例如编程 Agent 的工具调用或 CI 作业），不进行任何询问：``sudo`` 只以 ``sudo -n`` "
 "的形式使用，``Note`` 行照常给出。``--system`` 保持原有行为，只使用 ``sudo -n``。"
 
-#: ../../intro/install.rst:497
+#: ../../intro/install.rst:508
 msgid "Search path"
 msgstr "搜索路径"
 
-#: ../../intro/install.rst:499
+#: ../../intro/install.rst:510
 msgid ""
 "The binary stays in ``~/.local/bin``, where the user can replace it; "
 "``anet update`` therefore needs no administrator rights."
 msgstr "二进制文件保留在用户可替换的 ``~/.local/bin`` 中，因此 ``anet update`` 无需管理员权限。"
 
-#: ../../intro/install.rst:502
+#: ../../intro/install.rst:513
 msgid ""
 "When ``~/.local/bin`` is not on the search path of the shell that runs "
 "the installer and a terminal is available, the installer creates a "
@@ -1008,13 +1030,13 @@ msgstr ""
 "``Run 'anet' to get started.``。若 ``~/.local/bin`` "
 "已在搜索路径中，则不创建链接，也不进行任何询问。"
 
-#: ../../intro/install.rst:515
+#: ../../intro/install.rst:526
 msgid ""
 "Without a terminal, no link is created. The last line then says to run "
 "``anet`` in a new terminal, or in the current one after this command:"
 msgstr "没有终端时不创建链接。此时最后一行提示在新终端中运行 ``anet``，或在当前终端中先执行以下命令："
 
-#: ../../intro/install.rst:522
+#: ../../intro/install.rst:533
 msgid ""
 "For new terminals, when the installation directory is not on the search "
 "path, when another ``anet`` comes before it, or when a new login shell "
@@ -1024,29 +1046,29 @@ msgstr ""
 "对于新打开的终端，当安装目录不在搜索路径中、搜索路径中另有 ``anet`` 位于其前，或新的登录 shell "
 "找不到新的二进制文件时，安装脚本将下面这段内容追加到 shell 配置文件中；该段已存在时则替换它："
 
-#: ../../intro/install.rst:539
+#: ../../intro/install.rst:550
 msgid "Shell"
 msgstr "Shell"
 
-#: ../../intro/install.rst:540
+#: ../../intro/install.rst:551
 msgid "Profiles"
 msgstr "配置文件"
 
-#: ../../intro/install.rst:541
+#: ../../intro/install.rst:552
 msgid "zsh"
 msgstr "zsh"
 
-#: ../../intro/install.rst:542
+#: ../../intro/install.rst:553
 msgid ""
 "``.zprofile`` and ``.zshrc`` in ``$ZDOTDIR``, or in the home directory "
 "when ``ZDOTDIR`` is not set"
 msgstr "``$ZDOTDIR`` 中的 ``.zprofile`` 和 ``.zshrc``；未设置 ``ZDOTDIR`` 时为主目录中的这两个文件"
 
-#: ../../intro/install.rst:544
+#: ../../intro/install.rst:555
 msgid "bash"
 msgstr "bash"
 
-#: ../../intro/install.rst:545
+#: ../../intro/install.rst:556
 msgid ""
 "``~/.bash_profile`` if it exists, else ``~/.bash_login`` if it exists, "
 "else ``~/.profile``; and ``~/.bashrc``"
@@ -1054,11 +1076,11 @@ msgstr ""
 "``~/.bash_profile``\\ （若存在），否则 ``~/.bash_login``\\ （若存在），否则 "
 "``~/.profile``；以及 ``~/.bashrc``"
 
-#: ../../intro/install.rst:547
+#: ../../intro/install.rst:558
 msgid "fish"
 msgstr "fish"
 
-#: ../../intro/install.rst:548
+#: ../../intro/install.rst:559
 msgid ""
 "``~/.config/fish/conf.d/anet.fish`` (below ``XDG_CONFIG_HOME`` when it is"
 " set), with the same effect in fish syntax"
@@ -1066,15 +1088,15 @@ msgstr ""
 "``~/.config/fish/conf.d/anet.fish``\\ （设置了 ``XDG_CONFIG_HOME`` 时位于其下），以 "
 "fish 语法实现相同效果"
 
-#: ../../intro/install.rst:550
+#: ../../intro/install.rst:561
 msgid "Other shells"
 msgstr "其他 shell"
 
-#: ../../intro/install.rst:551
+#: ../../intro/install.rst:562
 msgid "``~/.profile``"
 msgstr "``~/.profile``"
 
-#: ../../intro/install.rst:553
+#: ../../intro/install.rst:564
 msgid ""
 "The profiles of the login shell named by ``SHELL`` are created when they "
 "do not exist. The profiles of other shells are changed only when they "
@@ -1089,7 +1111,7 @@ msgstr ""
 "的配置文件只在已存在时修改。再次运行安装脚本不会加入第二段；已不在文件末尾的该段会被移到末尾。作为符号链接的配置文件（例如指向 dotfiles "
 "仓库）通过链接写入。某段缺少结束标记的文件不作修改，并以一行 ``Note`` 指明。日志列出已修改的配置文件。"
 
-#: ../../intro/install.rst:561
+#: ../../intro/install.rst:572
 msgid ""
 "The installer then starts a login, interactive shell of ``SHELL`` with an"
 " empty environment and input from ``/dev/null``, asks it for ``command -v"
@@ -1098,13 +1120,13 @@ msgstr ""
 "随后，安装脚本以空环境、从 ``/dev/null`` 读取输入的方式启动 ``SHELL`` 的登录交互式 shell，执行 ``command"
 " -v anet``，并将结果写入日志："
 
-#: ../../intro/install.rst:569
+#: ../../intro/install.rst:580
 msgid ""
 "When a new terminal would still run another ``anet``, a ``Note`` line of "
 "the summary says so."
 msgstr "若新终端仍会运行另一个 ``anet``，摘要中以一行 ``Note`` 说明。"
 
-#: ../../intro/install.rst:572
+#: ../../intro/install.rst:583
 msgid ""
 "With ``--no-modify-path``, neither the profiles nor the command link are "
 "changed, and the last line of the output names the directory to put on "
@@ -1117,11 +1139,11 @@ msgstr ""
 "时，既不修改配置文件，也不创建命令链接，输出的最后一行给出需要加入搜索路径的目录。以超级用户身份运行时，安装脚本不修改配置文件。要撤销修改，删除两个标记之间的各行；若已创建命令链接"
 " ``anet``，将其删除，其位置记录在日志中。"
 
-#: ../../intro/install.rst:581 ../../intro/install.rst:940
+#: ../../intro/install.rst:592 ../../intro/install.rst:956
 msgid "Verifying the installer before running it"
 msgstr "运行前验证安装程序"
 
-#: ../../intro/install.rst:583
+#: ../../intro/install.rst:594
 msgid ""
 "``curl ... | sh`` trusts the host that serves the script and that host's "
 "TLS certificate. The signature checks above protect the binary, not the "
@@ -1132,7 +1154,7 @@ msgstr ""
 "``curl ... | sh`` 信任提供该脚本的主机及其 TLS "
 "证书。上述签名检查保护的是二进制文件，而不是脚本本身。若不愿信任该主机，请下载脚本及其签名，并在运行脚本之前用公布的发布密钥验证二者。"
 
-#: ../../intro/install.rst:589
+#: ../../intro/install.rst:600
 msgid ""
 "The release key belongs to the project maintainers. It signs binaries, "
 "the installer and the manifest of release artifacts. It is not an "
@@ -1143,7 +1165,7 @@ msgstr ""
 "发布密钥属于项目维护者，用于签署二进制文件、安装程序和发布产物的清单，不是任何节点的身份密钥。密钥及其指纹也公布于 ANet 仓库的 "
 "``SECURITY.md`` 和 ``README.md`` 中；请与下列值比对，二者不一致时以仓库中的副本为准。"
 
-#: ../../intro/install.rst:602
+#: ../../intro/install.rst:613
 msgid ""
 "The key fingerprint is "
 "``SHA256:/4FMm/jgZcBII3z3O3r81Y8SxFfugdLRu3zj2gnclD4``. A successful "
@@ -1153,11 +1175,11 @@ msgstr ""
 "密钥指纹为 ``SHA256:/4FMm/jgZcBII3z3O3r81Y8SxFfugdLRu3zj2gnclD4``\\ 。检查成功时会输出 "
 "``Good \"anet-release@agentnetwork.org.cn\" signature``，后接指纹。"
 
-#: ../../intro/install.rst:609
+#: ../../intro/install.rst:620
 msgid "Installing on Windows"
 msgstr "在 Windows 上安装"
 
-#: ../../intro/install.rst:611
+#: ../../intro/install.rst:622
 msgid ""
 "The Windows build runs natively on Windows 10 version 1809 or later and "
 "on Windows Server 2019 or later, on amd64 and arm64. WSL2 is not "
@@ -1166,7 +1188,7 @@ msgstr ""
 "Windows 版本在 Windows 10 1809 或更高版本以及 Windows Server 2019 或更高版本上原生运行，支持 "
 "amd64 与 arm64，无需 WSL2。"
 
-#: ../../intro/install.rst:617
+#: ../../intro/install.rst:628
 msgid ""
 "Windows PowerShell 5.1, which every supported version of Windows "
 "includes. The installer uses no tool that has to be installed; in "
@@ -1176,23 +1198,23 @@ msgstr ""
 "Windows PowerShell 5.1，所有受支持的 Windows 版本均自带该组件。安装程序不使用任何需要另行安装的工具，尤其不使用 "
 "``ssh-keygen``，因为 Windows 10 1809 自带的 OpenSSH 版本低于 8.1。"
 
-#: ../../intro/install.rst:621
+#: ../../intro/install.rst:632
 msgid ""
 "Outbound HTTPS to at least one of the download sources (see :ref:`intro-"
 "install-windows-sources`)."
 msgstr "可通过出站 HTTPS 访问至少一个下载源（参见 :ref:`intro-install-windows-sources`）。"
 
-#: ../../intro/install.rst:624
+#: ../../intro/install.rst:635
 msgid ""
 "The installer runs in a window that is elevated or not, and in a session "
 "without a visible console, such as the tool call of an agent or a CI job."
 msgstr "安装程序可在提升权限或未提升权限的窗口中运行，也可在没有可见控制台的会话中运行，例如代理的工具调用或 CI 作业。"
 
-#: ../../intro/install.rst:628
+#: ../../intro/install.rst:639
 msgid "Installing with the one-line command"
 msgstr "使用单行命令安装"
 
-#: ../../intro/install.rst:630
+#: ../../intro/install.rst:641
 msgid ""
 "The installation is started with one line. The line is identical in "
 "``cmd.exe``, Windows PowerShell 5.1, PowerShell 7, a ``bash`` or ``zsh`` "
@@ -1210,7 +1232,7 @@ msgstr ""
 "shell 模块访问权限的节点的 AID。安装程序安装含 ``shell`` 模块的版本，向该 AID 授予访问权限，启动节点，将其注册到 "
 "``https://hub.agentnetwork.org.cn``，并设置为每次登录时启动："
 
-#: ../../intro/install.rst:644
+#: ../../intro/install.rst:655
 msgid ""
 "Without ``-Controller``, the line installs the default build and gives no"
 " agent access. The node is started and registered with the hub in the "
@@ -1223,7 +1245,7 @@ msgstr ""
 "省略注册，``-NoStart`` 省略启动与注册。本节所述的其他内容，包括下载源、安装目录的选择、对较早安装的接管、``PATH`` "
 "以及输出，在两种形式下均相同："
 
-#: ../../intro/install.rst:655
+#: ../../intro/install.rst:666
 msgid ""
 "The line starts a new ``powershell.exe``, which enables TLS 1.2 (required"
 " by Windows PowerShell 5.1), downloads ``install.ps1`` and runs it as a "
@@ -1246,17 +1268,17 @@ msgstr ""
 "elevated` 与 :ref:`intro-install-windows-earlier`）；在安装任何内容之前被拒绝或失败时为 "
 "1；其他情况为失败的 ``anet`` 命令的退出状态。"
 
-#: ../../intro/install.rst:669
+#: ../../intro/install.rst:680
 msgid "No interaction"
 msgstr "无交互"
 
-#: ../../intro/install.rst:671
+#: ../../intro/install.rst:682
 msgid ""
 "The installer asks no question and reads nothing from the console. Every "
 "decision is made from the parameters on the command line. In particular:"
 msgstr "安装程序不提出任何问题，也不从控制台读取任何内容。所有决定均依据命令行中的参数作出。具体而言："
 
-#: ../../intro/install.rst:674
+#: ../../intro/install.rst:685
 msgid ""
 "``-Controller`` on the command line is the consent to the grant. The "
 "installer passes it to ``anet init --shell-controller`` as ``--yes``, and"
@@ -1269,7 +1291,7 @@ msgstr ""
 "controller``，不请求任何确认。摘要注明获得访问权限的代理及撤销该权限的命令；日志记录从 ``config.json`` 与 "
 "``peers.allow`` 读回的已授予权限，以及撤销权限的两个步骤。"
 
-#: ../../intro/install.rst:679
+#: ../../intro/install.rst:690
 msgid ""
 "The recovery passphrase is not asked during the installation: the "
 "installer always runs ``anet hub-register`` with ``--passphrase-later``. "
@@ -1278,18 +1300,18 @@ msgstr ""
 "安装过程中不询问恢复口令：安装程序始终以 ``--passphrase-later`` 运行 ``anet hub-"
 "register``。请在安装后使用 ``anet identity protect`` 设置口令。"
 
-#: ../../intro/install.rst:682
+#: ../../intro/install.rst:693
 msgid ""
 "The installation also completes when standard input and output are not a "
 "console, as with WSL interoperability, a CI job or the tool call of an "
 "agent."
 msgstr "标准输入与标准输出不是控制台时（例如 WSL 互操作、CI 作业或代理的工具调用），安装同样可以完成。"
 
-#: ../../intro/install.rst:689
+#: ../../intro/install.rst:700
 msgid "What the installer prints"
 msgstr "安装程序的输出"
 
-#: ../../intro/install.rst:691
+#: ../../intro/install.rst:702
 msgid ""
 "While it works, the installer prints one line per phase: the download, "
 "and the installed binary with the result of the signature check. On an "
@@ -1308,11 +1330,11 @@ msgstr ""
 " ``NO_COLOR`` 时不使用颜色；控制台代码页无法显示制表符时改用 ASCII 字符。输出不是交互式控制台时（例如 CI "
 "作业、代理的工具调用或管道），下载完成后以一行报告。"
 
-#: ../../intro/install.rst:703
+#: ../../intro/install.rst:714
 msgid "The installation ends with a short summary, for example:"
 msgstr "安装以简短的摘要结束，例如："
 
-#: ../../intro/install.rst:714
+#: ../../intro/install.rst:725
 msgid ""
 "The ``AID`` line gives the identity of the node in full. The ``Hub`` line"
 " states whether the node joined the hub, whether the hub waits for its "
@@ -1332,7 +1354,7 @@ msgstr ""
 "``Replaced`` 开头的行仅在接管了较早的安装时出现，并注明现保存其数据的目录。以 ``Note:`` "
 "开头的行仅在有需要用户处理的事项时出现，例如需要运行的命令。``ANET_LANG`` 设置为以 ``zh`` 开头的值时，摘要以中文显示。"
 
-#: ../../intro/install.rst:725
+#: ../../intro/install.rst:736
 msgid ""
 "The last line names the log of the run. The log records everything else: "
 "the download sources that were probed and tried, each check, every step "
@@ -1356,14 +1378,14 @@ msgstr ""
 "之前停止，或该目录仍保存早期版本的数据），日志改为写入 ``%TEMP%\\anet-install\\``。拒绝与失败以一行简短的 "
 "``Error:`` 报告，其后为 ``Details:`` 行。"
 
-#: ../../intro/install.rst:742
+#: ../../intro/install.rst:753
 msgid ""
 "``install.ps1`` installs exactly the release with which it was published,"
 " because it carries the SHA-256 digests of that release. Every download "
 "source is therefore asked for that version:"
 msgstr "``install.ps1`` 载有其所属发布版本的 SHA-256 摘要，因此只安装该发布版本。每个下载源均按该版本请求："
 
-#: ../../intro/install.rst:746
+#: ../../intro/install.rst:757
 msgid ""
 "The npm mirror ``registry.npmmirror.com`` and the GitHub release of the "
 "project (``github.com/ANetResearch/ANet/releases/download/v<version>/``) "
@@ -1375,21 +1397,21 @@ msgstr ""
 "发布（``github.com/ANetResearch/ANet/releases/download/v<version>/``），每个最多 3"
 " 秒，总计最多 4 秒。已响应的下载源优先尝试，响应较快者在前；未响应的下载源不予使用。"
 
-#: ../../intro/install.rst:751
+#: ../../intro/install.rst:762
 msgid "The npm registry ``registry.npmjs.org``."
 msgstr "npm 注册表 ``registry.npmjs.org``。"
 
-#: ../../intro/install.rst:752
+#: ../../intro/install.rst:763
 msgid "jsDelivr (``cdn.jsdelivr.net``)."
 msgstr "jsDelivr（``cdn.jsdelivr.net``）。"
 
-#: ../../intro/install.rst:753
+#: ../../intro/install.rst:764
 msgid ""
 "The project's hosts ``agentnetwork.org.cn`` and "
 "``hub.agentnetwork.org.cn``."
 msgstr "本项目的主机 ``agentnetwork.org.cn`` 与 ``hub.agentnetwork.org.cn``。"
 
-#: ../../intro/install.rst:755
+#: ../../intro/install.rst:766
 msgid ""
 "From an npm registry, the installer downloads the tarball of the npm "
 "package of the build (``@agentnetwork/anet-win32-<cpu>`` or "
@@ -1407,28 +1429,34 @@ msgstr ""
 "``..``），整个压缩包即被拒绝；安装程序从不以条目名称写入任何文件。从 GitHub 下载时，仅允许重定向到 ``github.com`` 及"
 " ``githubusercontent.com`` 下的主机，且仅限 HTTPS。"
 
-#: ../../intro/install.rst:765
+#: ../../intro/install.rst:776
 msgid ""
 "A source that does not serve the release, because it does not answer, "
 "returns an HTTP error, returns a page instead of a file, lacks a file or "
 "serves another version, is passed over for the next source in one line. A"
 " source only determines where the files come from: every file is checked "
 "as described in :ref:`intro-install-windows-checks`, and a file that "
-"fails a check ends the installation, whichever source served it. "
-"``-Base`` replaces the list of sources, and so does the environment "
-"variable ``ANET_INSTALL_BASE`` when ``-Base`` is not given."
+"fails a check ends the installation, whichever source served it. The one "
+"exception is a ``release.json`` that the downloaded binary does not "
+"verify, because its signature is not by the release key or it has "
+"expired: that source is passed over in one line, and the manifest and "
+"signature of the next source that serves the release are verified "
+"instead. The installation ends only when no source serves a manifest that"
+" verifies. ``-Base`` replaces the list of sources, and so does the "
+"environment variable ``ANET_INSTALL_BASE`` when ``-Base`` is not given."
 msgstr ""
 "下载源未提供该发布版本时（无响应、返回 HTTP "
 "错误、返回网页而非文件、缺少文件或提供其他版本），安装程序以一行说明并改用下一个下载源。下载源只决定文件的来源：每个文件均按 :ref"
 ":`intro-install-windows-checks` "
-"所述进行检查，无论由哪个下载源提供，任一文件未通过检查即终止安装。``-Base`` 替换下载源列表；未指定 ``-Base`` 时，环境变量 "
-"``ANET_INSTALL_BASE`` 同样替换该列表。"
+"所述进行检查，无论由哪个下载源提供，任一文件未通过检查即终止安装。唯一的例外是所下载的二进制文件无法验证的 "
+"``release.json``，即其签名并非由发布密钥签署或已过期：该下载源以一行说明后被跳过，改为验证下一个提供该发布版本的下载源的清单和签名。只有在没有任何下载源提供可通过验证的清单时，安装才会终止。``-Base``"
+" 替换下载源列表；未指定 ``-Base`` 时，环境变量 ``ANET_INSTALL_BASE`` 同样替换该列表。"
 
-#: ../../intro/install.rst:775
+#: ../../intro/install.rst:791
 msgid "Running the command in WSL"
 msgstr "在 WSL 中运行该命令"
 
-#: ../../intro/install.rst:777
+#: ../../intro/install.rst:793
 msgid ""
 "Run in a WSL shell, the line installs the Windows build on the Windows "
 "host, for the Windows user who runs WSL: that is the computer that the "
@@ -1445,11 +1473,11 @@ msgstr ""
 "enabled`` 与 ``appendWindowsPath``）。如需在 Linux 发行版内部安装 ANet，请使用 "
 "``install.sh``\\ （参见 :ref:`intro-install-script`）。"
 
-#: ../../intro/install.rst:786
+#: ../../intro/install.rst:802
 msgid "The install directory"
 msgstr "安装目录"
 
-#: ../../intro/install.rst:788
+#: ../../intro/install.rst:804
 msgid ""
 "Without ``-Prefix``, the installer chooses the install directory. It uses"
 " the first of the following directories that passes the checks below, and"
@@ -1461,7 +1489,7 @@ msgstr ""
 "时，由安装程序选择安装目录。它使用下列目录中第一个通过下述检查的目录，并为每个跳过的目录输出一行原因；原因中写明相关账户的名称，Windows "
 "无法解析名称的账户以其 SID 加 ``(unresolved)`` 表示："
 
-#: ../../intro/install.rst:794
+#: ../../intro/install.rst:810
 msgid ""
 "the directory of an ANet 0.3 or later that is already installed for the "
 "user, found on the user's ``PATH`` or in the ``Run`` value below, when "
@@ -1473,21 +1501,21 @@ msgstr ""
 "该用户已安装的 ANet 0.3 或更高版本所在的目录（通过用户的 ``PATH`` 或下文的 ``Run`` "
 "值找到），且该目录仅包含该安装的文件（``anet.exe``、其发布记录与签名、更新时移至一旁的二进制文件）；同时包含其他文件的目录会被报告且不使用；"
 
-#: ../../intro/install.rst:800
+#: ../../intro/install.rst:816
 msgid "``%LOCALAPPDATA%\\Programs\\anet``;"
 msgstr "``%LOCALAPPDATA%\\Programs\\anet``；"
 
-#: ../../intro/install.rst:801
+#: ../../intro/install.rst:817
 msgid ""
 "``%LOCALAPPDATA%\\anet\\bin``, beside the runtime directory "
 "``%LOCALAPPDATA%\\anet\\run`` of the node;"
 msgstr "``%LOCALAPPDATA%\\anet\\bin``，与节点的运行时目录 ``%LOCALAPPDATA%\\anet\\run`` 相邻；"
 
-#: ../../intro/install.rst:803
+#: ../../intro/install.rst:819
 msgid "``%USERPROFILE%\\.anet-bin``."
 msgstr "``%USERPROFILE%\\.anet-bin``。"
 
-#: ../../intro/install.rst:805
+#: ../../intro/install.rst:821
 msgid ""
 "A directory passes when no directory above it grants another account the "
 "right to rename it or to change its access control list, and when it is "
@@ -1511,17 +1539,17 @@ msgstr ""
 " 与 Administrators 拥有完全控制权限，此外没有任何其他项。使用第三个目录时，``%LOCALAPPDATA%\\anet`` "
 "即以这种方式创建，节点接受其作为运行时目录的上级目录。"
 
-#: ../../intro/install.rst:821
+#: ../../intro/install.rst:837
 msgid ""
 "``-Prefix`` overrides the choice. The given directory is subject to the "
 "same checks, and a directory that fails them is refused."
 msgstr "``-Prefix`` 覆盖上述选择。所指定的目录接受相同的检查，未通过检查的目录会被拒绝。"
 
-#: ../../intro/install.rst:827
+#: ../../intro/install.rst:843
 msgid "An elevated window"
 msgstr "提升权限的窗口"
 
-#: ../../intro/install.rst:829
+#: ../../intro/install.rst:845
 msgid ""
 "An elevated window is not refused. ANet is installed for the current "
 "account, with the same per-user directories, ``PATH`` and ``Run`` value "
@@ -1531,7 +1559,7 @@ msgstr ""
 "安装程序不拒绝提升权限的窗口。ANet 为当前账户安装，所用的按用户目录、``PATH`` 与 ``Run`` "
 "值与未提升权限的窗口相同。为保持兼容，参数 ``-Elevated`` 仍被接受，但不产生任何作用。"
 
-#: ../../intro/install.rst:834
+#: ../../intro/install.rst:850
 msgid ""
 "While Windows has a standard user token for the account, that is, while "
 "User Account Control is on, the elevated window has more rights than the "
@@ -1550,7 +1578,7 @@ msgstr ""
 "不运行，相应命令仅输出，供在该账户的普通窗口中运行。PowerShell 本身仍会在脚本运行之前从该账户的 ``Documents`` "
 "文件夹加载其模块，这也是应在普通窗口中运行该命令的原因之一。"
 
-#: ../../intro/install.rst:844
+#: ../../intro/install.rst:860
 msgid ""
 "The node is never started with the elevated token in that case. The "
 "installer registers a one-time task in the Task Scheduler for the current"
@@ -1573,7 +1601,7 @@ msgstr ""
 "up``，然后是 ``anet hub-register``，除非指定 "
 "``-NoJoin``），供在普通窗口中运行。因此，控制者的命令始终以用户的权限运行，绝不以管理员的权限运行。"
 
-#: ../../intro/install.rst:857
+#: ../../intro/install.rst:873
 msgid ""
 "An elevated window that runs as an account other than the one logged on "
 "to the session, which is the case when another account's credentials are "
@@ -1585,7 +1613,7 @@ msgstr ""
 "若提升权限的窗口以登录到当前会话的账户之外的账户运行（在用户账户控制提示中输入了其他账户的凭据即属此情形），则安装在更改任何内容之前被拒绝：否则 "
 "ANet 将为该其他账户安装，其节点将在用户的会话中以该账户运行。请在您自己账户的普通窗口中运行该命令。"
 
-#: ../../intro/install.rst:864
+#: ../../intro/install.rst:880
 msgid ""
 "When Windows has no standard user token for the account, because User "
 "Account Control is off or the account is the built-in Administrator, the "
@@ -1596,14 +1624,14 @@ msgstr ""
 "若 Windows 未为该账户提供标准用户令牌（用户账户控制已关闭，或该账户为内置 "
 "Administrator），则该窗口拥有的权限即为该账户始终拥有的权限：较早的安装与在其他窗口中一样被接管，节点直接以窗口的权限启动，安装程序以一行文字说明这一情况。"
 
-#: ../../intro/install.rst:875
+#: ../../intro/install.rst:891
 msgid ""
 "The installer takes over from other ANet installations of the user, "
 "without asking, in an order that leaves a consistent state when a step "
 "fails:"
 msgstr "安装程序接管该用户的其他 ANet 安装，不进行询问，且执行顺序保证某一步失败时仍处于一致状态："
 
-#: ../../intro/install.rst:878
+#: ../../intro/install.rst:894
 msgid ""
 "An ``anet.exe`` found on the machine's or the user's ``PATH`` is "
 "recognized by the Go module path in the file: that of AgentNetwork 1.x "
@@ -1620,7 +1648,7 @@ msgstr ""
 "形式的版本，以及 ``repository`` 字段或版本，与 ``install.sh`` 相同。名为 ``anet.exe`` "
 "但不属于这两个项目的文件仅予报告，永不运行。"
 
-#: ../../intro/install.rst:886
+#: ../../intro/install.rst:902
 msgid ""
 "An ANet of the earlier line is stopped with its own ``stop`` command, "
 "with a time limit; the binary that is run must carry the module path of "
@@ -1629,7 +1657,7 @@ msgstr ""
 "较早系列的 ANet 以其自身的 ``stop`` 命令停止，并设有时间限制；所运行的二进制文件必须载有 AgentNetwork 1.x "
 "的模块路径。"
 
-#: ../../intro/install.rst:889
+#: ../../intro/install.rst:905
 msgid ""
 "When a daemon of AgentNetwork 1.x still holds the data directory, the "
 "installer stops it: a daemon is the process named in ``daemon.pid``, or "
@@ -1649,7 +1677,7 @@ msgstr ""
 " ``stop`` 命令一样，使用数据目录中的 API 令牌，通过其本地 API 请求守护进程关闭，并最多等待 10 "
 "秒；若守护进程仍在运行，则在再次检查其程序后按进程 ID 将其终止。安装程序绝不按名称终止进程。"
 
-#: ../../intro/install.rst:899
+#: ../../intro/install.rst:915
 msgid ""
 "Its data in ``%USERPROFILE%\\.anet`` (or ``ANET_DATA_DIR``) is moved "
 "aside, never deleted, by the same rule as ``install.sh`` and the daemon "
@@ -1673,7 +1701,7 @@ msgstr ""
 "journal.json``、``cas``、``orgs``、``state`` 与 ``daemon.pid``）移入同名目录。0.3 "
 "的目录、更新版本的目录或身份文件无法读取的目录不作更改。"
 
-#: ../../intro/install.rst:911
+#: ../../intro/install.rst:927
 msgid ""
 "Only after the data has been moved is the npm package removed with ``npm "
 "uninstall -g @agentnetwork/anet``. When that is not possible, the "
@@ -1682,7 +1710,7 @@ msgstr ""
 "数据移动完成后，才通过 ``npm uninstall -g @agentnetwork/anet`` 卸载 npm "
 "包。无法卸载时，安装程序输出需要运行的命令。"
 
-#: ../../intro/install.rst:914
+#: ../../intro/install.rst:930
 msgid ""
 "Another installation of ANet 0.3 or later outside npm is left in place. "
 "Its directory is taken off the user's ``PATH`` only when it holds nothing"
@@ -1693,7 +1721,7 @@ msgstr ""
 "npm 之外的其他 ANet 0.3 或更高版本安装保留原处。仅当其目录只包含该安装的文件时，才将该目录从用户的 ``PATH`` "
 "中移除；同时包含其他程序的目录保留在 ``PATH`` 中并予以报告。0.3 或更高版本的 npm 启动器不受影响。"
 
-#: ../../intro/install.rst:920
+#: ../../intro/install.rst:936
 msgid ""
 "The data directory is moved in this way whether or not an earlier "
 "installation was found, as ``install.sh`` does, once no daemon holds it. "
@@ -1711,7 +1739,7 @@ msgstr ""
 "3，安装程序按顺序输出剩余的确切命令（停止早期守护进程、重命名目录、卸载包、``anet init``、授权、``anet up`` 与 hub "
 "注册）。"
 
-#: ../../intro/install.rst:930
+#: ../../intro/install.rst:946
 msgid ""
 "The install directory is put first on the user's ``PATH``. The installer "
 "then starts a new ``powershell.exe`` with the ``PATH`` that a new window "
@@ -1725,7 +1753,7 @@ msgstr ""
 "``PATH`` 之前；其中若有较早的 ``anet``，则在 ``Note:`` "
 "行中报告。摘要以一行报告接管情况；已停止、已移动与已卸载的内容记录在日志中。"
 
-#: ../../intro/install.rst:942
+#: ../../intro/install.rst:958
 msgid ""
 "The one-line command trusts the host that serves ``install.ps1`` and its "
 "TLS certificate. To avoid that trust, download the script and its "
@@ -1735,7 +1763,7 @@ msgstr ""
 "单行命令信任提供 ``install.ps1`` 的主机及其 TLS "
 "证书。若不愿信任该主机，请下载脚本及其签名，用发布密钥验证签名，然后运行已验证的副本。"
 
-#: ../../intro/install.rst:946
+#: ../../intro/install.rst:962
 msgid ""
 "The signature is checked with ``ssh-keygen -Y verify`` from OpenSSH 8.1 "
 "or later (``ssh -V`` prints the version). The following block, for a "
@@ -1752,7 +1780,7 @@ msgstr ""
 "keygen`` 的要求；Windows PowerShell 5.1 的 ``>`` 重定向写出 UTF-16。代码块在提供输入重定向的 "
 "``cmd.exe`` 中执行检查（PowerShell 不支持输入重定向），签名验证未通过时在运行脚本之前停止："
 
-#: ../../intro/install.rst:962
+#: ../../intro/install.rst:978
 msgid ""
 "When this computer has an older OpenSSH, copy ``install.ps1``, "
 "``install.ps1.sig`` and ``allowed_signers`` to a computer with OpenSSH "
@@ -1763,7 +1791,7 @@ msgstr ""
 "``allowed_signers`` 复制到装有 OpenSSH 8.1 或更高版本的计算机上执行检查。该命令在 ``cmd.exe`` 与 "
 "POSIX shell 中相同："
 
-#: ../../intro/install.rst:971
+#: ../../intro/install.rst:987
 msgid ""
 "A successful check prints ``Good \"anet-release@agentnetwork.org.cn\" "
 "signature`` followed by the key fingerprint. Only then run the verified "
@@ -1772,25 +1800,25 @@ msgstr ""
 "检查成功时会输出 ``Good \"anet-release@agentnetwork.org.cn\" "
 "signature``，后接密钥指纹。仅在此之后，才在 PowerShell 中，于保存该副本的目录内运行已验证的副本："
 
-#: ../../intro/install.rst:979
+#: ../../intro/install.rst:995
 msgid ""
 "Run in an open PowerShell window in this way, the script leaves the "
 "window open and sets ``$LASTEXITCODE`` to the result."
 msgstr "以这种方式在已打开的 PowerShell 窗口中运行时，脚本不会关闭该窗口，并将 ``$LASTEXITCODE`` 设为安装结果。"
 
-#: ../../intro/install.rst:983
+#: ../../intro/install.rst:999
 msgid "Installer parameters"
 msgstr "安装程序参数"
 
-#: ../../intro/install.rst:989
+#: ../../intro/install.rst:1005
 msgid "Parameter"
 msgstr "参数"
 
-#: ../../intro/install.rst:991
+#: ../../intro/install.rst:1007
 msgid "``-Controller <AID>``"
 msgstr "``-Controller <AID>``"
 
-#: ../../intro/install.rst:992
+#: ../../intro/install.rst:1008
 msgid ""
 "Install the build with the ``shell`` module and give exactly this AID "
 "access to it (see :ref:`intro-install-windows-controller`). The parameter"
@@ -1799,19 +1827,19 @@ msgstr ""
 "安装含 ``shell`` 模块的版本，仅向该 AID 授予访问权限（参见 :ref:`intro-install-windows-"
 "controller`）。该参数即为对授权的同意。"
 
-#: ../../intro/install.rst:995
+#: ../../intro/install.rst:1011
 msgid "``-Shell``"
 msgstr "``-Shell``"
 
-#: ../../intro/install.rst:996
+#: ../../intro/install.rst:1012
 msgid "Install the build with the ``shell`` module. No caller is given access."
 msgstr "安装含 ``shell`` 模块的版本。不向任何调用方授予访问权限。"
 
-#: ../../intro/install.rst:997
+#: ../../intro/install.rst:1013
 msgid "``-Agents``"
 msgstr "``-Agents``"
 
-#: ../../intro/install.rst:998
+#: ../../intro/install.rst:1014
 msgid ""
 "After installation, run ``anet agents wire --all``: the coding agents "
 "found on the computer receive the tools and the guide of anet. Every file"
@@ -1821,70 +1849,70 @@ msgstr ""
 "安装完成后执行 ``anet agents wire --all``\\ ：本机找到的编程 agent 获得 anet "
 "的工具与指南。所修改的每个文件都会先备份。失败时以注意事项报告，安装继续进行。"
 
-#: ../../intro/install.rst:1002
+#: ../../intro/install.rst:1018
 msgid "``-AgentList <list>``"
 msgstr "``-AgentList <list>``"
 
-#: ../../intro/install.rst:1003
+#: ../../intro/install.rst:1019
 msgid ""
 "As ``-Agents``, for the comma-separated agents named (for example "
 "``claude,codex``)."
 msgstr "与 ``-Agents`` 相同，但只针对以逗号分隔列出的 agent（例如 ``claude,codex``\\ ）。"
 
-#: ../../intro/install.rst:1005
+#: ../../intro/install.rst:1021
 msgid "``-Hub <URL>``"
 msgstr "``-Hub <URL>``"
 
-#: ../../intro/install.rst:1006
+#: ../../intro/install.rst:1022
 msgid ""
 "Register with the hub at ``URL`` instead of "
 "``https://hub.agentnetwork.org.cn``."
 msgstr "注册到位于 ``URL`` 的 hub，而非 ``https://hub.agentnetwork.org.cn``。"
 
-#: ../../intro/install.rst:1008
+#: ../../intro/install.rst:1024
 msgid "``-NoJoin``"
 msgstr "``-NoJoin``"
 
-#: ../../intro/install.rst:1009
+#: ../../intro/install.rst:1025
 msgid ""
 "Start the node, but do not register with a hub. Register later with "
 "``anet hub-register``."
 msgstr "启动节点，但不注册到 hub。之后可使用 ``anet hub-register`` 注册。"
 
-#: ../../intro/install.rst:1011
+#: ../../intro/install.rst:1027
 msgid "``-NoStart``"
 msgstr "``-NoStart``"
 
-#: ../../intro/install.rst:1012
+#: ../../intro/install.rst:1028
 msgid ""
 "Neither start the node nor register with a hub. Start the node later with"
 " ``anet up``."
 msgstr "既不启动节点，也不注册到 hub。之后可使用 ``anet up`` 启动节点。"
 
-#: ../../intro/install.rst:1014
+#: ../../intro/install.rst:1030
 msgid "``-Name <name>``"
 msgstr "``-Name <name>``"
 
-#: ../../intro/install.rst:1015
+#: ../../intro/install.rst:1031
 msgid "The name to register under. The default is the computer name."
 msgstr "注册所用的名称，默认为计算机名。"
 
-#: ../../intro/install.rst:1016
+#: ../../intro/install.rst:1032
 msgid "``-Prefix <directory>``"
 msgstr "``-Prefix <directory>``"
 
-#: ../../intro/install.rst:1017
+#: ../../intro/install.rst:1033
 msgid ""
 "Install to this absolute directory instead of the directory the installer"
 " chooses. The directory must pass the checks of the chosen directories. A"
 " directory name that contains ``;`` or ``%`` is refused."
 msgstr "安装到该绝对路径目录，而不是安装程序选择的目录。该目录必须通过与自动选择的目录相同的检查。目录名中含有 ``;`` 或 ``%`` 时会被拒绝。"
 
-#: ../../intro/install.rst:1020
+#: ../../intro/install.rst:1036
 msgid "``-Without <modules>``"
 msgstr "``-Without <modules>``"
 
-#: ../../intro/install.rst:1021
+#: ../../intro/install.rst:1037
 msgid ""
 "Switch off the listed modules in the configuration, as ``install.sh "
 "--without`` does (see :ref:`intro-install-modules`). The configuration is"
@@ -1893,42 +1921,42 @@ msgstr ""
 "在配置中关闭所列模块，与 ``install.sh --without`` 相同（参见 :ref:`intro-install-"
 "modules`）。配置在二进制文件安装完成后才会修改。"
 
-#: ../../intro/install.rst:1024
+#: ../../intro/install.rst:1040
 msgid "``-Base <URL or directory>``"
 msgstr "``-Base <URL or directory>``"
 
-#: ../../intro/install.rst:1025
+#: ../../intro/install.rst:1041
 msgid ""
 "Download from this ``https://`` address, or read a release from this "
 "local directory, instead of the download sources. Every check is the "
 "same."
 msgstr "从该 ``https://`` 地址下载，或从该本地目录读取发布版本，而不使用各下载源。所有检查均相同。"
 
-#: ../../intro/install.rst:1028
+#: ../../intro/install.rst:1044
 msgid "``-NoAutostart``"
 msgstr "``-NoAutostart``"
 
-#: ../../intro/install.rst:1029
+#: ../../intro/install.rst:1045
 msgid "Do not write the value that starts the node at logon."
 msgstr "不写入登录时启动节点的注册表值。"
 
-#: ../../intro/install.rst:1030
+#: ../../intro/install.rst:1046
 msgid "``-NoPath``"
 msgstr "``-NoPath``"
 
-#: ../../intro/install.rst:1031
+#: ../../intro/install.rst:1047
 msgid "Do not put the installation directory on the user's ``PATH``."
 msgstr "不将安装目录加入用户的 ``PATH``。"
 
-#: ../../intro/install.rst:1032
+#: ../../intro/install.rst:1048
 msgid "``-Elevated``"
 msgstr "``-Elevated``"
 
-#: ../../intro/install.rst:1033
+#: ../../intro/install.rst:1049
 msgid "Accepted for compatibility with 0.3.4; it has no effect."
 msgstr "为与 0.3.4 兼容而保留，不产生任何作用。"
 
-#: ../../intro/install.rst:1035
+#: ../../intro/install.rst:1051
 msgid ""
 "The download sources are described in :ref:`intro-install-windows-"
 "sources`. The npm packages of the Windows builds are ``@agentnetwork"
@@ -1938,19 +1966,19 @@ msgstr ""
 "``@agentnetwork/anet-win32-<cpu>`` 与 ``@agentnetwork/anet-shell-"
 "win32-<cpu>``\\ 。"
 
-#: ../../intro/install.rst:1040
+#: ../../intro/install.rst:1056
 msgid "Paths"
 msgstr "路径"
 
-#: ../../intro/install.rst:1046
+#: ../../intro/install.rst:1062
 msgid "Item"
 msgstr "项目"
 
-#: ../../intro/install.rst:1048
+#: ../../intro/install.rst:1064
 msgid "Binary"
 msgstr "二进制文件"
 
-#: ../../intro/install.rst:1049
+#: ../../intro/install.rst:1065
 msgid ""
 "``anet.exe`` in the install directory (see above), with the release "
 "manifest ``anet.exe.release.json`` and its signature "
@@ -1959,27 +1987,27 @@ msgstr ""
 "安装目录（见上文）中的 ``anet.exe``，其旁边存放发布清单 ``anet.exe.release.json`` 及其签名 "
 "``anet.exe.release.json.sig``。"
 
-#: ../../intro/install.rst:1052
+#: ../../intro/install.rst:1068
 msgid "Data directory"
 msgstr "数据目录"
 
-#: ../../intro/install.rst:1053
+#: ../../intro/install.rst:1069
 msgid "``%USERPROFILE%\\.anet``"
 msgstr "``%USERPROFILE%\\.anet``"
 
-#: ../../intro/install.rst:1054
+#: ../../intro/install.rst:1070
 msgid "Runtime directory"
 msgstr "运行时目录"
 
-#: ../../intro/install.rst:1055
+#: ../../intro/install.rst:1071
 msgid "``%LOCALAPPDATA%\\anet\\run``"
 msgstr "``%LOCALAPPDATA%\\anet\\run``"
 
-#: ../../intro/install.rst:1056
+#: ../../intro/install.rst:1072
 msgid "Start at logon"
 msgstr "登录时启动"
 
-#: ../../intro/install.rst:1057
+#: ../../intro/install.rst:1073
 msgid ""
 "The value ``AgentNetwork`` under "
 "``HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run``. Removing the"
@@ -1988,11 +2016,11 @@ msgstr ""
 "``HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run`` 下的值 "
 "``AgentNetwork``。删除该值即不再于登录时启动。"
 
-#: ../../intro/install.rst:1064
+#: ../../intro/install.rst:1080
 msgid "What the installer checks"
 msgstr "安装程序检查的内容"
 
-#: ../../intro/install.rst:1066
+#: ../../intro/install.rst:1082
 msgid ""
 "``install.ps1`` is signed (``install.ps1.sig``) and carries the SHA-256 "
 "digests of the Windows release binaries."
@@ -2000,13 +2028,13 @@ msgstr ""
 "``install.ps1`` 已签名（\\ ``install.ps1.sig``），并载有 Windows 发布二进制文件的 SHA-256 "
 "摘要。"
 
-#: ../../intro/install.rst:1068
+#: ../../intro/install.rst:1084
 msgid ""
 "Nothing that is downloaded is run or installed before it matches those "
 "digests."
 msgstr "下载的任何内容在与这些摘要一致之前，都不会被运行或安装。"
 
-#: ../../intro/install.rst:1070
+#: ../../intro/install.rst:1086
 msgid ""
 "The downloaded binary then verifies, with the release key built into it, "
 "the signature of ``release.json``, its expiry, its version, the SHA-256 "
@@ -2016,25 +2044,25 @@ msgstr ""
 "随后，下载的二进制文件使用其内置的发布密钥，验证 ``release.json`` 的签名、有效期、版本、二进制文件自身的 SHA-256 "
 "摘要及其模块集合，并拒绝降级。"
 
-#: ../../intro/install.rst:1073
+#: ../../intro/install.rst:1089
 msgid "No option skips a check."
 msgstr "没有任何选项可以跳过检查。"
 
-#: ../../intro/install.rst:1078
+#: ../../intro/install.rst:1094
 msgid "What ``-Controller`` opens"
 msgstr "``-Controller`` 开放的内容"
 
-#: ../../intro/install.rst:1080
+#: ../../intro/install.rst:1096
 msgid "``-Controller`` opens exactly the following, and nothing else:"
 msgstr "``-Controller`` 仅开放以下各项，不开放其他任何内容："
 
-#: ../../intro/install.rst:1082
+#: ../../intro/install.rst:1098
 msgid ""
 "The build with the ``shell`` module is installed instead of the default "
 "build."
 msgstr "安装含 ``shell`` 模块的版本，而非默认版本。"
 
-#: ../../intro/install.rst:1084
+#: ../../intro/install.rst:1100
 #, python-brace-format
 msgid ""
 "The configuration block ``modules.shell = "
@@ -2044,11 +2072,11 @@ msgstr ""
 "{\"allow\":[\"<AID>\"],\"allow_arbitrary\":true,\"shell\":\"powershell\"}``\\"
 " 。"
 
-#: ../../intro/install.rst:1086
+#: ../../intro/install.rst:1102
 msgid "The AID on ``peers.allow``."
 msgstr "``peers.allow`` 中的该 AID。"
 
-#: ../../intro/install.rst:1088
+#: ../../intro/install.rst:1104
 msgid ""
 "Everything else is what every installation does: the defaults of ``anet "
 "init`` (the inbound policy ``closed``, no public capabilities and "
@@ -2066,7 +2094,7 @@ msgstr ""
 "hub。不开启自动回复、其他对等节点、公开能力，也不开启节点回环监听之外的任何监听。安装目录、``PATH`` "
 "以及对较早安装的接管，在使用与不使用 ``-Controller`` 时均相同。"
 
-#: ../../intro/install.rst:1098
+#: ../../intro/install.rst:1114
 msgid ""
 "Up to version 0.3.4, the installer asked one confirmation on the console."
 " That confirmation is removed: the parameter on the command line is the "
@@ -2085,11 +2113,11 @@ msgstr ""
 "块，然后重启节点。摘要给出第一个命令，该命令立即生效；日志给出两个步骤。Windows 上的 shell 模块参见 :ref:`topics-"
 "shell-windows`。"
 
-#: ../../intro/install.rst:1109
+#: ../../intro/install.rst:1125
 msgid "Background operation"
 msgstr "后台运行"
 
-#: ../../intro/install.rst:1111
+#: ../../intro/install.rst:1127
 msgid ""
 "``anet up`` starts the daemon detached from the console. The daemon keeps"
 " running when the window is closed, stops at logoff, and starts again at "
@@ -2099,11 +2127,11 @@ msgstr ""
 "``anet up`` 以脱离控制台的方式启动守护进程。关闭窗口后守护进程继续运行，注销时停止，登录时通过上述 ``Run`` "
 "值再次启动。它以已登录用户的身份运行，从不作为 Windows 服务运行。"
 
-#: ../../intro/install.rst:1117
+#: ../../intro/install.rst:1133
 msgid "Updating on Windows"
 msgstr "在 Windows 上更新"
 
-#: ../../intro/install.rst:1119
+#: ../../intro/install.rst:1135
 msgid ""
 "``anet update`` applies the checks described in :ref:`intro-install-"
 "update`. A running ``anet.exe`` cannot be overwritten, so the update "
@@ -2115,7 +2143,7 @@ msgstr ""
 "无法被覆盖，因此更新会将其重命名到一旁，再将新二进制文件放到原位置。守护进程在重启之前继续使用旧的二进制文件。Windows PowerShell"
 " 5.1 没有 ``&&`` 运算符；请依次运行以下两条命令："
 
-#: ../../intro/install.rst:1130
+#: ../../intro/install.rst:1146
 msgid ""
 "Running the one-line command again also updates an installation; it "
 "reuses the install directory of the existing installation when that "
@@ -2126,51 +2154,80 @@ msgstr ""
 "再次运行这一行命令同样会更新安装；若现有安装的目录通过检查，则继续使用该目录。运行较早版本的节点会被停止，并以新的二进制文件重新启动；使用 "
 "``-NoStart`` 时，该节点继续运行，摘要给出重启它的命令。"
 
-#: ../../intro/install.rst:1137
+#: ../../intro/install.rst:1155
 msgid "Uninstalling on Windows"
 msgstr "在 Windows 上卸载"
 
-#: ../../intro/install.rst:1139
-msgid "Stop the daemons with ``anet stop --all``."
-msgstr "用 ``anet stop --all`` 停止各守护进程。"
-
-#: ../../intro/install.rst:1140
+#: ../../intro/install.rst:1157
 msgid ""
-"Remove the value ``AgentNetwork`` under "
-"``HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run``."
+"Run ``anet uninstall`` in a PowerShell or Command Prompt window (see :ref"
+":`intro-install-remove`). On Windows, the command removes:"
 msgstr ""
-"删除 ``HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run`` 下的值 "
-"``AgentNetwork``。"
+"在 PowerShell 或命令提示符窗口中运行 ``anet uninstall``\\ （参见 :ref:`intro-install-"
+"remove`）。在 Windows 上，该命令删除："
 
-#: ../../intro/install.rst:1142
+#: ../../intro/install.rst:1160
 msgid ""
-"Delete the install directory; ``(Get-Command anet).Source`` names the "
-"binary in it."
-msgstr "删除安装目录；``(Get-Command anet).Source`` 显示其中二进制文件的路径。"
-
-#: ../../intro/install.rst:1144
-msgid "Remove that directory from the user's ``PATH``."
-msgstr "从用户的 ``PATH`` 中移除该目录。"
-
-#: ../../intro/install.rst:1146
-msgid ""
-"The data directory ``%USERPROFILE%\\.anet`` holds the identity. Delete it"
-" only deliberately, as described in :ref:`intro-install-remove`."
+"the value ``AgentNetwork`` under "
+"``HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run``, when it "
+"starts this ``anet.exe``;"
 msgstr ""
-"数据目录 ``%USERPROFILE%\\.anet`` 保存身份。仅在确有意图时删除，方法见 :ref:`intro-install-"
-"remove`。"
+"``HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run`` 下的值 "
+"``AgentNetwork``，前提是该值启动的正是此 ``anet.exe``；"
 
-#: ../../intro/install.rst:1152
+#: ../../intro/install.rst:1163
+msgid ""
+"the install directory from the user's ``PATH``; windows that are opened "
+"afterwards no longer find ``anet``;"
+msgstr "用户 ``PATH`` 中的安装目录；此后打开的窗口将不再找到 ``anet``；"
+
+#: ../../intro/install.rst:1165
+msgid ""
+"``anet.exe.release.json``, ``anet.exe.release.json.sig`` and the binaries"
+" that an update moved aside (``anet.exe.old-<number>``);"
+msgstr "``anet.exe.release.json``、``anet.exe.release.json.sig``，以及更新时移到一旁的二进制文件（``anet.exe.old-<number>``）；"
+
+#: ../../intro/install.rst:1167
+msgid "``anet.exe`` itself."
+msgstr "``anet.exe`` 本身。"
+
+#: ../../intro/install.rst:1169
+msgid ""
+"``anet.exe`` is the running program and cannot be deleted while it runs. "
+"The command therefore follows the procedure that Windows provides for a "
+"file in use: it renames the binary to ``anet.exe.old-<number>`` in the "
+"same directory and schedules its deletion. A hidden ``powershell.exe`` "
+"waits until the command has ended, deletes the file, and removes the "
+"install directory when it is one that ``install.ps1`` chose and nothing "
+"else remains in it. In an elevated window, the deletion is also "
+"registered for the next restart of Windows (``MoveFileEx`` with "
+"``MOVEFILE_DELAY_UNTIL_REBOOT``). The last lines of the output state "
+"which of these applies."
+msgstr ""
+"``anet.exe`` 是正在运行的程序，运行期间无法删除。因此，该命令遵循 Windows "
+"为使用中的文件提供的处理方式：将二进制文件在同一目录中重命名为 ``anet.exe.old-<number>``，并安排将其删除。一个隐藏的 "
+"``powershell.exe`` 等待该命令结束后删除该文件；如果安装目录是 ``install.ps1`` "
+"选定的目录且其中已无其他内容，则一并删除该目录。在提升权限的窗口中，删除操作还会登记为在 Windows "
+"下次重启时执行（``MoveFileEx`` 配合 "
+"``MOVEFILE_DELAY_UNTIL_REBOOT``）。输出的最后几行说明适用的是哪种情形。"
+
+#: ../../intro/install.rst:1179
+msgid ""
+"The data directory ``%USERPROFILE%\\.anet`` holds the identity and is "
+"kept unless ``--delete-identity`` is given."
+msgstr "数据目录 ``%USERPROFILE%\\.anet`` 保存身份，除非指定 ``--delete-identity``，否则予以保留。"
+
+#: ../../intro/install.rst:1185
 msgid "Installing with npm"
 msgstr "使用 npm 安装"
 
-#: ../../intro/install.rst:1154
+#: ../../intro/install.rst:1187
 msgid ""
 "The npm package ``@agentnetwork/anet`` runs the same release binary. It "
 "needs Node.js 18 or later:"
 msgstr "npm 包 ``@agentnetwork/anet`` 运行相同的发布二进制文件，需要 Node.js 18 或更高版本："
 
-#: ../../intro/install.rst:1162
+#: ../../intro/install.rst:1195
 msgid ""
 "The package contains a launcher and no binary. The build of the platform "
 "is in the optional dependency ``@agentnetwork/anet-<os>-<cpu>``, as the "
@@ -2195,7 +2252,7 @@ msgstr ""
 "``%LOCALAPPDATA%\\anet\\npm\\<version>``\\ ；设置了 ``XDG_CACHE_HOME`` "
 "时位于其下），并从该处运行。"
 
-#: ../../intro/install.rst:1175
+#: ../../intro/install.rst:1208
 msgid ""
 "Update the package with ``npm update --global @agentnetwork/anet``. Do "
 "not run ``anet update`` on an installation from npm: the launcher runs "
@@ -2210,7 +2267,7 @@ msgstr ""
 "``--omit=optional`` 的安装缺少构建，启动器会给出提示并拒绝运行。启动器不提供包含 ``shell`` 模块的变体；请使用 "
 "``install.sh --shell`` 安装，Windows 上请使用 ``install.ps1 -Shell``\\ 。"
 
-#: ../../intro/install.rst:1183
+#: ../../intro/install.rst:1216
 msgid ""
 "The package also contains ``install.sh`` and ``install.sh.sig``, so that "
 "the installer can be obtained from npm when the project hosts cannot be "
@@ -2222,22 +2279,22 @@ msgstr ""
 "``https://cdn.jsdelivr.net/npm/@agentnetwork/anet@latest/install.sh``\\ "
 "。运行之前，请按 :ref:`intro-install-verify` 所述进行验证。"
 
-#: ../../intro/install.rst:1191
+#: ../../intro/install.rst:1224
 msgid "Checking the installation"
 msgstr "检查安装"
 
-#: ../../intro/install.rst:1193
+#: ../../intro/install.rst:1226
 msgid ""
 "``anet version`` prints the version and the modules that the binary "
 "contains. The list is read from the module registry of the running "
 "binary, not from a string written at build time."
 msgstr "``anet version`` 输出版本以及二进制文件所含的模块。该列表读取自正在运行的二进制文件的模块注册表，而不是构建时写入的字符串。"
 
-#: ../../intro/install.rst:1207
+#: ../../intro/install.rst:1240
 msgid "Initial configuration"
 msgstr "初始配置"
 
-#: ../../intro/install.rst:1209
+#: ../../intro/install.rst:1242
 msgid ""
 "``anet init`` writes the safe defaults explicitly into ``config.json`` in"
 " the data directory, so that each value is visible and changeable instead"
@@ -2249,101 +2306,101 @@ msgstr ""
 "``anet init`` 将安全的默认值明确写入数据目录中的 "
 "``config.json``，使每个值都可见、可更改，而不是仅作为内置默认值存在。该命令是幂等的：它添加缺失的键，从不更改已存在的值。与全新安装不同的设置会列在其报告中，由运维者自行决定。"
 
-#: ../../intro/install.rst:1229
+#: ../../intro/install.rst:1262
 msgid "The written values are:"
 msgstr "写入的值如下："
 
-#: ../../intro/install.rst:1235
+#: ../../intro/install.rst:1268
 msgid "Key"
 msgstr "键"
 
-#: ../../intro/install.rst:1236
+#: ../../intro/install.rst:1269
 msgid "Value"
 msgstr "值"
 
-#: ../../intro/install.rst:1238
+#: ../../intro/install.rst:1271
 msgid "``inbound.policy``"
 msgstr "``inbound.policy``"
 
-#: ../../intro/install.rst:1239
+#: ../../intro/install.rst:1272
 msgid "``closed``"
 msgstr "``closed``"
 
-#: ../../intro/install.rst:1240
+#: ../../intro/install.rst:1273
 msgid "Only peers on the allow or trust list can send tasks."
 msgstr "只有允许列表或信任列表中的对端可以发送任务。"
 
-#: ../../intro/install.rst:1241
+#: ../../intro/install.rst:1274
 msgid "``inbound.public_capabilities``"
 msgstr "``inbound.public_capabilities``"
 
-#: ../../intro/install.rst:1242
+#: ../../intro/install.rst:1275
 msgid "``[]``"
 msgstr "``[]``"
 
-#: ../../intro/install.rst:1243
+#: ../../intro/install.rst:1276
 msgid "No capability is open to callers that are not on a list."
 msgstr "不向名单之外的调用方开放任何能力。"
 
-#: ../../intro/install.rst:1244
+#: ../../intro/install.rst:1277
 msgid "``payments.auto_max``"
 msgstr "``payments.auto_max``"
 
-#: ../../intro/install.rst:1245 ../../intro/install.rst:1248
+#: ../../intro/install.rst:1278 ../../intro/install.rst:1281
 msgid "``0``"
 msgstr "``0``"
 
-#: ../../intro/install.rst:1246
+#: ../../intro/install.rst:1279
 msgid "No payment is made without confirmation on a terminal."
 msgstr "未经终端确认，不进行任何支付。"
 
-#: ../../intro/install.rst:1247
+#: ../../intro/install.rst:1280
 msgid "``payments.agent_max``, ``payments.agent_daily_max``"
 msgstr "``payments.agent_max``\\ 、\\ ``payments.agent_daily_max``"
 
-#: ../../intro/install.rst:1249
+#: ../../intro/install.rst:1282
 msgid "Payments requested through MCP or the local A2A interface are not made."
 msgstr "不执行通过 MCP 或本地 A2A 接口请求的支付。"
 
-#: ../../intro/install.rst:1251
+#: ../../intro/install.rst:1284
 msgid "``payments.explicit_max``, ``payments.daily_max``"
 msgstr "``payments.explicit_max``\\ 、\\ ``payments.daily_max``"
 
-#: ../../intro/install.rst:1252
+#: ../../intro/install.rst:1285
 msgid "``10``, ``50``"
 msgstr "``10``\\ 、\\ ``50``"
 
-#: ../../intro/install.rst:1253
+#: ../../intro/install.rst:1286
 msgid "Limits for a payment confirmed on a terminal: per payment and per UTC day."
 msgstr "在终端上确认的支付的限额：每笔和每个 UTC 日。"
 
-#: ../../intro/install.rst:1255
+#: ../../intro/install.rst:1288
 msgid "``no_response_after``"
 msgstr "``no_response_after``"
 
-#: ../../intro/install.rst:1256
+#: ../../intro/install.rst:1289
 msgid "``\"15m\"``"
 msgstr "``\"15m\"``"
 
-#: ../../intro/install.rst:1257
+#: ../../intro/install.rst:1290
 msgid ""
 "A task that hears nothing from its peer for this period after delivery "
 "fails."
 msgstr "任务在送达后的该时段内未收到对端的任何回应即失败。"
 
-#: ../../intro/install.rst:1259
+#: ../../intro/install.rst:1292
 msgid "``content_retention``"
 msgstr "``content_retention``"
 
-#: ../../intro/install.rst:1260
+#: ../../intro/install.rst:1293
 msgid "``\"30d\"``"
 msgstr "``\"30d\"``"
 
-#: ../../intro/install.rst:1261
+#: ../../intro/install.rst:1294
 msgid "Task content is deleted this long after the task ends."
 msgstr "任务内容在任务结束该时长之后删除。"
 
-#: ../../intro/install.rst:1263
+#: ../../intro/install.rst:1296
 msgid ""
 "``peers.allow``, ``peers.trust`` and ``peers.deny`` are the peer lists, "
 "one AID per line. ``payees.allow`` is the payee list. Automatic payment "
@@ -2352,18 +2409,18 @@ msgstr ""
 "``peers.allow``\\ 、\\ ``peers.trust`` 和 ``peers.deny`` 是对端列表，每行一个 AID。\\ "
 "``payees.allow`` 是收款方列表，自动支付只付给其中的 AID，该文件起初为空。"
 
-#: ../../intro/install.rst:1267
+#: ../../intro/install.rst:1300
 msgid ""
 "``anet doctor`` reads the data directory, without needing the daemon, and"
 " reports which of these values hold. Each deviation from the defaults is "
 "listed separately."
 msgstr "``anet doctor`` 无需守护进程即可读取数据目录，并报告其中哪些值成立。每一处偏离默认值的情况单独列出。"
 
-#: ../../intro/install.rst:1274
+#: ../../intro/install.rst:1307
 msgid "Starting the node"
 msgstr "启动节点"
 
-#: ../../intro/install.rst:1282
+#: ../../intro/install.rst:1315
 msgid ""
 "On Linux and macOS, the installer has already started the node and joined"
 " the public hub, unless ``--no-start`` or ``--no-join`` was given (see "
@@ -2373,7 +2430,7 @@ msgstr ""
 "在 Linux 和 macOS 上，除非指定了 ``--no-start`` 或 ``--no-join``，安装脚本已启动节点并加入公共 "
 "Hub（参见 :ref:`intro-install-script`）。上述命令用于手动启动和检查节点。"
 
-#: ../../intro/install.rst:1287
+#: ../../intro/install.rst:1320
 msgid ""
 "``anet up`` starts the daemon in the background. It continues to run "
 "after the terminal closes. ``anet status`` prints the AID, the data "
@@ -2385,13 +2442,13 @@ msgstr ""
 "AID、数据目录、本地控制台的地址以及 Hub 状态。节点注册到 Hub 之前，Hub 状态为 "
 "``none``，状态输出中附有下一步应运行的命令："
 
-#: ../../intro/install.rst:1297
+#: ../../intro/install.rst:1330
 msgid ""
 "The registration and the first exchange are described in :doc:`tutorial`."
 " For the lifecycle commands, see :ref:`reference-cli`."
 msgstr "注册和首次交换见 :doc:`tutorial`\\ 。生命周期命令参见 :ref:`reference-cli`\\ 。"
 
-#: ../../intro/install.rst:1300
+#: ../../intro/install.rst:1333
 msgid ""
 "The data directory is ``~/.anet`` (``%USERPROFILE%\\.anet`` on Windows). "
 "Set ``ANET_DATA_DIR`` to use another location. Further identities, "
@@ -2410,11 +2467,11 @@ msgstr ""
 " :ref:`未受保护的身份 <topics-identity-unprotected>` 和 :ref:`恢复 <topics-"
 "identity-protect>` 的章节说明了如何保护它。"
 
-#: ../../intro/install.rst:1312
+#: ../../intro/install.rst:1345
 msgid "Connecting coding agents"
 msgstr "连接编程 Agent"
 
-#: ../../intro/install.rst:1314
+#: ../../intro/install.rst:1347
 msgid ""
 "``anet agents wire`` registers the MCP server of the node with the coding"
 " agents installed on the machine and adds usage instructions to them. "
@@ -2423,7 +2480,7 @@ msgstr ""
 "``anet agents wire`` 将节点的 MCP 服务器注册到本机上安装的编程 "
 "Agent，并向其添加使用说明。该命令修改的每个文件都会先备份。"
 
-#: ../../intro/install.rst:1322
+#: ../../intro/install.rst:1355
 msgid ""
 "A single tool can be named instead of ``--all``: ``claude``, ``codex``, "
 "``cursor``, ``opencode``, ``hermes`` or ``workbuddy``. ``anet agents`` "
@@ -2437,31 +2494,31 @@ msgstr ""
 "列出其中已安装和已配置的工具，``anet agents unwire`` 撤销该变更。配置之后须重启 Agent。参见 :doc:`/howto"
 "/coding-agents`\\ ；各工具的指南及验证步骤请从 :doc:`/agents/index` 开始。"
 
-#: ../../intro/install.rst:1331
+#: ../../intro/install.rst:1364
 msgid "Selecting modules"
 msgstr "选择模块"
 
-#: ../../intro/install.rst:1333
+#: ../../intro/install.rst:1366
 msgid ""
 "The node is built from modules. The prebuilt release contains two "
 "variants."
 msgstr "节点由模块构建。预构建的发布版本包含两个变体。"
 
-#: ../../intro/install.rst:1336
+#: ../../intro/install.rst:1369
 msgid "``default``"
 msgstr "``default``"
 
-#: ../../intro/install.rst:1337
+#: ../../intro/install.rst:1370
 msgid ""
 "Every module except ``shell``. Modules that act for other nodes or spend "
 "credit are disabled at run time until the operator configures them."
 msgstr "除 ``shell`` 之外的所有模块。代表其他节点行事或花费额度的模块，在运维者完成配置之前，于运行时处于停用状态。"
 
-#: ../../intro/install.rst:1340 ../../intro/install.rst:1380
+#: ../../intro/install.rst:1373 ../../intro/install.rst:1413
 msgid "``shell``"
 msgstr "``shell``"
 
-#: ../../intro/install.rst:1341
+#: ../../intro/install.rst:1374
 msgid ""
 "The default variant plus the ``shell`` module, which can run commands "
 "approved by the operator. Even this variant runs nothing until the "
@@ -2474,123 +2531,123 @@ msgstr ""
 "之前，也不会运行任何内容；空列表会拒绝所有调用方。该变体在安装时通过 ``--shell``\\ （Windows 上为 ``-Shell`` 或"
 " ``-Controller``）选择，并由 ``anet update`` 保持。"
 
-#: ../../intro/install.rst:1348
+#: ../../intro/install.rst:1381
 msgid ""
 "The module names are used for the installer option, for ``anet init`` and"
 " in the configuration."
 msgstr "模块名称用于安装程序选项、\\ ``anet init`` 和配置。"
 
-#: ../../intro/install.rst:1355
+#: ../../intro/install.rst:1388
 msgid "Module"
 msgstr "模块"
 
-#: ../../intro/install.rst:1356
+#: ../../intro/install.rst:1389
 msgid "Purpose"
 msgstr "用途"
 
-#: ../../intro/install.rst:1357
+#: ../../intro/install.rst:1390
 msgid "``a2a``"
 msgstr "``a2a``"
 
-#: ../../intro/install.rst:1358
+#: ../../intro/install.rst:1391
 msgid "The loopback A2A interface for A2A clients."
 msgstr "面向 A2A 客户端的回环 A2A 接口。"
 
-#: ../../intro/install.rst:1359
+#: ../../intro/install.rst:1392
 msgid "``anetlink``"
 msgstr "``anetlink``"
 
-#: ../../intro/install.rst:1360
+#: ../../intro/install.rst:1393
 msgid "Client for device capabilities provided by ANetLink."
 msgstr "ANetLink 所提供设备能力的客户端。"
 
-#: ../../intro/install.rst:1361
+#: ../../intro/install.rst:1394
 msgid "``autoreply``"
 msgstr "``autoreply``"
 
-#: ../../intro/install.rst:1362
+#: ../../intro/install.rst:1395
 msgid ""
 "Answering tasks with a local agent, including the sandbox, the credential"
 " injection route, the egress allow list and the budgets."
 msgstr "以本地 Agent 应答任务，包括沙箱、凭据注入路由、出站允许列表和预算。"
 
-#: ../../intro/install.rst:1364
+#: ../../intro/install.rst:1397
 msgid "``blackboard``"
 msgstr "``blackboard``"
 
-#: ../../intro/install.rst:1365
+#: ../../intro/install.rst:1398
 msgid "Shared blackboard capabilities."
 msgstr "共享黑板能力。"
 
-#: ../../intro/install.rst:1366
+#: ../../intro/install.rst:1399
 msgid "``cas``"
 msgstr "``cas``"
 
-#: ../../intro/install.rst:1367
+#: ../../intro/install.rst:1400
 msgid "Content-addressed storage capabilities."
 msgstr "内容寻址存储能力。"
 
-#: ../../intro/install.rst:1368
+#: ../../intro/install.rst:1401
 msgid "``console``"
 msgstr "``console``"
 
-#: ../../intro/install.rst:1369
+#: ../../intro/install.rst:1402
 msgid "The local web console."
 msgstr "本地 Web 控制台。"
 
-#: ../../intro/install.rst:1370
+#: ../../intro/install.rst:1403
 msgid "``mcp``"
 msgstr "``mcp``"
 
-#: ../../intro/install.rst:1371
+#: ../../intro/install.rst:1404
 msgid "The MCP server and the coding agent wiring."
 msgstr "MCP 服务器及编程 Agent 的配置。"
 
-#: ../../intro/install.rst:1372
+#: ../../intro/install.rst:1405
 msgid "``org``"
 msgstr "``org``"
 
-#: ../../intro/install.rst:1373
+#: ../../intro/install.rst:1406
 msgid "Verification of organisation membership credentials."
 msgstr "组织成员凭证的验证。"
 
-#: ../../intro/install.rst:1374
+#: ../../intro/install.rst:1407
 msgid "``p2p``"
 msgstr "``p2p``"
 
-#: ../../intro/install.rst:1375
+#: ../../intro/install.rst:1408
 msgid "Direct delivery between nodes."
 msgstr "节点之间的直接投递。"
 
-#: ../../intro/install.rst:1376
+#: ../../intro/install.rst:1409
 msgid "``preview``"
 msgstr "``preview``"
 
-#: ../../intro/install.rst:1377
+#: ../../intro/install.rst:1410
 msgid "Streaming previews of a result in progress."
 msgstr "进行中的结果的流式预览。"
 
-#: ../../intro/install.rst:1378
+#: ../../intro/install.rst:1411
 msgid "``service``"
 msgstr "``service``"
 
-#: ../../intro/install.rst:1379
+#: ../../intro/install.rst:1412
 msgid "Local services published as capabilities."
 msgstr "作为能力发布的本地服务。"
 
-#: ../../intro/install.rst:1381
+#: ../../intro/install.rst:1414
 msgid "Operator-approved commands (variant ``shell`` only)."
 msgstr "经运维者批准的命令（仅限 ``shell`` 变体）。"
 
-#: ../../intro/install.rst:1382
+#: ../../intro/install.rst:1415
 msgid "``x402``"
 msgstr "``x402``"
 
-#: ../../intro/install.rst:1383
+#: ../../intro/install.rst:1416
 msgid "Payments: quotes, authorizations, settlement and receipts."
 msgstr "支付：报价、授权、结算和回执。"
 
-#: ../../intro/install.rst:1385
+#: ../../intro/install.rst:1418
 msgid ""
 "A module that is switched off behaves like a module that is not present: "
 "the peer sees the same response as for a disabled feature, and every "
@@ -2600,7 +2657,7 @@ msgstr ""
 "关闭的模块与不存在的模块行为相同：对端看到的应答与功能被停用时一致，每个本地入口都以原因码 ``module_absent`` "
 "应答。关闭的模块绝不会被较弱的代码路径取代。"
 
-#: ../../intro/install.rst:1390
+#: ../../intro/install.rst:1423
 msgid ""
 "``--without`` turns modules off during installation. The installer runs "
 "``anet init --without`` with the freshly verified binary before it "
@@ -2609,7 +2666,7 @@ msgstr ""
 "``--without`` 在安装期间关闭模块。安装程序在替换已安装的文件之前，用刚验证过的二进制文件运行 ``anet init "
 "--without``，因此失败时系统保持不变。"
 
-#: ../../intro/install.rst:1399
+#: ../../intro/install.rst:1432
 msgid ""
 "The same switch is available on an installed node, with the daemon "
 "stopped. ``--without`` adds names to the top-level ``without`` list in "
@@ -2622,13 +2679,13 @@ msgstr ""
 " 列表添加名称，从不移除。如果配置中已包含该模块的键，则以原因码 ``without_configured`` 拒绝，须先移除该键。\\ "
 "``--with`` 移除一个名称。"
 
-#: ../../intro/install.rst:1414
+#: ../../intro/install.rst:1447
 msgid ""
 "The list can be changed only while the daemon is stopped and only on the "
 "local machine. No control-plane, MCP or A2A call can change it."
 msgstr "该列表只能在守护进程停止时、在本机上更改，任何控制面、MCP 或 A2A 调用都无法更改它。"
 
-#: ../../intro/install.rst:1417
+#: ../../intro/install.rst:1450
 msgid ""
 "``--without`` can name every module of the table above, including "
 "``autoreply``, ``preview`` and ``console``. A module that is switched off"
@@ -2640,21 +2697,21 @@ msgstr ""
 "``console``。被关闭的模块仍是二进制的一部分。要把代码从二进制中去掉，请从源码构建（见下文）；:ref:`topics-modules-"
 "recipes` 列出仓库测试过的组合。"
 
-#: ../../intro/install.rst:1422
+#: ../../intro/install.rst:1455
 msgid "The reference for the module behaviour is :doc:`/topics/modules`."
 msgstr "模块行为的参考见 :doc:`/topics/modules`\\ 。"
 
-#: ../../intro/install.rst:1427
+#: ../../intro/install.rst:1460
 msgid "Building from source"
 msgstr "从源码构建"
 
-#: ../../intro/install.rst:1429
+#: ../../intro/install.rst:1462
 msgid ""
 "The source tree builds with a current Go toolchain and needs neither CGO "
 "nor a C compiler."
 msgstr "源码树使用当前的 Go 工具链构建，既不需要 CGO，也不需要 C 编译器。"
 
-#: ../../intro/install.rst:1438
+#: ../../intro/install.rst:1471
 msgid ""
 "``./build.sh`` writes the binary to ``./anet``. ``./build.sh --check`` "
 "first runs formatting, ``go vet``, the tests and the build-tag checks. A "
@@ -2666,7 +2723,7 @@ msgstr ""
 "vet``、测试和构建标签检查。默认包含的模块可以用 ``--without`` 从二进制中去掉，它会设置构建标签 "
 "``no_<module>``；``shell`` 模块用 ``--with shell`` 加入："
 
-#: ../../intro/install.rst:1449
+#: ../../intro/install.rst:1482
 msgid ""
 "The names are those of the ``modules`` line of ``anet version``. The "
 "module ``console`` has no build tag in 0.3.0; ``./build.sh --without "
@@ -2680,7 +2737,7 @@ msgstr ""
 "停止且什么也不构建，控制台改用 ``anet init --without console`` 关闭。``bash "
 "scripts/build.sh`` 把提交号写入二进制，并从环境变量 ``TAGS`` 读取标签。"
 
-#: ../../intro/install.rst:1456
+#: ../../intro/install.rst:1489
 msgid ""
 "A binary built from source carries no release signature. ``anet doctor`` "
 "reports the signature state as unknown, and ``anet update`` replaces it "
@@ -2689,11 +2746,11 @@ msgstr ""
 "从源码构建的二进制文件不带发布签名。\\ ``anet doctor`` 将其签名状态报告为未知，``anet update`` "
 "会将其替换为已签名的发布构建。"
 
-#: ../../intro/install.rst:1463
+#: ../../intro/install.rst:1496
 msgid "Updating"
 msgstr "更新"
 
-#: ../../intro/install.rst:1465
+#: ../../intro/install.rst:1498
 msgid ""
 "``anet update`` replaces the installed binary in place. It applies the "
 "same checks as the installer, using the release key that is compiled into"
@@ -2705,7 +2762,7 @@ msgstr ""
 "``anet update`` "
 "就地替换已安装的二进制文件。它使用编译进正在运行的二进制文件中的发布密钥，执行与安装程序相同的检查，因此不依赖提供安装程序的主机。新二进制文件先写入同一目录中的临时文件，再通过重命名覆盖旧文件；任何一步失败，旧二进制文件均保持不变。"
 
-#: ../../intro/install.rst:1476
+#: ../../intro/install.rst:1509
 msgid ""
 "``--check`` reports whether a newer release exists and changes nothing. "
 "An update never moves to an older version, and it keeps the variant: a "
@@ -2716,7 +2773,7 @@ msgstr ""
 "``--check`` "
 "报告是否存在更新的发布版本，不作任何更改。更新绝不会回退到更旧的版本，并保持变体不变：无法运行命令的二进制文件绝不会被可运行命令的二进制文件取代。已在运行的守护进程在重启之前继续使用旧的二进制文件："
 
-#: ../../intro/install.rst:1485
+#: ../../intro/install.rst:1518
 msgid ""
 "On Windows, the running ``anet.exe`` is renamed aside instead of "
 "replaced; see :ref:`intro-install-windows`."
@@ -2724,7 +2781,7 @@ msgstr ""
 "在 Windows 上，运行中的 ``anet.exe`` 会被重命名到一旁，而不是被替换；参见 :ref:`intro-install-"
 "windows`\\ 。"
 
-#: ../../intro/install.rst:1488
+#: ../../intro/install.rst:1521
 msgid ""
 "``anet update`` downloads from the sources of :ref:`intro-install-hosts`,"
 " in the same order as ``install.sh``: npmmirror and GitHub are asked at "
@@ -2738,7 +2795,7 @@ msgstr ""
 "相同：同时询问 npmmirror 和 GitHub，时限为 3 秒，按响应速度从快到慢尝试，其后为 npmjs、jsDelivr "
 "和项目主机。所提供的发布早于正在运行的二进制文件的下载源，只要另有下载源提供至少同样新的发布，即被跳过。输出给出所用的下载源："
 
-#: ../../intro/install.rst:1499
+#: ../../intro/install.rst:1532
 msgid ""
 "The tarball of an npm package is read before anything in it is verified, "
 "and is therefore read with bounds: its size, its unpacked size and the "
@@ -2746,13 +2803,21 @@ msgid ""
 "are used, an entry whose name is absolute or contains ``..`` ends the "
 "read, and the sha512 ``integrity`` of the package metadata is checked "
 "when it is present. A source that does not serve a release is passed "
-"over; a release that is served and fails a check ends the update."
+"over. A source whose manifest does not verify, because its signature is "
+"not by the release key or it has expired, is passed over as well, with "
+"one line on the standard error output, and the next source is checked in "
+"the same way; the update fails only when no source serves a manifest that"
+" verifies. A release that verifies and then fails a later check ends the "
+"update. From jsDelivr, ``anet update`` reads the latest version first and"
+" then downloads the files of that version, as ``install.sh`` does."
 msgstr ""
 "npm 包的 tarball 在其内容经过验证之前即被读取，因此以有界方式读取：其大小、解压后的大小以及每个文件的大小均受限制；仅使用 "
 "``package/dl/`` 下的普通文件；条目名称为绝对路径或含 ``..`` 时终止读取；包元数据提供 sha512 "
-"``integrity`` 时予以核对。未提供发布的下载源被跳过；所提供的发布未通过检查时，更新终止。"
+"``integrity`` "
+"时予以核对。未提供发布的下载源被跳过。清单未通过验证（签名并非由发布密钥签署，或已过期）的下载源同样被跳过，并在标准错误输出上输出一行说明，随后以同样方式检查下一个下载源；只有在没有任何下载源提供可通过验证的清单时，更新才会失败。发布通过验证后又未通过后续检查时，更新终止。对于"
+" jsDelivr，``anet update`` 与 ``install.sh`` 一样，先读取最新版本，再下载该版本的文件。"
 
-#: ../../intro/install.rst:1507
+#: ../../intro/install.rst:1545
 msgid ""
 "``--base URL``, or else the environment variable ``ANET_INSTALL_BASE``, "
 "replaces every source: the files are read from ``URL/dl/`` only, with the"
@@ -2764,19 +2829,123 @@ msgstr ""
 "读取文件，检查相同。已安装 ``anet`` 的机器无需重新运行安装程序。通过 npm 安装的 ``anet`` 用 npm 更新（见 :ref"
 ":`intro-install-npm`）。"
 
-#: ../../intro/install.rst:1516
+#: ../../intro/install.rst:1554
 msgid "Removing ANet"
 msgstr "移除 ANet"
 
-#: ../../intro/install.rst:1518
-msgid "Stop the daemons and delete the binary:"
-msgstr "停止守护进程并删除二进制文件："
+#: ../../intro/install.rst:1556
+msgid ""
+"``anet uninstall`` stops the daemons and removes what the installer put "
+"on the machine:"
+msgstr "``anet uninstall`` 停止守护进程，并删除安装程序放到本机上的内容："
 
-#: ../../intro/install.rst:1525
-msgid "On Windows, follow the steps in :ref:`intro-install-windows` instead."
-msgstr "在 Windows 上，请改按 :ref:`intro-install-windows` 中的步骤操作。"
+#: ../../intro/install.rst:1563
+msgid ""
+"The command first lists what it removes and what it keeps, and changes "
+"nothing until the list is confirmed: in the terminal by typing ``yes``, "
+"or by ``--yes`` on the command line. Without a terminal and without "
+"``--yes``, it changes nothing. It then runs ``anet stop --all`` and "
+"removes:"
+msgstr ""
+"该命令首先列出将要删除和保留的内容，在该列表得到确认之前不做任何更改：在终端中键入 ``yes``，或在命令行上指定 "
+"``--yes``。既无终端也未指定 ``--yes`` 时，该命令不做任何更改。确认后，它运行 ``anet stop --all`` 并删除："
 
-#: ../../intro/install.rst:1527
+#: ../../intro/install.rst:1568
+msgid ""
+"the binary, and ``anet.release.json`` and ``anet.release.json.sig`` next "
+"to it;"
+msgstr "二进制文件，以及其旁边的 ``anet.release.json`` 和 ``anet.release.json.sig``；"
+
+#: ../../intro/install.rst:1570
+msgid ""
+"every link named ``anet`` that leads to the binary, in "
+"``/usr/local/bin``, ``/opt/homebrew/bin``, ``~/bin`` and the other "
+"directories of ``PATH``;"
+msgstr ""
+"``/usr/local/bin``、``/opt/homebrew/bin``、``~/bin`` 及 ``PATH`` 中其他目录下，每个名为"
+" ``anet`` 且指向该二进制文件的链接；"
+
+#: ../../intro/install.rst:1572
+msgid ""
+"the block between ``# >>> anet installer: PATH >>>`` and ``# <<< anet "
+"installer: PATH <<<`` in ``.zprofile`` and ``.zshrc`` (below ``ZDOTDIR`` "
+"when it is set), ``.bash_profile``, ``.bash_login``, ``.bashrc`` and "
+"``.profile``, together with the empty line that the installer wrote "
+"before it. The rest of each file is left as it is, and a profile that is "
+"a link, for example into a dotfiles repository, remains a link;"
+msgstr ""
+"``.zprofile`` 和 ``.zshrc``\\ （设置了 ``ZDOTDIR`` "
+"时位于其下）、``.bash_profile``、``.bash_login``、``.bashrc`` 和 ``.profile`` 中位于 "
+"``# >>> anet installer: PATH >>>`` 与 ``# <<< anet installer: PATH <<<`` "
+"之间的段落，连同安装程序在其前面写入的空行。各文件的其余内容保持不变；本身是链接的配置文件（例如指向 dotfiles 仓库的链接）仍保持为链接；"
+
+#: ../../intro/install.rst:1579
+msgid ""
+"``~/.config/fish/conf.d/anet.fish`` (below ``XDG_CONFIG_HOME`` when it is"
+" set), or only the block in it when the file holds other content."
+msgstr ""
+"``~/.config/fish/conf.d/anet.fish``\\ （设置了 ``XDG_CONFIG_HOME`` "
+"时位于其下）；该文件还包含其他内容时，仅删除其中的段落。"
+
+#: ../../intro/install.rst:1582
+msgid ""
+"On Windows, the command removes what ``install.ps1`` created instead; see"
+" :ref:`intro-install-windows-uninstall`."
+msgstr ""
+"在 Windows 上，该命令改为删除 ``install.ps1`` 创建的内容；参见 :ref:`intro-install-windows-"
+"uninstall`。"
+
+#: ../../intro/install.rst:1585
+msgid ""
+"Nothing else is changed. A link that leads to another program, a PATH "
+"block that names another directory and a block without its end marker are"
+" kept, and the output names each of them. A binary built from source that"
+" no installer recorded is kept as well. A file in a directory that only "
+"the superuser can change, such as the command link in ``/usr/local/bin``,"
+" is reported with the command that removes it (``sudo rm "
+"/usr/local/bin/anet``); the command does not use ``sudo`` itself."
+msgstr ""
+"其他内容一概不变。指向其他程序的链接、指明其他目录的 PATH "
+"段落以及缺少结束标记的段落均予以保留，输出会逐一列出。没有任何安装程序记录的、从源代码构建的二进制文件同样予以保留。位于只有超级用户才能更改的目录中的文件（例如"
+" ``/usr/local/bin`` 中的命令链接），会连同删除它的命令（``sudo rm "
+"/usr/local/bin/anet``）一起报告；该命令本身不使用 ``sudo``。"
+
+#: ../../intro/install.rst:1593
+msgid ""
+"The configuration of the coding agents is not changed. For every coding "
+"agent whose configuration runs ``anet`` through ``anet agents wire``, the"
+" list names the command that removes the entry. Run it before ``anet "
+"uninstall``, while the binary is still installed:"
+msgstr ""
+"编程 agent 的配置不会更改。对于每个通过 ``anet agents wire`` 在配置中运行 ``anet`` 的编程 "
+"agent，列表会给出删除该条目的命令。请在 ``anet uninstall`` 之前、二进制文件仍已安装时运行该命令："
+
+#: ../../intro/install.rst:1603
+msgid ""
+"A plugin of a coding agent is removed with the command of that agent; see"
+" :doc:`/howto/coding-agents`."
+msgstr "编程 agent 的插件通过该 agent 自身的命令删除；参见 :doc:`/howto/coding-agents`。"
+
+#: ../../intro/install.rst:1606
+msgid ""
+"An installation from npm is removed with npm. ``anet uninstall`` then "
+"changes nothing and prints the commands to run:"
+msgstr "通过 npm 安装的 ANet 使用 npm 删除。此时 ``anet uninstall`` 不做任何更改，并输出需要运行的命令："
+
+#: ../../intro/install.rst:1614
+msgid ""
+"The data directory ``~/.anet`` is kept. ``anet uninstall --delete-"
+"identity`` deletes it as well. Before it changes anything, the command "
+"names every identity in the directory with its AID and asks for "
+"confirmation in the terminal. This confirmation is required in every "
+"case, also with ``--yes``; without a terminal, the command changes "
+"nothing. A data directory whose node could not be stopped is not deleted."
+msgstr ""
+"数据目录 ``~/.anet`` 予以保留。``anet uninstall --delete-identity`` "
+"会将其一并删除。在做任何更改之前，该命令会列出该目录中的每个身份及其 AID，并要求在终端中确认。在任何情况下都需要此项确认，指定 "
+"``--yes`` 时也不例外；没有终端时，该命令不做任何更改。节点无法停止的数据目录不会被删除。"
+
+#: ../../intro/install.rst:1621
 msgid ""
 "A hub that is the witness of an identity cannot be left with ``anet hub-"
 "leave``, because without it nobody can confirm the key of the identity. "
@@ -2786,21 +2955,21 @@ msgstr ""
 "作为某个身份见证的 Hub 无法通过 ``anet hub-leave`` 退出，因为没有它，就没有人能确认该身份的密钥。如需将身份迁移到另一个 "
 "Hub，请以新 Hub 的地址运行 ``anet hub-register``\\ 。"
 
-#: ../../intro/install.rst:1532
+#: ../../intro/install.rst:1626
 msgid ""
 "The data directory holds the only copy of the identity keys. Deleting it "
 "ends the identity permanently, and the AID cannot be recovered without "
-"the recovery file and its passphrase. Delete ``~/.anet`` only when the "
-"identity is no longer needed:"
+"the recovery file and its passphrase. Use ``--delete-identity`` only when"
+" the identities are no longer needed:"
 msgstr ""
-"数据目录保存着身份密钥的唯一副本。删除它即永久终结该身份，没有恢复文件及其口令，AID 无法恢复。仅在不再需要该身份时才删除 "
-"``~/.anet``："
+"数据目录保存着身份密钥的唯一副本。删除它即永久终结该身份，没有恢复文件及其口令，AID 无法恢复。仅在不再需要这些身份时才使用 "
+"``--delete-identity``："
 
-#: ../../intro/install.rst:1544
+#: ../../intro/install.rst:1638
 msgid "Installation problems"
 msgstr "安装问题"
 
-#: ../../intro/install.rst:1546
+#: ../../intro/install.rst:1640
 msgid ""
 "When ``install.sh`` stops, it prints ``Error:`` with the reason, then "
 "``Nothing was installed or changed.``, or the steps of a takeover that "
@@ -2810,21 +2979,21 @@ msgstr ""
 "``install.sh`` 停止时，先输出 ``Error:`` 及原因，然后输出 ``Nothing was installed or "
 "changed.``，或接管过程中已执行的步骤，最后给出日志（参见 :ref:`intro-install-output`）。"
 
-#: ../../intro/install.rst:1550
+#: ../../intro/install.rst:1644
 msgid "``no download source served a release``"
 msgstr "``no download source served a release``"
 
-#: ../../intro/install.rst:1551
+#: ../../intro/install.rst:1645
 msgid ""
 "None of the download sources answered with a release. Check the "
 "connection of the machine, or name a source with ``--base URL``."
 msgstr "没有任何下载源提供发布。请检查本机的网络连接，或以 ``--base URL`` 指定下载源。"
 
-#: ../../intro/install.rst:1554
+#: ../../intro/install.rst:1648
 msgid "``ssh-keygen is required``"
 msgstr "``ssh-keygen is required``"
 
-#: ../../intro/install.rst:1555
+#: ../../intro/install.rst:1649
 msgid ""
 "Install the OpenSSH client tools: ``openssh-client`` on Debian and "
 "Ubuntu, ``openssh`` on Fedora and RHEL, ``openssh-keygen`` on Alpine."
@@ -2832,31 +3001,57 @@ msgstr ""
 "安装 OpenSSH 客户端工具：Debian 和 Ubuntu 上为 ``openssh-client``，Fedora 和 RHEL 上为 "
 "``openssh``，Alpine 上为 ``openssh-keygen``\\ 。"
 
-#: ../../intro/install.rst:1558
-msgid "``is not signed by the anet release key``"
-msgstr "``is not signed by the anet release key``"
+#: ../../intro/install.rst:1652
+msgid "``no download source served a release manifest that verifies``"
+msgstr "``no download source served a release manifest that verifies``"
 
-#: ../../intro/install.rst:1559
+#: ../../intro/install.rst:1653
 msgid ""
-"Either the download source serves a file that the release key did not "
-"sign, or the installed ``ssh-keygen`` is older than OpenSSH 8.1. Try "
-"another source with ``--base URL``; every source is checked in the same "
-"way."
+"Every source that served a manifest served one that is not signed by the "
+"release key or that has expired; the message names these sources, and the"
+" log records the reason for each one. Either the sources serve files that"
+" the release key did not sign, or the installed ``ssh-keygen`` is older "
+"than OpenSSH 8.1. Try another source with ``--base URL``; every source is"
+" checked in the same way."
 msgstr ""
-"可能是下载源提供了并非由发布密钥签名的文件，也可能是已安装的 ``ssh-keygen`` 低于 OpenSSH 8.1。请使用 ``--base"
-" URL`` 尝试其他下载源；每个下载源的检查方式相同。"
+"所有提供了清单的下载源，其清单都不是由发布密钥签署的，或已过期；消息会列出这些下载源，日志会记录每个下载源的原因。可能是下载源提供了并非由发布密钥签署的文件，也可能是已安装的"
+" ``ssh-keygen`` 低于 OpenSSH 8.1。请使用 ``--base URL`` 尝试其他下载源；每个下载源的检查方式相同。"
 
-#: ../../intro/install.rst:1564
+#: ../../intro/install.rst:1660
 msgid "``Refusing to downgrade``"
 msgstr "``Refusing to downgrade``"
 
-#: ../../intro/install.rst:1565
+#: ../../intro/install.rst:1661
 msgid ""
 "The manifest names a version older than the installed one, which usually "
 "indicates a stale mirror. Use ``--base URL`` to select another source."
 msgstr "清单所列版本低于已安装的版本，这通常表明镜像已过期。请使用 ``--base URL`` 选择其他下载源。"
 
-#: ../../intro/install.rst:1569
+#: ../../intro/install.rst:1665
 msgid "For failures after installation, see :doc:`/howto/troubleshooting`."
 msgstr "安装之后出现的故障，参见 :doc:`/howto/troubleshooting`\\ 。"
+
+#~ msgid "``https://cdn.jsdelivr.net/npm/<package>@latest/dl/<file>``."
+#~ msgstr "``https://cdn.jsdelivr.net/npm/<package>@latest/dl/<file>``。"
+
+#~ msgid "Stop the daemons with ``anet stop --all``."
+#~ msgstr "用 ``anet stop --all`` 停止各守护进程。"
+
+#~ msgid ""
+#~ "Delete the install directory; ``(Get-"
+#~ "Command anet).Source`` names the binary "
+#~ "in it."
+#~ msgstr "删除安装目录；``(Get-Command anet).Source`` 显示其中二进制文件的路径。"
+
+#~ msgid "Remove that directory from the user's ``PATH``."
+#~ msgstr "从用户的 ``PATH`` 中移除该目录。"
+
+#~ msgid "Stop the daemons and delete the binary:"
+#~ msgstr "停止守护进程并删除二进制文件："
+
+#~ msgid "On Windows, follow the steps in :ref:`intro-install-windows` instead."
+#~ msgstr "在 Windows 上，请改按 :ref:`intro-install-windows` 中的步骤操作。"
+
+#~ msgid "``is not signed by the anet release key``"
+#~ msgstr "``is not signed by the anet release key``"
 

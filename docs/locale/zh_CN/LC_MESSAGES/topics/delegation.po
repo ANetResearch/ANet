@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ANet 0.3\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-16 14:40+0000\n"
+"POT-Creation-Date: 2026-10-23 07:38+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: zh_CN\n"
@@ -16,7 +16,7 @@ msgstr ""
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"Generated-By: Babel 2.10.3\n"
+"Generated-By: Babel 2.18.0\n"
 
 #: ../../topics/delegation.rst:5
 msgid "Delegation and auto-reply"
@@ -135,20 +135,27 @@ msgid "The sender is on the ``allow`` or ``trust`` list: accept."
 msgstr "发送方在 ``allow`` 或 ``trust`` 名单中：接受。"
 
 #: ../../topics/delegation.rst:73
+msgid ""
+"The delegation is a text task and ``inbound.admit`` is set: accept when "
+"the admission service admits the sender (see `Admission by a local "
+"service`_)."
+msgstr "委派是文本任务且设置了 ``inbound.admit``：准入服务准入发送方时接受（参见 `由本地服务准入`_）。"
+
+#: ../../topics/delegation.rst:75
 msgid "The policy is ``approve``: hold the task in the approval queue."
 msgstr "策略为 ``approve``：将任务放入审批队列。"
 
-#: ../../topics/delegation.rst:74
+#: ../../topics/delegation.rst:76
 msgid ""
 "The policy is ``open``: accept a text task and refuse a capability call "
 "to a capability that is not public."
 msgstr "策略为 ``open``：接受文本任务，拒绝对非公开能力的能力调用。"
 
-#: ../../topics/delegation.rst:76
+#: ../../topics/delegation.rst:78
 msgid "Otherwise: refuse."
 msgstr "其他情况：拒绝。"
 
-#: ../../topics/delegation.rst:78
+#: ../../topics/delegation.rst:80
 msgid ""
 "The three lists are the files ``peers.allow``, ``peers.trust`` and "
 "``peers.deny`` in the data directory. Each holds one AID per line, and a "
@@ -160,7 +167,7 @@ msgstr ""
 "文件，每行一个 AID，以 ``#`` 开头的行为注释。守护进程在每次判定时读取这些文件，因此修改在下一条消息起生效。使用 ``anet "
 "peers`` 管理名单："
 
-#: ../../topics/delegation.rst:91
+#: ../../topics/delegation.rst:93
 msgid ""
 "Every command takes a complete AID. A name or a prefix is not accepted, "
 "because a name is chosen by its owner and a prefix can be produced by an "
@@ -169,38 +176,129 @@ msgstr ""
 "每条命令都需要完整的 AID，不接受名称或前缀，因为名称由其所有者自行选定，前缀则可以被攻击者构造。\\ ``allow`` 和 "
 "``trust`` 需要在终端上确认。"
 
-#: ../../topics/delegation.rst:95
+#: ../../topics/delegation.rst:97
 msgid "``allow``"
 msgstr "``allow``"
 
-#: ../../topics/delegation.rst:96
+#: ../../topics/delegation.rst:98
 msgid "The peer may send tasks to the node."
 msgstr "对端可以向节点发送任务。"
 
-#: ../../topics/delegation.rst:98
+#: ../../topics/delegation.rst:100
 msgid "``trust``"
 msgstr "``trust``"
 
-#: ../../topics/delegation.rst:99
+#: ../../topics/delegation.rst:101
 msgid ""
 "The peer may send tasks and may also cause the node's local agent to run "
 "on its behalf (see `Auto-reply`_). Trust is the highest level of access "
 "that a peer can hold."
 msgstr "对端可以发送任务，还可以促使节点的本地 Agent 代其运行（参见 `自动回复`_）。信任是对端可以获得的最高访问级别。"
 
-#: ../../topics/delegation.rst:103
+#: ../../topics/delegation.rst:105
 msgid "``deny``"
 msgstr "``deny``"
 
-#: ../../topics/delegation.rst:104
+#: ../../topics/delegation.rst:106
 msgid "The peer's tasks are refused and, to the peer, the refusal is final."
 msgstr "对端的任务被拒绝，且对该对端而言拒绝是终局的。"
 
-#: ../../topics/delegation.rst:107
+#: ../../topics/delegation.rst:109
+msgid "Admission by a local service"
+msgstr "由本地服务准入"
+
+#: ../../topics/delegation.rst:111
+msgid ""
+"A node that serves a group, such as the members of an organization, does "
+"not need to keep every member on its ``allow`` list. With "
+"``inbound.admit`` (since 0.3.9) the node asks a local service whether a "
+"peer that is on no list may send a text task. The service is a capability"
+" of the ``service`` module that its configuration marks ``\"internal\": "
+"true``. Such a capability is called only by the node: it appears on no "
+"card and in no registration, and a call from the network is answered as "
+"for a capability that the node does not have."
+msgstr ""
+"为某个群体（例如一个组织的成员）提供服务的节点，无需把每个成员都列入 ``allow`` 名单。借助 ``inbound.admit``\\ （自"
+" 0.3.9 起），节点会询问一个本地服务：未列入任何名单的对端是否可以发送文本任务。该服务是 ``service`` "
+"模块中的一项能力，并在其配置中标记为 ``\"internal\": "
+"true``。此类能力只由节点调用：它不出现在任何卡片和注册信息中，来自网络的调用按节点不具备该能力的情形应答。"
+
+#: ../../topics/delegation.rst:134
+#, python-brace-format
+msgid ""
+"The node sends ``POST`` with the header ``X-ANet-Caller`` set to the AID "
+"of the peer and the body ``{}``, with the token and the backend checks of"
+" the capability. The peer is admitted only when the reply is "
+"``{\"admit\": true}``. Any other reply, an error, no answer within 5 "
+"seconds, or a capability that the service module does not serve as "
+"internal admits nobody: the decision fails closed."
+msgstr ""
+"节点发送 ``POST`` 请求，请求头 ``X-ANet-Caller`` 设为该对端的 AID，正文为 "
+"``{}``，并沿用该能力的令牌和后端检查。只有回复为 ``{\"admit\": true}`` 时，该对端才被准入。其他任何回复、出错、5 "
+"秒内无应答，或该能力未被 service 模块作为内部能力提供，均不准入任何对端：判定失败时一律按拒绝处理。"
+
+#: ../../topics/delegation.rst:141
+msgid ""
+"An admitted peer's text task is accepted as the task of a peer on the "
+"``allow`` list would be, under every policy, including ``approve``. The "
+"following rules apply."
+msgstr "已准入对端的文本任务，在任何策略下（包括 ``approve``）都按 ``allow`` 名单中对端的任务接受。适用以下规则。"
+
+#: ../../topics/delegation.rst:145
+msgid ""
+"The ``deny`` list is read first and always takes precedence. A denied "
+"peer is refused without the service being asked."
+msgstr "首先读取 ``deny`` 名单，且该名单始终优先。被拒绝的对端直接被拒，不会询问服务。"
+
+#: ../../topics/delegation.rst:147
+msgid ""
+"A peer on the ``allow`` or ``trust`` list is not asked about; the lists "
+"decide. Capability calls are not affected by admission."
+msgstr "对 ``allow`` 或 ``trust`` 名单中的对端不进行询问，由名单决定。准入不影响能力调用。"
+
+#: ../../topics/delegation.rst:149
+msgid ""
+"Admission grants nothing else. It does not place the peer on a list, and "
+"it does not change payments or trust."
+msgstr "准入不授予任何其他权限：它不会把对端加入任何名单，也不改变支付或信任。"
+
+#: ../../topics/delegation.rst:151
+msgid ""
+"The decision for a peer is kept for ``cache_seconds`` (default 30, at "
+"most 300), whether it admits or refuses. A question that fails is kept "
+"for 5 seconds."
+msgstr "对某个对端的判定，无论准入还是拒绝，都会保留 ``cache_seconds`` 秒（默认 30，最大 300）。询问失败的结果保留 5 秒。"
+
+#: ../../topics/delegation.rst:154
+msgid ""
+"The decision is made again for every owed turn, every further message on "
+"the task and every delivery to an A2A backend. A peer that the service no"
+" longer admits is refused once its kept decision expires: its next "
+"message is dropped and its next turn is not run as an admitted peer's "
+"turn."
+msgstr ""
+"每一个待应答的轮次、该任务的每一条后续消息，以及每一次向 A2A "
+"后端的投递，都会重新判定。服务不再准入的对端，在其保留的判定过期后即被拒绝：其下一条消息被丢弃，其下一轮也不再按已准入对端的轮次运行。"
+
+#: ../../topics/delegation.rst:159
+msgid ""
+"An accepted task is recorded in the evidence event "
+"``anet.delegation.received`` with ``admitted: true``. A2A backends "
+"receive ``anet.admitted`` in the metadata of each task, beside "
+"``anet.trusted``. How auto-reply runs an admitted peer's task is set with"
+" ``auto_reply.admitted`` (see `Who is answered, and how`_). ``anet "
+"status`` and ``anet inbound`` show the setting."
+msgstr ""
+"被接受的任务记录在证据事件 ``anet.delegation.received`` 中，并带有 ``admitted: true``。A2A "
+"后端在每个任务的元数据中收到 ``anet.admitted``，与 ``anet.trusted`` 并列。自动回复如何运行已准入对端的任务，由"
+" ``auto_reply.admitted`` 设置（参见 `应答对象与方式`_）。``anet status`` 和 ``anet "
+"inbound`` 会显示该设置。"
+
+#: ../../topics/delegation.rst:166
 msgid "The approval queue"
 msgstr "审批队列"
 
-#: ../../topics/delegation.rst:109
+#: ../../topics/delegation.rst:168
 msgid ""
 "The approval queue holds at most 200 tasks in total and 3 tasks for each "
 "peer. A task that is not approved within 72 hours expires without being "
@@ -212,11 +310,11 @@ msgstr ""
 "小时内未获批准的任务将过期，不会运行。这些限制是固定值，用于保护节点，队列已满时的处理办法是处理队列中的任务。任务无法入队的请求方会收到 "
 "``pending_full``\\ 。"
 
-#: ../../topics/delegation.rst:115
+#: ../../topics/delegation.rst:174
 msgid "Refusals"
 msgstr "拒绝"
 
-#: ../../topics/delegation.rst:117
+#: ../../topics/delegation.rst:176
 msgid ""
 "A refusal costs the provider no message to the requester. The reason "
 "travels in the delivery confirmation of the delegation, so the requester "
@@ -224,67 +322,67 @@ msgid ""
 " are:"
 msgstr "拒绝不会让提供方额外向请求方发送消息。原因随委派的送达确认返回，请求方从自己的节点获知。入站策略产生的原因如下："
 
-#: ../../topics/delegation.rst:121
+#: ../../topics/delegation.rst:180
 msgid "``not_accepting``"
 msgstr "``not_accepting``"
 
-#: ../../topics/delegation.rst:122
+#: ../../topics/delegation.rst:181
 msgid ""
 "The provider takes no tasks from the sender. The provider can run ``anet "
 "peers allow <aid>``."
 msgstr "提供方不接受该发送方的任务。提供方可以运行 ``anet peers allow <aid>``\\ 。"
 
-#: ../../topics/delegation.rst:125
+#: ../../topics/delegation.rst:184
 msgid "``denied``"
 msgstr "``denied``"
 
-#: ../../topics/delegation.rst:126
+#: ../../topics/delegation.rst:185
 msgid "The provider has blocked the sender. Retrying has no effect."
 msgstr "提供方已屏蔽该发送方，重试无效。"
 
-#: ../../topics/delegation.rst:128
+#: ../../topics/delegation.rst:187
 msgid "``capability_not_public``"
 msgstr "``capability_not_public``"
 
-#: ../../topics/delegation.rst:129
+#: ../../topics/delegation.rst:188
 msgid "The capability is not offered to the sender."
 msgstr "该能力不向此发送方提供。"
 
-#: ../../topics/delegation.rst:131
+#: ../../topics/delegation.rst:190
 msgid "``pending_approval``"
 msgstr "``pending_approval``"
 
-#: ../../topics/delegation.rst:132
+#: ../../topics/delegation.rst:191
 msgid "The provider holds the task for manual approval. It is not an error."
 msgstr "提供方将任务挂起等待人工批准。这不是错误。"
 
-#: ../../topics/delegation.rst:134
+#: ../../topics/delegation.rst:193
 msgid "``pending_full``"
 msgstr "``pending_full``"
 
-#: ../../topics/delegation.rst:135
+#: ../../topics/delegation.rst:194
 msgid "The approval queue of the provider is full."
 msgstr "提供方的审批队列已满。"
 
-#: ../../topics/delegation.rst:137
+#: ../../topics/delegation.rst:196
 msgid "``pending_expired``"
 msgstr "``pending_expired``"
 
-#: ../../topics/delegation.rst:138
+#: ../../topics/delegation.rst:197
 msgid "The operator did not approve the task within 72 hours."
 msgstr "运营人员未在 72 小时内批准该任务。"
 
-#: ../../topics/delegation.rst:140
+#: ../../topics/delegation.rst:199
 msgid ""
 "The complete list, with the sentence of each code, is in :ref:`reference-"
 "reason-codes`."
 msgstr "完整列表及各代码对应的说明语句见 :ref:`reference-reason-codes`\\ 。"
 
-#: ../../topics/delegation.rst:144
+#: ../../topics/delegation.rst:203
 msgid "Waiting for an answer"
 msgstr "等待应答"
 
-#: ../../topics/delegation.rst:146
+#: ../../topics/delegation.rst:205
 msgid ""
 "A requester does not wait for ever. The setting ``no_response_after`` "
 "bounds two waits with one value: the time without a delivery "
@@ -300,11 +398,11 @@ msgstr ""
 " 这样的时长。运行时间较长的能力需要更大的值。取值 ``\"0\"`` 表示关闭时限：未确认的任务将被重发，直至 14 "
 "天后过期；已确认但提供方始终不应答的任务则保持打开。"
 
-#: ../../topics/delegation.rst:155
+#: ../../topics/delegation.rst:214
 msgid "Auto-reply"
 msgstr "自动回复"
 
-#: ../../topics/delegation.rst:157
+#: ../../topics/delegation.rst:216
 msgid ""
 "*Auto-reply* answers text tasks without an operator. The daemon watches "
 "the tasks that it has been asked to answer, calls a backend with the "
@@ -318,20 +416,19 @@ msgstr ""
 " ``auto_reply`` 配置块的节点，会把每个文本任务留在收件箱中，等待人工或人工连接的编码 Agent 处理（参见 :ref"
 ":`howto-coding-agents`）。"
 
-#: ../../topics/delegation.rst:165
+#: ../../topics/delegation.rst:224
 msgid "Backends"
 msgstr "后端"
 
-#: ../../topics/delegation.rst:167
+#: ../../topics/delegation.rst:226
 msgid "Auto-reply has two backends."
 msgstr "自动回复有两种后端。"
 
-#: ../../topics/delegation.rst:169
-#: ../../topics/delegation.rst:230
+#: ../../topics/delegation.rst:228 ../../topics/delegation.rst:293
 msgid "``openai``"
 msgstr "``openai``"
 
-#: ../../topics/delegation.rst:170
+#: ../../topics/delegation.rst:229
 msgid ""
 "The daemon sends the conversation to a model service that implements the "
 "OpenAI-compatible ``/chat/completions`` interface and sends the reply "
@@ -341,11 +438,11 @@ msgstr ""
 "守护进程将对话发送到实现了 OpenAI 兼容 ``/chat/completions`` "
 "接口的模型服务，并将回复送回。该服务可以运行在本机，也可以是托管服务。本机不会启动任何程序。"
 
-#: ../../topics/delegation.rst:175
+#: ../../topics/delegation.rst:234
 msgid "``exec``"
 msgstr "``exec``"
 
-#: ../../topics/delegation.rst:176
+#: ../../topics/delegation.rst:235
 msgid ""
 "The daemon starts a local coding agent for each turn and sends its final "
 "output as the reply. The supported agents are ``cursor``, ``claude``, "
@@ -355,11 +452,11 @@ msgstr ""
 "``claude``\\ 、\\ ``codex``\\ 、\\ ``opencode``\\ 、\\ ``openclaw`` 和 "
 "``hermes``\\ 。"
 
-#: ../../topics/delegation.rst:181
+#: ../../topics/delegation.rst:240
 msgid "Configuration"
 msgstr "配置"
 
-#: ../../topics/delegation.rst:183
+#: ../../topics/delegation.rst:242
 msgid ""
 "The backend is configured with ``anet autoreply set``. The model key is "
 "read from standard input or typed on the terminal. It is never accepted "
@@ -369,7 +466,7 @@ msgstr ""
 "后端通过 ``anet autoreply set`` "
 "配置。模型密钥从标准输入读取或在终端键入，从不接受命令行传入，因为同一台机器的其他用户可以看到命令行。"
 
-#: ../../topics/delegation.rst:196
+#: ../../topics/delegation.rst:255
 msgid ""
 "``anet autoreply test`` runs the configured backend once on the local "
 "machine. It needs no hub and no identity, and the run does not count "
@@ -380,7 +477,7 @@ msgstr ""
 "``anet autoreply test`` 在本机运行一次已配置的后端。它不需要 hub，也不需要身份，且该运行不计入 "
 ":doc:`sandbox` 所述的预算。它会运行所有已配置的路径，包括沙箱路径，并为每条路径输出一行。"
 
-#: ../../topics/delegation.rst:201
+#: ../../topics/delegation.rst:260
 msgid ""
 "``anet autoreply show`` prints one row for each of these subjects. The "
 "rows ``trusted``, ``untrusted`` and ``budget`` appear for the ``exec`` "
@@ -389,18 +486,24 @@ msgstr ""
 "``anet autoreply show`` 为下列每个主题输出一行。``trusted``、``untrusted`` 与 "
 "``budget`` 三行只在 ``exec`` 后端出现，``budget`` 行只在使用沙箱时出现。"
 
-#: ../../topics/delegation.rst:213
+#: ../../topics/delegation.rst:272
 msgid ""
 "``anet autoreply set --trusted direct|sandbox`` chooses how trusted peers"
 " are served. Changing from ``sandbox`` back to ``direct`` is confirmed on"
-" the terminal. A budget of 0 is the same as ``untrusted`` set to ``off``:"
-" the task stays in the inbox and the requester receives no refusal."
+" the terminal. ``anet autoreply set --admitted off|direct|sandbox`` "
+"chooses how peers that ``inbound.admit`` admits are served; turning on "
+"``direct`` is confirmed on the terminal. ``anet autoreply show`` adds the"
+" row ``admitted`` when the value is not ``off``. A budget of 0 is the "
+"same as ``untrusted`` set to ``off``: the task stays in the inbox and the"
+" requester receives no refusal."
 msgstr ""
 "``anet autoreply set --trusted direct|sandbox`` 选择如何服务受信任的对端。从 "
-"``sandbox`` 改回 ``direct`` 需要在终端确认。预算为 0 等同于 ``untrusted`` 设为 "
-"``off``：任务留在收件箱中，请求方不会收到拒绝。"
+"``sandbox`` 改回 ``direct`` 需要在终端确认。``anet autoreply set --admitted "
+"off|direct|sandbox`` 选择如何服务 ``inbound.admit`` 准入的对端；开启 ``direct`` "
+"需要在终端确认。取值不为 ``off`` 时，``anet autoreply show`` 会增加 ``admitted`` 行。预算为 0 "
+"等同于 ``untrusted`` 设为 ``off``：任务留在收件箱中，请求方不会收到拒绝。"
 
-#: ../../topics/delegation.rst:218
+#: ../../topics/delegation.rst:281
 msgid ""
 "The settings are stored in the ``auto_reply`` block of ``config.json``. "
 "Calls to ``anet autoreply set`` merge the options that they name with the"
@@ -409,47 +512,47 @@ msgstr ""
 "设置保存在 ``config.json`` 的 ``auto_reply`` 配置块中。\\ ``anet autoreply set`` "
 "的调用会把其中指明的选项与当前设置合并。"
 
-#: ../../topics/delegation.rst:226
+#: ../../topics/delegation.rst:289
 msgid "Key"
 msgstr "配置键"
 
-#: ../../topics/delegation.rst:227
+#: ../../topics/delegation.rst:290
 msgid "Default"
 msgstr "默认值"
 
-#: ../../topics/delegation.rst:228
+#: ../../topics/delegation.rst:291
 msgid "Meaning"
 msgstr "含义"
 
-#: ../../topics/delegation.rst:229
+#: ../../topics/delegation.rst:292
 msgid "``backend``"
 msgstr "``backend``"
 
-#: ../../topics/delegation.rst:231
+#: ../../topics/delegation.rst:294
 msgid "``openai`` or ``exec``."
 msgstr "``openai`` 或 ``exec``\\ 。"
 
-#: ../../topics/delegation.rst:232
+#: ../../topics/delegation.rst:295
 msgid "``agent``"
 msgstr "``agent``"
 
-#: ../../topics/delegation.rst:233
+#: ../../topics/delegation.rst:296
 msgid "none"
 msgstr "无"
 
-#: ../../topics/delegation.rst:234
+#: ../../topics/delegation.rst:297
 msgid "The coding agent for the ``exec`` backend. Required with ``exec``."
 msgstr "``exec`` 后端使用的编码 Agent。使用 ``exec`` 时必填。"
 
-#: ../../topics/delegation.rst:235
+#: ../../topics/delegation.rst:298
 msgid "``untrusted``"
 msgstr "``untrusted``"
 
-#: ../../topics/delegation.rst:236
+#: ../../topics/delegation.rst:299 ../../topics/delegation.rst:309
 msgid "``off``"
 msgstr "``off``"
 
-#: ../../topics/delegation.rst:237
+#: ../../topics/delegation.rst:300
 msgid ""
 "What the ``exec`` backend does for a peer that is not on the trust list: "
 "``off`` leaves the task in the inbox, ``sandbox`` runs the agent in the "
@@ -458,15 +561,15 @@ msgstr ""
 "``exec`` 后端对不在 trust 名单中的对端的处理方式：``off`` 将任务留在收件箱，``sandbox`` 在沙箱中运行 "
 "Agent。"
 
-#: ../../topics/delegation.rst:240
+#: ../../topics/delegation.rst:303
 msgid "``trusted``"
 msgstr "``trusted``"
 
-#: ../../topics/delegation.rst:241
+#: ../../topics/delegation.rst:304
 msgid "``direct``"
 msgstr "``direct``"
 
-#: ../../topics/delegation.rst:242
+#: ../../topics/delegation.rst:305
 msgid ""
 "How the ``exec`` backend runs for a peer on the trust list: ``direct`` "
 "runs the agent as the operator's user, ``sandbox`` runs it in the "
@@ -475,122 +578,134 @@ msgstr ""
 "``exec`` 后端对 trust 名单中的对端的运行方式：``direct`` 以运营人员的用户身份运行 Agent，``sandbox`` "
 "在沙箱中运行。"
 
-#: ../../topics/delegation.rst:245
+#: ../../topics/delegation.rst:308
+msgid "``admitted``"
+msgstr "``admitted``"
+
+#: ../../topics/delegation.rst:310
+msgid ""
+"How the ``exec`` backend runs for a peer that ``inbound.admit`` admits: "
+"``off`` treats it as a peer that is not trusted, ``direct`` runs the "
+"agent as the operator's user, ``sandbox`` runs it in the sandbox within "
+"the run budget."
+msgstr ""
+"``exec`` 后端对 ``inbound.admit`` 准入的对端的运行方式：``off`` 按未受信任的对端处理，``direct`` "
+"以运营人员的用户身份运行 Agent，``sandbox`` 在运行预算范围内于沙箱中运行。"
+
+#: ../../topics/delegation.rst:314
 msgid "``api_base``, ``model``"
 msgstr "``api_base``\\ 、\\ ``model``"
 
-#: ../../topics/delegation.rst:246
-#: ../../topics/delegation.rst:249
-#: ../../topics/delegation.rst:252
-#: ../../topics/delegation.rst:268
+#: ../../topics/delegation.rst:315 ../../topics/delegation.rst:318
+#: ../../topics/delegation.rst:321 ../../topics/delegation.rst:337
 msgid "empty"
 msgstr "空"
 
-#: ../../topics/delegation.rst:247
+#: ../../topics/delegation.rst:316
 msgid "The model service address and the model name."
 msgstr "模型服务的地址和模型名称。"
 
-#: ../../topics/delegation.rst:248
+#: ../../topics/delegation.rst:317
 msgid "``system_prompt``"
 msgstr "``system_prompt``"
 
-#: ../../topics/delegation.rst:250
+#: ../../topics/delegation.rst:319
 msgid "Text placed before the conversation."
 msgstr "置于对话之前的文本。"
 
-#: ../../topics/delegation.rst:251
+#: ../../topics/delegation.rst:320
 msgid "``api_key``"
 msgstr "``api_key``"
 
-#: ../../topics/delegation.rst:253
+#: ../../topics/delegation.rst:322
 msgid "The key of the model service. It can be written and is never shown."
 msgstr "模型服务的密钥。可以写入，但从不显示。"
 
-#: ../../topics/delegation.rst:254
+#: ../../topics/delegation.rst:323
 msgid "``work_dir``"
 msgstr "``work_dir``"
 
-#: ../../topics/delegation.rst:255
+#: ../../topics/delegation.rst:324
 msgid "a directory under the data directory"
 msgstr "数据目录下的一个目录"
 
-#: ../../topics/delegation.rst:256
+#: ../../topics/delegation.rst:325
 msgid "The working directory of agents that run directly."
 msgstr "直接运行的 Agent 的工作目录。"
 
-#: ../../topics/delegation.rst:257
+#: ../../topics/delegation.rst:326
 msgid "``command``, ``extra_args``, ``openclaw_agent``"
 msgstr "``command``\\ 、\\ ``extra_args``\\ 、\\ ``openclaw_agent``"
 
-#: ../../topics/delegation.rst:258
+#: ../../topics/delegation.rst:327
 msgid "the agent found on ``PATH``, none, ``main``"
 msgstr "``PATH`` 中找到的 Agent、无、\\ ``main``"
 
-#: ../../topics/delegation.rst:259
+#: ../../topics/delegation.rst:328
 msgid "A non-standard agent location and agent-specific arguments."
 msgstr "非标准的 Agent 位置和 Agent 专用参数。"
 
-#: ../../topics/delegation.rst:260
+#: ../../topics/delegation.rst:329
 msgid "``max_history``"
 msgstr "``max_history``"
 
-#: ../../topics/delegation.rst:261
+#: ../../topics/delegation.rst:330
 msgid "20"
 msgstr "20"
 
-#: ../../topics/delegation.rst:262
+#: ../../topics/delegation.rst:331
 msgid "The number of conversation turns sent to the backend."
 msgstr "发送给后端的对话轮数。"
 
-#: ../../topics/delegation.rst:263
+#: ../../topics/delegation.rst:332
 msgid "``api_timeout_seconds``"
 msgstr "``api_timeout_seconds``"
 
-#: ../../topics/delegation.rst:264
+#: ../../topics/delegation.rst:333
 msgid "180"
 msgstr "180"
 
-#: ../../topics/delegation.rst:265
+#: ../../topics/delegation.rst:334
 msgid ""
 "The time limit of one backend call, and the wall-clock limit of a sandbox"
 " run."
 msgstr "单次后端调用的时限，以及沙箱运行的挂钟时间上限。"
 
-#: ../../topics/delegation.rst:267
+#: ../../topics/delegation.rst:336
 msgid "``sandbox.egress_allow``"
 msgstr "``sandbox.egress_allow``"
 
-#: ../../topics/delegation.rst:269
+#: ../../topics/delegation.rst:338
 msgid "Hosts that a sandboxed agent may reach. See :doc:`sandbox`."
 msgstr "沙箱中的 Agent 可以访问的主机。参见 :doc:`sandbox`\\ 。"
 
-#: ../../topics/delegation.rst:270
+#: ../../topics/delegation.rst:339
 msgid "``sandbox.runs_per_day``, ``sandbox.runs_per_peer_per_day``"
 msgstr "``sandbox.runs_per_day``\\ 、\\ ``sandbox.runs_per_peer_per_day``"
 
-#: ../../topics/delegation.rst:271
+#: ../../topics/delegation.rst:340
 msgid "20, 5"
 msgstr "20、5"
 
-#: ../../topics/delegation.rst:272
+#: ../../topics/delegation.rst:341
 msgid "The run budget for untrusted peers. See :doc:`sandbox`."
 msgstr "针对未受信任对端的运行预算。参见 :doc:`sandbox`\\ 。"
 
-#: ../../topics/delegation.rst:275
+#: ../../topics/delegation.rst:344
 msgid "Who is answered, and how"
 msgstr "应答对象与方式"
 
-#: ../../topics/delegation.rst:277
+#: ../../topics/delegation.rst:346
 msgid ""
 "The ``exec`` backend decides how to run for each turn from the lists, "
 "which it reads again on every turn."
 msgstr "``exec`` 后端依据名单决定每一轮的运行方式，每一轮都会重新读取名单。"
 
-#: ../../topics/delegation.rst:280
+#: ../../topics/delegation.rst:349
 msgid "A peer on the ``deny`` list is not answered."
 msgstr "``deny`` 名单中的对端不予应答。"
 
-#: ../../topics/delegation.rst:281
+#: ../../topics/delegation.rst:350
 msgid ""
 "A peer on the ``trust`` list is answered according to ``trusted``. The "
 "default is ``direct``. A directly run agent has the rights of the "
@@ -600,7 +715,20 @@ msgstr ""
 "``trust`` 名单中的对端按 ``trusted`` 应答，默认值为 ``direct``\\ 。直接运行的 Agent "
 "拥有运营人员所用账户的权限，因此信任一个对端，等同于授予该对端运行守护进程的账户的权限。"
 
-#: ../../topics/delegation.rst:285
+#: ../../topics/delegation.rst:354
+msgid ""
+"A peer that ``inbound.admit`` admits, and that is not on the ``trust`` "
+"list, is answered according to ``admitted``. With ``direct`` the agent "
+"has the rights of the operator's user, so the admission service then "
+"decides who receives those rights. With ``sandbox`` the run counts "
+"against the run budget. With the default ``off`` the peer is answered as "
+"any other peer."
+msgstr ""
+"由 ``inbound.admit`` 准入且不在 ``trust`` 名单中的对端，按 ``admitted`` 应答。取值为 "
+"``direct`` 时，Agent 拥有运营人员所用账户的权限，因此由准入服务决定谁获得这些权限。取值为 ``sandbox`` "
+"时，该运行计入运行预算。默认值 ``off`` 下，该对端与其他对端一样应答。"
+
+#: ../../topics/delegation.rst:359
 msgid ""
 "Any other peer is answered according to ``untrusted``. The default "
 "``off`` runs no program for the peer and leaves the task in the inbox. "
@@ -610,7 +738,7 @@ msgstr ""
 "其他对端按 ``untrusted`` 应答。默认值 ``off`` 不为该对端运行任何程序，将任务留在收件箱。取值 ``sandbox`` 则在"
 " :doc:`sandbox` 所述的沙箱中运行 Agent。"
 
-#: ../../topics/delegation.rst:289
+#: ../../topics/delegation.rst:363
 msgid ""
 "A turn that is decided as ``sandbox`` never falls back to a direct run. "
 "When the sandbox is unavailable, when the budget for the day is used up, "
@@ -621,7 +749,7 @@ msgstr ""
 "判定为 ``sandbox`` 的一轮对话不会回退为直接运行。沙箱不可用、当日预算用尽或超出资源限制时，节点不会启动 "
 "Agent，请求方收到的拒绝原因为 ``sandbox_unavailable`` 或 ``budget``\\ 。"
 
-#: ../../topics/delegation.rst:294
+#: ../../topics/delegation.rst:368
 msgid ""
 "The ``openai`` backend starts no local program, so the choice between "
 "``direct`` and ``sandbox`` does not apply. Every turn for a peer that is "
@@ -631,14 +759,14 @@ msgstr ""
 "``openai`` 后端不启动本地程序，因此 ``direct`` 与 ``sandbox`` "
 "的选择不适用。针对未受信任对端的每一轮对话都计入运行预算，预算用尽后任务以 ``budget`` 拒绝。"
 
-#: ../../topics/delegation.rst:299
+#: ../../topics/delegation.rst:373
 msgid ""
 "A call to a capability is never answered by auto-reply. It is routed to "
 "the service that provides the capability. Auto-reply handles text tasks "
 "only."
 msgstr "对能力的调用从不由自动回复应答，而是路由到提供该能力的服务。自动回复只处理文本任务。"
 
-#: ../../topics/delegation.rst:302
+#: ../../topics/delegation.rst:376
 msgid ""
 "When the backend completes the task, the daemon sends the final reply as "
 "part of the result, together with a receipt signed by the provider, and "
@@ -650,17 +778,17 @@ msgstr ""
 "后端完成任务后，守护进程将最终回复连同提供方签名的回执作为结果的一部分发送，任务结束。否则对话以后续消息继续，每个任务最多自动回复 30 "
 "次。后端失败时，请求方收到标准的 ``backend_failed`` 说明语句，不包含后端的任何文本。"
 
-#: ../../topics/delegation.rst:309
+#: ../../topics/delegation.rst:383
 msgid "Requesting a delegation"
 msgstr "发起委派"
 
-#: ../../topics/delegation.rst:311
+#: ../../topics/delegation.rst:385
 msgid ""
 "The requester side uses the same concepts. A text task is sent with "
 "``anet delegate`` and a capability call with the ``--capability`` option."
 msgstr "请求方使用同样的概念。文本任务用 ``anet delegate`` 发送，能力调用则加上 ``--capability`` 选项。"
 
-#: ../../topics/delegation.rst:323
+#: ../../topics/delegation.rst:397
 msgid ""
 "``anet delegate`` returns the task at once. The task then moves through "
 "the A2A states ``submitted``, ``working``, ``input-required`` and a final"
@@ -676,18 +804,18 @@ msgstr ""
 "分别列出他人发给本节点的任务，以及本节点发出且已结束的任务。回执和最终文本经验证后才会显示为已验证。送达确认参见 "
 ":doc:`messaging`，要求付款的任务参见 :doc:`payments`\\ 。"
 
-#: ../../topics/delegation.rst:332
+#: ../../topics/delegation.rst:406
 msgid "Notes"
 msgstr "说明"
 
-#: ../../topics/delegation.rst:334
+#: ../../topics/delegation.rst:408
 msgid ""
 "The default configuration accepts no work from strangers and starts no "
 "program on behalf of a peer. Each widening is an explicit step on a "
 "terminal."
 msgstr "默认配置不接受陌生人的任何工作，也不代表对端启动任何程序。每一次放宽都是在终端上显式进行的步骤。"
 
-#: ../../topics/delegation.rst:336
+#: ../../topics/delegation.rst:410
 msgid ""
 "``open`` makes the node reachable by everyone for text tasks. Combine it "
 "with ``approve`` or with an ``untrusted`` value of ``off`` unless the "
@@ -696,38 +824,38 @@ msgstr ""
 "``open`` 使节点对所有人的文本任务开放。除非节点所在机器上没有任何有价值的内容，否则应与 ``approve`` 或取值为 ``off``"
 " 的 ``untrusted`` 配合使用。"
 
-#: ../../topics/delegation.rst:339
+#: ../../topics/delegation.rst:413
 msgid ""
 "``trust`` is bound to an AID. An identity keeps its AID when its keys are"
 " rotated, so the trust stays in place until the operator removes it."
 msgstr "``trust`` 绑定到 AID。身份在轮换密钥后保持其 AID 不变，因此信任一直有效，直至运营人员将其移除。"
 
-#: ../../topics/delegation.rst:341
+#: ../../topics/delegation.rst:415
 msgid ""
 "The lists are plain files with the permissions ``0600``. Anyone who can "
 "write them can change the policy, so the data directory must be readable "
 "only by its owner."
 msgstr "名单是权限为 ``0600`` 的普通文件。能够写入这些文件的人可以更改策略，因此数据目录必须仅对其所有者可读。"
 
-#: ../../topics/delegation.rst:344
+#: ../../topics/delegation.rst:418
 msgid ""
 "The control token of the daemon is also a credential. A local program "
 "that holds it can run an agent in the same way as the operator can."
 msgstr "守护进程的控制令牌同样是一种凭据。持有该令牌的本地程序可以像运营人员一样运行 Agent。"
 
-#: ../../topics/delegation.rst:348
+#: ../../topics/delegation.rst:422
 msgid "See also"
 msgstr "另请参阅"
 
-#: ../../topics/delegation.rst:350
+#: ../../topics/delegation.rst:424
 msgid ":doc:`sandbox` for the sandbox, network restrictions and the run budget."
 msgstr ":doc:`sandbox`：沙箱、网络限制与运行预算。"
 
-#: ../../topics/delegation.rst:351
+#: ../../topics/delegation.rst:425
 msgid ":doc:`capabilities` for public capabilities and quotas."
 msgstr ":doc:`capabilities`：公开能力与配额。"
 
-#: ../../topics/delegation.rst:352
+#: ../../topics/delegation.rst:426
 msgid ":ref:`reference-cli` for every ``anet`` command."
 msgstr ":ref:`reference-cli`：全部 ``anet`` 命令。"
 
