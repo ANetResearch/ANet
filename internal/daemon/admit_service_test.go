@@ -13,6 +13,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -612,5 +613,162 @@ func TestStatusSaysAdmission(t *testing.T) {
 		if strings.Contains(l.Text, "org.admit") {
 			t.Errorf("with inbound.admit off the summary still names it: %q", l.Text)
 		}
+	}
+}
+
+// A peer on the allow list but not on the trust list is asked about for its
+// turns (Turn.Admitted), so a member that is also allow-listed is served as
+// a member; its task is accepted by the allow list as before, without a
+// question, and is not marked admitted. A trusted peer is never asked.
+func TestAdmissionAppliesToAllowListedTurns(t *testing.T) {
+	srv := newFakeHub(t)
+	ctx := context.Background()
+	prov, svc := admitNode(t, srv.URL, 0)
+	member := registered(t, srv.URL, "member")
+	allowPeers(t, prov, member.AID())
+	id, err := member.Delegate(ctx, prov.AID(), "summarise the board", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := prov.pollOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if ix := mustIX(t, prov, id); ix.Trust != interactions.TrustPeer {
+		t.Fatalf("trust = %q, want peer (the allow list)", ix.Trust)
+	}
+	if n := svc.asked("org.admit"); n != 0 {
+		t.Fatalf("the allow list's acceptance asked the service %d times", n)
+	}
+	admittedEv := 0
+	prov.ledger.scan(EvDelegationReceived, 0, func(_ int64, p map[string]any) {
+		if p["interaction_id"] == id && p["admitted"] == true {
+			admittedEv++
+		}
+	})
+	if admittedEv != 0 {
+		t.Errorf("an allow-listed peer's task was recorded as admitted")
+	}
+	tu, ok := turnsOf(t, prov)[id]
+	if !ok || !tu.Admitted || tu.Trusted {
+		t.Fatalf("turn = %+v (owed %v), want Admitted and not Trusted", tu, ok)
+	}
+	if n := svc.asked("org.admit"); n != 1 {
+		t.Errorf("the turn asked the service %d times, want 1", n)
+	}
+
+	// The service no longer admits it: the turn is still owed (the allow
+	// list), but not Admitted.
+	svc.set(200, `{"admit":false}`)
+	prov.admitted.clear()
+	tu, ok = turnsOf(t, prov)[id]
+	if !ok || tu.Admitted {
+		t.Errorf("turn = %+v (owed %v), want owed and not Admitted", tu, ok)
+	}
+
+	// Trusted: the trust list alone decides.
+	svc.set(200, `{"admit":true}`)
+	prov.admitted.clear()
+	trustPeers(t, prov, member.AID())
+	before := svc.asked("org.admit")
+	if tu := turnsOf(t, prov)[id]; !tu.Trusted || tu.Admitted {
+		t.Errorf("trusted turn = %+v, want Trusted and not Admitted", tu)
+	}
+	if n := svc.asked("org.admit") - before; n != 0 {
+		t.Errorf("a trusted peer's turn asked the service %d times", n)
+	}
+	if prov.admittedFor(member.AID(), false, prov.readPeers()) {
+		t.Error("admittedFor (task acceptance) answers true for a listed peer")
+	}
+}
+
+// At most admitMaxFlights questions are in flight, one per peer: a peer
+// over the bound is not admitted, without a question and without a cached
+// decision, while a peer whose question is in flight waits for it.
+func TestAdmissionQuestionsInFlightAreBounded(t *testing.T) {
+	srv := newFakeHub(t)
+	prov, svc := admitNode(t, srv.URL, 30)
+	hold := make(chan struct{})
+	svc.mu.Lock()
+	svc.hold = hold
+	svc.mu.Unlock()
+	peer := func(i int) string { return fmt.Sprintf("did:anet:peer%016d", i) }
+	var wg sync.WaitGroup
+	results := make([]bool, admitMaxFlights+1)
+	for i := 0; i < admitMaxFlights; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			results[i] = prov.admittedPeer(peer(i))
+		}()
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for svc.asked("org.admit") < admitMaxFlights && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	// The same peer again joins its question.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		results[admitMaxFlights] = prov.admittedPeer(peer(0))
+	}()
+	start := time.Now()
+	if prov.admittedPeer(peer(admitMaxFlights)) {
+		t.Error("a peer over the bound of questions was admitted")
+	}
+	if d := time.Since(start); d > time.Second {
+		t.Errorf("a peer over the bound waited %s", d)
+	}
+	time.Sleep(100 * time.Millisecond)
+	if n := svc.asked("org.admit"); n != admitMaxFlights {
+		t.Errorf("%d questions asked, want %d", n, admitMaxFlights)
+	}
+	close(hold)
+	wg.Wait()
+	svc.mu.Lock()
+	svc.hold = nil
+	svc.mu.Unlock()
+	for i, r := range results {
+		if !r {
+			t.Errorf("question %d: not admitted", i)
+		}
+	}
+	// The peer turned away at the bound kept no decision: it is asked now.
+	if !prov.admittedPeer(peer(admitMaxFlights)) || svc.asked("org.admit") != admitMaxFlights+1 {
+		t.Errorf("the peer over the bound after the questions ended: asked %d", svc.asked("org.admit"))
+	}
+}
+
+// A full cache drops what has expired, then the refusals, then the
+// admissions that expire first; it is never emptied whole.
+func TestAdmissionCachePrunes(t *testing.T) {
+	now := time.Now()
+	var c admitCache
+	c.entries = map[string]admitEntry{}
+	for i := 0; i < admitCacheEntries; i++ {
+		c.entries[fmt.Sprint("k", i)] = admitEntry{admitted: i%2 == 0, until: now.Add(time.Duration(i+1) * time.Millisecond)}
+	}
+	c.prune(now)
+	if len(c.entries) != admitCacheEntries/2 {
+		t.Fatalf("%d entries left, want the %d admissions", len(c.entries), admitCacheEntries/2)
+	}
+	for _, e := range c.entries {
+		if !e.admitted {
+			t.Fatal("a refusal outlived the pruning")
+		}
+	}
+	c.entries = map[string]admitEntry{}
+	for i := 0; i < admitCacheEntries; i++ {
+		c.entries[fmt.Sprint("k", i)] = admitEntry{admitted: true, until: now.Add(time.Duration(i+1) * time.Millisecond)}
+	}
+	c.entries["expired"] = admitEntry{admitted: true, until: now.Add(-time.Second)}
+	c.prune(now)
+	if len(c.entries) != admitCacheKeep {
+		t.Fatalf("%d entries left, want %d", len(c.entries), admitCacheKeep)
+	}
+	if _, ok := c.entries[fmt.Sprint("k", admitCacheEntries-1)]; !ok {
+		t.Error("the admission that expires last was dropped")
+	}
+	if _, ok := c.entries["k0"]; ok {
+		t.Error("the admission that expires first was kept")
 	}
 }

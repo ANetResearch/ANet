@@ -24,6 +24,14 @@ package daemon
 // owed turn, every message on the task and every delivery to a backend, so
 // a member the service removes stops at the next turn after the cache
 // lapses.
+//
+// A sender with ever new AIDs makes the node ask once for each of them, on
+// the receive path. So at most admitMaxFlights questions are asked at once,
+// one per peer (a burst of one peer's messages waits for the one question);
+// a peer that would be one too many is not admitted, without a question and
+// without a decision kept, and its next message asks again. A full cache
+// drops what has expired, then the refusals, then the admissions that
+// expire first, so that strangers do not push the members out of it.
 
 import (
 	"bytes"
@@ -33,6 +41,7 @@ import (
 	"fmt"
 	"log"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -54,9 +63,10 @@ type InboundAdmit struct {
 const (
 	admitCacheDefaultSeconds = 30
 	admitCacheMaxSeconds     = 300
-	// admitCacheEntries bounds the cache; a full cache drops what has
-	// expired, then everything, which costs only questions asked again.
+	// admitCacheEntries bounds the cache (prune).
 	admitCacheEntries = 4096
+	// admitMaxFlights bounds the questions to the service in flight.
+	admitMaxFlights = 8
 )
 
 // admitCallTimeout bounds one question to the service: it is asked on the
@@ -178,12 +188,26 @@ func (c *admitCache) clear() {
 	c.entries = nil
 }
 
-// admittedFor is Turn.Admitted and anet.admitted for peer: true only for a
-// text task (not a capability call) from a peer that is on no list and that
-// the service named by inbound.admit admits now. A peer on the allow or
-// trust list is not asked (the lists decide), nor is a denied one.
+// admittedFor is anet.admitted for peer, and whether its task is accepted
+// by admission: true only for a text task (not a capability call) from a
+// peer that is on no list and that the service named by inbound.admit
+// admits now. A peer on the allow or trust list is not asked (the lists
+// decide), nor is a denied one.
 func (d *Daemon) admittedFor(peer string, isCapability bool, ps peerSets) bool {
 	if isCapability || peer == "" || ps.denied(peer) || ps.allowed(peer) {
+		return false
+	}
+	return d.admittedPeer(peer)
+}
+
+// admittedTurn is Turn.Admitted for peer, which decides how auto-reply runs
+// its turn (auto_reply.admitted): as admittedFor, but a peer on the allow
+// list is asked too. The allow list lets a peer's tasks in; it does not say
+// how the agent may serve them, so a member of the organisation that is also
+// on the allow list is served as a member. A trusted peer is governed by the
+// trust list alone and is not asked.
+func (d *Daemon) admittedTurn(peer string, isCapability bool, ps peerSets) bool {
+	if isCapability || peer == "" || ps.denied(peer) || ps.trusted(peer) {
 		return false
 	}
 	return d.admittedPeer(peer)
@@ -208,6 +232,12 @@ func (d *Daemon) admittedPeer(peer string) bool {
 		c.mu.Unlock()
 		<-f.done
 		return f.admitted
+	}
+	if len(c.flights) >= admitMaxFlights {
+		c.mu.Unlock()
+		d.logOnce("admit-busy:"+ad.Capability, "anet: inbound.admit: %d questions to %s are in flight; "+
+			"a peer on no list is not admitted until one ends", admitMaxFlights, ad.Capability)
+		return false
 	}
 	f := &admitFlight{done: make(chan struct{})}
 	if c.flights == nil {
@@ -235,8 +265,9 @@ func (d *Daemon) admittedPeer(peer string) bool {
 	return admitted
 }
 
-// prune drops the expired entries, and all of them when that is not
-// enough. Called with mu held.
+// prune makes room in the cache: it drops the expired entries, then, when
+// that is not enough, the refusals, and then the admissions that expire
+// first, down to admitCacheKeep. Called with mu held.
 func (c *admitCache) prune(now time.Time) {
 	if c.entries == nil {
 		c.entries = map[string]admitEntry{}
@@ -247,10 +278,29 @@ func (c *admitCache) prune(now time.Time) {
 			delete(c.entries, k)
 		}
 	}
-	if len(c.entries) >= admitCacheEntries {
-		c.entries = map[string]admitEntry{}
+	if len(c.entries) < admitCacheEntries {
+		return
+	}
+	for k, e := range c.entries {
+		if !e.admitted {
+			delete(c.entries, k)
+		}
+	}
+	if len(c.entries) <= admitCacheKeep {
+		return
+	}
+	keys := make([]string, 0, len(c.entries))
+	for k := range c.entries {
+		keys = append(keys, k)
+	}
+	sort.Slice(keys, func(i, j int) bool { return c.entries[keys[i]].until.Before(c.entries[keys[j]].until) })
+	for _, k := range keys[:len(keys)-admitCacheKeep] {
+		delete(c.entries, k)
 	}
 }
+
+// admitCacheKeep is what prune keeps of a cache full of admissions.
+const admitCacheKeep = admitCacheEntries * 3 / 4
 
 // errAdmitUnserved is a question that could not be asked: the service
 // module does not serve the capability as internal (any more).
