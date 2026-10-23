@@ -59,6 +59,25 @@ type ModelProxyUpstream struct {
 	// Model, when set, is the model every request is pinned to (egress policy BP-2); unset, the request's
 	// own model is forwarded.
 	Model string `json:"model,omitempty"`
+	// MaxOutputTokens bounds the output limit of every forwarded request (egress policy BP-3): 1 to
+	// proxyMaxOutputTokensCap, or unset for proxyDefaultOutputTokens. A direct run's agent writes whole
+	// deliverables in one answer, so the sandbox's bound of 8192 is too low here.
+	MaxOutputTokens int64 `json:"max_output_tokens,omitempty"`
+}
+
+// The model proxy's output limits: the default bound of a request's output and the highest bound an
+// upstream may set.
+const (
+	proxyDefaultOutputTokens = 32768
+	proxyMaxOutputTokensCap  = 131072
+)
+
+// outputBound is the bound of u's requests' output.
+func (u ModelProxyUpstream) outputBound() int64 {
+	if u.MaxOutputTokens > 0 {
+		return u.MaxOutputTokens
+	}
+	return proxyDefaultOutputTokens
 }
 
 // AutoReplyAdmittedBudget is auto_reply.admitted_budget: what the model proxy forwards for the runs of
@@ -207,6 +226,9 @@ func checkModelProxy(p *AutoReplyModelProxyConfig) *a2ashape.Refusal {
 		}
 		if strings.ContainsAny(u.Model, "\x00\r\n") || len(u.Model) > 256 {
 			return arConfigInvalid(at+".model", arRule("不是合法的模型名", "it is not a valid model name"))
+		}
+		if u.MaxOutputTokens < 0 || u.MaxOutputTokens > proxyMaxOutputTokensCap {
+			return arConfigInvalid(at+".max_output_tokens", arRule("必须在 1 到 131072 之间", "it must be from 1 to 131072"))
 		}
 	}
 	return nil

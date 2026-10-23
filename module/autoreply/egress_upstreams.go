@@ -142,6 +142,9 @@ type egressUpstream struct {
 	Model string
 	// Routes are the allowed methods and paths.
 	Routes []egressRoute
+	// MaxOutput bounds every output limit of a forwarded request (BP-3); 0 is egressMaxOutputTokens, the
+	// sandbox's bound. The model proxy sets its own (ModelProxyUpstream.MaxOutputTokens).
+	MaxOutput int64
 	// OpenRouter: the custom host is openrouter.ai, whose plugins and model fallback list are refused.
 	OpenRouter bool
 	// LoopbackOnly: the custom service is plain http, allowed only on this host's loopback; the endpoint
@@ -444,4 +447,12 @@ func (up *egressUpstream) String() string {
 		return "<none>"
 	}
 	return fmt.Sprintf("%s %s model %s", up.Name, up.Base, up.Model)
+}
+
+// outputBound is the bound of up's requests' output (BP-3).
+func (up *egressUpstream) outputBound() int64 {
+	if up != nil && up.MaxOutput > 0 {
+		return up.MaxOutput
+	}
+	return egressMaxOutputTokens
 }

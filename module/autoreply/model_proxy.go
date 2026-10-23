@@ -158,6 +158,7 @@ func proxyUpstreams(cfg AutoReplyModelProxyConfig) (map[string]*proxyUpstream, e
 			}
 		}
 		up := &egressUpstream{Name: u.Name, Base: base, Key: key, Model: strings.TrimSpace(u.Model), Routes: egressCustomRoutes,
+			MaxOutput:    u.outputBound(),
 			OpenRouter:   strings.TrimSuffix(strings.ToLower(base.Hostname()), ".") == "openrouter.ai",
 			LoopbackOnly: base.Scheme == "http"}
 		ups[u.Name] = &proxyUpstream{up: up, transport: newEgressTransport(up)}

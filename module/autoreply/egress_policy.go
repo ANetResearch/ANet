@@ -536,15 +536,16 @@ func chatBodyPolicy(obj map[string]any, up *egressUpstream) *egressRefusal {
 	if presentMember(obj, "n") {
 		obj["n"] = json.Number("1")
 	}
-	a := clampOutputLimit(obj, "max_tokens", false)
-	b := clampOutputLimit(obj, "max_completion_tokens", false)
+	bound := up.outputBound()
+	a := clampOutputLimitTo(obj, "max_tokens", false, bound)
+	b := clampOutputLimitTo(obj, "max_completion_tokens", false, bound)
 	if a == 0 && b == 0 {
 		// Neither is set: add the one the service reads (OpenAI's newer models take only
 		// max_completion_tokens; OpenAI-compatible services take max_tokens).
 		if up.Name == egressUpstreamOpenAI {
-			obj["max_completion_tokens"] = json.Number(strconv.Itoa(egressMaxOutputTokens))
+			obj["max_completion_tokens"] = json.Number(strconv.FormatInt(bound, 10))
 		} else {
-			obj["max_tokens"] = json.Number(strconv.Itoa(egressMaxOutputTokens))
+			obj["max_tokens"] = json.Number(strconv.FormatInt(bound, 10))
 		}
 	}
 	return nil
@@ -563,18 +564,23 @@ func openAIStorageRules(obj map[string]any) {
 // service would read as a number) becomes the bound; absent, it is added when add is set. It returns the
 // value the request now carries, 0 when it carries none.
 func clampOutputLimit(obj map[string]any, k string, add bool) int64 {
+	return clampOutputLimitTo(obj, k, add, egressMaxOutputTokens)
+}
+
+// clampOutputLimitTo is clampOutputLimit with the bound given: the upstream's (outputBound).
+func clampOutputLimitTo(obj map[string]any, k string, add bool, bound int64) int64 {
 	if !presentMember(obj, k) {
 		if !add {
 			return 0
 		}
-		obj[k] = json.Number(strconv.Itoa(egressMaxOutputTokens))
-		return egressMaxOutputTokens
+		obj[k] = json.Number(strconv.FormatInt(bound, 10))
+		return bound
 	}
-	if n, ok := jsonInteger(obj[k]); ok && n >= 1 && n <= egressMaxOutputTokens {
+	if n, ok := jsonInteger(obj[k]); ok && n >= 1 && n <= bound {
 		return n
 	}
-	obj[k] = json.Number(strconv.Itoa(egressMaxOutputTokens))
-	return egressMaxOutputTokens
+	obj[k] = json.Number(strconv.FormatInt(bound, 10))
+	return bound
 }
 
 // jsonInteger is a JSON number written as an unsigned decimal integer of at most 9 digits.

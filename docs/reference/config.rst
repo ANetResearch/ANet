@@ -366,6 +366,11 @@ procedure is described in :doc:`../howto/runner`.
    * - ``model_proxy.upstreams[].model``
      - none
      - When set, every request is pinned to this model.
+   * - ``model_proxy.upstreams[].max_output_tokens``
+     - 32768
+     - The highest output limit of a forwarded request, from 1 to 131072. A
+       request that asks for more, or for no limit, is sent with this limit. A
+       sandboxed run keeps the limit of 8192.
    * - ``admitted_budget.runs_per_day``
      - 50
      - Runs of admitted peers per local calendar day whose model requests are
