@@ -30,6 +30,14 @@ const (
 	// Source.Package the package of the build; the directory dl/ of the
 	// package's latest tarball holds the same three files.
 	SourceNPM = "npm"
+	// SourceCDN is a content delivery network for npm packages (jsDelivr).
+	// Source.URL is the package's root there; the latest version is read
+	// from URL@latest/package.json first, and the three files from
+	// URL@<version>/dl/<name> after it. A file asked for under @latest is
+	// resolved by the network on its own, and release.json and its
+	// signature could come from two versions; under the version both come
+	// from the one package.
+	SourceCDN = "cdn"
 )
 
 // Source is one place a release is downloaded from.
@@ -39,12 +47,13 @@ const (
 // of any other source are. A source that does not serve a release (an
 // HTTP error, a timeout, an HTML page where a manifest should be, a
 // missing file, a redirect to a host it may not use, a malformed tarball)
-// is skipped; a source that serves a release that fails verification ends
-// the update.
+// is skipped, and so is a source whose manifest does not verify
+// (ErrUnverified); the update fails only when no source serves one that
+// does.
 type Source struct {
 	Name string // how the source is shown
-	Kind string // SourceFiles or SourceNPM
-	URL  string // https only; for SourceNPM the registry root
+	Kind string // SourceFiles, SourceNPM or SourceCDN
+	URL  string // https only; for SourceNPM the registry root, for SourceCDN the package's root
 	// Allow is the hosts the first request and every redirect may go to:
 	// an exact host ("github.com", or "127.0.0.1:43123" with a port), or
 	// "*.suffix" for any subdomain of suffix (not suffix itself). A pattern
@@ -55,7 +64,7 @@ type Source struct {
 }
 
 // Location is where the source is read from: the directory of the files,
-// or the package on the registry.
+// the package on the registry, or the package's root on the network.
 func (s Source) Location() string {
 	if s.Kind == SourceNPM {
 		return s.URL + "/" + s.Package
@@ -82,6 +91,9 @@ func (s Source) tarballURL(version string) string {
 	return s.URL + "/" + s.Package + "/-/" + short + "-" + version + ".tgz"
 }
 
+// cdnDir is the directory of a SourceCDN package's files for version.
+func (s Source) cdnDir(version string) string { return s.URL + "@" + version + DLPath }
+
 // githubDownload is the directory the assets of the latest GitHub release
 // are served from.
 const githubDownload = "https://github.com/ANetResearch/ANet/releases/latest/download"
@@ -102,7 +114,7 @@ func Sources(variant, goos, goarch string) (probed, rest []Source) {
 		rest = append(rest,
 			Source{Name: "npmjs", Kind: SourceNPM, URL: "https://registry.npmjs.org",
 				Allow: []string{"registry.npmjs.org"}, Package: pkg},
-			Source{Name: "jsDelivr", Kind: SourceFiles, URL: "https://cdn.jsdelivr.net/npm/" + pkg + "@latest/dl",
+			Source{Name: "jsDelivr", Kind: SourceCDN, URL: "https://cdn.jsdelivr.net/npm/" + pkg,
 				Allow: []string{"cdn.jsdelivr.net"}})
 	}
 	for _, b := range DefaultBases {
@@ -137,8 +149,9 @@ const probeReadBytes = 4 << 10
 // with an HTTP error, is left out; the whole wait is bounded by about
 // timeout plus one second.
 //
-// A probe is a GET of URL/Package/latest for an npm source and of
-// URL/release.json for a files source. Redirects are not followed: a 2xx
+// A probe is a GET of URL/Package/latest for an npm source, of
+// URL@latest/package.json for a CDN source and of URL/release.json for a
+// files source. Redirects are not followed: a 2xx
 // or 3xx answer shows the source is reachable, and only the time it took
 // is used. A nil client is a default one.
 func OrderSources(ctx context.Context, client *http.Client, probed, rest []Source, timeout time.Duration) []Source {
@@ -199,6 +212,8 @@ func probeSource(ctx context.Context, c *http.Client, s Source, timeout time.Dur
 	switch s.Kind {
 	case SourceNPM:
 		target = s.URL + "/" + s.Package + "/latest"
+	case SourceCDN:
+		target = s.URL + "@latest/package.json"
 	case SourceFiles:
 		target = s.URL + "/release.json"
 	default:
@@ -299,9 +314,15 @@ var (
 	maxAssetGzBytes  int64 = 256 << 20 // one .gz in dl/
 )
 
-// npmLatest reads the metadata of the latest version of s.Package.
+// npmLatest reads the metadata of the latest version of s.Package, or for
+// a CDN source the package.json of its latest version (which has no
+// integrity).
 func (u *Updater) npmLatest(ctx context.Context, s Source) (*npmMeta, error) {
-	b, err := u.get(ctx, s.Allow, s.URL+"/"+s.Package+"/latest", maxNPMMetaBytes)
+	where := s.URL + "/" + s.Package + "/latest"
+	if s.Kind == SourceCDN {
+		where = s.URL + "@latest/package.json"
+	}
+	b, err := u.get(ctx, s.Allow, where, maxNPMMetaBytes)
 	if err != nil {
 		return nil, err
 	}

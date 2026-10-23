@@ -261,6 +261,9 @@ func exitStatus(err error, w io.Writer) int {
 	if errors.Is(err, errInputRequired) {
 		return 3 // task watch: the task waits for the user (UX-C4)
 	}
+	if errors.Is(err, errExitUnverified) {
+		return 4 // update --verify-dir: the manifest does not verify (install.ps1 tries its next source)
+	}
 	if err.Error() != "" {
 		fmt.Fprintln(w, "error:", err)
 	}

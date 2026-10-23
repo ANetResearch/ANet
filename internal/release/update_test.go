@@ -296,8 +296,8 @@ func TestUpdateBaseSelection(t *testing.T) {
 	badSrv := bad.server()
 	u.Bases = []string{badSrv.URL, good.URL}
 	u.Trust = Trust{Keys: []ed25519.PublicKey{f.pub, bad.pub}}
-	if _, err := u.Check(context.Background()); err == nil {
-		t.Fatal("a bad signature on the first base was routed around")
+	if found, err := u.Check(context.Background()); err != nil || found.Base != good.URL {
+		t.Fatalf("a bad signature on the first base was not passed over for the second: %+v %v", found, err)
 	}
 }
 

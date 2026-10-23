@@ -104,6 +104,9 @@ func runUpdate(rest []string) error {
 		GOOS:    runtime.GOOS,
 		GOARCH:  runtime.GOARCH,
 		Exe:     exe,
+		// A source whose manifest does not verify is passed over for the
+		// next, in one line; only when none verifies does the update fail.
+		Log: func(line string) { fmt.Fprintf(os.Stderr, "  %s\n", line) },
 	}
 	f, err := u.Check(ctx)
 	if errors.Is(err, release.ErrNoVariant) {
@@ -173,6 +176,10 @@ func runUpdate(rest []string) error {
 	return nil
 }
 
+// errExitUnverified ends `anet update --verify-dir` with status 4 (see
+// runVerifyDir), after the reason has been said.
+var errExitUnverified = errors.New("")
+
 // verifyTrust is the trust --verify-dir checks a release with: the release
 // key compiled into this binary. A test replaces it with a test key.
 var verifyTrust = release.DefaultTrust
@@ -186,7 +193,9 @@ var verifyTrust = release.DefaultTrust
 // release.VerifyStaged). With --installed, a release older than VERSION is
 // refused. On success it prints one JSON line (release.Verified) and
 // returns nil; otherwise it prints the reason on stderr and ends with
-// status 1.
+// status 4 when release.json and its signature in DIR do not verify or
+// have expired (release.ErrUnverified: install.ps1 then tries the manifest
+// of its next download source), and with status 1 for any other reason.
 //
 // install.ps1 runs it on the binary it has staged, after checking the
 // binary against the SHA-256 values pinned in the signed script: PowerShell
@@ -224,6 +233,10 @@ func runVerifyDir(flags map[string]string) error {
 		Modules: module.Compiled(),
 	}
 	v, err := release.VerifyStaged(dir, verifyTrust(), time.Now(), self, installed)
+	if errors.Is(err, release.ErrUnverified) {
+		fmt.Fprintf(errW(), "anet update --verify-dir: %v\n", err)
+		return errExitUnverified
+	}
 	if err != nil {
 		return fail(err)
 	}

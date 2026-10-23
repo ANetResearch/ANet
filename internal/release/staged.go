@@ -54,8 +54,10 @@ type Verified struct {
 // VerifyStaged checks the release in dir (release.json and release.json.sig)
 // against trust at time now, and self against the release. installed is the
 // version of the anet the release would replace, "" when there is none; a
-// release older than it is refused (ErrDowngrade). It reads; it writes
-// nothing and fetches nothing.
+// release older than it is refused (ErrDowngrade). A release.json that
+// does not verify, or has expired, is ErrUnverified: install.ps1 then tries
+// the manifest of its next source. It reads; it writes nothing and fetches
+// nothing.
 func VerifyStaged(dir string, trust Trust, now time.Time, self Self, installed string) (*Verified, error) {
 	raw, err := readLimited(filepath.Join(dir, "release.json"), MaxManifestBytes)
 	if err != nil {
@@ -67,10 +69,10 @@ func VerifyStaged(dir string, trust Trust, now time.Time, self Self, installed s
 	}
 	m, s, err := VerifyManifest(raw, sig, trust)
 	if err != nil {
-		return nil, err
+		return nil, unverified(err)
 	}
 	if err := m.CheckFresh(now); err != nil {
-		return nil, err
+		return nil, unverified(err)
 	}
 	if self.Variant == "" {
 		return nil, errors.New("this binary carries no release variant (a build from source): it is not a build of any release")

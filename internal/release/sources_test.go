@@ -9,6 +9,7 @@ import (
 	"crypto/sha512"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"net/http"
@@ -196,9 +197,12 @@ func TestSourcesFallBackToAnNPMRegistry(t *testing.T) {
 	}
 }
 
-// A release that fails verification ends the search, whichever kind of
-// source serves it, though a later source serves a good one.
-func TestSourcesBadSignatureIsRefused(t *testing.T) {
+// A manifest that does not verify is passed over, whichever kind of source
+// serves it, for a later source that serves one that does, and Log says so
+// in one line. When no source serves one that verifies, Check fails with
+// ErrUnverified (not "no release manifest found"), naming each source, and
+// nothing is installed.
+func TestSourcesBadSignatureIsPassedOver(t *testing.T) {
 	f := newFixture(t)
 	good := f.server()
 	badSig := signSSHSIG(f.priv, []byte("something else"), Namespace)
@@ -213,15 +217,115 @@ func TestSourcesBadSignatureIsRefused(t *testing.T) {
 
 	for _, bad := range []Source{filesSource("bad files", filesSrv), npmSource("bad npm", reg)} {
 		u, exe := f.updater(good, "0.1.10")
+		var logged []string
+		u.Log = func(line string) { logged = append(logged, line) }
 		u.Sources = []Source{bad, filesSource("good", good)}
 		found, err := u.Check(context.Background())
-		if err == nil {
-			t.Fatalf("%s: a bad signature was routed around: %+v", bad.Name, found.Source)
+		if err != nil || found.Source.Name != "good" {
+			t.Fatalf("%s: not passed over for the good source: %+v %v", bad.Name, found, err)
 		}
-		if strings.Contains(err.Error(), "no release manifest found") {
-			t.Fatalf("%s: a bad signature was taken for a source that serves nothing: %v", bad.Name, err)
+		if len(logged) != 1 || !strings.HasPrefix(logged[0], "source "+bad.Name+": ") || !strings.HasSuffix(logged[0], "; trying the next source") {
+			t.Fatalf("%s: log %q", bad.Name, logged)
+		}
+
+		u.Sources = []Source{bad}
+		_, err = u.Check(context.Background())
+		if err == nil || !errors.Is(err, ErrUnverified) || strings.Contains(err.Error(), "no release manifest found") ||
+			!strings.Contains(err.Error(), bad.Name+": ") {
+			t.Fatalf("%s alone: %v", bad.Name, err)
 		}
 		untouched(t, exe)
+	}
+}
+
+// An expired manifest is passed over too, and when every source has one,
+// the error is ErrExpired as well as ErrUnverified (anet update then says
+// that --base checks another mirror).
+func TestSourcesExpiredIsPassedOver(t *testing.T) {
+	f := newFixture(t)
+	good := f.server()
+	stale := newFixture(t)
+	stale.pub, stale.priv = f.pub, f.priv
+	stale.now = f.now
+	stale.build(nil)
+	staleFiles := maps.Clone(stale.files)
+	m := bytes.Replace(stale.manifest, []byte(`"expires_at": "2026-12-26T09:00:00Z"`), []byte(`"expires_at": "2026-09-28T09:00:00Z"`), 1)
+	staleFiles["/dl/release.json"] = m
+	staleFiles["/dl/release.json.sig"] = signSSHSIG(f.priv, m, Namespace)
+	staleSrv := serveFiles(t, staleFiles)
+
+	u, _ := f.updater(good, "0.1.10")
+	u.Sources = []Source{filesSource("stale", staleSrv), filesSource("good", good)}
+	if found, err := u.Check(context.Background()); err != nil || found.Source.Name != "good" {
+		t.Fatalf("an expired manifest was not passed over: %+v %v", found, err)
+	}
+	u.Sources = []Source{filesSource("stale", staleSrv)}
+	if _, err := u.Check(context.Background()); !errors.Is(err, ErrExpired) || !errors.Is(err, ErrUnverified) {
+		t.Fatalf("only an expired manifest: %v", err)
+	}
+}
+
+// jsDelivr (a CDN source): the latest version is read from
+// <package>@latest/package.json first, and release.json, its signature and
+// the .gz are then fetched under @<version>, never under @latest, so that
+// the two files of the pair come from one version.
+func TestSourcesCDNResolvesTheVersionFirst(t *testing.T) {
+	f := newFixture(t)
+	var mu sync.Mutex
+	var paths []string
+	pkgRoot := "/npm/" + testPackage
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		paths = append(paths, r.URL.Path)
+		mu.Unlock()
+		switch {
+		case r.URL.Path == pkgRoot+"@latest/package.json":
+			fmt.Fprintf(w, `{"name": %q, "version": %q}`, testPackage, f.version)
+		case strings.HasPrefix(r.URL.Path, pkgRoot+"@"+f.version+"/dl/"):
+			b := f.files["/dl/"+strings.TrimPrefix(r.URL.Path, pkgRoot+"@"+f.version+"/dl/")]
+			if b == nil {
+				http.NotFound(w, r)
+				return
+			}
+			w.Write(b)
+		case strings.HasPrefix(r.URL.Path, pkgRoot+"@latest/dl/"):
+			// What a cache could serve under @latest: the signature of
+			// another version.
+			w.Write(signSSHSIG(f.priv, []byte("another version"), Namespace))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	u, exe := f.updater(srv, "0.1.10")
+	u.Sources = []Source{{Name: "jsDelivr", Kind: SourceCDN, URL: srv.URL + pkgRoot}}
+	found, err := u.Check(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if found.Base != srv.URL+pkgRoot+"@"+f.version+"/dl" {
+		t.Fatalf("base %s", found.Base)
+	}
+	if err := u.Apply(context.Background(), found); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(exe); !bytes.Equal(b, f.bin) {
+		t.Fatal("the binary was not replaced with the asset")
+	}
+	asset := "anet-" + runtime.GOOS + "-" + runtime.GOARCH + ".gz"
+	want := []string{pkgRoot + "@latest/package.json", pkgRoot + "@0.2.0/dl/release.json", pkgRoot + "@0.2.0/dl/release.json.sig", pkgRoot + "@0.2.0/dl/" + asset}
+	mu.Lock()
+	got := append([]string{}, paths...)
+	mu.Unlock()
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("requests %q, want %q", got, want)
+	}
+
+	// A CDN whose latest version is older than the running one lags.
+	u, _ = f.updater(srv, "0.3.0")
+	u.Sources = []Source{{Name: "jsDelivr", Kind: SourceCDN, URL: srv.URL + pkgRoot}}
+	if found, err := u.Check(context.Background()); err != nil || found.Cmp >= 0 {
+		t.Fatalf("lagging CDN: %+v %v", found, err)
 	}
 }
 
@@ -536,12 +640,15 @@ func TestDefaultSources(t *testing.T) {
 		{Name: "npmmirror", Kind: SourceNPM, URL: "https://registry.npmmirror.com", Allow: []string{"registry.npmmirror.com", "cdn.npmmirror.com"}, Package: pkg},
 		{Name: "GitHub", Kind: SourceFiles, URL: "https://github.com/ANetResearch/ANet/releases/latest/download", Allow: []string{"github.com", "*.githubusercontent.com"}},
 		{Name: "npmjs", Kind: SourceNPM, URL: "https://registry.npmjs.org", Allow: []string{"registry.npmjs.org"}, Package: pkg},
-		{Name: "jsDelivr", Kind: SourceFiles, URL: "https://cdn.jsdelivr.net/npm/" + pkg + "@latest/dl", Allow: []string{"cdn.jsdelivr.net"}},
+		{Name: "jsDelivr", Kind: SourceCDN, URL: "https://cdn.jsdelivr.net/npm/" + pkg, Allow: []string{"cdn.jsdelivr.net"}},
 		{Name: "agentnetwork.org.cn", Kind: SourceFiles, URL: "https://agentnetwork.org.cn/dl", Allow: []string{"agentnetwork.org.cn"}},
 		{Name: "hub.agentnetwork.org.cn", Kind: SourceFiles, URL: "https://hub.agentnetwork.org.cn/dl", Allow: []string{"hub.agentnetwork.org.cn"}},
 	}
 	if got := append(probed, rest...); !reflect.DeepEqual(got, want) {
 		t.Errorf("Sources:\n %+v\nwant\n %+v", got, want)
+	}
+	if s := want[3]; s.cdnDir("0.3.6") != "https://cdn.jsdelivr.net/npm/"+pkg+"@0.3.6/dl" {
+		t.Errorf("jsDelivr directory %s", s.cdnDir("0.3.6"))
 	}
 	if s := want[0]; s.tarballURL("0.3.6") != "https://registry.npmmirror.com/"+pkg+"/-/anet-shell-darwin-arm64-0.3.6.tgz" ||
 		s.Location() != "https://registry.npmmirror.com/"+pkg {

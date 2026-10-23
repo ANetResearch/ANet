@@ -507,6 +507,64 @@ try {
   Check 'a tarball whose .gz fails the pins ends the installation' (Refuses { Use } 'release pins')
   $served.Clear()
   Check 'no source serves the release: refused, naming every source tried' (Refuses { Use } 'no download source served anet 9.8.7 (tried: npmmirror, GitHub, registry.npmjs.org, jsDelivr, agentnetwork.org.cn, hub.agentnetwork.org.cn)')
+
+  # --- a release.json that does not verify: the next source ----------------
+
+  # Confirm-AnetStaged is replaced by one that answers as the staged binary
+  # does (anet update --verify-dir): a signature in $TmpDir that holds
+  # "bad" does not verify (exit status 4), one that holds "old" names a
+  # release older than the installed one (any other refusal).
+  $realConfirm = ${function:Confirm-AnetStaged}
+  $verifyDir = Join-Path $work 'verify'
+  $null = [IO.Directory]::CreateDirectory($verifyDir)
+  $confirmed = New-Object System.Collections.Generic.List[string]
+  ${function:Confirm-AnetStaged} = {
+    param([string]$Staged, [string]$TmpDir, [string]$Installed, [string]$Variant, [string]$Asset)
+    $sig = [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes((Join-Path $TmpDir 'release.json.sig')))
+    $confirmed.Add($sig)
+    if ($sig -like '*bad*') {
+      $e = New-Object System.Exception 'release.json does not verify: anet update --verify-dir: release.json.sig: not signed by a trusted key'
+      $e.Data['AnetUnverified'] = $true
+      throw $e
+    }
+    if ($sig -like '*old*') { throw (New-AnetFailure 'the downloaded binary did not verify the release (exit status 1): older than the installed version') }
+    return ,@('cas', 'mcp')
+  }
+  $badSig = [Text.Encoding]::ASCII.GetBytes("-----BEGIN SSH SIGNATURE-----`nbad`n-----END SSH SIGNATURE-----`n")
+  $verify = @{ Staged = (Join-Path $work 'anet.new.exe'); TmpDir = $verifyDir; Installed = ''; Variant = 'default'; Asset = 'anet-windows-amd64' }
+  function Confirm-Use { param([hashtable]$Rel) return (Confirm-AnetRelease -Sources $srcs -Release $Rel -Asset 'anet-windows-amd64' -Pin $pin -Platform 'windows-amd64' -TmpDir $verifyDir -Verify $verify 6>$null) }
+
+  $served.Clear()
+  Set-Files $gh.Prefix
+  $served[$gh.Prefix + 'release.json.sig'] = $badSig
+  Set-Files $h1.Prefix
+  $rel = Use
+  $confirmed.Clear()
+  $mods = Confirm-Use $rel
+  $kept = [IO.File]::ReadAllBytes((Join-Path $verifyDir 'release.json.sig'))
+  Check 'a release.json that does not verify: the manifest of the next source is verified' ($rel.Source.Label -eq 'GitHub' -and $confirmed.Count -eq 2 -and (@($mods) -join ',') -eq 'cas,mcp') ($confirmed.Count.ToString() + ' ' + (@($mods) -join ','))
+  Check 'and the signature that verified is the one kept for the record' ((Get-Hex $kept) -eq (Get-Hex $signature))
+  $served.Clear()
+  Set-Files $gh.Prefix
+  $served[$gh.Prefix + 'release.json.sig'] = $badSig
+  Set-Files $h1.Prefix
+  $served[$h1.Prefix + 'release.json.sig'] = $badSig
+  $rel = Use
+  Check 'no source serves a release.json that verifies: refused, naming them' (Refuses { Confirm-Use $rel } 'that verifies with the release key SHA256:/4FMm/jgZcBII3z3O3r81Y8SxFfugdLRu3zj2gnclD4 (not verified: GitHub, agentnetwork.org.cn)')
+  $served.Clear()
+  Set-Files $gh.Prefix
+  $served[$gh.Prefix + 'release.json.sig'] = $badSig
+  $rel = Use
+  Check 'the only source does not verify: refused, saying so and that no other serves the release' (Refuses { Confirm-Use $rel } '(not verified: GitHub); no download source served anet 9.8.7 (tried: registry.npmjs.org, jsDelivr, agentnetwork.org.cn, hub.agentnetwork.org.cn)')
+  $served.Clear()
+  Set-Files $gh.Prefix
+  $served[$gh.Prefix + 'release.json.sig'] = [Text.Encoding]::ASCII.GetBytes("-----BEGIN SSH SIGNATURE-----`nold`n-----END SSH SIGNATURE-----`n")
+  Set-Files $h1.Prefix
+  $rel = Use
+  $confirmed.Clear()
+  Check 'another refusal of the verification ends the installation' (Refuses { Confirm-Use $rel } 'older than the installed version')
+  Check 'and no later source is verified' ($confirmed.Count -eq 1) ([string]$confirmed.Count)
+  ${function:Confirm-AnetStaged} = $realConfirm
   ${function:Get-AnetHttpBytes} = $realHttp
 
   # A local release directory (-Base): the same checks.
