@@ -147,7 +147,8 @@ keys in files that only the account of the node can read:
      "runner": {
        "socket": "/run/anet-runner/hermes.sock",
        "expected_user": "anet-hermes",
-       "socket_group": "anet-runner"
+       "socket_group": "anet-runner",
+       "max_jobs": 4
      },
      "model_proxy": {
        "listen": "127.0.0.1:47811",
@@ -170,6 +171,12 @@ A direct run, for a trusted peer or for a peer that ``inbound.admit`` admitted,
 is then sent to the runner as a job instead of being started by the node.
 Sandboxed runs are unchanged and do not use the runner, the model proxy or the
 turn tools.
+
+Direct runs proceed side by side: the node sends at most ``runner.max_jobs``
+jobs at once (4 by default; set it to the ``--max-jobs`` of the runner), and at
+most one per peer. A long task of one peer therefore does not delay the tasks
+of other peers. A further task of the same peer, or a task that finds every
+place taken, starts when a place becomes free.
 
 
 Configuring the agent
@@ -247,14 +254,29 @@ accepted only from the start of the run until its end. Every local account can
 reach the listener; without such a key it receives the refusal and nothing
 else. Requests and answers are not logged or stored.
 
+The key is the authority; the connections are bounded besides, so that no
+local account can occupy the listener. On Linux the node determines the
+account of each connection from the socket table of the kernel and closes a
+connection of any account other than its own and the runner account
+(``expected_user``, or the owner of the socket when it is not set) as soon as it
+is accepted. Each account holds at most 64 connections, and the listener at
+most 128. A request must send its header within 5 seconds and its body within
+30 seconds; a run reads one request body at a time, so that a run that sends
+its body slowly delays only its own requests. An idle connection is closed
+after 30 seconds. The answer of the model service is not bounded in time and
+may be streamed for as long as the run lasts. On other platforms only the
+bounds on the listener and the timeouts apply.
+
 A run of a trusted peer may make up to 1000 model requests. A run of an
 admitted peer may make ``admitted_budget.requests_per_run`` requests, and the
 runs of admitted peers are counted per local calendar day against
-``runs_per_day`` and ``runs_per_peer_per_day``. A run that finds the day's
-budget used up is still started, and each of its model requests is answered
-with status 429 and ``model_budget_spent``; the agent reads this as an error
-of the model service and states in its reply that the task cannot be completed
-today. After a restart of the daemon the counts of the day are read back from
+``runs_per_day`` and ``runs_per_peer_per_day``. A task of an admitted peer that
+finds the day's budget used up is refused before its run starts, with the
+reason ``budget`` and the time until the next local midnight, as a sandboxed
+run is; neither the agent nor a job on the runner is started. A run that has no
+place in the budget for another reason (the model proxy was configured while
+it was under way) receives status 429 and ``model_budget_spent`` for each model
+request. After a restart of the daemon the counts of the day are read back from
 the evidence chain.
 
 A change of the ``model_proxy`` block restarts the listener; a run that is under

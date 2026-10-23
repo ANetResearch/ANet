@@ -191,6 +191,9 @@ func (p Policy) Resolve() (Rules, error) {
 	return r, nil
 }
 
+// ExpectedUID is the uid of expected_user, and whether it is set.
+func (r Rules) ExpectedUID() (int, bool) { return r.expected, r.expected >= 0 }
+
 // PathOnly reports peer_check "path-only".
 func (r Rules) PathOnly() bool { return r.pathOnly }
 

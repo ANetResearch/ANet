@@ -253,7 +253,7 @@ func (b *runBudget) reserve(peer string, daily, perPeer int, runs budgetSource) 
 }
 
 // reserveAtOnce is reserve with the bounds of runs in flight, in all and per peer; 0 for no bound (the
-// admitted budget's runs, which the runner's --max-jobs bounds, model_proxy.go).
+// admitted budget's runs, which the direct runs' own bounds hold, direct_run.go).
 func (b *runBudget) reserveAtOnce(peer string, daily, perPeer, atOnce, perPeerAtOnce int, runs budgetSource) (*budgetTicket, budgetVerdict, time.Duration) {
 	if daily <= 0 || perPeer <= 0 {
 		return nil, budgetOff, 0

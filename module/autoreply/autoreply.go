@@ -183,12 +183,13 @@ type autoReplyModule struct {
 	swept     sync.Once
 
 	// svc is the service module's seam for the turn tools (module.ServiceCaller), nil when the Host
-	// grants none; proxy is auto_reply.model_proxy's listener; admitted counts admitted peers' runs
-	// (direct_run.go).
+	// grants none; proxy is auto_reply.model_proxy's listener; admitted counts admitted peers' runs, and
+	// direct holds the direct runs under way (direct_run.go).
 	svc      module.ServiceCaller
 	proxyMu  sync.Mutex
 	proxy    *modelProxy
 	admitted runBudget
+	direct   directRuns
 }
 
 // newAutoReplyModule is the module's factory; the daemon passes the raw auto_reply block.
@@ -430,11 +431,15 @@ func (m *autoReplyModule) autoReplyLoop(ctx context.Context, cfg AutoReplyConfig
 // we answer. Which turns those are is the kernel's decision (TurnHost.OwedTurns: admitted, not ended,
 // not a capability call, not taken by an A2A backend, the peer not denied).
 //
-// A trusted peer's turn runs in the scan, one after another. An untrusted peer's turn runs beside the
-// scan, at most two at once and one per peer (LEC BU-5): a turn that finds no free slot waits for the
-// next scan. The scan returns once every turn it started has ended, so no thread is ever answered twice
-// at once and the next scan sees what this one sent.
+// A direct run of the exec backend (a trusted or an admitted peer's) runs beside the scan and outlives
+// it, at most directRunsAtOnce at once and one per peer (direct_run.go): one peer's long run holds up
+// neither another peer's turn nor the scans after it. A turn of the openai backend for a trusted peer
+// runs in the scan. A turn that counts against the run budget (an untrusted peer's, or an admitted
+// peer's in the sandbox) runs beside the scan, at most two at once and one per peer (LEC BU-5), and
+// the scan returns once every such turn it started has ended. A turn that finds no free place waits
+// for the next scan; no thread is ever answered twice at once.
 func (m *autoReplyModule) autoReplyOnce(ctx context.Context, cfg AutoReplyConfig, replier autoReplier) {
+	scan := m.direct.beginScan()
 	turns, err := m.turns.OwedTurns(ctx)
 	if err != nil {
 		if ctx.Err() == nil {
@@ -453,7 +458,7 @@ func (m *autoReplyModule) autoReplyOnce(ctx context.Context, cfg AutoReplyConfig
 		if ctx.Err() != nil {
 			return
 		}
-		if err := m.autoReplyThread(ctx, cfg, replier, t, &runs); err != nil && !errors.Is(err, module.ErrTurnGone) {
+		if err := m.autoReplyThread(ctx, cfg, replier, t, scan, &runs); err != nil && !errors.Is(err, module.ErrTurnGone) {
 			log.Printf("anet: auto-reply %s: %v", t.Ix, err)
 		}
 	}
@@ -512,9 +517,11 @@ const (
 // autoReplyThread services ONE conversation (inbound or outbound): produce the reply we owe (usage
 // hint / backend answer / error report), or end the task at the runaway cap or when the backend says
 // it is done. No-op when nothing is owed. A requester's end request needs no reply: the provider
-// daemon completes on receiving it (A2A-DESIGN §4.2). An untrusted peer's turn is started on runs and
+// daemon completes on receiving it (A2A-DESIGN §4.2). A direct run is started beside the scan
+// (startDirect, scan is the scan's place in the direct runs' order), a counted turn on runs, and both are
 // left running (autoReplyOnce).
-func (m *autoReplyModule) autoReplyThread(ctx context.Context, cfg AutoReplyConfig, replier autoReplier, th module.Turn, runs *sync.WaitGroup) error {
+func (m *autoReplyModule) autoReplyThread(ctx context.Context, cfg AutoReplyConfig, replier autoReplier, th module.Turn,
+	scan uint64, runs *sync.WaitGroup) error {
 	// How this turn runs is decided on every turn from the lists as they are now (LEC GT-1): a peer
 	// taken off the trust list stops reaching the agent unconfined at the next turn. th.Trusted and
 	// th.Admitted were read when the kernel handed the turn over.
@@ -556,6 +563,9 @@ func (m *autoReplyModule) autoReplyThread(ctx context.Context, cfg AutoReplyConf
 		return nil
 	}
 
+	if gate.mode == modeDirect && gate.exec {
+		return m.startDirect(ctx, cfg, replier, gate, th, turns, scan)
+	}
 	if !gate.counted {
 		return m.replyTurn(ctx, cfg, replier, gate, th, turns, nil)
 	}
@@ -582,8 +592,9 @@ func (m *autoReplyModule) autoReplyThread(ctx context.Context, cfg AutoReplyConf
 }
 
 // replyTurn runs the backend for one owed turn and sends what it produced. ticket is the turn's place
-// in the run budget, nil when it does not count; it is released when the turn ends, and its count is
-// given back when nothing started (the sandbox was unavailable).
+// in the run budget (or, for an admitted peer's direct run, in the admitted budget), nil when it does not
+// count; it is released when the turn ends, and its count is given back when nothing started (the
+// sandbox was unavailable).
 func (m *autoReplyModule) replyTurn(ctx context.Context, cfg AutoReplyConfig, replier autoReplier, gate execGate, th module.Turn,
 	turns []chatTurn, ticket *budgetTicket) error {
 	counted := true
@@ -614,7 +625,7 @@ func (m *autoReplyModule) replyTurn(ctx context.Context, cfg AutoReplyConfig, re
 		}
 	}
 	announced := m.announceSlowTurn(th)
-	reply, run, err := m.invokeReplier(rctx, cfg, replier, gate, th, rc, turns)
+	reply, run, err := m.invokeReplier(rctx, cfg, replier, gate, th, rc, turns, ticket)
 	cancel()
 	announced()
 	switch run.Exit {
@@ -893,9 +904,10 @@ func (g execGate) agent(cfg AutoReplyConfig) string {
 
 // invokeReplier runs the backend for one turn under the gating decision: a direct run and the openai
 // backend go to the configured replier; a sandboxed one to runSandboxed, which never falls back to an
-// unconfined run. It returns the turn's record for the caller to write.
+// unconfined run. ticket is a direct run's place in the admitted budget. It returns the turn's record
+// for the caller to write.
 func (m *autoReplyModule) invokeReplier(ctx context.Context, cfg AutoReplyConfig, replier autoReplier, gate execGate,
-	th module.Turn, rc replyContext, turns []chatTurn) (string, autoReplyRun, error) {
+	th module.Turn, rc replyContext, turns []chatTurn, ticket *budgetTicket) (string, autoReplyRun, error) {
 	run := autoReplyRun{Agent: gate.agent(cfg), InteractionID: th.Ix, Peer: th.Peer,
 		Trusted: gate.trusted, Mode: gate.mode}
 	start := time.Now()
@@ -911,7 +923,7 @@ func (m *autoReplyModule) invokeReplier(ctx context.Context, cfg AutoReplyConfig
 	} else if gate.mode == modeDirect && gate.exec {
 		// A trusted or an admitted peer's direct run: its model key and turn token, and the runner when
 		// one is configured (direct_run.go).
-		reply, err = m.directReply(ctx, cfg, replier, th, rc, turns)
+		reply, err = m.directReply(ctx, cfg, replier, th, rc, turns, ticket)
 	} else {
 		reply, err = replier.Reply(ctx, rc, turns)
 	}

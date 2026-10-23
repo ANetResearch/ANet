@@ -89,6 +89,7 @@ func turnToolList(svc module.ServiceCaller) []turntools.Tool {
 // call is one tool call of the run, as the run's caller.
 func (run *proxyRun) call(w http.ResponseWriter, r *http.Request, svc module.ServiceCaller) {
 	p := run.p
+	bodyDeadline(w) // the body within proxyBodyTimeout; the service's answer may take longer
 	raw, err := io.ReadAll(io.LimitReader(r.Body, turntools.MaxArgs+4096))
 	if err != nil || len(raw) > turntools.MaxArgs+4095 {
 		p.turnError(w, http.StatusRequestEntityTooLarge, "turn_call_invalid", nil)

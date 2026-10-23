@@ -24,9 +24,11 @@ var importAllowed = map[string]bool{
 	"github.com/ANetResearch/ANet/internal/fsperm":    true,
 	"github.com/ANetResearch/ANet/internal/procgroup": true,
 	// The runner's socket is checked as a service backend's (runner_client.go), and the runner checks its
-	// clients (runner_serve.go); the turn tools' wire form is shared with `anet turn-mcp`. All three are
-	// kernel-neutral: standard library and x/sys only.
+	// clients (runner_serve.go); the model proxy tells whose a loopback connection is (model_proxy.go); the
+	// turn tools' wire form is shared with `anet turn-mcp`. All four are kernel-neutral: standard library
+	// and x/sys only.
 	"github.com/ANetResearch/ANet/internal/backendconn": true,
+	"github.com/ANetResearch/ANet/internal/localpeer":   true,
 	"github.com/ANetResearch/ANet/internal/peercred":    true,
 	"github.com/ANetResearch/ANet/internal/turntools":   true,
 	"github.com/ANetResearch/ANetCore/anetcid":          true,

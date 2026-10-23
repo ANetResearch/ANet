@@ -38,7 +38,13 @@ type AutoReplyRunnerConfig struct {
 	ExpectedUser string `json:"expected_user,omitempty"`
 	// SocketGroup is a group whose members may write the socket's directory (backendconn.Policy).
 	SocketGroup string `json:"socket_group,omitempty"`
+	// MaxJobs bounds the direct runs under way at once: the runner's --max-jobs, 1 to runnerMaxJobs;
+	// directRunsAtOnceDefault when 0.
+	MaxJobs int `json:"max_jobs,omitempty"`
 }
+
+// runnerMaxJobs is the highest auto_reply.runner.max_jobs, as of --max-jobs.
+const runnerMaxJobs = 64
 
 // AutoReplyModelProxyConfig is auto_reply.model_proxy.
 type AutoReplyModelProxyConfig struct {
@@ -152,6 +158,9 @@ func checkRunnerConfig(c *AutoReplyConfig) *a2ashape.Refusal {
 		}
 		if _, err := backendconn.Parse(backendconn.SchemeUnix + "://" + sock); err != nil {
 			return arConfigInvalid("auto_reply.runner.socket", arRule("不是可用的 Unix 套接字路径", "it is not a usable Unix socket path"))
+		}
+		if r.MaxJobs < 0 || r.MaxJobs > runnerMaxJobs {
+			return arConfigInvalid("auto_reply.runner.max_jobs", arRule("必须在 1 到 64 之间", "it must be from 1 to 64"))
 		}
 		if _, err := runnerPolicy(r).Resolve(); err != nil {
 			key := "auto_reply.runner"

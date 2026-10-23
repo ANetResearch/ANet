@@ -199,8 +199,8 @@ func newRunnerServer(o RunnerOptions) (*runnerServer, error) {
 	if n <= 0 {
 		n = 4
 	}
-	if n > 64 {
-		return nil, fmt.Errorf("--max-jobs is at most 64")
+	if n > runnerMaxJobs {
+		return nil, fmt.Errorf("--max-jobs is at most %d", runnerMaxJobs)
 	}
 	s.slots = make(chan struct{}, n)
 	s.root = o.Root

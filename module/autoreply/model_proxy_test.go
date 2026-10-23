@@ -220,9 +220,9 @@ func TestModelProxyKeyFileMissing(t *testing.T) {
 	}
 }
 
-// The admitted budget: an admitted peer's runs take their place in the day's counts, a run past them is
-// given a key whose every request is model_budget_spent, a trusted peer's runs are not counted, and the
-// counts are rebuilt from the evidence chain after a restart.
+// The admitted budget: a run with its place in the budget gets requests_per_run model requests, a run
+// without one is given a key whose every request is model_budget_spent, a trusted peer's run is not
+// counted, and the counts are rebuilt from the evidence chain after a restart.
 func TestAdmittedBudget(t *testing.T) {
 	quietLog(t)
 	up := newFakeUpstream(t, "x")
@@ -235,40 +235,52 @@ func TestAdmittedBudget(t *testing.T) {
 	admitted := func(peer string) module.Turn {
 		return module.Turn{Ix: "ix-" + peer, Role: roleInbound, Peer: peer, Admitted: true}
 	}
-	run1, t1 := m.beginDirectRun(cfg, admitted("peerA"))
+	if !m.admittedCounted(admitted("peerA")) || m.admittedCounted(module.Turn{Peer: "peerC", Admitted: true, Trusted: true}) {
+		t.Fatal("admittedCounted: an admitted peer counts, a trusted one does not")
+	}
+	reserve := func(peer string) (*budgetTicket, budgetVerdict) {
+		daily, perPeer, _ := cfg.admittedBudgets()
+		tk, v, _ := m.admitted.reserveAtOnce(peer, daily, perPeer, 0, 0, m.admittedRunsOnChain)
+		return tk, v
+	}
+	t1, v := reserve("peerA")
+	if v != budgetGranted {
+		t.Fatalf("the first run of the day: %v", v)
+	}
+	run1 := m.beginDirectRun(cfg, admitted("peerA"), t1)
 	if run1 == nil || run1.refusal != "" || run1.stats.maxRequests != 3 {
 		t.Fatalf("the first run: %+v", run1)
 	}
 	if status, _ := post(t, url, run1.key, chatBody); status != 200 {
 		t.Errorf("the first run's request: %d", status)
 	}
-	run2, t2 := m.beginDirectRun(cfg, admitted("peerA"))
-	status, body := post(t, url, run2.key, chatBody)
+	if _, v := reserve("peerA"); v != budgetSpent {
+		t.Errorf("the peer's second run of the day: %v, want spent", v)
+	}
+	unplaced := m.beginDirectRun(cfg, admitted("peerA"), nil)
+	status, body := post(t, url, unplaced.key, chatBody)
 	if status != http.StatusTooManyRequests || errorCode(body) != "model_budget_spent" {
-		t.Errorf("the peer's second run of the day: %d %s", status, body)
+		t.Errorf("a run without a place in the budget: %d %s", status, body)
 	}
-	run3, t3 := m.beginDirectRun(cfg, admitted("peerB"))
-	if run3.refusal != "" {
-		t.Errorf("another peer's first run was refused")
+	t3, v := reserve("peerB")
+	if v != budgetGranted {
+		t.Errorf("another peer's first run: %v", v)
 	}
-	trusted, tt := m.beginDirectRun(cfg, module.Turn{Ix: "ix-t", Role: roleInbound, Peer: "peerC", Trusted: true})
-	if trusted.refusal != "" || tt != nil || trusted.stats.maxRequests != trustedRequestsPerRun {
-		t.Errorf("a trusted peer's run: %+v ticket %v", trusted, tt)
+	trusted := m.beginDirectRun(cfg, module.Turn{Ix: "ix-t", Role: roleInbound, Peer: "peerC", Trusted: true}, nil)
+	if trusted.refusal != "" || trusted.stats.maxRequests != trustedRequestsPerRun {
+		t.Errorf("a trusted peer's run: %+v", trusted)
 	}
-	for _, r := range []*proxyRun{run1, run2, run3, trusted} {
+	for _, r := range []*proxyRun{run1, unplaced, trusted} {
 		r.end()
 	}
 	t1.release(true)
-	t2.release(true)
 	t3.release(true)
 	// A restart: the counts come from the records of the admitted runs.
 	_ = fx.h.RecordEvidence(EvAutoReplyInvoked, autoReplyRun{Agent: agentHermes, InteractionID: "ix-peerA", Peer: "peerA",
 		Mode: modeDirect, Exit: exitOK}.payload())
 	m.admitted = runBudget{}
-	again, _ := m.beginDirectRun(cfg, admitted("peerA"))
-	defer again.end()
-	if again.refusal != "model_budget_spent" {
-		t.Errorf("after a restart the peer's day was given back: %q", again.refusal)
+	if _, v := reserve("peerA"); v != budgetSpent {
+		t.Errorf("after a restart the peer's day was given back: %v", v)
 	}
 }
 
@@ -305,7 +317,7 @@ func TestBeginDirectRunDecides(t *testing.T) {
 	fx := newTurnFx(t, AutoReplyConfig{Backend: "exec", Agent: agentHermes}, nil)
 	m := fx.m
 	cfg := AutoReplyConfig{Backend: "exec", Agent: agentHermes}
-	if run, _ := m.beginDirectRun(cfg, module.Turn{Role: roleInbound, Peer: "p", Trusted: true}); run != nil {
+	if run := m.beginDirectRun(cfg, module.Turn{Role: roleInbound, Peer: "p", Trusted: true}, nil); run != nil {
 		t.Error("a run without a proxy got one")
 	}
 	p, err := newModelProxy(AutoReplyModelProxyConfig{Listen: "127.0.0.1:0"})
@@ -314,19 +326,19 @@ func TestBeginDirectRunDecides(t *testing.T) {
 	}
 	defer p.Close()
 	m.proxy = p
-	if run, _ := m.beginDirectRun(cfg, module.Turn{Role: roleInbound, Peer: "p", Trusted: true}); run != nil {
+	if run := m.beginDirectRun(cfg, module.Turn{Role: roleInbound, Peer: "p", Trusted: true}, nil); run != nil {
 		t.Error("a run got a key from a proxy without upstreams and a token without agent tools")
 	}
 	m.svc = &fakeSvc{tools: []module.AgentTool{{Capability: "board.post"}}}
-	run, _ := m.beginDirectRun(cfg, module.Turn{Role: roleInbound, Peer: "p", Trusted: true})
+	run := m.beginDirectRun(cfg, module.Turn{Role: roleInbound, Peer: "p", Trusted: true}, nil)
 	if run == nil || run.token == "" || run.key != "" {
 		t.Fatalf("a trusted inbound run: %+v", run)
 	}
 	run.end()
-	if run, _ := m.beginDirectRun(cfg, module.Turn{Role: "outbound", Peer: "p", Trusted: true}); run != nil {
+	if run := m.beginDirectRun(cfg, module.Turn{Role: "outbound", Peer: "p", Trusted: true}, nil); run != nil {
 		t.Error("an outbound turn got a turn token")
 	}
-	if run, _ := m.beginDirectRun(cfg, module.Turn{Role: roleInbound, Peer: "p"}); run != nil {
+	if run := m.beginDirectRun(cfg, module.Turn{Role: roleInbound, Peer: "p"}, nil); run != nil {
 		t.Error("a peer neither trusted nor admitted got a turn token")
 	}
 }

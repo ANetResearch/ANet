@@ -29,7 +29,7 @@ func TestRunnerEndToEnd(t *testing.T) {
 	r := startTestRunner(t, RunnerOptions{Agents: map[string]string{agentHermes: bin}})
 	up := newFakeUpstream(t, "model says hi")
 	const upstreamKey = "upstream-secret-e2e-0123456789"
-	cfg := AutoReplyConfig{Backend: "exec", Agent: agentHermes, Model: "deepseek-test",
+	cfg := AutoReplyConfig{Backend: "exec", Agent: agentHermes, Model: "deepseek-test", Admitted: AdmittedDirect,
 		Runner: &AutoReplyRunnerConfig{Socket: r.sock, ExpectedUser: strconv.Itoa(os.Getuid())},
 		ModelProxy: &AutoReplyModelProxyConfig{Listen: "127.0.0.1:0", Upstreams: []ModelProxyUpstream{
 			{Name: "plan", APIBase: up.srv.URL + "/v1", APIKeyFile: writeKeyFile(t, upstreamKey)}}},
@@ -121,31 +121,24 @@ func TestRunnerEndToEnd(t *testing.T) {
 		t.Errorf("records %v", rec)
 	}
 
-	// An admitted peer (inbound.admit let it in; not on the trust list): the same path, with the admitted
-	// budget of one run a day. The gate that sends an admitted peer's turn to a direct run is the gating's
-	// (auto_reply.admitted); here the turn is handed to the direct run as that gate would.
-	admittedTurn := func() module.Turn {
+	// An admitted peer (inbound.admit let it in; not on the trust list), with auto_reply.admitted=direct:
+	// the same path, with the admitted budget of one run a day. The second task of the day is refused with
+	// the budget's reason before any agent starts.
+	admittedTurn := func() fxIx {
 		ix := fx.deliver(e2ePeer+"x", false, "Another request.")
 		fx.h.mu.Lock()
 		fx.h.ixs[ix].turn.Admitted = true
-		th := fx.h.ixs[ix].turn
 		fx.h.mu.Unlock()
-		turns, err := fx.m.conversationTurns(th, 0)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := fx.m.replyTurn(fx.ctx, cfg, fx.replier, execGate{exec: true, mode: modeDirect}, th, turns, nil); err != nil {
-			t.Fatal(err)
-		}
-		return th
+		fx.tick()
+		return fx.ix(ix)
 	}
-	first := fx.ix(admittedTurn().Ix)
+	first := admittedTurn()
 	if len(first.sent) != 1 || !strings.Contains(first.sent[0].Text, "model:model says hi") || !strings.Contains(first.sent[0].Text, "tools:") {
 		t.Errorf("the admitted peer's first run: %+v", first.sent)
 	}
-	second := fx.ix(admittedTurn().Ix)
-	if len(second.sent) != 1 || !strings.Contains(second.sent[0].Text, "model:status 429 model_budget_spent") {
-		t.Errorf("the admitted peer's second run of the day: %+v", second.sent)
+	second := admittedTurn()
+	if len(second.sent) != 0 || second.reason != module.ReasonBudget || second.retryAfter <= 0 {
+		t.Errorf("the admitted peer's second task of the day: sent %+v, refused %q after %s", second.sent, second.reason, second.retryAfter)
 	}
 	var cs []fakeSvcCall
 	for _, c := range svc.recorded() {
@@ -153,7 +146,7 @@ func TestRunnerEndToEnd(t *testing.T) {
 			cs = append(cs, c)
 		}
 	}
-	if len(cs) != 2 {
+	if len(cs) != 1 {
 		t.Errorf("the admitted peer's tool calls: %+v", cs)
 	}
 }

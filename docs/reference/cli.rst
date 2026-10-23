@@ -573,7 +573,9 @@ with ``runner_unsupported``. See :doc:`../howto/runner`.
        every supported agent is run, found on ``PATH``. A job for another agent
        is refused with ``runner_agent_not_allowed``.
    * - ``--max-jobs N``
-     - Jobs that run at once; further jobs wait. Default 4, at most 64.
+     - Jobs that run at once; further jobs wait. Default 4, at most 64. Set
+       ``auto_reply.runner.max_jobs`` of the node to the same value; the node
+       sends no more jobs at once than that.
    * - ``--workspace per-peer|per-run``
      - ``per-peer`` (default) works in ``<cache>/anet/runner/<peer>/`` and keeps
        it; ``per-run`` uses a new directory per job and removes it.

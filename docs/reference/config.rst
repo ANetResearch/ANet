@@ -211,6 +211,20 @@ The declaration of a capability is described in :doc:`../topics/capabilities`.
    every turn, every message and every delivery to a backend, so a peer that the
    service no longer admits is refused once its cached decision expires.
 
+   A peer on the allow list but not on the trust list is accepted by the allow
+   list without a question. For its turns the node asks the capability all the
+   same (since 0.3.9), so that a member of an organisation that is also on the
+   allow list carries ``Admitted`` and is served as ``auto_reply.admitted``
+   says. Its tasks are not marked ``anet.admitted``. A trusted peer is never
+   asked.
+
+   At most 8 questions to the capability are in flight at once, one per peer;
+   further messages of a peer whose question is in flight wait for its answer.
+   A peer that arrives while 8 questions are in flight is not admitted, and its
+   next message asks again. At most 4096 decisions are kept; when the cache is
+   full, expired decisions are dropped first, then refusals, then the
+   admissions that expire first.
+
    Set with ``anet inbound admit set <capability> [--cache-seconds N]`` and
    removed with ``anet inbound admit off``. The capability must not also be in
    ``inbound.public_capabilities``. A value that breaks these rules is refused
@@ -346,6 +360,12 @@ procedure is described in :doc:`../howto/runner`.
      - A group whose members may write a directory on the path of the socket.
        The path rules are those of the service backends (see the backend
        policy below).
+   * - ``runner.max_jobs``
+     - 4
+     - Direct runs under way at once, from 1 to 64; set it to the
+       ``--max-jobs`` of the runner. Without a runner, direct runs as the user
+       of the node are bounded by 4. Either way, a peer has at most one direct
+       run at once.
    * - ``model_proxy.listen``
      -
      - Loopback address and port of the listener, for example
@@ -373,9 +393,11 @@ procedure is described in :doc:`../howto/runner`.
        sandboxed run keeps the limit of 8192.
    * - ``admitted_budget.runs_per_day``
      - 50
-     - Runs of admitted peers per local calendar day whose model requests are
-       forwarded. Later runs receive ``model_budget_spent`` for each model
-       request.
+     - Runs of admitted peers per local calendar day while the model proxy has
+       an upstream. A later task of an admitted peer is refused with the reason
+       ``budget`` and the time until the next local midnight; its agent is not
+       started. A value of 0 means that no run is made for admitted peers; the
+       task stays in the inbox.
    * - ``admitted_budget.runs_per_peer_per_day``
      - 10
      - The same limit for one peer. It may not exceed ``runs_per_day``
@@ -383,7 +405,8 @@ procedure is described in :doc:`../howto/runner`.
    * - ``admitted_budget.requests_per_run``
      - 100
      - Model requests of one run of an admitted peer. A run of a trusted peer may
-       make up to 1000.
+       make up to 1000. A value of 0 means that no run is made for admitted
+       peers.
 
 A run that the node starts directly, or sends to the runner, receives the
 variables ``ANET_MODEL_BASE``, ``ANET_MODEL_KEY``, ``ANET_TURN_URL`` and

@@ -305,10 +305,12 @@ func (fx *turnFx) say(ix, text string) {
 	}
 }
 
-// tick is one scan of the module over the owed turns.
+// tick is one scan of the module over the owed turns, and the end of the direct runs it started, which
+// outlive the scan itself (startDirect).
 func (fx *turnFx) tick() {
 	fx.t.Helper()
 	fx.m.autoReplyOnce(fx.ctx, fx.cfg, fx.replier)
+	fx.m.direct.runs.Wait()
 }
 
 // ix is a copy of what the stand-in node holds of ix.

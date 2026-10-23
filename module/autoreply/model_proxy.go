@@ -22,11 +22,20 @@ package autoreply
 // refusal and nothing else. Keys and tokens are compared through their SHA-256 digests and are never
 // logged. Requests and answers are passed through and never written anywhere (EG-6).
 //
+// The key decides; the connections are bounded besides, so that no local account can take the listener
+// from the runs: where the platform tells who holds the far end of a connection (Linux, internal/
+// localpeer), a connection of an account other than the node's and the runner's is closed when it is
+// accepted, and each account holds at most modelProxyMaxConnsPerUID connections. A request has
+// modelProxyHeaderTimeout for its header and proxyBodyTimeout for its body, each run reads one body at a
+// time (a run that sends its body slowly holds up its own requests only), and an idle connection is
+// closed after modelProxyIdleTimeout. Nothing bounds how long an answer takes to stream back.
+//
 // What one run may use: requests_per_run model requests for an admitted peer's run (100 by default), and
 // for a trusted peer's run up to trustedRequestsPerRun; an admitted peer's runs count against
-// admitted_budget.runs_per_day and runs_per_peer_per_day (sandbox_budget.go's counts), and a run that
-// finds the day's budget used up gets model_budget_spent for each of its requests, which the agent reads
-// as a model error and reports.
+// admitted_budget.runs_per_day and runs_per_peer_per_day (sandbox_budget.go's counts), and a task that
+// finds the day's budget used up is refused before its run starts (direct_run.go). A run that has no
+// place in the budget all the same gets model_budget_spent for each of its requests, which the agent
+// reads as a model error and reports.
 
 import (
 	"bytes"
@@ -52,12 +61,32 @@ import (
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
 	"github.com/ANetResearch/ANet/internal/fsperm"
+	"github.com/ANetResearch/ANet/internal/localpeer"
 	"github.com/ANetResearch/ANet/internal/turntools"
 	"github.com/ANetResearch/ANet/module"
 )
 
-// modelProxyMaxConns bounds the connections to the proxy at once: every local account can open them.
-const modelProxyMaxConns = 128
+// modelProxyMaxConns bounds the connections to the proxy at once, and modelProxyMaxConnsPerUID those of
+// one local account where the platform tells the account (proxyListener).
+const (
+	modelProxyMaxConns       = 128
+	modelProxyMaxConnsPerUID = 64
+)
+
+// The proxy's timeouts: for a request's header, for its body (proxyBodyTimeout), for the whole request
+// as the server's backstop, and for an idle connection. None bounds the answer, which a model may
+// stream for as long as the run lasts. Variables so tests can shorten them.
+var (
+	modelProxyHeaderTimeout = 5 * time.Second
+	proxyBodyTimeout        = 30 * time.Second
+	modelProxyReadTimeout   = 60 * time.Second
+	modelProxyIdleTimeout   = 30 * time.Second
+)
+
+// proxyPeerUID is the local account holding the far end of an accepted connection
+// (localpeer.OwnerUID); localpeer.ErrNoSocketTable where the platform cannot tell. A proxy takes it
+// when it starts; a variable so tests can stand in for another account.
+var proxyPeerUID = localpeer.OwnerUID
 
 // modelProxyMaxUpload bounds what one run's model requests send in all. An agent sends the whole
 // conversation with every request; the bound is there to end a run that loops, not to shape one that works.
@@ -84,9 +113,15 @@ type modelProxy struct {
 	turns map[[32]byte]*proxyRun // turn tokens by digest
 	svc   module.ServiceCaller   // the turn tools' service; nil: none
 
-	bodySlot chan struct{}
-	conns    atomic.Int32
-	closed   sync.Once
+	conns  atomic.Int32
+	closed sync.Once
+
+	// allow is the accounts whose connections are taken (setAccounts); uidConns counts each one's
+	// connections. Both under connMu.
+	connMu   sync.Mutex
+	allow    func() map[int]bool
+	uidConns map[int]int
+	peerUID  func(net.Conn) (int, error)
 }
 
 // proxyUpstream is one upstream: the egress route's description of it (custom dialect) and its client.
@@ -109,6 +144,8 @@ type proxyRun struct {
 
 	ctx    context.Context // ends with the run: its forwarded requests and tool calls are cancelled
 	cancel context.CancelFunc
+	// bodySlot lets one request body of the run be read at a time.
+	bodySlot chan struct{}
 
 	key, token       string // "" when the run has none
 	keyHash, tokHash [32]byte
@@ -128,11 +165,16 @@ func newModelProxy(cfg AutoReplyModelProxyConfig) (*modelProxy, error) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	p := &modelProxy{cfg: cfg, ln: ln, addr: ln.Addr().String(), lang: a2ashape.Lang(), ctx: ctx, cancel: cancel,
-		ups: ups, keys: map[[32]byte]*proxyRun{}, turns: map[[32]byte]*proxyRun{}, bodySlot: make(chan struct{}, 2)}
+		ups: ups, keys: map[[32]byte]*proxyRun{}, turns: map[[32]byte]*proxyRun{}, uidConns: map[int]int{},
+		peerUID: proxyPeerUID}
+	// ReadTimeout bounds the reading of a request; the server lifts it once the body has been read, so
+	// it does not bound the answer. No WriteTimeout: an answer streams for as long as the model writes
+	// it, and the run's own end cancels it.
 	p.srv = &http.Server{
 		Handler:           p,
-		ReadHeaderTimeout: 30 * time.Second,
-		IdleTimeout:       2 * time.Minute,
+		ReadHeaderTimeout: modelProxyHeaderTimeout,
+		ReadTimeout:       modelProxyReadTimeout,
+		IdleTimeout:       modelProxyIdleTimeout,
 		MaxHeaderBytes:    64 << 10,
 		BaseContext:       func(net.Listener) context.Context { return ctx },
 		ErrorLog:          log.New(io.Discard, "", 0),
@@ -187,6 +229,25 @@ func readKeyFile(name string) (string, error) {
 // sameConfig reports a configuration this proxy already serves as it is.
 func (p *modelProxy) sameConfig(cfg AutoReplyModelProxyConfig) bool {
 	return reflect.DeepEqual(p.cfg, cfg)
+}
+
+// setAccounts sets the local accounts whose connections the proxy takes besides the node's own: the
+// runner's, which accounts returns when a connection of another account is accepted (nil: the node's
+// account only).
+func (p *modelProxy) setAccounts(accounts func() []int) {
+	p.connMu.Lock()
+	defer p.connMu.Unlock()
+	if accounts == nil {
+		p.allow = nil
+		return
+	}
+	p.allow = func() map[int]bool {
+		m := map[int]bool{}
+		for _, u := range accounts() {
+			m[u] = true
+		}
+		return m
+	}
 }
 
 // setService sets the service the turn tools call.
@@ -250,7 +311,7 @@ type proxyRunSpec struct {
 func (p *modelProxy) begin(s proxyRunSpec) (*proxyRun, error) {
 	ctx, cancel := context.WithCancel(p.ctx)
 	r := &proxyRun{p: p, peer: s.Peer, ix: s.Ix, admitted: s.Admitted, refusal: s.Refusal,
-		deadline: time.Now().Add(s.Timeout + modelProxyRunGrace), ctx: ctx, cancel: cancel}
+		deadline: time.Now().Add(s.Timeout + modelProxyRunGrace), ctx: ctx, cancel: cancel, bodySlot: make(chan struct{}, 1)}
 	r.stats.maxRequests, r.stats.maxUpload = s.MaxRequests, modelProxyMaxUpload
 	var err error
 	if s.Model {
@@ -359,7 +420,8 @@ func bearer(h http.Header) string {
 	return ""
 }
 
-// proxyListener bounds the connections at once; one over the bound is closed.
+// proxyListener bounds the connections at once, in all and per local account, and takes no connection
+// of an account other than the node's and the runner's; a connection it does not take is closed.
 type proxyListener struct {
 	net.Listener
 	p *modelProxy
@@ -371,24 +433,74 @@ func (l *proxyListener) Accept() (net.Conn, error) {
 		if err != nil {
 			return nil, err
 		}
-		if l.p.conns.Add(1) > modelProxyMaxConns {
-			l.p.conns.Add(-1)
+		uid, ok := l.p.admitConn(c)
+		if !ok {
 			_ = c.Close()
 			continue
 		}
-		return &proxyConn{Conn: c, p: l.p}, nil
+		return &proxyConn{Conn: c, p: l.p, uid: uid}, nil
 	}
+}
+
+// admitConn decides whether the proxy takes c, and counts it when it does. uid is the account that holds
+// its far end, -1 where the platform cannot tell; such a connection is bounded only in all.
+func (p *modelProxy) admitConn(c net.Conn) (uid int, ok bool) {
+	uid, err := p.peerUID(c)
+	switch {
+	case errors.Is(err, localpeer.ErrNoSocketTable):
+		uid = -1
+	case err != nil:
+		return 0, false // the far end is gone, or is not in the table: nobody's to take
+	}
+	if uid >= 0 && uid != os.Getuid() {
+		p.connMu.Lock()
+		allow := p.allow
+		p.connMu.Unlock()
+		if allow == nil || !allow()[uid] {
+			return 0, false
+		}
+	}
+	p.connMu.Lock()
+	defer p.connMu.Unlock()
+	if uid >= 0 && p.uidConns[uid] >= modelProxyMaxConnsPerUID {
+		return 0, false
+	}
+	if p.conns.Add(1) > modelProxyMaxConns {
+		p.conns.Add(-1)
+		return 0, false
+	}
+	if uid >= 0 {
+		p.uidConns[uid]++
+	}
+	return uid, true
 }
 
 type proxyConn struct {
 	net.Conn
 	p    *modelProxy
+	uid  int
 	once sync.Once
 }
 
 func (c *proxyConn) Close() error {
-	c.once.Do(func() { c.p.conns.Add(-1) })
+	c.once.Do(func() {
+		p := c.p
+		p.conns.Add(-1)
+		if c.uid >= 0 {
+			p.connMu.Lock()
+			if p.uidConns[c.uid]--; p.uidConns[c.uid] <= 0 {
+				delete(p.uidConns, c.uid)
+			}
+			p.connMu.Unlock()
+		}
+	})
 	return c.Conn.Close()
+}
+
+// bodyDeadline bounds the read of a request's body from now (proxyBodyTimeout). The server lifts the
+// bound once the body has been read to its end, so the answer, which may take longer, is not bounded.
+func bodyDeadline(w http.ResponseWriter) {
+	_ = http.NewResponseController(w).SetReadDeadline(time.Now().Add(proxyBodyTimeout))
 }
 
 // ServeHTTP answers one request on the proxy's listener.
@@ -448,15 +560,21 @@ func (p *modelProxy) serveModel(w http.ResponseWriter, r *http.Request) {
 			run.refuse(w, up, refuseEgress(http.StatusUnsupportedMediaType, "policy_encoding", nil))
 			return
 		}
+		// The run's own slot: a run that sends its body slowly holds up its own requests, never another
+		// run's, and each of them for proxyBodyTimeout at most.
 		select {
-		case p.bodySlot <- struct{}{}:
+		case run.bodySlot <- struct{}{}:
+		case <-run.ctx.Done():
+			p.badGateway(w, up, context.Canceled)
+			return
 		case <-r.Context().Done():
 			p.badGateway(w, up, r.Context().Err())
 			return
 		}
+		bodyDeadline(w)
 		var ref *egressRefusal
 		body, ref = proxyBody(r, up, kind)
-		<-p.bodySlot
+		<-run.bodySlot
 		if ref != nil {
 			run.refuse(w, up, ref)
 			return
