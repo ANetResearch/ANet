@@ -29,4 +29,4 @@
 # files it writes, and cut a release. Removing a line and doing the same withdraws the
 # mark from binaries built afterwards; binaries already installed keep it until their
 # manifest expires (ANET_OFFICIAL_TTL_DAYS, default 365).
-ustc  bafyreigtpgk4yxn7zwc55rgseavl4eizqsgvp7gkis63gad3fix7pg2fju  https://hub.agentnetwork.org.cn  org.info,org.join,org.me,org.leave,org.rename,org.members,msg.send,msg.inbox,msg.ack,board.post,board.list,board.claim,board.done,board.comment,board.delete,research.project.create,research.project.list,research.note.add,research.note.list,research.note.delete,ask  USTC
+ustc  bafyreigtpgk4yxn7zwc55rgseavl4eizqsgvp7gkis63gad3fix7pg2fju  https://hub.agentnetwork.org.cn  org.info,org.join,org.me,org.leave,org.rename,org.members,msg.send,msg.inbox,msg.ack,board.post,board.list,board.claim,board.done,board.comment,board.delete,research.project.create,research.project.list,research.note.add,research.note.list,research.note.delete  USTC
