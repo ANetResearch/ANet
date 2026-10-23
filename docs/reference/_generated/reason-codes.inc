@@ -1599,6 +1599,14 @@ Requests that this node refused at once. Nothing was sent.
      - The setting {key} is not valid: {rule}; fix it and try again.
      - 配置项 {key} 的值不合法：{rule}；请改正后重试。
      - change input
+   * - .. _reason-code-not-agent-tool:
+
+       ``not_agent_tool``
+     - 0.3.9
+     - C
+     - The capability {capability} is not an agent tool of this node (the service configuration does not mark it agent_tool) and was not called; use one of the tools this node lists.
+     - 能力 {capability} 不是本节点的 agent 工具（服务配置中没有标记 agent_tool），没有调用；请改用本节点列出的工具。
+     - change input
    * - .. _reason-code-module-absent:
 
        ``module_absent``
@@ -1768,6 +1776,18 @@ State sentences of the local sandbox.
      - S info
      - Trusted peers also run local agents in the sandbox, outside the run budget.
      - 信任的对端也在沙箱中运行本机 agent，不计入预算。
+     - 
+   * - ``sandbox.admitted_direct``
+     - 
+     - S info
+     - Peers that inbound.admit admits run local agents directly as your user, which is the same as giving them your user's rights.
+     - inbound.admit 准入的对端直接以你的用户身份运行本机 agent，等同授予它们你的用户权限。
+     - 
+   * - ``sandbox.admitted_sandbox``
+     - 
+     - S info
+     - Peers that inbound.admit admits run local agents in the sandbox, within the run budget.
+     - inbound.admit 准入的对端在沙箱中运行本机 agent，计入运行预算。
      - 
    * - .. _reason-code-no-bwrap:
 
@@ -2637,6 +2657,12 @@ Confirmation prompts and common lines printed by the command line.
      - Switch back to direct runs: trusted peers will run local agents as your user, which is the same as giving them your user's rights.
      - 改回直接运行：信任的对端将以你的用户身份运行本机 agent，等同授予你的用户权限。
      - 
+   * - ``autoreply.confirm_admitted_direct``
+     - 
+     - T
+     - Run admitted peers' tasks directly: every peer that inbound.admit admits will run local agents without the sandbox, as your user, which is the same as giving them your user's rights.
+     - 直接运行已准入对端的任务：inbound.admit 准入的每个对端都将不经沙箱、以你的用户身份运行本机 agent，等同授予它们你的用户权限。
+     - 
    * - ``autoreply.prompt.api_key``
      - 
      - T
@@ -2822,6 +2848,24 @@ Sentences of the status summary and of the text that tells an agent how to proce
      - S ok
      - Takes tasks from anyone; {m} public capabilities; auto-reply {auto_reply}.
      - 接受任何人的任务；公开 {m} 项能力；自动回复{auto_reply}。
+     - 
+   * - ``inbound.admit.off``
+     - 
+     - I
+     - Peers on no list may also send tasks once the local capability {capability} admits them; auto-reply treats their tasks as untrusted peers' tasks.
+     - 名单外的对端经本机能力 {capability} 准入后也可发来任务；自动回复按未信任对端处理它们的任务。
+     - 
+   * - ``inbound.admit.direct``
+     - 
+     - I
+     - Peers on no list may also send tasks once the local capability {capability} admits them; auto-reply runs their tasks directly, without the sandbox.
+     - 名单外的对端经本机能力 {capability} 准入后也可发来任务；自动回复直接运行它们的任务，不经沙箱。
+     - 
+   * - ``inbound.admit.sandbox``
+     - 
+     - I
+     - Peers on no list may also send tasks once the local capability {capability} admits them; auto-reply runs their tasks in the sandbox, within the run budget.
+     - 名单外的对端经本机能力 {capability} 准入后也可发来任务；自动回复在沙箱中运行它们的任务，计入运行预算。
      - 
    * - ``preview.on``
      - 

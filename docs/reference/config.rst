@@ -175,6 +175,47 @@ constants.
 
 The declaration of a capability is described in :doc:`../topics/capabilities`.
 
+``inbound.admit``
+   Default: not set. Delegates the admission of text tasks from peers that are on
+   no list to a capability of the ``service`` module (since 0.3.9). An object with
+   these keys.
+
+   .. list-table::
+      :header-rows: 1
+      :widths: 28 14 58
+
+      * - Key
+        - Default
+        - Description
+      * - ``capability``
+        -
+        - Required. A capability of ``modules.service`` that is marked
+          ``"internal": true``.
+      * - ``cache_seconds``
+        - 30
+        - How long the decision for one peer is kept, from 1 to 300 seconds. Both
+          admissions and refusals are kept. A question that fails is kept for
+          5 seconds.
+
+   For a text task from a peer that is not on the allow, trust or deny list, the
+   node calls the capability with the header ``X-ANet-Caller`` set to the AID of
+   the peer and the body ``{}``. Only the reply ``{"admit": true}`` admits the
+   peer. Any other reply, an error, a service that does not answer within
+   5 seconds or a capability that is not served admits nobody. An admitted peer's
+   task is accepted as the task of a peer on the allow list would be, under every
+   policy. Its turns carry ``Admitted`` for the auto-reply module
+   (see ``auto_reply.admitted``), and its tasks carry ``anet.admitted: true`` for
+   A2A backends. Admission grants nothing else: payments, the trust list and the
+   peer lists are unchanged. The deny list is read first and always takes
+   precedence. Capability calls are not affected. The decision is made again for
+   every turn, every message and every delivery to a backend, so a peer that the
+   service no longer admits is refused once its cached decision expires.
+
+   Set with ``anet inbound admit set <capability> [--cache-seconds N]`` and
+   removed with ``anet inbound admit off``. The capability must not also be in
+   ``inbound.public_capabilities``. A value that breaks these rules is refused
+   with ``config_invalid``, and the daemon does not start with it.
+
 
 ``auto_reply``
 --------------
@@ -205,6 +246,15 @@ The block is absent by default, which means that the auto-reply is off.
      - ``direct`` runs the agent as the user of the node for trusted peers;
        ``sandbox`` runs it in the sandbox. Changing from ``sandbox`` to ``direct``
        is confirmed on the terminal.
+   * - ``admitted``
+     - ``off``
+     - How the ``exec`` backend runs the tasks of peers that ``inbound.admit``
+       admits (since 0.3.9). ``off`` treats them as the tasks of peers that are
+       not trusted, as ``untrusted`` says; ``direct`` runs the agent as the user
+       of the node, without the sandbox; ``sandbox`` runs it in the sandbox,
+       within the run budget. Set with ``anet autoreply set --admitted``;
+       turning on ``direct`` is confirmed on the terminal. A trusted peer is
+       governed by ``trusted`` only.
    * - ``api_base``, ``model``, ``system_prompt``
      - empty
      - Settings of the ``openai`` backend; ``model`` also overrides the model of
@@ -252,7 +302,7 @@ automatic messages per interaction are constants.
 
 Every write of the block is recorded as the evidence event ``anet.policy.changed``.
 The event names the key as a whole when its summary differs, and there is one
-record for each audited field: ``auto_reply.trusted``,
+record for each audited field: ``auto_reply.trusted``, ``auto_reply.admitted``,
 ``auto_reply.sandbox.egress_allow``, ``auto_reply.sandbox.runs_per_day``,
 ``auto_reply.sandbox.runs_per_peer_per_day`` and ``auto_reply.api_key_set``. Turning
 the block on or off is recorded in the same way against the defaults. A block that
@@ -331,12 +381,29 @@ leave a module out.
    ``capabilities[]``
       Objects with ``id``, ``url``, ``price``, ``description``, ``protocol``,
       ``name``, ``tags``, ``examples``, ``input_modes``, ``output_modes``,
-      ``timeout_ms`` and ``token_file``. ``url`` is
+      ``timeout_ms``, ``token_file``, ``internal``, ``agent_tool`` and
+      ``input_schema``. ``url`` is
       ``unix:///path/to/socket[:/request/path]`` (recommended) or ``http(s)://``
       with ``allow_tcp``. ``price`` is an amount in credits; a capability without
       a price is free. A listed price is published in the signed extended card
       only. For a capability that declares ``files``, ``input_modes`` follows from
       the declaration and must not contradict it.
+
+      ``internal: true`` (since 0.3.9) marks a capability that only this node
+      calls, such as the capability of ``inbound.admit``. It appears on no card
+      and in no registration, and a call from the network is answered as for a
+      capability that the node does not have. An internal capability has no
+      price and is not an agent tool.
+
+      ``agent_tool: true`` (since 0.3.9) marks a capability that an agent which
+      runs for a peer may call as that peer. The node sends the call to the same
+      backend with the same token as a call from the network, with
+      ``X-ANet-Caller`` set to the AID of the peer and ``X-ANet-Via`` set to the
+      origin of the call, for example ``agent``. A capability without the flag
+      cannot be called this way (``not_agent_tool``). A peer on the deny list
+      cannot call it at all. ``input_schema`` is an optional JSON Schema object,
+      at most 16 KiB, that describes the arguments for the agent together with
+      ``description``.
 
    ``timeout_ms``, ``token_file``
       Defaults for all capabilities (the default timeout is 2 minutes). The token

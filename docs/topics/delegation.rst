@@ -70,6 +70,8 @@ first that matches.
 #. The delegation is a call to a public capability: apply the admission rules
    of that capability (see :doc:`capabilities`).
 #. The sender is on the ``allow`` or ``trust`` list: accept.
+#. The delegation is a text task and ``inbound.admit`` is set: accept when the
+   admission service admits the sender (see `Admission by a local service`_).
 #. The policy is ``approve``: hold the task in the approval queue.
 #. The policy is ``open``: accept a text task and refuse a capability call to a
    capability that is not public.
@@ -102,6 +104,63 @@ a name is chosen by its owner and a prefix can be produced by an attacker.
 
 ``deny``
    The peer's tasks are refused and, to the peer, the refusal is final.
+
+Admission by a local service
+----------------------------
+
+A node that serves a group, such as the members of an organization, does not
+need to keep every member on its ``allow`` list. With ``inbound.admit`` (since
+0.3.9) the node asks a local service whether a peer that is on no list may send
+a text task. The service is a capability of the ``service`` module that its
+configuration marks ``"internal": true``. Such a capability is called only by
+the node: it appears on no card and in no registration, and a call from the
+network is answered as for a capability that the node does not have.
+
+.. code-block:: json
+
+   {
+     "modules": {"service": {"capabilities": [
+       {"id": "org.admit", "url": "unix:///run/org/backend.sock:/admit", "internal": true}
+     ]}},
+     "inbound": {"policy": "closed", "admit": {"capability": "org.admit", "cache_seconds": 30}}
+   }
+
+.. code-block:: console
+
+   $ anet inbound admit set org.admit --cache-seconds 30
+   $ anet inbound
+   $ anet inbound admit off
+
+The node sends ``POST`` with the header ``X-ANet-Caller`` set to the AID of the
+peer and the body ``{}``, with the token and the backend checks of the
+capability. The peer is admitted only when the reply is ``{"admit": true}``.
+Any other reply, an error, no answer within 5 seconds, or a capability that the
+service module does not serve as internal admits nobody: the decision fails
+closed.
+
+An admitted peer's text task is accepted as the task of a peer on the ``allow``
+list would be, under every policy, including ``approve``. The following rules
+apply.
+
+* The ``deny`` list is read first and always takes precedence. A denied peer is
+  refused without the service being asked.
+* A peer on the ``allow`` or ``trust`` list is not asked about; the lists decide.
+  Capability calls are not affected by admission.
+* Admission grants nothing else. It does not place the peer on a list, and it
+  does not change payments or trust.
+* The decision for a peer is kept for ``cache_seconds`` (default 30, at most
+  300), whether it admits or refuses. A question that fails is kept for
+  5 seconds.
+* The decision is made again for every owed turn, every further message on the
+  task and every delivery to an A2A backend. A peer that the service no longer
+  admits is refused once its kept decision expires: its next message is dropped
+  and its next turn is not run as an admitted peer's turn.
+
+An accepted task is recorded in the evidence event ``anet.delegation.received``
+with ``admitted: true``. A2A backends receive ``anet.admitted`` in the metadata
+of each task, beside ``anet.trusted``. How auto-reply runs an admitted peer's
+task is set with ``auto_reply.admitted`` (see `Who is answered, and how`_).
+``anet status`` and ``anet inbound`` show the setting.
 
 The approval queue
 ------------------
@@ -212,6 +271,10 @@ and the row ``budget`` only while the sandbox is in use.
 
 ``anet autoreply set --trusted direct|sandbox`` chooses how trusted peers are
 served. Changing from ``sandbox`` back to ``direct`` is confirmed on the terminal.
+``anet autoreply set --admitted off|direct|sandbox`` chooses how peers that
+``inbound.admit`` admits are served; turning on ``direct`` is confirmed on the
+terminal. ``anet autoreply show`` adds the row ``admitted`` when the value is not
+``off``.
 A budget of 0 is the same as ``untrusted`` set to ``off``: the task stays in the
 inbox and the requester receives no refusal.
 
@@ -242,6 +305,12 @@ settings.
      - How the ``exec`` backend runs for a peer on the trust list: ``direct``
        runs the agent as the operator's user, ``sandbox`` runs it in the
        sandbox.
+   * - ``admitted``
+     - ``off``
+     - How the ``exec`` backend runs for a peer that ``inbound.admit`` admits:
+       ``off`` treats it as a peer that is not trusted, ``direct`` runs the agent
+       as the operator's user, ``sandbox`` runs it in the sandbox within the run
+       budget.
    * - ``api_base``, ``model``
      - empty
      - The model service address and the model name.
@@ -282,6 +351,11 @@ reads again on every turn.
   default is ``direct``. A directly run agent has the rights of the operator's
   user, so trust in a peer is equal to giving that peer the rights of the
   account that runs the daemon.
+* A peer that ``inbound.admit`` admits, and that is not on the ``trust`` list, is
+  answered according to ``admitted``. With ``direct`` the agent has the rights of
+  the operator's user, so the admission service then decides who receives those
+  rights. With ``sandbox`` the run counts against the run budget. With the
+  default ``off`` the peer is answered as any other peer.
 * Any other peer is answered according to ``untrusted``. The default ``off``
   runs no program for the peer and leaves the task in the inbox. The value
   ``sandbox`` runs the agent in the sandbox described in :doc:`sandbox`.

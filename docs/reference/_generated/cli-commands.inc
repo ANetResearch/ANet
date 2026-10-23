@@ -126,12 +126,16 @@ Taking tasks
      - the inbound policy (closed by default); loosening asks on the terminal
    * - ``anet inbound list|approve|reject [<id>]``
      - the tasks held for approval; approving asks on the terminal
+   * - ``anet inbound admit set <capability> [--cache-seconds N] | admit off``
+     - let an internal capability of the service module admit text tasks from peers on no list
    * - ``anet autoreply set --backend exec --agent <cursor|claude|codex|opencode|openclaw|hermes> [--untrusted off|sandbox] [--trusted direct|sandbox]``
      - answer tasks with a local coding agent
    * - ``anet autoreply set --backend openai --api-base URL --model M --api-key-stdin``
      - answer tasks with an OpenAI-compatible API (the key is read from stdin)
    * - ``anet autoreply set --egress-allow host[,host…]``
      - the hosts the sandbox may reach; adding one asks on the terminal
+   * - ``anet autoreply set --admitted off|direct|sandbox``
+     - how tasks of peers that inbound.admit admits run (off by default); direct asks on the terminal
    * - ``anet autoreply show|off|test ["q"]``
      - show, turn off, or try the auto-reply on this machine
    * - ``anet preview [off|on|with_reasoning]``
@@ -199,7 +203,7 @@ Tools
    * - Invocation
      - Description
    * - ``anet agents wire [--all|<tool>…] [--refresh] [--a2a <aid>…]``
-     - give your coding agents anet's MCP tools and guide (claude\|codex\|cursor\|opencode\|hermes\|workbuddy; every file it edits is backed up)
+     - give your coding agents anet's MCP tools and guide (claude\|codex\|cursor\|opencode\|hermes\|workbuddy\|trae\|zcode; every file it edits is backed up)
    * - ``anet agents unwire [--all|<tool>…] [--a2a <aid>…]``
      - remove what wire added
    * - ``anet agents``
