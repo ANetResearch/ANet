@@ -47,6 +47,13 @@ type AutoReplyConfig struct {
 	// (LEC GT-1): "direct" (the default; as the operator's user) or
 	// "sandbox" (in the sandbox, outside the run budget).
 	Trusted string `json:"trusted,omitempty"`
+	// Admitted says how the exec backend runs for a peer on no list that
+	// inbound.admit admits (module.Turn.Admitted, design v0.3.9 §A): "off"
+	// (the default; the turn is gated as any untrusted peer's, by
+	// untrusted), "direct" (as the operator's user, without the sandbox;
+	// confirmed on the terminal) or "sandbox" (in the sandbox, within the
+	// run budget).
+	Admitted string `json:"admitted,omitempty"`
 	// --- "openai" backend ---
 	APIBase      string `json:"api_base,omitempty"` // e.g. http://127.0.0.1:11434/v1
 	APIKey       string `json:"api_key,omitempty"`  // bearer key, if the endpoint needs one
@@ -113,6 +120,23 @@ func (c AutoReplyConfig) TrustedMode() string {
 		return TrustedSandbox
 	}
 	return TrustedDirect
+}
+
+// Values of AutoReplyConfig.Admitted.
+const (
+	AdmittedOff     = "off"
+	AdmittedDirect  = "direct"
+	AdmittedSandbox = "sandbox"
+)
+
+// AdmittedMode is the effective auto_reply.admitted value: "off" unless the
+// operator set "direct" or "sandbox".
+func (c AutoReplyConfig) AdmittedMode() string {
+	switch c.Admitted {
+	case AdmittedDirect, AdmittedSandbox:
+		return c.Admitted
+	}
+	return AdmittedOff
 }
 
 // mergeAutoReply is the configuration a POST /autoreply asks for (LEC §2.3.4): cur with the request's
@@ -286,6 +310,11 @@ func checkAutoReplyStart(c AutoReplyConfig) *a2ashape.Refusal {
 	default:
 		return arConfigInvalid("auto_reply.untrusted", arRule("只能是 off 或 sandbox", "it must be off or sandbox"))
 	}
+	switch c.Admitted {
+	case "", AdmittedOff, AdmittedDirect, AdmittedSandbox:
+	default:
+		return arConfigInvalid("auto_reply.admitted", arRule("只能是 off、direct 或 sandbox", "it must be off, direct or sandbox"))
+	}
 	if base := strings.TrimSpace(c.APIBase); base != "" {
 		if _, err := parseEgressAPIBase(base); err != nil {
 			return a2ashape.Refuse("api_base_insecure", nil)
@@ -308,7 +337,7 @@ func autoReplySummary(c *AutoReplyConfig) map[string]any {
 	}
 	daily, perPeer := c.runBudgets()
 	return map[string]any{"backend": backend, "agent": c.Agent, "untrusted": c.UntrustedMode(),
-		"trusted": c.TrustedMode(), "runs_per_day": daily, "runs_per_peer_per_day": perPeer,
+		"trusted": c.TrustedMode(), "admitted": c.AdmittedMode(), "runs_per_day": daily, "runs_per_peer_per_day": perPeer,
 		"api_key_set": c.APIKey != ""}
 }
 
@@ -443,6 +472,7 @@ func auditOfBlock(raw json.RawMessage) map[string]any {
 	daily, perPeer := c.runBudgets()
 	return map[string]any{
 		"trusted":                       c.TrustedMode(),
+		"admitted":                      c.AdmittedMode(),
 		"sandbox.egress_allow":          egressAllowOf(c),
 		"sandbox.runs_per_day":          daily,
 		"sandbox.runs_per_peer_per_day": perPeer,
@@ -451,14 +481,19 @@ func auditOfBlock(raw json.RawMessage) map[string]any {
 }
 
 // si5OfBlock is the SI-5 value the block contributes: the untrusted mode, "off" without a block, an
-// invalid value shown as written.
+// invalid value shown as written. It also gives auto_reply.admitted the same way, which the kernel's
+// inbound report and status line show beside inbound.admit (design v0.3.9 §A).
 func si5OfBlock(raw json.RawMessage) map[string]any {
-	untrusted := UntrustedOff
+	untrusted, admitted := UntrustedOff, AdmittedOff
 	if c := lenientAutoReply(raw); c != nil {
 		untrusted = c.UntrustedMode()
 		if c.Untrusted != "" && c.Untrusted != UntrustedOff && c.Untrusted != UntrustedSandbox {
 			untrusted = c.Untrusted
 		}
+		admitted = c.AdmittedMode()
+		if c.Admitted != "" && c.Admitted != admitted {
+			admitted = c.Admitted
+		}
 	}
-	return map[string]any{"auto_reply.untrusted": untrusted}
+	return map[string]any{"auto_reply.untrusted": untrusted, "auto_reply.admitted": admitted}
 }

@@ -193,6 +193,7 @@ aid_invalid
 cli_removed
 config_key_removed
 config_invalid
+not_agent_tool
 module_absent
 module_absent.configured
 module_absent.payment
@@ -214,6 +215,8 @@ sandbox.ready_egress
 sandbox.off
 sandbox.trusted_direct
 sandbox.trusted_sandbox
+sandbox.admitted_direct
+sandbox.admitted_sandbox
 no_bwrap
 userns_blocked
 userns_unavailable
@@ -330,6 +333,7 @@ trust_confirm.sandbox
 trust_confirm.no_agent
 egress_confirm
 trusted_direct_confirm
+autoreply.confirm_admitted_direct
 autoreply.prompt.api_key
 card.header
 card.price
@@ -367,6 +371,9 @@ agent_hint.join
 inbound.summary.closed
 inbound.summary.approve
 inbound.summary.open
+inbound.admit.off
+inbound.admit.direct
+inbound.admit.sandbox
 preview.on
 preview.with_reasoning
 identity.recovery_note

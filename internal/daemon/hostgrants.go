@@ -40,14 +40,16 @@ type (
 		transportPart
 	}
 	// hostAutoReply: the seams of the auto-reply module (MOD-3): the turns it
-	// answers, its own configuration block, its own evidence and the
-	// never-bind list for its sandbox.
+	// answers, its own configuration block, its own evidence, the
+	// never-bind list for its sandbox and the service calls of its turn
+	// tools (design v0.3.9 §B).
 	hostAutoReply struct {
 		moduleHost
 		turnPart
 		evidencePart
 		configPart
 		sensitivePart
+		serviceCallerPart
 	}
 	// hostPreview: the seam that sends a stream_preview frame (preview).
 	hostPreview struct {
@@ -68,6 +70,7 @@ var (
 	_ module.TurnHost           = hostAutoReply{}
 	_ module.OwnEvidenceHost    = hostAutoReply{}
 	_ module.ModuleConfigHost   = hostAutoReply{}
+	_ module.ServiceCaller      = hostAutoReply{}
 	_ module.PreviewHost        = hostPreview{}
 )
 
@@ -80,16 +83,18 @@ func newModuleHost(d *Daemon, name string) (module.Host, *hostState) {
 	inbound, signer, transport, sensitive, preview := has(module.GrantInboundTaskHost), has(module.GrantProxyCardSigner),
 		has(module.GrantTransportHost), has(module.GrantSensitivePaths), has(module.GrantPreviewHost)
 	turns, ownEv, cfgw := has(module.GrantTurnHost), has(module.GrantOwnEvidenceHost), has(module.GrantModuleConfigHost)
+	svc := has(module.GrantServiceCaller)
 	switch {
-	case inbound && signer && !transport && !sensitive && !preview && !turns && !ownEv && !cfgw:
+	case inbound && signer && !transport && !sensitive && !preview && !turns && !ownEv && !cfgw && !svc:
 		return hostA2A{b, inboundTaskPart{d}, proxySignerPart{d}}, st
-	case transport && !inbound && !signer && !sensitive && !preview && !turns && !ownEv && !cfgw:
+	case transport && !inbound && !signer && !sensitive && !preview && !turns && !ownEv && !cfgw && !svc:
 		return hostTransport{b, transportPart{d}}, st
-	case sensitive && turns && ownEv && cfgw && !inbound && !signer && !transport && !preview:
-		return hostAutoReply{b, turnPart{d}, evidencePart{d, name}, configPart{d, name}, sensitivePart{d}}, st
-	case preview && !inbound && !signer && !transport && !sensitive && !turns && !ownEv && !cfgw:
+	case sensitive && turns && ownEv && cfgw && svc && !inbound && !signer && !transport && !preview:
+		return hostAutoReply{b, turnPart{d}, evidencePart{d, name}, configPart{d, name}, sensitivePart{d},
+			serviceCallerPart{d}}, st
+	case preview && !inbound && !signer && !transport && !sensitive && !turns && !ownEv && !cfgw && !svc:
 		return hostPreview{b, previewPart{d}}, st
-	case !inbound && !signer && !transport && !sensitive && !preview && !turns && !ownEv && !cfgw:
+	case !inbound && !signer && !transport && !sensitive && !preview && !turns && !ownEv && !cfgw && !svc:
 		return hostBase{b}, st
 	}
 	// A row the combinations above do not cover is a bug in this file;

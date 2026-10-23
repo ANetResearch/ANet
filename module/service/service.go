@@ -31,6 +31,17 @@
 //	                                authenticated it (a relayed delegation)
 //	X-ANet-Call: <id>               the interaction id
 //	X-ANet-Capability: <id>         the capability being invoked
+//	X-ANet-Via: <via>               only on a call the node made for an
+//	                                agent as the caller (agent_tool)
+//
+// Two kinds of capability are not for the network (design v0.3.9 §A, §B;
+// module.ServiceBackend). One marked "internal": true is the node's own: it
+// is not listed among the capabilities, so no card, registration or peer
+// ever sees it, and only the kernel calls it (inbound.admit asks such a
+// capability whether a peer is admitted). One marked "agent_tool": true is
+// an ordinary capability that an agent running for a peer may also call as
+// that peer: X-ANet-Caller names the peer, X-ANet-Via says who made the
+// call, and the service applies the peer's own rights and rate limits.
 //
 // The token matters because a service on 127.0.0.1 is reachable by every
 // process on the host, including a local agent in the auto-reply sandbox
@@ -173,6 +184,37 @@ func (cfg *Config) checkCaps(rules backendconn.Rules) error {
 				}
 			}
 		}
+		if err := c.checkKind(); err != nil {
+			return fmt.Errorf("service: capability %q: %w", c.ID, err)
+		}
+	}
+	return nil
+}
+
+// maxInputSchemaBytes bounds a capability's input_schema: it is handed to
+// an agent with every list of its tools.
+const maxInputSchemaBytes = 16 << 10
+
+// checkKind refuses what internal, agent_tool and input_schema cannot say
+// together: an internal capability is the node's own, so it is not also an
+// agent's tool and has no price (nobody on the network calls it); an
+// input_schema is a JSON object of at most maxInputSchemaBytes.
+func (c *Capability) checkKind() error {
+	if c.Internal && c.AgentTool {
+		return errors.New(`"internal" and "agent_tool" exclude each other: an internal capability is called by this node only`)
+	}
+	if c.Internal && c.Price > 0 {
+		return errors.New(`an "internal" capability is never called from the network and has no price`)
+	}
+	if len(c.InputSchema) == 0 {
+		return nil
+	}
+	if len(c.InputSchema) > maxInputSchemaBytes {
+		return fmt.Errorf("input_schema is %d bytes, limit %d", len(c.InputSchema), maxInputSchemaBytes)
+	}
+	var obj map[string]json.RawMessage
+	if json.Unmarshal(c.InputSchema, &obj) != nil || obj == nil {
+		return errors.New("input_schema must be a JSON Schema object")
 	}
 	return nil
 }
@@ -238,6 +280,22 @@ type Capability struct {
 	TimeoutMS int `json:"timeout_ms,omitempty"`
 	// TokenFile overrides the module's token_file for this capability.
 	TokenFile string `json:"token_file,omitempty"`
+
+	// Internal marks a capability this node calls only itself: it is not
+	// among the capabilities the module offers, so it is on no card and in
+	// no registration, and a call from the network finds no such
+	// capability. The kernel reaches it through module.ServiceBackend, for
+	// inbound.admit (design v0.3.9 §A).
+	Internal bool `json:"internal,omitempty"`
+	// AgentTool marks a capability that an agent running for a peer may
+	// call as that peer (module.ServiceCaller, design v0.3.9 §B): the same
+	// backend and token as a call from the network, with X-ANet-Caller and
+	// X-ANet-Via set. Without it such a call is refused before anything is
+	// sent.
+	AgentTool bool `json:"agent_tool,omitempty"`
+	// InputSchema is the JSON Schema of the capability's arguments, an
+	// object; an agent is given it with the tool's description.
+	InputSchema json.RawMessage `json:"input_schema,omitempty"`
 }
 
 // tokenFileFor is the token file that applies to c, or "".
@@ -435,6 +493,9 @@ func (p *svcProvider) ID() string { return name }
 func (p *svcProvider) Capabilities(context.Context) ([]string, error) {
 	out := make([]string, 0, len(p.m.cfg.Capabilities))
 	for _, c := range p.m.cfg.Capabilities {
+		if c.Internal {
+			continue // the node's own: never offered (design v0.3.9 §A)
+		}
 		out = append(out, c.ID)
 	}
 	sort.Strings(out)
@@ -450,13 +511,9 @@ func (p *svcProvider) Describe(context.Context) (string, error) { return "", nil
 func (p *svcProvider) Health(context.Context) error { return nil }
 
 func (p *svcProvider) Invoke(ctx context.Context, call provider.Call) (effect.Effect, error) {
-	var target *Capability
-	for i := range p.m.cfg.Capabilities {
-		if p.m.cfg.Capabilities[i].ID == call.Capability {
-			target = &p.m.cfg.Capabilities[i]
-			break
-		}
-	}
+	// An internal capability is not one the network can call: it answers
+	// exactly as a capability this node does not have.
+	target := p.capability(call.Capability)
 	if target == nil {
 		return effect.Effect{}, fmt.Errorf("service: no capability %q on this node", call.Capability)
 	}
@@ -765,11 +822,8 @@ var _ provider.CapabilityProvider = (*svcProvider)(nil)
 
 // Price reports what a declared capability costs. Part of provider.Priced.
 func (p *svcProvider) Price(capability string) (uint64, bool) {
-	for i := range p.m.cfg.Capabilities {
-		c := &p.m.cfg.Capabilities[i]
-		if c.ID == capability && c.Price > 0 {
-			return c.Price, true
-		}
+	if c := p.capability(capability); c != nil && c.Price > 0 {
+		return c.Price, true
 	}
 	return 0, false
 }
@@ -791,12 +845,28 @@ const (
 	HeaderCaller     = "X-ANet-Caller"
 	HeaderCall       = "X-ANet-Call"
 	HeaderCapability = "X-ANet-Capability"
+	// HeaderVia is set only on a call made for an agent as the caller
+	// (CallAgentTool): who made it, for example "agent".
+	HeaderVia = "X-ANet-Via"
 )
 
+// capability is the capability id that the network may call: a declared one
+// that is not internal. Every lookup on behalf of a network call goes
+// through it, so an internal capability has no price, files, skill or
+// timeout anyone outside the node can learn.
 func (p *svcProvider) capability(id string) *Capability {
-	for i := range p.m.cfg.Capabilities {
-		if p.m.cfg.Capabilities[i].ID == id {
-			return &p.m.cfg.Capabilities[i]
+	if c := p.m.declared(id); c != nil && !c.Internal {
+		return c
+	}
+	return nil
+}
+
+// declared is the capability id as the configuration declares it, internal
+// or not.
+func (m *Module) declared(id string) *Capability {
+	for i := range m.cfg.Capabilities {
+		if m.cfg.Capabilities[i].ID == id {
+			return &m.cfg.Capabilities[i]
 		}
 	}
 	return nil

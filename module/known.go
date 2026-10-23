@@ -53,11 +53,13 @@ const (
 	GrantSensitivePaths  Grant = "SensitivePathsHost"
 
 	// The interfaces of the first three are in turn.go (MOD-3); PreviewHost
-	// is in preview.go (MOD-5).
+	// is in preview.go (MOD-5); ServiceCaller in servicecaller.go (design
+	// v0.3.9 §B).
 	GrantTurnHost         Grant = "TurnHost"
 	GrantOwnEvidenceHost  Grant = "OwnEvidenceHost"
 	GrantModuleConfigHost Grant = "ModuleConfigHost"
 	GrantPreviewHost      Grant = "PreviewHost"
+	GrantServiceCaller    Grant = "ServiceCaller"
 )
 
 // Info is one row of the name table.
@@ -182,12 +184,15 @@ var known = []Info{
 		Routes:      []string{"POST /autoreply", "POST /autoreply-test"},
 		CLICommands: []string{"autoreply"},
 		DoctorIDs:   []string{"auto_reply", "sandbox", "sandbox.agent", "sandbox.budget", "sandbox.egress", "sandbox.limits", "sandbox.upstream"},
+		// ServiceCaller: the turn tools of an admitted or trusted peer's run
+		// call the service module's agent_tool capabilities as that peer
+		// (design v0.3.9 §B, §E).
 		Grants: []Grant{GrantTurnHost, GrantOwnEvidenceHost, GrantSensitivePaths, GrantModuleConfigHost, GrantStateDir,
-			GrantRecordEvidence},
+			GrantRecordEvidence, GrantServiceCaller},
 		EvidenceTypes: []string{"anet.autoreply.invoked"},
 		StatusKeys:    []string{"auto_reply"},
-		AuditFields: []string{"trusted", "sandbox.egress_allow", "sandbox.runs_per_day", "sandbox.runs_per_peer_per_day",
-			"api_key_set"},
+		AuditFields: []string{"trusted", "admitted", "sandbox.egress_allow", "sandbox.runs_per_day",
+			"sandbox.runs_per_peer_per_day", "api_key_set"},
 		AbsenceReady: true},
 	{Name: "blackboard", Tag: "no_blackboard", Packages: []string{"module/blackboard"}, ConfigKey: "modules.blackboard",
 		Zh: "共享黑板", En: "shared blackboard",

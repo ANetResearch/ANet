@@ -82,8 +82,10 @@ func (d *Daemon) statusSummary(out map[string]any, lang a2ashape.Language) []a2a
 	in.Delivery = deliverySaid(asMap(out["delivery"]))
 
 	in.Inbound = d.inboundSaid(cfg, asMap(out["auto_reply"]) != nil)
+	in.InboundThen = d.admitSaid(cfg)
 
-	if ar := asMap(out["auto_reply"]); ar != nil && (str(ar, "untrusted") == untrustedSandbox || str(ar, "trusted") == trustedSandbox) {
+	if ar := asMap(out["auto_reply"]); ar != nil && (str(ar, "untrusted") == untrustedSandbox || str(ar, "trusted") == trustedSandbox ||
+		str(ar, "admitted") == trustedSandbox) {
 		in.Sandbox, in.SandboxBudget = sandboxSaid(asMap(ar["sandbox"]))
 	}
 

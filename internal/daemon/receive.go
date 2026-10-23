@@ -227,6 +227,9 @@ type rxMsg struct {
 	trust   string
 	hold    bool
 	release func()
+	// admitted marks a delegation accepted because inbound.admit admitted
+	// its sender (§5.2 row 3a); it is recorded with the acceptance.
+	admitted bool
 	// pendingRoute marks a message for a delegation held in the approval
 	// queue.
 	pendingRoute bool
@@ -1067,7 +1070,7 @@ func (d *Daemon) authorizeDelegate(m *rxMsg, now uint64) *rxResult {
 	case actHold:
 		m.hold = true
 	default:
-		m.trust, m.release = dec.trust, dec.release
+		m.trust, m.release, m.admitted = dec.trust, dec.release, dec.admitted
 	}
 	return nil
 }
@@ -1143,7 +1146,8 @@ func (d *Daemon) authorizeRedelivery(m *rxMsg, ix *interactions.Interaction) *rx
 // mayRedeliver reports whether the sender of a redelivered delegation for
 // ix, the interaction it was accepted for, may still have it acted on: the
 // same request, a sender not on the deny list, and on a trust=peer
-// interaction one still allowed [redteam:F7].
+// interaction one still allowed, or still admitted by inbound.admit
+// [redteam:F7].
 func (d *Daemon) mayRedeliver(m *rxMsg, ix *interactions.Interaction) bool {
 	if m.requestCID == "" || m.requestCID != ix.RequestCID {
 		return false
@@ -1152,7 +1156,7 @@ func (d *Daemon) mayRedeliver(m *rxMsg, ix *interactions.Interaction) bool {
 	if ps.denied(m.from) {
 		return false
 	}
-	if ix.Trust == interactions.TrustPeer && !ps.allowed(m.from) {
+	if ix.Trust == interactions.TrustPeer && !d.stillAccepted(ix, ps) {
 		return false
 	}
 	return true
@@ -1161,8 +1165,9 @@ func (d *Daemon) mayRedeliver(m *rxMsg, ix *interactions.Interaction) bool {
 // authorizeMessage checks an anet.message/1: the interaction exists (or is
 // held in the approval queue), its peer is the sender, in either role, and
 // the sender is not denied. On a trust=peer interaction the sender must
-// still be allowed; on a public_cap interaction only cancel, end_request
-// and payment messages are taken.
+// still be allowed, or for a text task still admitted by inbound.admit
+// (asked again, through its cache); on a public_cap interaction only
+// cancel, end_request and payment messages are taken.
 //
 // A message for an interaction this node does not hold is refused at once,
 // task_not_found, whoever sent it and by whichever path (engine ENG-V10):
@@ -1222,7 +1227,7 @@ func (d *Daemon) authorizeMessage(m *rxMsg) *rxResult {
 		r := d.drop(dropNotPeer, fmt.Errorf("%s belongs to %s", m.ix, ix.PeerAID))
 		return &r
 	}
-	if ix.Role == interactions.RoleInbound && ix.Trust == interactions.TrustPeer && !ps.allowed(m.from) {
+	if ix.Role == interactions.RoleInbound && ix.Trust == interactions.TrustPeer && !d.stillAccepted(ix, ps) {
 		r := d.drop(dropNotAllowed, nil)
 		return &r
 	}

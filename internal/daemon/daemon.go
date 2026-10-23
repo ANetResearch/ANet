@@ -140,6 +140,9 @@ type Daemon struct {
 	inAgg            inboundAgg
 	peerLists        peerLists
 	untrustedBackend atomic.Bool
+	// admitted caches the answers of the service named by inbound.admit
+	// (inbound_admit.go).
+	admitted admitCache
 	// bus publishes interaction changes to watchers (eventbus.go).
 	bus eventBus
 	// inFeed is the modules subscribed to inbound tasks (inbound_tasks.go).

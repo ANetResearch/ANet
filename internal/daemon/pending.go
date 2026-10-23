@@ -270,7 +270,7 @@ func (d *Daemon) ApprovePending(ixID string) (*interactions.Interaction, error) 
 	if err := d.notePeer(item.FromAID, kel, keys, "", false); err != nil {
 		log.Printf("anet: record %s's identity after approval: %v", item.FromAID, err)
 	}
-	d.recordReceived(ixID, item.FromAID, interactions.TrustApproved, requestCID, capID)
+	d.recordReceived(ixID, item.FromAID, interactions.TrustApproved, requestCID, capID, false)
 	d.recordPolicyChange("inbound.pending", ixID, "approved", map[string]any{"requester_aid": item.FromAID})
 	d.publishState(ixID)
 	if isCap {

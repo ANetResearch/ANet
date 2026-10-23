@@ -1003,6 +1003,7 @@ var labels = map[string]phrasePair{
 	// where the sandbox stands.
 	"autoreply.backend":   {"自动回复", "auto-reply"},
 	"autoreply.trusted":   {"信任对端", "trusted"},
+	"autoreply.admitted":  {"已准入", "admitted"},
 	"autoreply.untrusted": {"未信任", "untrusted"},
 	"autoreply.key":       {"API key", "API key"},
 	"autoreply.budget":    {"预算", "budget"},
@@ -1302,6 +1303,9 @@ type StatusInput struct {
 	HubRegistered bool
 	Delivery      *Said
 	Inbound       Said
+	// InboundThen is a sentence that follows the inbound line (inbound.admit.* while inbound.admit is
+	// set).
+	InboundThen *Said
 	// Sandbox and SandboxBudget make the sandbox line, shown when either
 	// trust mode is sandbox.
 	Sandbox       *Said
@@ -1439,7 +1443,7 @@ func StatusSummary(in StatusInput, lang Language) []SummaryLine {
 	}
 	add(TopicHub, hub, in.HubThen)
 	add(TopicDelivery, in.Delivery, nil)
-	add(TopicInbound, &in.Inbound, nil)
+	add(TopicInbound, &in.Inbound, in.InboundThen)
 	add(TopicSandbox, in.Sandbox, in.SandboxBudget)
 	add(TopicPayments, &in.Payments, nil)
 	privacy := PrivacyLine(in)
@@ -2244,6 +2248,12 @@ var reasonTable = []Row{
 		Zh:       "配置项 {key} 的值不合法：{rule}；请改正后重试。",
 		En:       "The setting {key} is not valid: {rule}; fix it and try again.",
 		NextKind: NextChangeInput},
+	// design v0.3.9 §B: a service call made for an agent as the caller, to a capability the service
+	// configuration does not mark agent_tool (module.ErrNotAgentTool).
+	{Code: "not_agent_tool", Class: ClassC,
+		Zh:       "能力 {capability} 不是本节点的 agent 工具（服务配置中没有标记 agent_tool），没有调用；请改用本节点列出的工具。",
+		En:       "The capability {capability} is not an agent tool of this node (the service configuration does not mark it agent_tool) and was not called; use one of the tools this node lists.",
+		NextKind: NextChangeInput},
 	{Code: "module_absent", Class: ClassC | ClassE, A2A: A2A{Err: A2AUnsupportedOperation},
 		Zh:       "{why}，什么都没有做；{fix}。",
 		En:       "{why}, so nothing was done; {fix}.",
@@ -2325,6 +2335,13 @@ var reasonTable = []Row{
 	{Code: "sandbox.trusted_sandbox", Class: ClassS, Level: LevelInfo,
 		Zh: "信任的对端也在沙箱中运行本机 agent，不计入预算。",
 		En: "Trusted peers also run local agents in the sandbox, outside the run budget."},
+	// design v0.3.9 §A: auto_reply.admitted, on `anet autoreply show`.
+	{Code: "sandbox.admitted_direct", Class: ClassS, Level: LevelInfo,
+		Zh: "inbound.admit 准入的对端直接以你的用户身份运行本机 agent，等同授予它们你的用户权限。",
+		En: "Peers that inbound.admit admits run local agents directly as your user, which is the same as giving them your user's rights."},
+	{Code: "sandbox.admitted_sandbox", Class: ClassS, Level: LevelInfo,
+		Zh: "inbound.admit 准入的对端在沙箱中运行本机 agent，计入运行预算。",
+		En: "Peers that inbound.admit admits run local agents in the sandbox, within the run budget."},
 	{Code: "no_bwrap", Class: ClassS, Level: LevelFail,
 		Zh: "本机没有 bubblewrap，沙箱不可用；请安装 bubblewrap 包后重试。",
 		En: "bubblewrap is not installed, so the sandbox is unavailable; install the bubblewrap package and try again."},
@@ -2695,6 +2712,10 @@ var reasonTable = []Row{
 	{Code: "trusted_direct_confirm", Class: ClassT,
 		Zh: "改回直接运行：信任的对端将以你的用户身份运行本机 agent，等同授予你的用户权限。",
 		En: "Switch back to direct runs: trusted peers will run local agents as your user, which is the same as giving them your user's rights."},
+	// design v0.3.9 §A: `anet autoreply set --admitted direct`.
+	{Code: "autoreply.confirm_admitted_direct", Class: ClassT,
+		Zh: "直接运行已准入对端的任务：inbound.admit 准入的每个对端都将不经沙箱、以你的用户身份运行本机 agent，等同授予它们你的用户权限。",
+		En: "Run admitted peers' tasks directly: every peer that inbound.admit admits will run local agents without the sandbox, as your user, which is the same as giving them your user's rights."},
 	{Code: "autoreply.prompt.api_key", Class: ClassT,
 		Zh: "API key：",
 		En: "API key:"},
@@ -2817,6 +2838,16 @@ var reasonTable = []Row{
 	{Code: "inbound.summary.open", Class: ClassS, Level: LevelOK,
 		Zh: "接受任何人的任务；公开 {m} 项能力；自动回复{auto_reply}。",
 		En: "Takes tasks from anyone; {m} public capabilities; auto-reply {auto_reply}."},
+	// design v0.3.9 §A: what follows the inbound line while inbound.admit is set, by auto_reply.admitted.
+	{Code: "inbound.admit.off", Class: ClassI,
+		Zh: "名单外的对端经本机能力 {capability} 准入后也可发来任务；自动回复按未信任对端处理它们的任务。",
+		En: "Peers on no list may also send tasks once the local capability {capability} admits them; auto-reply treats their tasks as untrusted peers' tasks."},
+	{Code: "inbound.admit.direct", Class: ClassI,
+		Zh: "名单外的对端经本机能力 {capability} 准入后也可发来任务；自动回复直接运行它们的任务，不经沙箱。",
+		En: "Peers on no list may also send tasks once the local capability {capability} admits them; auto-reply runs their tasks directly, without the sandbox."},
+	{Code: "inbound.admit.sandbox", Class: ClassI,
+		Zh: "名单外的对端经本机能力 {capability} 准入后也可发来任务；自动回复在沙箱中运行它们的任务，计入运行预算。",
+		En: "Peers on no list may also send tasks once the local capability {capability} admits them; auto-reply runs their tasks in the sandbox, within the run budget."},
 	{Code: "preview.on", Class: ClassS, Level: LevelInfo,
 		Zh: "预览开：要预览的请求方每 5 秒以上收到一帧答复片段。",
 		En: "Previews on: requesters who ask get a snapshot of the reply every 5 seconds or more."},

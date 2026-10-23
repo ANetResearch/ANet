@@ -36,7 +36,8 @@ package daemon
 // not for the auto-reply agent.
 //
 // What a module receives is the task's A2A projection with its latest
-// message's files inline (inlineLatest), anet.peer_aid and anet.trusted in
+// message's files inline (inlineLatest), anet.peer_aid, anet.trusted and
+// anet.admitted (inbound.admit admits the peer now, design v0.3.9 §A) in
 // its metadata, and a context id
 // that is not the requester's (an internal note item): backendContextID(peer, context).
 // An agent behind a backend (Hermes, for one) keeps one conversation per
@@ -149,8 +150,10 @@ func (f *inboundFeed) wake() {
 // backendTakes is the one decision of which inbound tasks a module's
 // backend may have: ok says it may, trusted whether the peer is on the
 // trust list. trust is the interaction's admission (interactions.Trust*);
-// untrustedDeclared is the DeclareUntrustedBackend declaration.
-func backendTakes(peer, trust string, isCapability bool, ps peerSets, untrustedDeclared bool) (trusted, ok bool) {
+// untrustedDeclared is the DeclareUntrustedBackend declaration; admitted
+// says inbound.admit admits the peer now (admittedFor), which names it as
+// the allow list would.
+func backendTakes(peer, trust string, isCapability bool, ps peerSets, untrustedDeclared, admitted bool) (trusted, ok bool) {
 	if isCapability || trust == interactions.TrustPublicCap || peer == "" || ps.denied(peer) {
 		return false, false
 	}
@@ -160,7 +163,7 @@ func backendTakes(peer, trust string, isCapability bool, ps peerSets, untrustedD
 	// Not trusted: only a backend declared for untrusted peers, and only a
 	// peer someone named when the task came — never a stranger accepted
 	// under policy open (nor a row from before admissions were recorded).
-	named := trust == interactions.TrustPeer || trust == interactions.TrustApproved
+	named := trust == interactions.TrustPeer || trust == interactions.TrustApproved || admitted
 	return false, untrustedDeclared && named
 }
 
@@ -170,7 +173,9 @@ func (d *Daemon) backendAnswers(th Thread) bool {
 	if th.Role != string(interactions.RoleInbound) || !d.inFeed.active() {
 		return false
 	}
-	_, ok := backendTakes(th.Peer, th.Trust, th.IsCapability, d.readPeers(), d.untrustedBackend.Load())
+	ps := d.readPeers()
+	_, ok := backendTakes(th.Peer, th.Trust, th.IsCapability, ps, d.untrustedBackend.Load(),
+		d.admittedFor(th.Peer, th.IsCapability, ps))
 	return ok
 }
 
@@ -217,7 +222,9 @@ func (d *Daemon) inboundTaskNow(id string) (a2ashape.Task, bool, error) {
 	if ix.Role != interactions.RoleInbound || ix.IsTerminal() {
 		return a2ashape.Task{}, false, nil
 	}
-	trusted, ok := backendTakes(ix.PeerAID, ix.Trust, ix.IsCapability, d.readPeers(), d.untrustedBackend.Load())
+	ps := d.readPeers()
+	admitted := d.admittedFor(ix.PeerAID, ix.IsCapability, ps)
+	trusted, ok := backendTakes(ix.PeerAID, ix.Trust, ix.IsCapability, ps, d.untrustedBackend.Load(), admitted)
 	if !ok {
 		return a2ashape.Task{}, false, nil
 	}
@@ -229,7 +236,7 @@ func (d *Daemon) inboundTaskNow(id string) (a2ashape.Task, bool, error) {
 		return a2ashape.Task{}, false, nil
 	}
 	d.inlineLatest(ix.ID, &view)
-	return inboundView(ix, view, trusted), true, nil
+	return inboundView(ix, view, trusted, admitted), true, nil
 }
 
 // inboundTasks subscribes to inbound tasks until ctx or the daemon ends.
@@ -307,7 +314,8 @@ func (d *Daemon) feedInbound(ctx context.Context, out chan<- module.Task, seen m
 	untrusted := d.untrustedBackend.Load()
 	live := make(map[string]bool, len(list))
 	for _, ix := range list {
-		trusted, ok := backendTakes(ix.PeerAID, ix.Trust, ix.IsCapability, ps, untrusted)
+		admitted := d.admittedFor(ix.PeerAID, ix.IsCapability, ps)
+		trusted, ok := backendTakes(ix.PeerAID, ix.Trust, ix.IsCapability, ps, untrusted, admitted)
 		if !ok {
 			continue
 		}
@@ -331,7 +339,7 @@ func (d *Daemon) feedInbound(ctx context.Context, out chan<- module.Task, seen m
 			continue
 		}
 		d.inlineLatest(ix.ID, &view)
-		t := inboundView(ix, view, trusted)
+		t := inboundView(ix, view, trusted, admitted)
 		wait := time.NewTimer(inboundFeedInterval)
 		select {
 		case out <- t:
@@ -396,14 +404,15 @@ func (d *Daemon) inlineLatest(ixID string, t *a2ashape.Task) {
 }
 
 // inboundView is the task as a module sees it: the projection t of ix,
-// anet.peer_aid and anet.trusted, and the backend's context id in place of
-// the requester's.
-func inboundView(ix *interactions.Interaction, t a2ashape.Task, trusted bool) a2ashape.Task {
+// anet.peer_aid, anet.trusted and anet.admitted, and the backend's context
+// id in place of the requester's.
+func inboundView(ix *interactions.Interaction, t a2ashape.Task, trusted, admitted bool) a2ashape.Task {
 	if t.Metadata == nil {
 		t.Metadata = map[string]any{}
 	}
 	t.Metadata[a2ashape.KeyPeerAID] = ix.PeerAID
 	t.Metadata[a2ashape.KeyTrusted] = trusted
+	t.Metadata[a2ashape.KeyAdmitted] = admitted
 	cid := backendContextID(ix.PeerAID, t.ContextID)
 	t.ContextID = cid
 	for i := range t.History {
@@ -435,7 +444,9 @@ func (d *Daemon) replyInbound(ctx context.Context, taskID string, msg a2ashape.M
 	if ix.Role != interactions.RoleInbound {
 		return a2ashape.Task{}, notFound
 	}
-	trusted, ok := backendTakes(ix.PeerAID, ix.Trust, ix.IsCapability, d.readPeers(), d.untrustedBackend.Load())
+	ps := d.readPeers()
+	admitted := d.admittedFor(ix.PeerAID, ix.IsCapability, ps)
+	trusted, ok := backendTakes(ix.PeerAID, ix.Trust, ix.IsCapability, ps, d.untrustedBackend.Load(), admitted)
 	if !ok {
 		return a2ashape.Task{}, notFound
 	}
@@ -469,5 +480,5 @@ func (d *Daemon) replyInbound(ctx context.Context, taskID string, msg a2ashape.M
 	if err != nil {
 		return a2ashape.Task{}, err
 	}
-	return inboundView(cur, view, trusted), nil
+	return inboundView(cur, view, trusted, admitted), nil
 }

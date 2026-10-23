@@ -262,30 +262,34 @@ func TestBackendTakes(t *testing.T) {
 	ps := peerSets{allow: map[string]bool{"al": true}, trust: map[string]bool{"tr": true, "dn": true},
 		deny: map[string]bool{"dn": true}}
 	cases := []struct {
-		name, peer, trust   string
-		capability, declare bool
-		trusted, ok         bool
+		name, peer, trust             string
+		capability, declare, admitted bool
+		trusted, ok                   bool
 	}{
-		{"trusted", "tr", interactions.TrustPeer, false, false, true, true},
-		{"trusted now, accepted under open", "tr", interactions.TrustPublic, false, false, true, true},
-		{"allowed", "al", interactions.TrustPeer, false, false, false, false},
-		{"allowed, declared", "al", interactions.TrustPeer, false, true, false, true},
-		{"approved, declared", "ap", interactions.TrustApproved, false, true, false, true},
-		{"stranger under open, declared", "st", interactions.TrustPublic, false, true, false, false},
-		{"no admission recorded, declared", "st", "", false, true, false, false},
-		{"denied although trusted", "dn", interactions.TrustPeer, false, true, false, false},
-		{"capability call", "tr", interactions.TrustPeer, true, true, false, false},
-		{"public capability", "tr", interactions.TrustPublicCap, false, true, false, false},
-		{"no peer", "", interactions.TrustPeer, false, true, false, false},
+		{"trusted", "tr", interactions.TrustPeer, false, false, false, true, true},
+		{"trusted now, accepted under open", "tr", interactions.TrustPublic, false, false, false, true, true},
+		{"allowed", "al", interactions.TrustPeer, false, false, false, false, false},
+		{"allowed, declared", "al", interactions.TrustPeer, false, true, false, false, true},
+		{"approved, declared", "ap", interactions.TrustApproved, false, true, false, false, true},
+		{"stranger under open, declared", "st", interactions.TrustPublic, false, true, false, false, false},
+		{"no admission recorded, declared", "st", "", false, true, false, false, false},
+		{"denied although trusted", "dn", interactions.TrustPeer, false, true, false, false, false},
+		{"capability call", "tr", interactions.TrustPeer, true, true, false, false, false},
+		{"public capability", "tr", interactions.TrustPublicCap, false, true, false, false, false},
+		{"no peer", "", interactions.TrustPeer, false, true, false, false, false},
+		// inbound.admit (design v0.3.9 §A): an admitted peer counts as named.
+		{"admitted, declared", "st", interactions.TrustPublic, false, true, true, false, true},
+		{"admitted, not declared", "st", interactions.TrustPeer, false, false, true, false, false},
+		{"admitted but denied", "dn", interactions.TrustPeer, false, true, true, false, false},
 	}
 	for _, c := range cases {
-		trusted, ok := backendTakes(c.peer, c.trust, c.capability, ps, c.declare)
+		trusted, ok := backendTakes(c.peer, c.trust, c.capability, ps, c.declare, c.admitted)
 		if trusted != c.trusted || ok != c.ok {
 			t.Errorf("%s: trusted %v ok %v, want %v %v", c.name, trusted, ok, c.trusted, c.ok)
 		}
 	}
 	// A deny list that cannot be read refuses everyone.
-	if _, ok := backendTakes("tr", interactions.TrustPeer, false, peerSets{trust: map[string]bool{"tr": true}}, true); ok {
+	if _, ok := backendTakes("tr", interactions.TrustPeer, false, peerSets{trust: map[string]bool{"tr": true}}, true, true); ok {
 		t.Error("delivered with the deny list unreadable")
 	}
 }

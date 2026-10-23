@@ -45,7 +45,9 @@ func (d *Daemon) publicOnly(caps []string) []string {
 	remote := d.remoteCheck()
 	out := make([]string, 0, len(caps))
 	for _, c := range caps {
-		if id := strings.TrimSpace(c); public[id] && !remote.refused(id) {
+		// An internal capability of the service module is never published,
+		// whatever the lists say (design v0.3.9 §A).
+		if id := strings.TrimSpace(c); public[id] && !remote.refused(id) && !d.internalCapability(id) {
 			out = append(out, c)
 		}
 	}
