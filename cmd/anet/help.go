@@ -93,6 +93,7 @@ func helpSections() []helpSection {
 			{"autoreply set --egress-allow host[,host…]", "沙箱可连接的主机；增加主机要在终端确认", "the hosts the sandbox may reach; adding one asks on the terminal", false},
 			{"autoreply set --admitted off|direct|sandbox", "inbound.admit 准入的对端的任务如何运行（缺省 off）；direct 要在终端确认", "how tasks of peers that inbound.admit admits run (off by default); direct asks on the terminal", false},
 			{"autoreply show|off|test [\"q\"]", "查看、关闭或在本机试一次自动答复", "show, turn off, or try the auto-reply on this machine", false},
+			{"runner serve --socket PATH --allow-user NAME|UID [--agent ID[=PATH]]…", "以另一个本机账户运行自动答复的 agent（Linux 与 macOS；配合 auto_reply.runner）", "run the auto-reply agent as another local account (Linux and macOS; with auto_reply.runner)", false},
 			{"preview [off|on|with_reasoning]", "要预览的请求方能在你写答复时看到片段（缺省关）；with_reasoning 同时给推理，要在自己的终端确认", "let requesters that ask see your reply as you write it (off unless you turn it on); with_reasoning also gives the reasoning and is confirmed in your own terminal", false},
 		}},
 		{"付款", "Payments", []helpEntry{
@@ -120,6 +121,7 @@ func helpSections() []helpSection {
 			{"agents unwire [--all|<tool>…] [--a2a <aid>…]", "撤销 wire 写入的内容", "remove what wire added", false},
 			{"agents", "哪些编码 agent 已接入", "which coding agents are wired", false},
 			{"mcp", "经 stdio 提供 MCP 服务（由 anet agents wire 登记）", "serve MCP over stdio (anet agents wire registers it)", false},
+			{"turn-mcp", "经 stdio 提供一次运行的任务工具（由本节点运行的 agent 启动）", "serve the turn tools of one run over stdio (started by an agent this node runs)", false},
 			{"guide [<topic>] [--list]", "给编码 agent 的使用指南（本版本；主题 overview、setup、status）", "the guide for coding agents, of this release (topics overview, setup, status)", false},
 			{"console [--url]", "打开本机控制台；--url 只打印一次性网址（60 秒内有效）", "open the local console; --url prints a single-use address (valid 60 seconds)", true},
 		}},

@@ -71,6 +71,11 @@ type AutoReplyConfig struct {
 	// Sandbox configures the sandbox's network and its run budget (LEC §3.2, ux §2.2); absent, the
 	// defaults apply: no network beyond the model route, and the default budget.
 	Sandbox *AutoReplySandboxConfig `json:"sandbox,omitempty"`
+	// Runner, ModelProxy and AdmittedBudget run direct runs as another local account, keep the model
+	// keys with the node and bound what admitted peers' runs use of them (runner_config.go).
+	Runner         *AutoReplyRunnerConfig     `json:"runner,omitempty"`
+	ModelProxy     *AutoReplyModelProxyConfig `json:"model_proxy,omitempty"`
+	AdmittedBudget *AutoReplyAdmittedBudget   `json:"admitted_budget,omitempty"`
 }
 
 // AutoReplySandboxConfig is auto_reply.sandbox.
@@ -363,6 +368,9 @@ func checkAutoReplyConfig(c *AutoReplyConfig, dataDir string) *a2ashape.Refusal 
 		return r
 	}
 	if r := checkRunBudgets(c); r != nil {
+		return r
+	}
+	if r := checkRunnerConfig(c); r != nil {
 		return r
 	}
 	return checkWorkDir(c, dataDir)

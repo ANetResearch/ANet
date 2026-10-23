@@ -229,7 +229,11 @@ func rewriteInjectBody(up *egressUpstream, kind egressRouteKind, body []byte) ([
 	if r != nil {
 		return nil, r
 	}
-	obj["model"] = up.Model // BP-2: always the pinned model, never refused
+	// BP-2: always the pinned model, never refused. A sandboxed run always has one (resolveEgressUpstream);
+	// a model proxy upstream without one forwards the request's own (model_proxy.go).
+	if up.Model != "" {
+		obj["model"] = up.Model
+	}
 	out, err := encodeJSONObject(obj)
 	if err != nil {
 		return nil, refuseEgress(http.StatusBadRequest, "policy_encoding", nil)

@@ -32,6 +32,8 @@ var commandTree = []string{
 	"peers", "inbound", "autoreply", "preview", "retention",
 	"pay", "payments", "payees", "balance", "redeem", "reconcile", "audit-hub", "audit", "verify",
 	"agents", "mcp", "guide", "console",
+	// v0.3.9 (design §C, §E): the auto-reply runner and the turn tools' MCP server.
+	"runner", "turn-mcp",
 }
 
 // pendingCommands are the ux §4.2 commands this binary does not have yet, each with the work package

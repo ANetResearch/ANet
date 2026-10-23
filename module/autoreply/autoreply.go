@@ -88,6 +88,9 @@ type replyContext struct {
 	// written so far — the whole text and the whole reasoning, not a delta (CUX-P5, previewOffer). It is
 	// set only when CUX-P4 holds for the turn; a backend that cannot stream ignores it.
 	Preview func(text, reasoning string)
+	// RunEnv are the run's own ANET_TURN_* and ANET_MODEL_* variables, which a direct run's environment
+	// gets besides the allowlisted one (direct_run.go, withRunEnv).
+	RunEnv []string
 }
 
 // stripDoneSentinel reports whether reply carries the completion marker and returns the reply with the
@@ -178,6 +181,14 @@ type autoReplyModule struct {
 	sbRefused sandboxRefused
 	budget    runBudget
 	swept     sync.Once
+
+	// svc is the service module's seam for the turn tools (module.ServiceCaller), nil when the Host
+	// grants none; proxy is auto_reply.model_proxy's listener; admitted counts admitted peers' runs
+	// (direct_run.go).
+	svc      module.ServiceCaller
+	proxyMu  sync.Mutex
+	proxy    *modelProxy
+	admitted runBudget
 }
 
 // newAutoReplyModule is the module's factory; the daemon passes the raw auto_reply block.
@@ -210,6 +221,9 @@ func (m *autoReplyModule) Start(ctx context.Context, h module.Host) error {
 		return fmt.Errorf("autoreply: the Host grants no ModuleConfigHost")
 	}
 	m.host, m.ctx = h, ctx
+	if svc, ok := h.(module.ServiceCaller); ok {
+		m.svc = svc // optional: without it, runs get no turn tools
+	}
 	state := h.StateDir()
 	if state == "" {
 		return fmt.Errorf("autoreply: the Host grants no state directory")
@@ -243,6 +257,7 @@ func (m *autoReplyModule) Stop(context.Context) error {
 	}
 	m.mu.Unlock()
 	m.wg.Wait()
+	m.closeModelProxy()
 	return nil
 }
 
@@ -258,6 +273,9 @@ func (m *autoReplyModule) startLoop(cfg AutoReplyConfig) error {
 	// Before the loop's first sandboxed run: what an earlier process's runs left (LEC SB-9).
 	if cfg.Backend == "exec" {
 		m.sweepSandboxLeftovers()
+	}
+	if err := m.ensureModelProxy(cfg); err != nil {
+		return err
 	}
 	interval := autoReplyInterval
 	backend := cfg.Backend
@@ -299,6 +317,7 @@ func (m *autoReplyModule) stopLoop() {
 		m.stop = nil
 	}
 	m.cfg = nil
+	m.closeModelProxy()
 }
 
 // current is the configuration in force, nil when auto-reply is off.
@@ -889,6 +908,10 @@ func (m *autoReplyModule) invokeReplier(ctx context.Context, cfg AutoReplyConfig
 		if res.Sandboxed {
 			run.Kind = sandboxKind
 		}
+	} else if gate.mode == modeDirect && gate.exec {
+		// A trusted or an admitted peer's direct run: its model key and turn token, and the runner when
+		// one is configured (direct_run.go).
+		reply, err = m.directReply(ctx, cfg, replier, th, rc, turns)
 	} else {
 		reply, err = replier.Reply(ctx, rc, turns)
 	}

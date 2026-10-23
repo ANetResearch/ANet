@@ -18,6 +18,13 @@ var testMainHooks = map[string]func(args []string) int{}
 // testRealHome is the home the test binary was started with, where TestMain moved HOME (macOS).
 var testRealHome string
 
+// testGoCache is the go command's build cache of the user who runs the tests, read before TestMain moves
+// the cache dir: a test that builds a helper program (fakeAgent) uses it rather than a cold one.
+var testGoCache string
+
+// testCleanups run after the tests, for what a helper made once for the whole run.
+var testCleanups []func()
+
 // TestMain isolates the exec work dirs of this package's tests and hosts the sandbox probe.
 //
 // Exec auto-reply runs create per-interaction work dirs under the user cache dir
@@ -45,6 +52,10 @@ func TestMain(m *testing.M) {
 		fmt.Fprintln(os.Stderr, "started as an agent without a probe request on stdin")
 		os.Exit(2)
 	}
+	testGoCache = os.Getenv("GOCACHE")
+	if uc, err := os.UserCacheDir(); err == nil && testGoCache == "" {
+		testGoCache = filepath.Join(uc, "go-build")
+	}
 	cache, err := os.MkdirTemp("", "anet-test-cache-")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -65,6 +76,9 @@ func TestMain(m *testing.M) {
 		_ = os.Setenv("LocalAppData", filepath.Join(cache, "localappdata"))
 	}
 	code := m.Run()
+	for _, f := range testCleanups {
+		f()
+	}
 	_ = os.RemoveAll(cache)
 	os.Exit(code)
 }

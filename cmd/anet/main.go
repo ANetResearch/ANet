@@ -127,6 +127,14 @@ func main() {
 		// framing error to the client.
 		fail(requireModule(layout, "mcp")) // MOD-F3: before the daemon, before anything is printed
 		fail(runMCP(layout, explicit))
+	case "turn-mcp":
+		// The turn tools of one run, over stdio, for an agent this node runs (design v0.3.9 §E). It
+		// reads ANET_TURN_URL and ANET_TURN_TOKEN and nothing of a data directory.
+		fail(runTurnMCP())
+	case "runner":
+		// The auto-reply runner, run as the account the agent runs as (design v0.3.9 §C); it uses no
+		// data directory and no identity.
+		fail(runRunner(rest))
 	case "verify":
 		// Above the daemon resolution on purpose: checking a receipt takes
 		// a receipt and a key history and nothing else. Requiring a running
@@ -1056,6 +1064,8 @@ var knownFlags = map[string][]string{
 	"logs":     {"all"},
 	"help":     {"all"},
 	"mcp":      {},
+	"turn-mcp": {},
+	"runner":   {"socket", "allow-user", "socket-group", "agent", "max-jobs", "workspace", "keep-days"},
 	"version":  {},
 	"update":   {"check", "base", "verify-dir", "installed"},
 	"init":     {"json", "without", "with", "shell-controller", "yes"},

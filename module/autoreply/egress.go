@@ -76,6 +76,22 @@ type egressStats struct {
 	connDown      int64
 	// upSpent, downSpent: the run's tunnels reached their allowance of bytes sent or received (EG-4).
 	upSpent, downSpent bool
+	// maxRequests and maxUpload replace egressMaxRequests and egressMaxInjectUpload when set (the model
+	// proxy's runs, model_proxy.go).
+	maxRequests int
+	maxUpload   int64
+}
+
+// limits are the run's allowance of model requests and of injected upload bytes.
+func (s *egressStats) limits() (int, int64) {
+	n, up := egressMaxRequests, int64(egressMaxInjectUpload)
+	if s.maxRequests > 0 {
+		n = s.maxRequests
+	}
+	if s.maxUpload > 0 {
+		up = s.maxUpload
+	}
+	return n, up
 }
 
 // egressSummary is the egress member of anet.autoreply.invoked (LEC §2.5). It names hosts and codes and
@@ -101,10 +117,11 @@ type egressConnectSummary struct {
 func (s *egressStats) reserve(n int) string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	maxReq, maxUp := s.limits()
 	switch {
-	case s.requests >= egressMaxRequests:
+	case s.requests >= maxReq:
 		return "run_budget_requests"
-	case s.bytesUp+int64(n) > egressMaxInjectUpload:
+	case s.bytesUp+int64(n) > maxUp:
 		return "run_budget_upload"
 	}
 	s.requests++
@@ -116,7 +133,8 @@ func (s *egressStats) reserve(n int) string {
 func (s *egressStats) requestsLeft() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.requests < egressMaxRequests
+	maxReq, _ := s.limits()
+	return s.requests < maxReq
 }
 
 func (s *egressStats) down(n int) {
