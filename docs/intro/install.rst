@@ -84,7 +84,9 @@ is the single password prompt of ``sudo`` described in
 
 Before anything is written outside a temporary directory, the installer
 performs these checks. A failure of any check ends the installation and
-leaves the installed version unchanged.
+leaves the installed version unchanged. The one exception concerns checks 1
+and 2: a download source whose manifest fails them is passed over, and the
+next source is checked in the same way (see :ref:`intro-install-hosts`).
 
 1. ``release.json`` carries a valid signature by the ANet release key.
 2. The manifest has not expired.
@@ -310,7 +312,10 @@ in order:
    * - ``npmjs``
      - ``https://registry.npmjs.org``: the same tarball.
    * - ``jsDelivr``
-     - ``https://cdn.jsdelivr.net/npm/<package>@latest/dl/<file>``.
+     - ``https://cdn.jsdelivr.net/npm/<package>``: the installer reads the
+       latest version from ``<package>@latest/package.json`` and then
+       downloads every file from ``<package>@<version>/dl/<file>``, so that
+       the manifest and its signature come from the same version.
    * - ``agentnetwork.org.cn``, ``hub.agentnetwork.org.cn``
      - The project hosts: ``https://agentnetwork.org.cn/dl/<file>`` and
        ``https://hub.agentnetwork.org.cn/dl/<file>``.
@@ -332,8 +337,14 @@ accepted:
 * A source that does not serve a release is passed over: an HTTP error, a
   time-out, an HTML page where a manifest is expected, a missing file, a
   redirect to a host that the source does not use, or a malformed tarball.
-* A source that serves a release that fails a check ends the installation.
-  The installer does not move on to another source.
+* A source whose manifest does not verify is passed over, and the log
+  records the reason in one line: a signature that is not by the release
+  key, or a manifest that has expired. The next source is checked in the
+  same way. The installation ends only when no source serves a manifest that
+  verifies; the message names the sources that were not verified.
+* A release that verifies and then fails a later check, such as a SHA-256
+  digest or the version that the binary reports, ends the installation. The
+  installer does not move on to another source.
 * A source whose release is older than the installer itself, or than the
   ``anet`` already installed, is a mirror that lags behind. It is passed over
   while another source serves the current release.
@@ -767,7 +778,12 @@ an HTTP error, returns a page instead of a file, lacks a file or serves another
 version, is passed over for the next source in one line. A source only
 determines where the files come from: every file is checked as described in
 :ref:`intro-install-windows-checks`, and a file that fails a check ends the
-installation, whichever source served it. ``-Base`` replaces the list of
+installation, whichever source served it. The one exception is a
+``release.json`` that the downloaded binary does not verify, because its
+signature is not by the release key or it has expired: that source is passed
+over in one line, and the manifest and signature of the next source that
+serves the release are verified instead. The installation ends only when no
+source serves a manifest that verifies. ``-Base`` replaces the list of
 sources, and so does the environment variable ``ANET_INSTALL_BASE`` when
 ``-Base`` is not given.
 
@@ -1133,18 +1149,35 @@ checks. A node that runs an earlier version is stopped and started again with
 the new binary; with ``-NoStart``, it keeps running, and the summary gives the
 commands that restart it.
 
+.. _intro-install-windows-uninstall:
+
 Uninstalling on Windows
 -----------------------
 
-#. Stop the daemons with ``anet stop --all``.
-#. Remove the value ``AgentNetwork`` under
-   ``HKCU\Software\Microsoft\Windows\CurrentVersion\Run``.
-#. Delete the install directory; ``(Get-Command anet).Source`` names the
-   binary in it.
-#. Remove that directory from the user's ``PATH``.
+Run ``anet uninstall`` in a PowerShell or Command Prompt window (see
+:ref:`intro-install-remove`). On Windows, the command removes:
 
-The data directory ``%USERPROFILE%\.anet`` holds the identity. Delete it only
-deliberately, as described in :ref:`intro-install-remove`.
+* the value ``AgentNetwork`` under
+  ``HKCU\Software\Microsoft\Windows\CurrentVersion\Run``, when it starts
+  this ``anet.exe``;
+* the install directory from the user's ``PATH``; windows that are opened
+  afterwards no longer find ``anet``;
+* ``anet.exe.release.json``, ``anet.exe.release.json.sig`` and the binaries
+  that an update moved aside (``anet.exe.old-<number>``);
+* ``anet.exe`` itself.
+
+``anet.exe`` is the running program and cannot be deleted while it runs.
+The command therefore follows the procedure that Windows provides for a file
+in use: it renames the binary to ``anet.exe.old-<number>`` in the same
+directory and schedules its deletion. A hidden ``powershell.exe`` waits until
+the command has ended, deletes the file, and removes the install directory
+when it is one that ``install.ps1`` chose and nothing else remains in it. In
+an elevated window, the deletion is also registered for the next restart of
+Windows (``MoveFileEx`` with ``MOVEFILE_DELAY_UNTIL_REBOOT``). The last lines
+of the output state which of these applies.
+
+The data directory ``%USERPROFILE%\.anet`` holds the identity and is kept
+unless ``--delete-identity`` is given.
 
 .. _intro-install-npm:
 
@@ -1501,8 +1534,13 @@ is therefore read with bounds: its size, its unpacked size and the size of
 each file are limited, only regular files under ``package/dl/`` are used, an
 entry whose name is absolute or contains ``..`` ends the read, and the sha512
 ``integrity`` of the package metadata is checked when it is present. A source
-that does not serve a release is passed over; a release that is served and
-fails a check ends the update.
+that does not serve a release is passed over. A source whose manifest does not
+verify, because its signature is not by the release key or it has expired, is
+passed over as well, with one line on the standard error output, and the next
+source is checked in the same way; the update fails only when no source serves
+a manifest that verifies. A release that verifies and then fails a later check
+ends the update. From jsDelivr, ``anet update`` reads the latest version first
+and then downloads the files of that version, as ``install.sh`` does.
 
 ``--base URL``, or else the environment variable ``ANET_INSTALL_BASE``,
 replaces every source: the files are read from ``URL/dl/`` only, with the same
@@ -1515,14 +1553,70 @@ has ``anet``. An installation from npm is updated with npm (see
 Removing ANet
 =============
 
-Stop the daemons and delete the binary:
+``anet uninstall`` stops the daemons and removes what the installer put on the
+machine:
+
+.. code-block:: console
+
+   $ anet uninstall
+
+The command first lists what it removes and what it keeps, and changes nothing
+until the list is confirmed: in the terminal by typing ``yes``, or by
+``--yes`` on the command line. Without a terminal and without ``--yes``, it
+changes nothing. It then runs ``anet stop --all`` and removes:
+
+* the binary, and ``anet.release.json`` and ``anet.release.json.sig`` next
+  to it;
+* every link named ``anet`` that leads to the binary, in ``/usr/local/bin``,
+  ``/opt/homebrew/bin``, ``~/bin`` and the other directories of ``PATH``;
+* the block between ``# >>> anet installer: PATH >>>`` and
+  ``# <<< anet installer: PATH <<<`` in ``.zprofile`` and ``.zshrc`` (below
+  ``ZDOTDIR`` when it is set), ``.bash_profile``, ``.bash_login``,
+  ``.bashrc`` and ``.profile``, together with the empty line that the
+  installer wrote before it. The rest of each file is left as it is, and a
+  profile that is a link, for example into a dotfiles repository, remains a
+  link;
+* ``~/.config/fish/conf.d/anet.fish`` (below ``XDG_CONFIG_HOME`` when it is
+  set), or only the block in it when the file holds other content.
+
+On Windows, the command removes what ``install.ps1`` created instead; see
+:ref:`intro-install-windows-uninstall`.
+
+Nothing else is changed. A link that leads to another program, a PATH block
+that names another directory and a block without its end marker are kept, and
+the output names each of them. A binary built from source that no installer
+recorded is kept as well. A file in a directory that only the superuser can
+change, such as the command link in ``/usr/local/bin``, is reported with the
+command that removes it (``sudo rm /usr/local/bin/anet``); the command does not
+use ``sudo`` itself.
+
+The configuration of the coding agents is not changed. For every coding agent
+whose configuration runs ``anet`` through ``anet agents wire``, the list names
+the command that removes the entry. Run it before ``anet uninstall``, while the
+binary is still installed:
+
+.. code-block:: console
+
+   $ anet agents unwire claude
+   $ anet uninstall
+
+A plugin of a coding agent is removed with the command of that agent; see
+:doc:`/howto/coding-agents`.
+
+An installation from npm is removed with npm. ``anet uninstall`` then changes
+nothing and prints the commands to run:
 
 .. code-block:: console
 
    $ anet stop --all
-   $ rm "$(command -v anet)"
+   $ npm uninstall -g @agentnetwork/anet
 
-On Windows, follow the steps in :ref:`intro-install-windows` instead.
+The data directory ``~/.anet`` is kept. ``anet uninstall --delete-identity``
+deletes it as well. Before it changes anything, the command names every
+identity in the directory with its AID and asks for confirmation in the
+terminal. This confirmation is required in every case, also with ``--yes``;
+without a terminal, the command changes nothing. A data directory whose node
+could not be stopped is not deleted.
 
 A hub that is the witness of an identity cannot be left with
 ``anet hub-leave``, because without it nobody can confirm the key of the
@@ -1531,12 +1625,12 @@ the address of the new hub.
 
 The data directory holds the only copy of the identity keys. Deleting it
 ends the identity permanently, and the AID cannot be recovered without the
-recovery file and its passphrase. Delete ``~/.anet`` only when the identity
-is no longer needed:
+recovery file and its passphrase. Use ``--delete-identity`` only when the
+identities are no longer needed:
 
 .. code-block:: console
 
-   $ rm -r ~/.anet
+   $ anet uninstall --delete-identity
 
 .. _intro-install-problems:
 
@@ -1555,11 +1649,13 @@ already carried out, and last the log (see :ref:`intro-install-output`).
    Install the OpenSSH client tools: ``openssh-client`` on Debian and
    Ubuntu, ``openssh`` on Fedora and RHEL, ``openssh-keygen`` on Alpine.
 
-``is not signed by the anet release key``
-   Either the download source serves a file that the release key did not
-   sign, or the installed ``ssh-keygen`` is older than OpenSSH 8.1. Try
-   another source with ``--base URL``; every source is checked in the same
-   way.
+``no download source served a release manifest that verifies``
+   Every source that served a manifest served one that is not signed by the
+   release key or that has expired; the message names these sources, and the
+   log records the reason for each one. Either the sources serve files that
+   the release key did not sign, or the installed ``ssh-keygen`` is older than
+   OpenSSH 8.1. Try another source with ``--base URL``; every source is
+   checked in the same way.
 
 ``Refusing to downgrade``
    The manifest names a version older than the installed one, which

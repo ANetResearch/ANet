@@ -32,6 +32,8 @@ Getting started
      - the last N lines of the daemon log
    * - ``anet update [--check] [--base URL]``
      - check the signed release manifest with the built-in release key, then replace this binary
+   * - ``anet uninstall [--delete-identity] [--yes]``
+     - stop the nodes and remove what the installer put on this machine; the data directory only with ``--delete-identity``, confirmed in the terminal
 
 Identity and hub
 ~~~~~~~~~~~~~~~~
@@ -199,7 +201,7 @@ Tools
    * - Invocation
      - Description
    * - ``anet agents wire [--all|<tool>…] [--refresh] [--a2a <aid>…]``
-     - give your coding agents anet's MCP tools and guide (claude\|codex\|cursor\|opencode\|hermes\|workbuddy; every file it edits is backed up)
+     - give your coding agents anet's MCP tools and guide (claude\|codex\|cursor\|opencode\|hermes\|workbuddy\|trae\|zcode; every file it edits is backed up)
    * - ``anet agents unwire [--all|<tool>…] [--a2a <aid>…]``
      - remove what wire added
    * - ``anet agents``
