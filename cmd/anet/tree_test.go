@@ -24,7 +24,7 @@ import (
 // gives a subcommand its own row, the subcommand. ux §4.2 "anet" (no arguments) is the guide, not a
 // line of the help.
 var commandTree = []string{
-	"help", "version", "init", "up", "daemon", "stop", "status", "doctor", "logs", "update",
+	"help", "version", "init", "up", "daemon", "stop", "status", "doctor", "logs", "update", "uninstall",
 	"id", "identity status", "identity protect", "identity rotate", "identity recover", "identity deactivate",
 	"hub-register", "hub-leave", "visibility", "profile set", "profile show",
 	"find", "card", "delegate", "message", "task get", "task list", "task watch", "task cancel",

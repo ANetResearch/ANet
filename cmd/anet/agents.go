@@ -116,6 +116,26 @@ func parseAgentsArgs(rest []string) (agentsArgs, error) {
 	return a, nil
 }
 
+// wiredAgents are the coding agents whose configuration holds anet's MCP
+// entry, for anet uninstall to name; none when they cannot be read.
+func wiredAgents(layout daemon.Layout) []wiredAgent {
+	opts, err := wireOptions(layout)
+	if err != nil {
+		return nil
+	}
+	states, err := agentwire.Inspect(opts)
+	if err != nil {
+		return nil
+	}
+	var out []wiredAgent
+	for _, s := range states {
+		if s.Wired {
+			out = append(out, wiredAgent{Tool: s.Tool, Config: s.Config})
+		}
+	}
+	return out
+}
+
 // wireOptions pins the entries to this binary and this identity.
 func wireOptions(layout daemon.Layout) (agentwire.Options, error) {
 	bin, err := anetBinary()

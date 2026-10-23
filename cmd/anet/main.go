@@ -146,6 +146,8 @@ func main() {
 		fail(runGuide(rest))
 	case "update":
 		fail(runUpdate(rest))
+	case "uninstall": // remove what the installers made; the data directory only with --delete-identity
+		fail(runUninstall(rest))
 	case "init": // write the SI-5 safe defaults explicitly (A2A-DESIGN §13.1); needs no daemon
 		fail(runInit(layout, rest))
 	case "doctor": // read-only report from the data directory; needs no daemon
@@ -1064,6 +1066,9 @@ var knownFlags = map[string][]string{
 	"init":     {"json", "without", "with", "shell-controller", "yes"},
 	"doctor":   {"json", "apparmor-profile"},
 	"audit":    {"since", "peer", "interaction", "type", "json", "export"},
+
+	// local, and removes what the installers made
+	"uninstall": {"delete-identity", "yes"},
 
 	// through the daemon when it runs, from the data directory when not
 	"retention": {"json"},
