@@ -9,6 +9,9 @@ import "github.com/ANetResearch/ANet/internal/daemon"
 // this binary refuses. It answers module_absent instead.
 func runAgents(layout daemon.Layout, _ []string) error { return requireModule(layout, "mcp") }
 
+// wiredAgents: this build wires no coding agent.
+func wiredAgents(daemon.Layout) []wiredAgent { return nil }
+
 // runGuide: the guide describes the MCP tools, which this build does not
 // have.
 func runGuide(_ []string) error { return requireModule(daemon.Layout{}, "mcp") }

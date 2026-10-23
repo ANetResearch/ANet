@@ -104,6 +104,27 @@ var (
 	ErrDowngrade = errors.New("release manifest is older than the installed version")
 )
 
+// ErrUnverified is a manifest that was served and does not verify: its
+// signature is not one of the trusted keys', it is not a release manifest
+// once the signature is checked, or it has expired. It says nothing about
+// the release, only about what one source served: `anet update` passes
+// over such a source for the next one (Updater.Check), and
+// `anet update --verify-dir` reports it with an exit status of its own so
+// that install.ps1 can do the same. An error that carries it still
+// unwraps to its cause (ErrExpired among them).
+var ErrUnverified = errors.New("the release manifest does not verify")
+
+// unverifiedError is a failure of the manifest itself (ErrUnverified),
+// with its cause.
+type unverifiedError struct{ err error }
+
+func (e *unverifiedError) Error() string        { return e.err.Error() }
+func (e *unverifiedError) Unwrap() error        { return e.err }
+func (e *unverifiedError) Is(target error) bool { return target == ErrUnverified }
+
+// unverified marks err as ErrUnverified.
+func unverified(err error) error { return &unverifiedError{err} }
+
 // VerifyManifest checks sig over raw with trust and parses the result.
 // The order matters: nothing in raw is looked at until the signature over
 // it has verified.

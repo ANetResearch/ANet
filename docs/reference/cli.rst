@@ -27,8 +27,9 @@ Invocation
 
 The command line has no daemon of its own: most commands send a request to the
 control plane of the daemon that serves the selected identity. The commands
-``version``, ``help``, ``init``, ``doctor``, ``logs``, ``update``, ``agents``,
-``verify``, ``audit`` and ``retention`` read the data directory or need no
+``version``, ``help``, ``init``, ``doctor``, ``logs``, ``update``,
+``uninstall``, ``agents``, ``verify``, ``audit`` and ``retention`` read the data
+directory or need no
 daemon at all and also work while the daemon is stopped. A command
 that needs the daemon reports ``daemon_not_running`` and the command to start
 it when the daemon is not running.
@@ -68,8 +69,8 @@ Two kinds of command exist.
 * Commands for people print readable text by default, and most of them print
   JSON with ``--json``: ``init``, ``status``, ``doctor``, ``audit``,
   ``retention``, ``find``, ``card``, ``identity`` subcommands, ``peers list``,
-  ``preview`` and ``autoreply show``. ``up``, ``help``, ``version``, ``logs``
-  and ``update`` print readable text only.
+  ``preview`` and ``autoreply show``. ``up``, ``help``, ``version``, ``logs``,
+  ``update`` and ``uninstall`` print readable text only.
 * The remaining commands, among them every task command (``delegate``,
   ``message``, ``task get``, ``task list``, ``task cancel``, ``end``, ``inbox``,
   ``thread`` and ``results``) and the payment and hub commands (``hub-register``,
@@ -274,7 +275,23 @@ are compiled into the binary. ``anet update`` downloads the signed release
 manifest, verifies it with the release key that is built into the binary and
 replaces the binary only when the signature, the expiry and the version check.
 ``anet update --check`` reports whether a newer release exists without
-installing it; ``--base`` selects another download base URL.
+installing it; ``--base`` selects another download base URL. A download source
+whose manifest does not verify is passed over for the next source.
+
+``anet uninstall``
+~~~~~~~~~~~~~~~~~~
+
+``anet uninstall [--delete-identity] [--yes]`` stops the daemons with
+``anet stop --all`` and removes what the installer put on the machine: the
+binary and its release record, the links to it, and the PATH blocks of the shell
+profiles, or on Windows the ``Run`` value and the entry of the user's ``PATH``.
+It lists what it removes and what it keeps, and changes nothing until the list
+is confirmed in the terminal or ``--yes`` is given. The data directory is kept;
+``--delete-identity`` deletes it after a confirmation in the terminal that names
+every identity and its AID, also when ``--yes`` is given. The configuration of
+coding agents is not changed: the list names ``anet agents unwire <name>`` for
+each agent that is wired. An installation from npm is answered with
+``npm uninstall -g @agentnetwork/anet``. See :ref:`intro-install-remove`.
 
 
 Identities and hubs

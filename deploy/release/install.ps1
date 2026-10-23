@@ -75,8 +75,13 @@
 # that does not serve the release (no answer, an HTTP error, a page instead
 # of a file, a missing file, another version) is passed over for the next.
 # A source decides only where the bytes come from: what it serves is
-# checked as below, and a file that fails a check ends the installation.
-# -Base, or else ANET_INSTALL_BASE, replaces the sources.
+# checked as below, and a file that fails a check ends the installation,
+# with one exception: a release.json that does not verify (check 2: a
+# signature that is not the release key's, or an expired manifest) is
+# passed over, in one line, and the manifest and signature of the next
+# source that serves the release are verified instead; the installation
+# ends only when no source serves one that verifies. -Base, or else
+# ANET_INSTALL_BASE, replaces the sources.
 #
 # OUTPUT. While it works, the script prints one line per phase, and on an
 # interactive console the download as one line that it updates (bar, size,
@@ -151,7 +156,9 @@
 # are not a program of either project, are left alone and never run.
 #
 # WHAT IS CHECKED, and every check stops the install before anything is
-# installed or changed:
+# installed or changed (a release.json whose signature or expiry fails
+# check 2 first sends the installer to the next download source, see
+# DOWNLOAD SOURCES):
 #
 #   1. This script carries the release version and the SHA-256 and size of
 #      the four Windows builds of that release, and of the binary inside
@@ -274,6 +281,7 @@ $AnetMessages = @{
   dl_done = @('Downloaded anet {version} for {platform} from {source} ({size} MB in {secs} s)', '\u5df2\u4ece {source} \u4e0b\u8f7d anet {version}\uff08{platform}\uff0c{size} MB\uff0c\u7528\u65f6 {secs} \u79d2\uff09')
   dl_dir = @('Read anet {version} for {platform} from {source}', '\u5df2\u4ece {source} \u8bfb\u53d6 anet {version}\uff08{platform}\uff09')
   dl_skip = @('{source} did not serve anet {version} ({why}); trying the next source', '{source} \u672a\u63d0\u4f9b anet {version}\uff08{why}\uff09\uff1b\u6539\u7528\u4e0b\u4e00\u4e2a\u4e0b\u8f7d\u6e90')
+  dl_unverified = @('{source} served a release manifest that does not verify ({why}); trying the next source', '{source} \u63d0\u4f9b\u7684\u53d1\u5e03\u6e05\u5355\u672a\u901a\u8fc7\u9a8c\u8bc1\uff08{why}\uff09\uff1b\u6539\u7528\u4e0b\u4e00\u4e2a\u4e0b\u8f7d\u6e90')
   installed = @('Installed {exe} (signature verified)', '\u5df2\u5b89\u88c5 {exe}\uff08\u7b7e\u540d\u5df2\u9a8c\u8bc1\uff09')
   installed_up = @('Installed {exe} (signature verified; upgraded from {previous})', '\u5df2\u5b89\u88c5 {exe}\uff08\u7b7e\u540d\u5df2\u9a8c\u8bc1\uff1b\u7531 {previous} \u5347\u7ea7\uff09')
   running = @('anet {version} is installed and running.', 'anet {version} \u5df2\u5b89\u88c5\u5e76\u6b63\u5728\u8fd0\u884c\u3002')
@@ -389,6 +397,11 @@ function New-AnetFailure {
 # installed but the installation stopped before its last step, with the
 # commands that complete it printed (the header says when).
 $AnetExitRemaining = 3
+
+# $AnetExitUnverified is the exit status of anet update --verify-dir when
+# release.json and its signature do not verify or have expired: the
+# manifest of the next download source is tried (Confirm-AnetRelease).
+$AnetExitUnverified = 4
 
 # Assert-AnetReleased refuses the template in the repository, whose pins are
 # empty, and pins that are not in the form build-release.sh writes.
@@ -1253,11 +1266,15 @@ function Assert-AnetManifestServes {
 # passed over for the next one, in one line. A .gz that does not match the
 # release pins ends the installation (New-AnetFailure from Test-AnetPin):
 # a source only decides where the bytes come from.
+# The result also holds Index, the position of the source in $Sources.
+# When no source serves the release, the failure is marked AnetNoSource.
 function Get-AnetRelease {
   param([hashtable[]]$Sources, [string]$Asset, [hashtable]$Pin, [string]$Platform = '')
   $version = [string]$AnetRelease['Version']
   $tried = New-Object System.Collections.Generic.List[string]
+  $index = -1
   foreach ($s in $Sources) {
+    $index++
     Write-AnetLine ('source ' + $s.Label + ' (' + $s.Kind + ')')
     $progress = New-AnetProgress -Label (Get-AnetText 'dl_label' @{ version = $version; source = $s.Label }) -Total ([long]$Pin['GzSize']) -Show:($s.Kind -ne 'dir')
     try {
@@ -1288,9 +1305,50 @@ function Get-AnetRelease {
         size = (Format-AnetMB ([long]$progress.Done)); secs = ([Math]::Round($progress.Clock.Elapsed.TotalSeconds, 1)).ToString([Globalization.CultureInfo]::InvariantCulture) })
     }
     Write-AnetLine ('OK ' + $Asset + '.gz and the binary inside it match the release pins (SHA-256 and size)')
-    return @{ Source = $s; Manifest = $f.Manifest; Signature = $f.Signature; Binary = $bin }
+    return @{ Source = $s; Index = $index; Manifest = $f.Manifest; Signature = $f.Signature; Binary = $bin }
   }
-  throw (New-AnetFailure ('no download source served anet ' + $version + ' (tried: ' + ($tried -join ', ') + ')'))
+  $e = New-AnetFailure ('no download source served anet ' + $version + ' (tried: ' + ($tried -join ', ') + ')')
+  $e.Data['AnetNoSource'] = $true
+  throw $e
+}
+
+# Confirm-AnetRelease has the release verified by the staged binary
+# (Confirm-AnetStaged with the arguments $Verify), with the manifest and
+# signature of $Release written to $TmpDir first. When the
+# binary answers that release.json does not verify (exit status
+# $AnetExitUnverified: a signature that is not the release key's, or an
+# expired manifest), the source that served it is passed over in one line,
+# and the release of the next source in $Sources that serves it
+# (Get-AnetRelease) is verified instead. The binary is the same whichever
+# source served it, since it matches the release pins; only the manifest
+# and its signature can differ. Returns the module set Confirm-AnetStaged
+# returns; fails when no source serves a manifest that verifies.
+function Confirm-AnetRelease {
+  param([hashtable[]]$Sources, [hashtable]$Release, [string]$Asset, [hashtable]$Pin, [string]$Platform, [string]$TmpDir, [hashtable]$Verify)
+  $rel = $Release
+  $unverified = New-Object System.Collections.Generic.List[string]
+  while ($true) {
+    [IO.File]::WriteAllBytes((Join-Path $TmpDir 'release.json'), $rel.Manifest)
+    [IO.File]::WriteAllBytes((Join-Path $TmpDir 'release.json.sig'), $rel.Signature)
+    try {
+      return ,(Confirm-AnetStaged @Verify)
+    } catch {
+      if (-not $_.Exception.Data['AnetUnverified']) { throw }
+      Write-AnetSay (Get-AnetText 'dl_unverified' @{ source = $rel.Source.Label; why = $_.Exception.Message })
+      $unverified.Add($rel.Source.Label)
+    }
+    $failure = 'no download source served a release manifest of anet ' + [string]$AnetRelease['Version'] + ' that verifies with the release key ' + $AnetReleaseKeyFingerprint + ' (not verified: ' + ($unverified -join ', ') + ')'
+    $rest = @($Sources | Select-Object -Skip ($rel.Index + 1))
+    if ($rest.Count -eq 0) { throw (New-AnetFailure $failure) }
+    try {
+      $next = Get-AnetRelease -Sources $rest -Asset $Asset -Pin $Pin -Platform $Platform
+    } catch {
+      if ($_.Exception.Data['AnetNoSource']) { throw (New-AnetFailure ($failure + '; ' + $_.Exception.Message)) }
+      throw
+    }
+    $next.Index += $rel.Index + 1
+    $rel = $next
+  }
 }
 
 # Get-AnetAccountName names an account for a message: DOMAIN\Name, or the
@@ -1607,6 +1665,13 @@ function Confirm-AnetStaged {
   if ($r['Code'] -ne 0) {
     $reason = ''
     if (@($r['Stderr']).Count -gt 0) { $reason = ': ' + [string]@($r['Stderr'])[-1] }
+    if ($r['Code'] -eq $AnetExitUnverified) {
+      # release.json of this source does not verify: Confirm-AnetRelease
+      # tries the next source.
+      $e = New-Object System.Exception ('release.json does not verify' + $reason)
+      $e.Data['AnetUnverified'] = $true
+      throw $e
+    }
     throw (New-AnetFailure ('the downloaded binary did not verify the release (exit status ' + $r['Code'] + ')' + $reason))
   }
   $lines = @($r['Stdout'])
@@ -3247,8 +3312,6 @@ function Install-Anet {
     $S.Tmp = Join-Path ([IO.Path]::GetTempPath()) ('anet-install-' + [Guid]::NewGuid().ToString('N'))
     $null = [IO.Directory]::CreateDirectory($S.Tmp)
     $rel = Get-AnetRelease -Sources $sources -Asset $asset -Pin $pin -Platform $platform
-    [IO.File]::WriteAllBytes((Join-Path $S.Tmp 'release.json'), $rel.Manifest)
-    [IO.File]::WriteAllBytes((Join-Path $S.Tmp 'release.json.sig'), $rel.Signature)
 
     # 5. Install directory: -Prefix, or the first candidate that passes.
     $existing = @(Get-AnetExistingInstalls -Elevation $elevation)
@@ -3267,12 +3330,15 @@ function Install-Anet {
 
     # 6. Stage and verify. The staged file is held open, shared for reading
     # only, from before its verification until it is renamed, so that what
-    # was verified is what runs (Open-AnetGuard).
+    # was verified is what runs (Open-AnetGuard). A source whose
+    # release.json does not verify is passed over for the next one
+    # (Confirm-AnetRelease).
     $S.Staged = Get-AnetStagedPath -Dir $o.Prefix
     Write-AnetStaged -Path $S.Staged -Bytes $rel.Binary
     $S.Guard = Open-AnetGuard -Path $S.Staged -Sha256 ([string]$pin['Sha256'])
     $installed = Get-AnetInstalledVersion -Exe $S.Exe -Elevation $elevation
-    $mods = Confirm-AnetStaged -Staged $S.Staged -TmpDir $S.Tmp -Installed $installed -Variant $o.Variant -Asset $asset
+    $verify = @{ Staged = $S.Staged; TmpDir = $S.Tmp; Installed = $installed; Variant = $o.Variant; Asset = $asset }
+    $mods = Confirm-AnetRelease -Sources $sources -Release $rel -Asset $asset -Pin $pin -Platform $platform -TmpDir $S.Tmp -Verify $verify
 
     # 7. -Without: the names are checked against the verified module set
     # here, and config.json is changed only after the binary is installed

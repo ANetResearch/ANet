@@ -52,13 +52,16 @@ type Updater struct {
 	// Probe runs a candidate binary and reports what it says it is. nil
 	// runs `<path> version`.
 	Probe func(ctx context.Context, path string) (version string, modules []string, err error)
+	// Log, when set, is told in one line of each source Check passes over
+	// because the manifest it served does not verify.
+	Log func(line string)
 }
 
 // Found is a verified release that Apply can install.
 type Found struct {
 	// Base is where the release was found: Source.Location, without
 	// DLPath where it ends in it. For a source made by BaseSource it is
-	// the base.
+	// the base; for a CDN source, the directory of the version's files.
 	Base      string
 	Source    Source
 	Manifest  *Manifest
@@ -73,25 +76,34 @@ type Found struct {
 	// gz is the asset's .gz as unpacked from an npm tarball, which Apply
 	// installs without downloading it again.
 	gz []byte
+	// dir is where Apply downloads the asset's .gz from (a files or a CDN
+	// source).
+	dir string
 }
 
 // Check fetches and verifies the manifest. It returns a Found whether the
 // release is newer, the same or older than Current; Found.Cmp says which,
 // and Apply refuses an older one.
 //
-// Sources are tried in order, but only to find one that SERVES a release —
-// an HTTP error, an HTML page where a manifest should be, a redirect to a
-// host the source may not use, or a malformed tarball moves on to the
-// next. A release that is served and then fails verification stops the
-// search: a mirror serving a bad signature is something to report, not
-// route around.
+// Sources are tried in order, to find one that serves a release that
+// verifies. An HTTP error, an HTML page where a manifest should be, a
+// redirect to a host the source may not use, or a malformed tarball moves
+// on to the next; so does a manifest that does not verify (ErrUnverified:
+// a signature that is not the release key's, a manifest that is malformed
+// or has expired), said in one line through Log. A mirror can serve such a
+// pair for a while without anyone attacking it (a content delivery network
+// caching release.json and its signature at different times), and what is
+// accepted does not depend on the source: the next source is checked in
+// exactly the same way. When no source serves a release that verifies,
+// the error names every source and why (ErrUnverified, and ErrExpired when
+// one had expired).
 //
 // A verified release older than Current is a mirror that lags behind: the
 // next source is tried. When no source serves Current or a newer release,
 // the first lagging one is returned, and Apply refuses it. The version in
-// an npm package's metadata is compared with Current before its tarball
-// is downloaded, so a lagging package is downloaded only when it is that
-// fallback.
+// an npm package's metadata (or a CDN package's package.json) is compared
+// with Current before its files are downloaded, so a lagging package is
+// downloaded only when it is that fallback.
 func (u *Updater) Check(ctx context.Context) (*Found, error) {
 	srcs, err := u.sources()
 	if err != nil {
@@ -108,13 +120,21 @@ func (u *Updater) Check(ctx context.Context) (*Found, error) {
 	}
 	var tried []string
 	var lagging []lagged
+	var bad []error
 	var ns *notServingError
+	passOver := func(s Source, err error) {
+		tried = append(tried, s.Name+": "+err.Error())
+		bad = append(bad, err)
+		if u.Log != nil {
+			u.Log("source " + s.Name + ": " + err.Error() + "; trying the next source")
+		}
+	}
 	for _, s := range srcs {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
 		var meta *npmMeta
-		if s.Kind == SourceNPM {
+		if s.Kind == SourceNPM || s.Kind == SourceCDN {
 			m, err := u.npmLatest(ctx, s)
 			if err != nil {
 				tried = append(tried, s.Name+": "+err.Error())
@@ -131,6 +151,9 @@ func (u *Updater) Check(ctx context.Context) (*Found, error) {
 		switch {
 		case errors.As(err, &ns):
 			tried = append(tried, s.Name+": "+err.Error())
+			continue
+		case errors.Is(err, ErrUnverified):
+			passOver(s, err)
 			continue
 		case err != nil:
 			return nil, err
@@ -151,13 +174,35 @@ func (u *Updater) Check(ctx context.Context) (*Found, error) {
 			tried = append(tried, l.src.Name+": "+err.Error())
 			continue
 		}
+		if errors.Is(err, ErrUnverified) {
+			passOver(l.src, err)
+			continue
+		}
 		return f, err
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	if len(bad) > 0 {
+		return nil, &noneVerifiedError{
+			msg:  "no source served a release manifest that verifies (" + strings.Join(tried, "; ") + ")",
+			errs: bad,
+		}
+	}
 	return nil, fmt.Errorf("no release manifest found (%s)", strings.Join(tried, "; "))
 }
+
+// noneVerifiedError is Check finding no source whose manifest verifies,
+// after at least one served a manifest that does not. It unwraps to the
+// failure of each such source, so that errors.Is finds ErrUnverified, and
+// ErrExpired when a manifest had expired.
+type noneVerifiedError struct {
+	msg  string
+	errs []error
+}
+
+func (e *noneVerifiedError) Error() string   { return e.msg }
+func (e *noneVerifiedError) Unwrap() []error { return e.errs }
 
 // sources are the sources Check tries: Sources, or else Bases, or else
 // DefaultBases.
@@ -187,14 +232,25 @@ func (u *Updater) sources() ([]Source, error) {
 func (u *Updater) checkSource(ctx context.Context, s Source, meta *npmMeta) (*Found, error) {
 	var raw, sig []byte
 	var files map[string][]byte
-	var where string
+	var where, dir string
 	switch s.Kind {
-	case SourceFiles:
-		where = s.URL + "/release.json"
+	case SourceFiles, SourceCDN:
+		dir = s.URL
+		if s.Kind == SourceCDN {
+			if meta == nil {
+				m, err := u.npmLatest(ctx, s)
+				if err != nil {
+					return nil, notServing(err)
+				}
+				meta = m
+			}
+			dir = s.cdnDir(meta.Version)
+		}
+		where = dir + "/release.json"
 		var err error
 		raw, err = u.get(ctx, s.Allow, where, MaxManifestBytes)
 		if err == nil {
-			sig, err = u.get(ctx, s.Allow, s.URL+"/release.json.sig", MaxSigBytes)
+			sig, err = u.get(ctx, s.Allow, dir+"/release.json.sig", MaxSigBytes)
 		}
 		if err != nil {
 			return nil, notServing(err)
@@ -231,7 +287,10 @@ func (u *Updater) checkSource(ctx context.Context, s Source, meta *npmMeta) (*Fo
 	if err != nil {
 		return nil, err
 	}
-	f.Source, f.Base = s, s.base()
+	f.Source, f.Base, f.dir = s, s.base(), dir
+	if s.Kind == SourceCDN {
+		f.Base = dir
+	}
 	if s.Kind == SourceNPM {
 		gz, ok := files[f.AssetName+".gz"]
 		if !ok {
@@ -246,10 +305,10 @@ func (u *Updater) checkSource(ctx context.Context, s Source, meta *npmMeta) (*Fo
 func (u *Updater) verify(where string, raw, sig []byte) (*Found, error) {
 	m, s, err := VerifyManifest(raw, sig, u.Trust)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", where, err)
+		return nil, unverified(fmt.Errorf("%s: %w", where, err))
 	}
 	if err := m.CheckFresh(u.now()); err != nil {
-		return nil, fmt.Errorf("%s: %w", where, err)
+		return nil, unverified(fmt.Errorf("%s: %w", where, err))
 	}
 	name, a, err := m.AssetFor(u.Variant, u.GOOS, u.GOARCH)
 	if err != nil {
@@ -286,7 +345,11 @@ func (u *Updater) Apply(ctx context.Context, f *Found) (err error) {
 	case f.Source.Kind == SourceNPM && gz == nil:
 		return fmt.Errorf("%s.gz: not unpacked from the package", f.AssetName)
 	case f.Source.Kind != SourceNPM:
-		gz, err = u.get(ctx, f.Source.Allow, f.Source.URL+"/"+f.AssetName+".gz", f.Asset.GzSize)
+		dir := f.dir
+		if dir == "" {
+			dir = f.Source.URL
+		}
+		gz, err = u.get(ctx, f.Source.Allow, dir+"/"+f.AssetName+".gz", f.Asset.GzSize)
 		if err != nil {
 			return fmt.Errorf("download %s.gz: %w", f.AssetName, err)
 		}

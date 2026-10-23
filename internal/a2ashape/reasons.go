@@ -861,6 +861,8 @@ var phraseSets = map[string]map[string]phrasePair{
 		"egress":                  {"放行出网主机", "allowing network hosts"},
 		"reasoning_preview":       {"开启推理预览", "turning on reasoning previews"},
 		"shell_controller":        {"开放 shell 访问", "opening shell access"},
+		"uninstall":               {"卸载 anet", "removing anet"},
+		"delete_identity":         {"删除身份", "deleting identities"},
 	},
 	// ux §1.4 M2: how the key was last rotated (last_rotation.mode).
 	"rotation_how": {

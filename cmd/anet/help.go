@@ -49,6 +49,7 @@ func helpSections() []helpSection {
 			{"doctor --apparmor-profile", "打印让 bubblewrap 在 Ubuntu 上建用户命名空间的 AppArmor profile（只输出，不写文件）", "print the AppArmor profile that lets bubblewrap make user namespaces on Ubuntu (prints only, writes no file)", false},
 			{"logs [N|--all]", "daemon 日志的末尾 N 行", "the last N lines of the daemon log", false},
 			{"update [--check] [--base URL]", "用内置的发布密钥核验签名清单后替换本程序", "check the signed release manifest with the built-in release key, then replace this binary", false},
+			{"uninstall [--delete-identity] [--yes]", "停止节点并删除安装程序装入的文件；数据目录只在 --delete-identity 并在终端确认后删除", "stop the nodes and remove what the installer put on this machine; the data directory only with --delete-identity, confirmed in the terminal", false},
 		}},
 		{"身份与 hub", "Identity and hub", []helpEntry{
 			{"id ls|new|use|rm", "本机的多个身份：列出、新建、设为缺省、删除（rm 要加 --purge；也可写 anet identity）", "this machine's identities: list, create, make the default, delete (rm needs --purge; also: anet identity)", false},

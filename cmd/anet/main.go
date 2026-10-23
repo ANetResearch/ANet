@@ -154,6 +154,8 @@ func main() {
 		fail(runGuide(rest))
 	case "update":
 		fail(runUpdate(rest))
+	case "uninstall": // remove what the installers made; the data directory only with --delete-identity
+		fail(runUninstall(rest))
 	case "init": // write the SI-5 safe defaults explicitly (A2A-DESIGN §13.1); needs no daemon
 		fail(runInit(layout, rest))
 	case "doctor": // read-only report from the data directory; needs no daemon
@@ -268,6 +270,9 @@ func exitStatus(err error, w io.Writer) int {
 	}
 	if errors.Is(err, errInputRequired) {
 		return 3 // task watch: the task waits for the user (UX-C4)
+	}
+	if errors.Is(err, errExitUnverified) {
+		return 4 // update --verify-dir: the manifest does not verify (install.ps1 tries its next source)
 	}
 	if err.Error() != "" {
 		fmt.Fprintln(w, "error:", err)
@@ -1071,6 +1076,9 @@ var knownFlags = map[string][]string{
 	"init":     {"json", "without", "with", "shell-controller", "yes"},
 	"doctor":   {"json", "apparmor-profile"},
 	"audit":    {"since", "peer", "interaction", "type", "json", "export"},
+
+	// local, and removes what the installers made
+	"uninstall": {"delete-identity", "yes"},
 
 	// through the daemon when it runs, from the data directory when not
 	"retention": {"json"},

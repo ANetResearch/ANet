@@ -32,6 +32,8 @@ Getting started
      - the last N lines of the daemon log
    * - ``anet update [--check] [--base URL]``
      - check the signed release manifest with the built-in release key, then replace this binary
+   * - ``anet uninstall [--delete-identity] [--yes]``
+     - stop the nodes and remove what the installer put on this machine; the data directory only with ``--delete-identity``, confirmed in the terminal
 
 Identity and hub
 ~~~~~~~~~~~~~~~~

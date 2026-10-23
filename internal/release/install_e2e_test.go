@@ -540,32 +540,111 @@ func TestInstallShGoldenTakeover(t *testing.T) {
 	}
 }
 
-// Spec C: a failure says why and what to do, and names the log; nothing is
-// installed. A source that serves a manifest with a bad signature ends the
-// install although a later source would serve a good one (spec A).
-func TestInstallShBadSignatureEndsInstall(t *testing.T) {
+// Spec A: a source whose release.json does not verify (a signature that is
+// not the release key's, here from the npm tarball and from the files of
+// GitHub, or a correctly signed manifest that has expired) is passed over,
+// with a line in the log, for the next source, which is checked in the
+// same way. Spec C: when no source serves a release that verifies, the
+// install ends, names the sources, says what to do and names the log;
+// nothing is installed.
+func TestInstallShBadSignatureSkipsSource(t *testing.T) {
 	ver := installedVersion(t)
 	r := newSHRelease(t, ver)
-	good := r.manifest
-	r.sig = signSSHSIG(r.priv, []byte("something else"), Namespace)
+	bad := *r
+	bad.sig = signSSHSIG(r.priv, []byte("something else"), Namespace)
+	badSrv := bad.server(newHitCount())
+	stale := *r
+	stale.manifest = regexp.MustCompile(`"expires_at": "[^"]*"`).ReplaceAll(r.manifest, []byte(`"expires_at": "2020-01-01T00:00:00Z"`))
+	stale.sig = signSSHSIG(r.priv, stale.manifest, Namespace)
+	staleSrv := stale.server(newHitCount())
 	hits := newHitCount()
 	srv := r.server(hits)
+	host := strings.TrimPrefix(srv.URL, "https://")
+	badHost, staleHost := strings.TrimPrefix(badSrv.URL, "https://"), strings.TrimPrefix(staleSrv.URL, "https://")
+
 	e := e2eEnv(t, srv, false)
-	script := e2eScript(t, r, e2eSources(srv, false), e.root, freePort(t))
-	_ = good
-	res := runE2E(t, e, script, "--no-start")
+	sources := `  PROBED="npm|npmmirror|` + badSrv.URL + `/npm|` + badHost + `"
+  REST="files|GitHub|` + badSrv.URL + `/files|` + badHost + `
+files|jsDelivr|` + staleSrv.URL + `/files|` + staleHost + `
+files|agentnetwork.org.cn|` + srv.URL + `/files|` + host + `"`
+	res := runE2E(t, e, e2eScript(t, r, sources, e.root, freePort(t)), "--no-start")
+	if res.code != 0 {
+		t.Fatalf("exit %d\nstdout:\n%s\nstderr:\n%s", res.code, res.stdout, res.stderr)
+	}
+	mustContain(t, "stdout", res.stdout, "from agentnetwork.org.cn (", "anet "+ver+" is installed.")
+	checkLog(t, e.home,
+		"  npmmirror: release.json is not signed by the anet release key (", "; passed over\n",
+		"  GitHub: release.json is not signed by the anet release key (",
+		"  jsDelivr: the release manifest expired at 2020-01-01T00:00:00Z",
+		"using agentnetwork.org.cn: anet "+ver)
+	if _, err := os.Stat(filepath.Join(e.home, ".local", "bin", "anet")); err != nil {
+		t.Errorf("not installed from the source that verifies: %v", err)
+	}
+
+	e2 := e2eEnv(t, srv, false)
+	sources = `  PROBED="npm|npmmirror|` + badSrv.URL + `/npm|` + badHost + `"
+  REST="files|GitHub|` + badSrv.URL + `/files|` + badHost + `
+files|jsDelivr|` + staleSrv.URL + `/files|` + staleHost + `"`
+	res = runE2E(t, e2, e2eScript(t, r, sources, e2.root, freePort(t)), "--no-start")
 	if res.code != 1 {
 		t.Fatalf("exit %d\nstdout:\n%s\nstderr:\n%s", res.code, res.stdout, res.stderr)
 	}
-	mustContain(t, "stderr", res.stderr, "Error: release.json is not signed by the anet release key",
+	mustContain(t, "stderr", res.stderr, "Error: no download source served a release manifest that verifies with the anet release key (",
+		"; not verified: npmmirror, GitHub, jsDelivr.\n", "Name another source with --base URL.",
 		"Nothing was installed or changed.\nDetails: ~/.anet/logs/install-")
-	if hits.get("/files/release.json") != 0 {
-		t.Errorf("the next source was asked after a bad signature: %v", hits.String())
+	if _, err := os.Stat(filepath.Join(e2.home, ".local", "bin", "anet")); err == nil {
+		t.Error("installed although no source verifies")
 	}
-	if _, err := os.Stat(filepath.Join(e.home, ".local", "bin", "anet")); err == nil {
-		t.Error("installed after a bad signature")
+	checkLog(t, e2.home, "source npmmirror", "  jsDelivr: the release manifest expired")
+}
+
+// jsDelivr (kind cdn): the latest version is read from
+// <package>@latest/package.json, and release.json, its signature and the
+// .gz are then fetched under @<version>, never under @latest (where a cache
+// could pair the manifest with the signature of another version).
+func TestInstallShCDNResolvesTheVersionFirst(t *testing.T) {
+	ver := installedVersion(t)
+	r := newSHRelease(t, ver)
+	hits := newHitCount()
+	root := "/jsd/" + r.pkg
+	cdn := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, q *http.Request) {
+		hits.add(q.URL.Path)
+		switch q.URL.Path {
+		case root + "@latest/package.json":
+			fmt.Fprintf(w, `{"name": %q, "version": %q}`, r.pkg, r.version)
+		case root + "@" + r.version + "/dl/release.json":
+			w.Write(r.manifest)
+		case root + "@" + r.version + "/dl/release.json.sig":
+			w.Write(r.sig)
+		case root + "@" + r.version + "/dl/" + r.asset + ".gz":
+			w.Write(r.gz)
+		case root + "@latest/dl/release.json", root + "@latest/dl/release.json.sig":
+			w.Write(signSSHSIG(r.priv, []byte("another version"), Namespace))
+		default:
+			http.NotFound(w, q)
+		}
+	}))
+	t.Cleanup(cdn.Close)
+	host := strings.TrimPrefix(cdn.URL, "https://")
+	e := e2eEnv(t, cdn, false)
+	sources := `  PROBED="npm|npmmirror|https://127.0.0.1:1/npm|127.0.0.1:1"
+  REST="cdn|jsDelivr|` + cdn.URL + root + `|` + host + `"`
+	res := runE2E(t, e, e2eScript(t, r, sources, e.root, freePort(t)), "--no-start")
+	if res.code != 0 {
+		t.Fatalf("exit %d\nstdout:\n%s\nstderr:\n%s", res.code, res.stdout, res.stderr)
 	}
-	checkLog(t, e.home, "source npmmirror")
+	mustContain(t, "stdout", res.stdout, "from jsDelivr (")
+	checkLog(t, e.home, "  jsDelivr: anet "+ver+", "+cdn.URL+root+"@"+ver+"/dl\n", "using jsDelivr: anet "+ver)
+	for _, p := range []string{root + "@latest/dl/release.json", root + "@latest/dl/release.json.sig"} {
+		if hits.get(p) != 0 {
+			t.Errorf("%s was fetched: %v", p, hits.String())
+		}
+	}
+	for _, p := range []string{root + "@latest/package.json", root + "@" + ver + "/dl/release.json", root + "@" + ver + "/dl/" + r.asset + ".gz"} {
+		if hits.get(p) != 1 {
+			t.Errorf("%s: %d requests: %v", p, hits.get(p), hits.String())
+		}
+	}
 }
 
 // Spec A: a source that does not serve (here an npm registry that answers

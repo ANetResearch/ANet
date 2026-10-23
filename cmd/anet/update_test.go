@@ -177,6 +177,51 @@ func TestUpdateVerifyDirRefuses(t *testing.T) {
 	}
 }
 
+// A release.json that does not verify — signed by a key that is not
+// trusted, changed after it was signed, or expired — ends with status 4,
+// which install.ps1 reads as "try the manifest of the next source"; one
+// line on stderr, nothing on stdout.
+func TestUpdateVerifyDirUnverifiedIsStatus4(t *testing.T) {
+	for _, c := range []struct {
+		name  string
+		after func(t *testing.T, dir string)
+		edit  func(string) string
+		want  string
+	}{
+		{"another key", func(t *testing.T, dir string) {
+			_, other, _ := ed25519.GenerateKey(nil)
+			raw, _ := os.ReadFile(filepath.Join(dir, "release.json"))
+			os.WriteFile(filepath.Join(dir, "release.json.sig"), release.Sign(other, raw, release.Namespace), 0o644)
+		}, nil, "release.json.sig"},
+		{"changed after signing", func(t *testing.T, dir string) {
+			raw, _ := os.ReadFile(filepath.Join(dir, "release.json"))
+			os.WriteFile(filepath.Join(dir, "release.json"), append(raw, ' '), 0o644)
+		}, nil, "release.json.sig"},
+		{"expired", nil, func(m string) string {
+			m = regexp.MustCompile(`"released_at": "[^"]*"`).ReplaceAllString(m, `"released_at": "2019-12-01T00:00:00Z"`)
+			return regexp.MustCompile(`"expires_at": "[^"]*"`).ReplaceAllString(m, `"expires_at": "2020-01-01T00:00:00Z"`)
+		}, "expired"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			dir, _ := verifyDirRelease(t, c.edit)
+			if c.after != nil {
+				c.after(t, dir)
+			}
+			var err error
+			out, errOut := captureCLI(t, func() { err = runUpdate([]string{"--verify-dir", dir}) })
+			if !errors.Is(err, errExitUnverified) || out != "" {
+				t.Fatalf("err %v, stdout %q", err, out)
+			}
+			if code := exitStatus(err, &strings.Builder{}); code != 4 {
+				t.Fatalf("exit status %d, want 4", code)
+			}
+			if !strings.HasPrefix(errOut, "anet update --verify-dir: ") || strings.Count(errOut, "\n") != 1 || !strings.Contains(errOut, c.want) {
+				t.Fatalf("stderr %q, want one line saying %q", errOut, c.want)
+			}
+		})
+	}
+}
+
 // The mode takes exactly its two flags, each with a value.
 func TestUpdateVerifyDirUsage(t *testing.T) {
 	for _, args := range [][]string{

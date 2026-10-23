@@ -37,7 +37,8 @@
 # input; sudo asks for a password at most once, and only on a terminal.
 #
 # WHAT IS CHECKED, and every check stops the install with the installed
-# version untouched:
+# version untouched (a source that fails check 1 or 2 is passed over for
+# the next one first; see DOWNLOAD SOURCES):
 #
 #   1. release.json is signed by the anet release key (ssh-keygen -Y verify
 #      against the key written below, namespace anet-release@agentnetwork.org.cn)
@@ -107,13 +108,20 @@
 #   GitHub      github.com/ANetResearch/ANet/releases/latest/download/<file>,
 #               redirected to *.githubusercontent.com only
 #   npmjs       registry.npmjs.org: the same tarball as from npmmirror
-#   jsDelivr    cdn.jsdelivr.net/npm/<package>@latest/dl/<file>
+#   jsDelivr    cdn.jsdelivr.net/npm/<package>: the latest version from
+#               <package>@latest/package.json, then the files from
+#               <package>@<version>/dl/<file> (under @latest, the network
+#               resolves each file on its own, and release.json and its
+#               signature could come from two versions)
 #   agentnetwork.org.cn, hub.agentnetwork.org.cn    /dl/<file>
 # A source that does not serve (an HTTP error, a time-out, an HTML page, a
-# missing file, a redirect to a host it does not use) is passed over; a
-# source that serves something that fails a check ends the install. A
-# source whose release is older than this installer is passed over too (a
-# lagging mirror), unless no source has a newer one.
+# missing file, a redirect to a host it does not use) is passed over. So is
+# a source whose release.json does not verify (checks 1 and 2 below), with
+# a line in the log: the next source is checked in exactly the same way,
+# and the install fails only when no source serves a release that
+# verifies. A release that verifies and then fails a later check ends the
+# install. A source whose release is older than this installer is passed
+# over too (a lagging mirror), unless no source has a newer one.
 #
 # --shell installs a DIFFERENT BINARY, not a setting.
 #
@@ -397,15 +405,14 @@ sha256() {
   else return 1; fi
 }
 
-# verify FILE SIG — the manual command from the header, against the key
-# above. Prints what ssh-keygen said on failure.
+# verify_sig FILE SIG — the manual command from the header, against the key
+# above. Fails, with what ssh-keygen said in the log, when FILE is not
+# signed by the release key.
 verify_sig() {
   if ! out=$(ssh-keygen -Y verify -f "$TMP/allowed_signers" -I "$IDENTITY" -n "$NAMESPACE" \
       -s "$2" < "$1" 2>&1); then
     printf '%s\n' "$out" | sed 's/^/    /' >> "$(logto)"
-    die "$(basename "$1") is not signed by the anet release key ($(release_key_fingerprint)).
-  Either ${SRC_NAME:-the download source} is serving something the release key did not sign,
-  or this ssh-keygen is older than OpenSSH 8.1 ($(ssh -V 2>&1 | head -1))."
+    return 1
   fi
 }
 
@@ -589,12 +596,15 @@ installer_version() { echo '0.3.8'; }
 # the same time and ordered by how fast they answer; REST follow in order.
 # internal/release.Sources lists the same sources (a test holds the two
 # equal). kind npm: URL is a registry, and the release is the tarball of the
-# npm package PKG; kind files: the files are at URL/<file>.
+# npm package PKG; kind cdn: URL is the root of the package PKG on a content
+# delivery network for npm, its latest version is URL@latest/package.json
+# and the files are at URL@<version>/dl/<file>; kind files: the files are
+# at URL/<file>.
 source_defaults() {
   PROBED="npm|npmmirror|https://registry.npmmirror.com|registry.npmmirror.com cdn.npmmirror.com
 files|GitHub|https://github.com/ANetResearch/ANet/releases/latest/download|github.com *.githubusercontent.com"
   REST="npm|npmjs|https://registry.npmjs.org|registry.npmjs.org
-files|jsDelivr|https://cdn.jsdelivr.net/npm/$PKG@latest/dl|cdn.jsdelivr.net
+cdn|jsDelivr|https://cdn.jsdelivr.net/npm/$PKG|cdn.jsdelivr.net
 files|agentnetwork.org.cn|https://agentnetwork.org.cn/dl|agentnetwork.org.cn
 files|hub.agentnetwork.org.cn|https://hub.agentnetwork.org.cn/dl|hub.agentnetwork.org.cn"
   PROBE_TIMEOUT=3
@@ -626,7 +636,7 @@ order_sources() {
   while IFS='|' read -r _ok _on _ou _oa <&3; do
     [ -n "$_ok" ] || continue
     _oi=$((_oi + 1))
-    case "$_ok" in npm) _op="$_ou/$PKG/latest" ;; *) _op="$_ou/release.json" ;; esac
+    case "$_ok" in npm) _op="$_ou/$PKG/latest" ;; cdn) _op="$_ou@latest/package.json" ;; *) _op="$_ou/release.json" ;; esac
     ( probe_one "$_op" "$_oa" > "$TMP/probe.$_oi" 2>/dev/null || true ) &
     _opids="$_opids $!"
   done 3< "$TMP/probed"
@@ -689,21 +699,46 @@ npm_release() {
     || { say "  $3: release.json or its signature is too large"; return 1; }
 }
 
+# cdn_version URL NAME FORCE: CDN_DIR, the directory of the latest version
+# of the package PKG on the content delivery network URL (kind cdn): the
+# version is read from URL@latest/package.json, and the files are then all
+# fetched from URL@<version>/dl, so that release.json and its signature
+# come from the one version. Returns 1 when the network does not serve the
+# package, and 2 when its version is older than MINVER (unless FORCE).
+cdn_version() {
+  (FETCH_MAXTIME=60; fetch "$1@latest/package.json" "$TMP/cdn.json" 1048576) 2>>"$(logto)" || return 1
+  _cv=$(tr ',{}' '\n\n\n' < "$TMP/cdn.json" | sed -n 's/^[[:space:]]*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)"[[:space:]]*$/\1/p' | head -n 1)
+  semver_ok "$_cv" || { say "  $2: no version in $1@latest/package.json"; return 1; }
+  if [ "$3" != 1 ] && [ "$(vercmp "$_cv" "$MINVER")" = -1 ]; then
+    say "  $2: anet $_cv, older than $MINVER; passed over"
+    return 2
+  fi
+  CDN_DIR="$1@$_cv/dl"
+  say "  $2: anet $_cv, $CDN_DIR"
+}
+
 # try_source N KIND NAME URL HOSTS FORCE: fetch and verify the manifest of one
 # source into $TMP/src.N. 0: a release of at least MINVER (or any, with
 # FORCE), verified; 1: the source does not serve one; 2: it serves an older
-# one (a lagging mirror). A manifest that is served and fails a check ends
-# the install.
+# one (a lagging mirror); 3: what it serves does not verify (not signed by
+# the release key, or expired), which the log says in one line. A manifest
+# that verifies and fails a later check ends the install.
 try_source() {
   _sd="$TMP/src.$1"; rm -rf "$_sd"; mkdir -p "$_sd"
   FETCH_ALLOW=$5
   say "source $3 ($4)"
-  if [ "$2" = npm ]; then
+  _skind=$2; _surl=$4
+  if [ "$2" = cdn ]; then
+    _src=0; cdn_version "$4" "$3" "$6" || _src=$?
+    [ "$_src" = 0 ] || return "$_src"
+    _skind=files; _surl=$CDN_DIR
+  fi
+  if [ "$_skind" = npm ]; then
     _src=0; npm_release "$_sd" "$4" "$3" "$6" || _src=$?
     [ "$_src" = 0 ] || return "$_src"
   else
-    if ! (FETCH_MAXTIME=60; fetch "$4/release.json" "$_sd/release.json" 1048576) 2>>"$(logto)" \
-       || ! (FETCH_MAXTIME=60; fetch "$4/release.json.sig" "$_sd/release.json.sig" 16384) 2>>"$(logto)"; then
+    if ! (FETCH_MAXTIME=60; fetch "$_surl/release.json" "$_sd/release.json" 1048576) 2>>"$(logto)" \
+       || ! (FETCH_MAXTIME=60; fetch "$_surl/release.json.sig" "$_sd/release.json.sig" 16384) 2>>"$(logto)"; then
       say "  $3: not served"
       return 1
     fi
@@ -713,11 +748,20 @@ try_source() {
     say "  $3: not a release manifest and signature (an HTML page?)"
     return 1
   fi
-  SRC_KIND=$2; SRC_NAME=$3; SRC_URL=$4; SRC_ALLOW=$5; SRC_DIR=$_sd
   MF="$_sd/release.json"
-  verify_sig "$MF" "$_sd/release.json.sig"
+  if ! verify_sig "$MF" "$_sd/release.json.sig"; then
+    say "  $3: release.json is not signed by the anet release key ($(release_key_fingerprint)); passed over"
+    return 3
+  fi
+  SRC_KIND=$_skind; SRC_NAME=$3; SRC_URL=$_surl; SRC_ALLOW=$5; SRC_DIR=$_sd
   say "  signature ok  (release key $(release_key_fingerprint))"
   read_manifest
+  # Same shape on both sides, so string order is time order.
+  NOW="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  if ! awk -v now="$NOW" -v until="$EXPIRES" 'BEGIN { exit !(now < until) }'; then
+    say "  $3: the release manifest expired at $EXPIRES (it is now $NOW here); passed over"
+    return 3
+  fi
   if [ "$6" != 1 ] && [ "$(vercmp "$VERSION" "$MINVER")" = -1 ]; then
     say "  $3: release $VERSION, older than $MINVER; passed over"
     return 2
@@ -728,12 +772,14 @@ try_source() {
 # select_release: the first source, in the order of order_sources, that
 # serves a verified release of at least MINVER (this installer's version,
 # or that of the anet already installed when newer); when none does, the
-# first that serves an older one. Its manifest and signature are copied to
-# $TMP for record_release.
+# first that serves an older one. A source whose manifest does not verify
+# is passed over; when no source serves one that does, the install ends
+# and names them. Its manifest and signature are copied to $TMP for
+# record_release.
 select_release() {
   min_version
   order_sources
-  _si=0; _stale=""; _sr=1
+  _si=0; _stale=""; _sr=1; _bad=""
   while IFS= read -r _sl <&4; do
     [ -n "$_sl" ] || continue
     _si=$((_si + 1))
@@ -744,8 +790,15 @@ EOF
     case "$_sr" in
       0) break ;;
       2) [ -n "$_stale" ] || _stale="$_si|$_sl" ;;
+      3) _bad="${_bad:+$_bad, }$_sn" ;;
     esac
   done 4< "$TMP/sources"
+  if [ "$_sr" != 0 ] && [ -z "$_stale" ] && [ -n "$_bad" ]; then
+    die "$(m "no download source served a release manifest that verifies with the anet release key ($(release_key_fingerprint)); not verified: $_bad.
+  Either these sources serve files the release key did not sign or an expired release,
+  or this ssh-keygen is older than OpenSSH 8.1 ($(ssh -V 2>&1 | head -1)). Name another source with --base URL." "没有下载源提供能用 anet 发布密钥（$(release_key_fingerprint)）验证的发布清单；未通过验证：${_bad}。
+  可能是这些下载源提供的文件并非由发布密钥签名或已过期，也可能是本机的 ssh-keygen 早于 OpenSSH 8.1（$(ssh -V 2>&1 | head -1)）。请用 --base URL 指定其他下载源。")"
+  fi
   if [ "$_sr" != 0 ]; then
     [ -n "$_stale" ] || die "$(m "no download source served a release (tried: $(cut -d'|' -f2 "$TMP/sources" | tr '\n' ' ' | sed 's/ $//')).
   Check this machine's connection to the internet, or name a source with --base URL." "没有下载源提供发布（已尝试：$(cut -d'|' -f2 "$TMP/sources" | tr '\n' ' ' | sed 's/ $//')）。
@@ -802,13 +855,8 @@ read_manifest() {
     || die "release.json: version '$VERSION' is not x.y.z"
   printf '%s' "$EXPIRES" | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$' \
     || die "release.json: expires_at '$EXPIRES' is malformed"
-
-  # Same shape on both sides, so string order is time order.
-  NOW="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-  awk -v now="$NOW" -v until="$EXPIRES" 'BEGIN { exit !(now < until) }' \
-    || die "the release manifest expired at $EXPIRES (it is now $NOW here).
-  If this machine's clock is right, ${SRC_NAME:-the download source} is serving a stale release;
-  --base URL names another download source (every source is checked the same way)."
+  # Whether it has expired is checked by try_source, which passes over a
+  # source that serves an expired release.
 
   VLINE="$(mf_block_line variants "$VARIANT")" || die "release.json has no '$VARIANT' variant"
   MODS="$(printf '%s' "$VLINE" | sed -n 's/.*"modules": \[\([^]]*\)\].*/\1/p' | tr -d '" ')"
