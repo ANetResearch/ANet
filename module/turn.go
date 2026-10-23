@@ -63,6 +63,10 @@ type Turn struct {
 	// Trusted is whether the peer is on the trust list, read when the turn
 	// was handed over.
 	Trusted bool
+	// Admitted is whether the local service named by inbound.admit admitted
+	// the peer, decided when the turn was handed over (design v0.3.9 §A). It
+	// is false for a peer on the trust list: Trusted decides that case.
+	Admitted bool
 	// State is the task state, a non-terminal one.
 	State string
 	// Goal is the task's goal text.
