@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: ANet 0.3\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-23 07:38+0000\n"
+"POT-Creation-Date: 2026-10-23 07:51+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: zh_CN\n"
@@ -5530,7 +5530,10 @@ msgid ""
 "The capability {capability} is not an agent tool of this node (the "
 "service configuration does not mark it agent_tool) and was not called; "
 "use one of the tools this node lists."
-msgstr "The capability {capability} is not an agent tool of this node (the service configuration does not mark it agent_tool) and was not called; use one of the tools this node lists."
+msgstr ""
+"The capability {capability} is not an agent tool of this node (the "
+"service configuration does not mark it agent_tool) and was not called; "
+"use one of the tools this node lists."
 
 #: ../../reference/_generated/reason-codes.inc:1608
 #, python-brace-format
@@ -5943,7 +5946,9 @@ msgstr "``sandbox.admitted_direct``"
 msgid ""
 "Peers that inbound.admit admits run local agents directly as your user, "
 "which is the same as giving them your user's rights."
-msgstr "Peers that inbound.admit admits run local agents directly as your user, which is the same as giving them your user's rights."
+msgstr ""
+"Peers that inbound.admit admits run local agents directly as your user, "
+"which is the same as giving them your user's rights."
 
 #: ../../reference/_generated/reason-codes.inc:1784
 msgid "inbound.admit 准入的对端直接以你的用户身份运行本机 agent，等同授予它们你的用户权限。"
@@ -5957,7 +5962,9 @@ msgstr "``sandbox.admitted_sandbox``"
 msgid ""
 "Peers that inbound.admit admits run local agents in the sandbox, within "
 "the run budget."
-msgstr "Peers that inbound.admit admits run local agents in the sandbox, within the run budget."
+msgstr ""
+"Peers that inbound.admit admits run local agents in the sandbox, within "
+"the run budget."
 
 #: ../../reference/_generated/reason-codes.inc:1790
 msgid "inbound.admit 准入的对端在沙箱中运行本机 agent，计入运行预算。"
@@ -6675,7 +6682,9 @@ msgstr "``model_budget_spent``"
 msgid ""
 "``anet``: this node's model budget for such runs is used up for today; "
 "say in your reply that the task cannot be done today."
-msgstr "``anet``: this node's model budget for such runs is used up for today; say in your reply that the task cannot be done today."
+msgstr ""
+"``anet``: this node's model budget for such runs is used up for today; "
+"say in your reply that the task cannot be done today."
 
 #: ../../reference/_generated/reason-codes.inc:2124
 msgid "``anet``: 本节点今天为这类运行提供的模型额度已用完；请在回复里说明今天无法完成这项任务。"
@@ -6690,7 +6699,9 @@ msgstr "``policy_server_tool.proxy``"
 msgid ""
 "``anet``: this node's model proxy does not forward the server-side model "
 "tool {type}; use a local tool instead."
-msgstr "``anet``: this node's model proxy does not forward the server-side model tool {type}; use a local tool instead."
+msgstr ""
+"``anet``: this node's model proxy does not forward the server-side model "
+"tool {type}; use a local tool instead."
 
 #: ../../reference/_generated/reason-codes.inc:2130
 #, python-brace-format
@@ -6705,7 +6716,9 @@ msgstr "``policy_mcp_servers.proxy``"
 msgid ""
 "``anet``: this node's model proxy does not forward MCP connectors "
 "(mcp_servers)."
-msgstr "``anet``: this node's model proxy does not forward MCP connectors (mcp_servers)."
+msgstr ""
+"``anet``: this node's model proxy does not forward MCP connectors "
+"(mcp_servers)."
 
 #: ../../reference/_generated/reason-codes.inc:2136
 msgid "``anet``: 本节点的模型代理不转发 MCP 连接器（mcp_servers）。"
@@ -6720,7 +6733,9 @@ msgstr "``policy_field.proxy``"
 msgid ""
 "``anet``: this node's model proxy does not forward the request field "
 "{field}."
-msgstr "``anet``: this node's model proxy does not forward the request field {field}."
+msgstr ""
+"``anet``: this node's model proxy does not forward the request field "
+"{field}."
 
 #: ../../reference/_generated/reason-codes.inc:2142
 #, python-brace-format
@@ -6762,7 +6777,9 @@ msgstr "``turn_tool_unknown``"
 msgid ""
 "``anet``: {name} is not a tool of this run; list the available tools "
 "first."
-msgstr "``anet``: {name} is not a tool of this run; list the available tools first."
+msgstr ""
+"``anet``: {name} is not a tool of this run; list the available tools "
+"first."
 
 #: ../../reference/_generated/reason-codes.inc:2164
 #, python-brace-format
@@ -6777,7 +6794,9 @@ msgstr "``turn_call_invalid``"
 msgid ""
 "``anet``: a call is a POST whose body is a JSON object with capability "
 "and args (an object), at most 1 MiB."
-msgstr "``anet``: a call is a POST whose body is a JSON object with capability and args (an object), at most 1 MiB."
+msgstr ""
+"``anet``: a call is a POST whose body is a JSON object with capability "
+"and args (an object), at most 1 MiB."
 
 #: ../../reference/_generated/reason-codes.inc:2172
 msgid "``anet``: 调用须为 POST，正文为 JSON 对象，含 capability 与 args（对象），不超过 1 MiB。"
@@ -6805,7 +6824,9 @@ msgstr "``turn_service_failed``"
 msgid ""
 "``anet``: this node cannot reach the service of these tools right now; "
 "try again later, or answer with what you have."
-msgstr "``anet``: this node cannot reach the service of these tools right now; try again later, or answer with what you have."
+msgstr ""
+"``anet``: this node cannot reach the service of these tools right now; "
+"try again later, or answer with what you have."
 
 #: ../../reference/_generated/reason-codes.inc:2188
 msgid "``anet``: 本节点暂时连不上提供这些工具的服务；请稍后再试，或根据已有结果作答。"
@@ -6819,11 +6840,17 @@ msgstr "``turn_tools_none``"
 msgid ""
 "``anet``: this session has no turn tools: they exist only while this node"
 " runs the agent for a peer (ANET_TURN_URL and ANET_TURN_TOKEN)."
-msgstr "``anet``: this session has no turn tools: they exist only while this node runs the agent for a peer (ANET_TURN_URL and ANET_TURN_TOKEN)."
+msgstr ""
+"``anet``: this session has no turn tools: they exist only while this node"
+" runs the agent for a peer (ANET_TURN_URL and ANET_TURN_TOKEN)."
 
 #: ../../reference/_generated/reason-codes.inc:2196
-msgid "``anet``: 本会话没有任务工具：只有本节点为某个对端运行代理时才有（ANET_TURN_URL 与 ANET_TURN_TOKEN）。"
-msgstr "``anet``: 本会话没有任务工具：只有本节点为某个对端运行代理时才有（ANET_TURN_URL 与 ANET_TURN_TOKEN）。"
+msgid ""
+"``anet``: 本会话没有回合工具：只有本节点为某个对端运行 agent 时才有（ANET_TURN_URL 与 "
+"ANET_TURN_TOKEN）。"
+msgstr ""
+"``anet``: 本会话没有回合工具：只有本节点为某个对端运行 agent 时才有（ANET_TURN_URL 与 "
+"ANET_TURN_TOKEN）。"
 
 #: ../../reference/_generated/reason-codes.inc:2202
 msgid "Local backends"
@@ -6922,13 +6949,18 @@ msgid ""
 "``anet`` runner cannot work on this platform: it reads who is on the "
 "other end of a Unix socket, which only Linux and macOS report; use Linux "
 "or macOS, or remove auto_reply.runner."
-msgstr "``anet`` runner cannot work on this platform: it reads who is on the other end of a Unix socket, which only Linux and macOS report; use Linux or macOS, or remove auto_reply.runner."
+msgstr ""
+"``anet`` runner cannot work on this platform: it reads who is on the "
+"other end of a Unix socket, which only Linux and macOS report; use Linux "
+"or macOS, or remove auto_reply.runner."
 
 #: ../../reference/_generated/reason-codes.inc:2254
 msgid ""
 "本平台不能运行 ``anet`` runner：它要读取 Unix 套接字对端的用户身份，只有 Linux 与 macOS 提供；请改在 "
 "Linux 或 macOS 上运行，或删掉 auto_reply.runner。"
-msgstr "本平台不能运行 ``anet`` runner：它要读取 Unix 套接字对端的用户身份，只有 Linux 与 macOS 提供；请改在 Linux 或 macOS 上运行，或删掉 auto_reply.runner。"
+msgstr ""
+"本平台不能运行 ``anet`` runner：它要读取 Unix 套接字对端的用户身份，只有 Linux 与 macOS 提供；请改在 "
+"Linux 或 macOS 上运行，或删掉 auto_reply.runner。"
 
 #: ../../reference/_generated/reason-codes.inc:2258
 msgid "``runner_agent_not_allowed``"
@@ -6939,7 +6971,9 @@ msgstr "``runner_agent_not_allowed``"
 msgid ""
 "The runner does not run the agent {name}; restart it with ``anet`` runner"
 " serve ``--agent`` {name}."
-msgstr "The runner does not run the agent {name}; restart it with ``anet`` runner serve ``--agent`` {name}."
+msgstr ""
+"The runner does not run the agent {name}; restart it with ``anet`` runner"
+" serve ``--agent`` {name}."
 
 #: ../../reference/_generated/reason-codes.inc:2262
 #, python-brace-format
@@ -6954,7 +6988,9 @@ msgstr "``runner_job_invalid``"
 msgid ""
 "The runner does not accept the form of this node's job; upgrade ``anet`` "
 "and the runner to the same release."
-msgstr "The runner does not accept the form of this node's job; upgrade ``anet`` and the runner to the same release."
+msgstr ""
+"The runner does not accept the form of this node's job; upgrade ``anet`` "
+"and the runner to the same release."
 
 #: ../../reference/_generated/reason-codes.inc:2270
 msgid "运行器不接受本节点发来的任务格式；请把 ``anet`` 与运行器升级到同一发布。"
@@ -8179,7 +8215,10 @@ msgid ""
 "Run admitted peers' tasks directly: every peer that inbound.admit admits "
 "will run local agents without the sandbox, as your user, which is the "
 "same as giving them your user's rights."
-msgstr "Run admitted peers' tasks directly: every peer that inbound.admit admits will run local agents without the sandbox, as your user, which is the same as giving them your user's rights."
+msgstr ""
+"Run admitted peers' tasks directly: every peer that inbound.admit admits "
+"will run local agents without the sandbox, as your user, which is the "
+"same as giving them your user's rights."
 
 #: ../../reference/_generated/reason-codes.inc:2776
 msgid "直接运行已准入对端的任务：inbound.admit 准入的每个对端都将不经沙箱、以你的用户身份运行本机 agent，等同授予它们你的用户权限。"
@@ -8619,7 +8658,10 @@ msgid ""
 "Peers on no list may also send tasks once the local capability "
 "{capability} admits them; auto-reply treats their tasks as untrusted "
 "peers' tasks."
-msgstr "Peers on no list may also send tasks once the local capability {capability} admits them; auto-reply treats their tasks as untrusted peers' tasks."
+msgstr ""
+"Peers on no list may also send tasks once the local capability "
+"{capability} admits them; auto-reply treats their tasks as untrusted "
+"peers' tasks."
 
 #: ../../reference/_generated/reason-codes.inc:2968
 #, python-brace-format
@@ -8636,7 +8678,10 @@ msgid ""
 "Peers on no list may also send tasks once the local capability "
 "{capability} admits them; auto-reply runs their tasks directly, without "
 "the sandbox."
-msgstr "Peers on no list may also send tasks once the local capability {capability} admits them; auto-reply runs their tasks directly, without the sandbox."
+msgstr ""
+"Peers on no list may also send tasks once the local capability "
+"{capability} admits them; auto-reply runs their tasks directly, without "
+"the sandbox."
 
 #: ../../reference/_generated/reason-codes.inc:2974
 #, python-brace-format
@@ -8653,7 +8698,10 @@ msgid ""
 "Peers on no list may also send tasks once the local capability "
 "{capability} admits them; auto-reply runs their tasks in the sandbox, "
 "within the run budget."
-msgstr "Peers on no list may also send tasks once the local capability {capability} admits them; auto-reply runs their tasks in the sandbox, within the run budget."
+msgstr ""
+"Peers on no list may also send tasks once the local capability "
+"{capability} admits them; auto-reply runs their tasks in the sandbox, "
+"within the run budget."
 
 #: ../../reference/_generated/reason-codes.inc:2980
 #, python-brace-format

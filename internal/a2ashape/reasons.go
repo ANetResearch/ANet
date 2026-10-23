@@ -3358,7 +3358,7 @@ var reasonTable = []Row{
 		Zh: "anet: 本节点暂时连不上提供这些工具的服务；请稍后再试，或根据已有结果作答。",
 		En: "anet: this node cannot reach the service of these tools right now; try again later, or answer with what you have."},
 	{Code: "turn_tools_none", Class: ClassModel,
-		Zh: "anet: 本会话没有任务工具：只有本节点为某个对端运行代理时才有（ANET_TURN_URL 与 ANET_TURN_TOKEN）。",
+		Zh: "anet: 本会话没有回合工具：只有本节点为某个对端运行 agent 时才有（ANET_TURN_URL 与 ANET_TURN_TOKEN）。",
 		En: "anet: this session has no turn tools: they exist only while this node runs the agent for a peer (ANET_TURN_URL and ANET_TURN_TOKEN)."},
 }
 

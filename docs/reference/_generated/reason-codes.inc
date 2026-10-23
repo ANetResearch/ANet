@@ -2193,7 +2193,7 @@ Sentences that the agent inside the sandbox reads. They are not shown to the ope
      - 0.3.9
      - Model
      - ``anet``: this session has no turn tools: they exist only while this node runs the agent for a peer (ANET_TURN_URL and ANET_TURN_TOKEN).
-     - ``anet``: 本会话没有任务工具：只有本节点为某个对端运行代理时才有（ANET_TURN_URL 与 ANET_TURN_TOKEN）。
+     - ``anet``: 本会话没有回合工具：只有本节点为某个对端运行 agent 时才有（ANET_TURN_URL 与 ANET_TURN_TOKEN）。
      - 
 
 .. _reason-codes-j:
