@@ -985,7 +985,7 @@ func (d *Daemon) SendStatus(ctx context.Context, interactionID string, state int
 // recordReceived writes anet.delegation.received for a delegation from a
 // peer this node named (trust peer or approved). Public and public_cap
 // acceptances are aggregated instead (noteReceivedPublic).
-func (d *Daemon) recordReceived(ix, from, trust, requestCID, capID string) {
+func (d *Daemon) recordReceived(ix, from, trust, requestCID, capID string, admitted bool) {
 	if trust == interactions.TrustPublic || trust == interactions.TrustPublicCap {
 		d.noteReceivedPublic(from, trust)
 		return
@@ -996,6 +996,11 @@ func (d *Daemon) recordReceived(ix, from, trust, requestCID, capID string) {
 	ev := map[string]any{"interaction_id": ix, "requester_aid": from, "trust": trust, "request_cid": requestCID}
 	if capID != "" {
 		ev["capability"] = capID
+	}
+	if admitted {
+		// Accepted because inbound.admit admitted the requester (design
+		// v0.3.9 §A), not because a list named it.
+		ev["admitted"] = true
 	}
 	if _, err := d.ledger.Append(EvDelegationReceived, ev); err != nil {
 		log.Printf("anet: delegation evidence: %v", err)
@@ -1141,7 +1146,7 @@ func (d *Daemon) ingestDelegate(ctx context.Context, m *rxMsg) rxResult {
 		d.publishMessage(m.ix, seq, interactions.MsgText)
 	}
 	d.publishState(m.ix)
-	d.recordReceived(m.ix, m.from, m.trust, requestCID, capID)
+	d.recordReceived(m.ix, m.from, m.trust, requestCID, capID, m.admitted)
 	// A capability call is executed deterministically here; a
 	// natural-language task waits for the operator's agent or auto-reply.
 	if isCap {

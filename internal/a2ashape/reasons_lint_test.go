@@ -261,6 +261,8 @@ var placeholders = map[string]bool{
 	"from": true, "to": true, "old": true, "file": true, "how": true, "skill": true, "state": true,
 	"charge": true, "backend": true, "m": true, "k": true, "host": true, "field": true, "type": true,
 	"paths": true, "auto_reply": true, "detail": true,
+	// design v0.3.9 §A: inbound.admit.*.
+	"capability": true,
 	// MOD-1: the module sentences.
 	"fix": true, "variant": true, "modules": true,
 	// `anet agents wire|unwire`: the binary and a line number.

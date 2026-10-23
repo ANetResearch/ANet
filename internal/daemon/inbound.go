@@ -10,6 +10,7 @@ package daemon
 //	1 from ∈ deny                              refuse (closed: the same answer as row 6)
 //	2 capability call, capability is public    kernel admission (Admit), then trust=public_cap
 //	3 from ∈ allow ∪ trust                     trust=peer
+//	3a text task, inbound.admit admits from    trust=peer, admitted (admit_service.go)
 //	4 policy approve                           hold in the pending queue
 //	5 policy open                              capability call: refuse; otherwise trust=public
 //	6 otherwise                                refuse, anet.reason=not_accepting
@@ -70,6 +71,10 @@ type InboundConfig struct {
 	// its quotas; an allow_only one only the peers on the allow and trust
 	// lists (CUX-F12).
 	PublicCapabilities []PublicCapability `json:"public_capabilities"`
+	// Admit delegates the admission of a text task from a peer on no list
+	// to an internal capability of the service module (design v0.3.9 §A,
+	// admit_service.go); nil, the default, admits no one that way.
+	Admit *InboundAdmit `json:"admit,omitempty"`
 }
 
 // PublicCapability is one capability anyone may call. A zero limit takes
@@ -262,6 +267,9 @@ func validatePolicy(c Config, untrustedBackend bool) error {
 	if ref := checkPublicCapabilities(in); ref != nil {
 		return ref
 	}
+	if ref := checkInboundAdmit(in); ref != nil {
+		return ref
+	}
 	if in.Policy != PolicyOpen {
 		return nil
 	}
@@ -323,6 +331,9 @@ func (d *Daemon) validate(c Config) error {
 	}
 	if err := d.checkFilesReceivers(c); err != nil {
 		return err
+	}
+	if ref := d.checkAdmitServed(c); ref != nil {
+		return ref
 	}
 	for _, ref := range moduleConfigRefusals(c, d.layout.Root) {
 		return ref // the first: the module's own checks that need the data dir (LEC §3.2)
@@ -453,6 +464,9 @@ type inboundDecision struct {
 	// release frees the admission slot of a public capability call; nil
 	// otherwise. The caller must call it exactly once.
 	release func()
+	// admitted is set for a task accepted because inbound.admit admitted
+	// its sender (row 3a).
+	admitted bool
 }
 
 func refuseWith(reason string, retryAfterMS int64) inboundDecision {
@@ -554,7 +568,8 @@ func (d *Daemon) decideDelegate(from string, f delegateForm) inboundDecision {
 // natural-language task stops after step 2.
 func (d *Daemon) decideDelegateAt(now int64, from string, f delegateForm) inboundDecision {
 	in := d.config().inbound()
-	dec, pc, public := decidePolicy(in, d.readPeers(), from, f.capID)
+	admit := func() bool { return d.admittedPeer(from) }
+	dec, pc, public := decidePolicy(in, d.readPeers(), from, f.capID, admit)
 	if dec.action == actRefuse {
 		return dec
 	}
@@ -596,16 +611,21 @@ func (d *Daemon) decideDelegateAt(now int64, from string, f delegateForm) inboun
 //	1 from ∈ deny                              refuse (closed: the same answer as row 6)
 //	2 capability call, public to from          admission, then trust=public_cap
 //	3 from ∈ allow ∪ trust                     trust=peer
+//	3a text task, admit() is true              trust=peer, admitted
 //	4 policy approve                           hold in the pending queue
 //	5 policy open                              capability call: refuse; otherwise trust=public
 //	6 otherwise                                refuse, not_accepting
+//
+// admit asks the service inbound.admit names (admit_service.go); it is
+// called only for a text task from a peer on no list, after the deny list,
+// and answers false when inbound.admit is not set.
 //
 // An allow_only capability is public only to a caller on the allow or
 // trust list; to any other it is a capability that is not in the list, and
 // what it is told is what a call of one this node does not have is told:
 // not_accepting under closed, capability_not_public under open, the queue
 // under approve (CUX-F12, CUX-Q2). public reports row 2, with the entry.
-func decidePolicy(in InboundConfig, ps peerSets, from, capID string) (dec inboundDecision, pc PublicCapability, public bool) {
+func decidePolicy(in InboundConfig, ps peerSets, from, capID string, admit func() bool) (dec inboundDecision, pc PublicCapability, public bool) {
 	// Row 1. Under closed a denied peer is told exactly what a stranger is
 	// told (the same note, at the same moment), so the deny list is not
 	// observable there. Under approve and open it is (§2 X2).
@@ -625,6 +645,11 @@ func decidePolicy(in InboundConfig, ps peerSets, from, capID string) (dec inboun
 	// Row 3.
 	if listed {
 		return inboundDecision{action: actAccept, trust: interactions.TrustPeer}, pc, false
+	}
+	// Row 3a: a text task only. A capability call is the public
+	// capabilities' business (row 2), never the admission service's.
+	if capID == "" && in.Admit != nil && admit != nil && admit() {
+		return inboundDecision{action: actAccept, trust: interactions.TrustPeer, admitted: true}, pc, false
 	}
 	switch in.Policy {
 	case PolicyApprove: // row 4
@@ -970,6 +995,10 @@ type InboundState struct {
 	PublicCapabilities []PublicCapability `json:"public_capabilities"`
 	Pending            int                `json:"pending"`
 	UntrustedAutoReply string             `json:"auto_reply_untrusted"`
+	// Admit is inbound.admit, null when it is not set; AdmittedAutoReply
+	// is auto_reply.admitted (design v0.3.9 §A).
+	Admit             *InboundAdmitState `json:"admit"`
+	AdmittedAutoReply string             `json:"auto_reply_admitted"`
 }
 
 func sortedKeys(m map[string]bool) []string {
@@ -989,7 +1018,8 @@ func (d *Daemon) InboundStatus() InboundState {
 	ps := d.readPeers()
 	st := InboundState{Policy: in.Policy,
 		Allow: sortedKeys(ps.allow), Deny: sortedKeys(ps.deny), Trust: sortedKeys(ps.trust),
-		PublicCapabilities: in.PublicCapabilities, UntrustedAutoReply: untrustedOff}
+		PublicCapabilities: in.PublicCapabilities, UntrustedAutoReply: untrustedOff,
+		Admit: in.admitState(), AdmittedAutoReply: admittedAutoReply(cfg)}
 	if v, ok := moduleSI5(cfg)["auto_reply.untrusted"].(string); ok {
 		st.UntrustedAutoReply = v
 	}

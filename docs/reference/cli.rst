@@ -239,9 +239,12 @@ appear in a fixed order and only when their condition holds:
      - Present when outbound messages wait for confirmation or are stuck.
    * - ``inbound``
      - The inbound policy, the number of peers on the allow list, the number of
-       public capabilities and the state of the auto-reply. Always present.
+       public capabilities and the state of the auto-reply. Always present. While
+       ``inbound.admit`` is set, a second sentence names the admission capability
+       and how auto-reply runs the tasks of admitted peers.
    * - ``sandbox``
-     - Present when untrusted or trusted peers are served in the sandbox.
+     - Present when untrusted, admitted or trusted peers are served in the
+       sandbox.
    * - ``payments``
      - The payment limits. Always present.
    * - ``privacy``
@@ -452,6 +455,8 @@ Peers and inbound policy
    $ anet peers list
    $ anet peers allow bafyrei...placeholder
    $ anet inbound policy approve
+   $ anet inbound admit set org.admit --cache-seconds 30
+   $ anet inbound admit off
 
 ``anet peers list`` prints the peers on the lists and a column that states
 whether messages to each peer carry the sender identity. ``peers allow`` lets a
@@ -461,6 +466,14 @@ lists. ``anet inbound policy [closed|approve|open]`` shows or sets the inbound
 policy; the default is ``closed``. With ``approve``, tasks of peers that are not
 on a list wait in a queue of at most 200 entries, at most 3 per peer, for 72
 hours; ``anet inbound list|approve|reject [<id>]`` manages the queue.
+
+``anet inbound admit set <capability> [--cache-seconds N]`` (since 0.3.9) lets an
+internal capability of the ``service`` module decide whether a peer on no list
+may send text tasks; ``--cache-seconds`` takes 1 to 300 and defaults to 30. The
+daemon refuses a capability that the service module does not mark
+``"internal": true``. ``anet inbound admit off`` removes the setting. ``anet
+inbound`` shows it as ``admit``, together with ``auto_reply_admitted``. See
+:doc:`../topics/delegation` and ``inbound.admit`` in :doc:`config`.
 
 ``anet autoreply``
 ~~~~~~~~~~~~~~~~~~
@@ -490,6 +503,10 @@ OpenAI-compatible API. Settings are merged into the existing configuration.
    * - ``--trusted direct|sandbox``
      - How tasks of trusted peers run. The default is ``direct``. Changing from
        ``sandbox`` back to ``direct`` is confirmed on the terminal.
+   * - ``--admitted off|direct|sandbox``
+     - How tasks of peers that ``inbound.admit`` admits run (since 0.3.9). The
+       default ``off`` treats them as tasks of peers that are not trusted.
+       Turning on ``direct`` is confirmed on the terminal.
    * - ``--api-base``, ``--model``, ``--system-prompt``
      - Settings of the ``openai`` backend and the model override of ``exec``.
    * - ``--api-key-stdin``

@@ -128,6 +128,7 @@ no_pending_quote	0.3.0	active
 no_response	0.3.0	active
 no_sandbox_exec	0.3.0	active
 not_accepting	0.3.0	active
+not_agent_tool	0.3.9	active
 not_requested	0.3.0	active
 notice_stale	0.3.0	active
 old_hub_unacked	0.3.0	active

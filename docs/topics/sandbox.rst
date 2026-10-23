@@ -23,10 +23,12 @@ commands and use the network, and that holds the credentials of the model
 service. A sandbox limits what such a program can do whatever the text says.
 
 The sandbox applies to the ``exec`` backend of auto-reply (see
-:doc:`delegation`) and is selected for a turn in two cases:
+:doc:`delegation`) and is selected for a turn in three cases:
 
 * the peer is not on the ``trust`` list and ``auto_reply.untrusted`` is
   ``sandbox``;
+* the peer is admitted by ``inbound.admit`` and ``auto_reply.admitted`` is
+  ``sandbox`` (since 0.3.9);
 * the peer is on the ``trust`` list and ``auto_reply.trusted`` is ``sandbox``.
 
 A turn that is selected for the sandbox never runs outside it. If the sandbox is
@@ -269,8 +271,9 @@ Run budget
 Every turn for an untrusted peer costs the operator money for the model and
 machine time. The node counts these turns for each local calendar day. A turn
 counts when the ``exec`` backend runs an agent in the sandbox and when the
-``openai`` backend answers. Turns for trusted peers are not counted, and neither
-is ``anet autoreply test``.
+``openai`` backend answers. Sandboxed turns for peers that ``inbound.admit``
+admits count in the same budget. Turns for trusted peers are not counted, nor
+are direct runs for admitted peers, and neither is ``anet autoreply test``.
 
 .. list-table::
    :header-rows: 1

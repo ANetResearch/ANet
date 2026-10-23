@@ -148,6 +148,10 @@ const (
 	// KeyTrusted tells a provider-side backend whether the peer is on the
 	// trust list (§11.6).
 	KeyTrusted = "anet.trusted"
+	// KeyAdmitted tells a provider-side backend whether the peer, on no
+	// list, is admitted by the local service inbound.admit names (design
+	// v0.3.9 §A).
+	KeyAdmitted = "anet.admitted"
 )
 
 // a2a-x402 v0.2 keys (A2A-DESIGN §8.2), as internal/x402a2a defines them.

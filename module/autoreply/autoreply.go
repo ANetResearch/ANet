@@ -497,9 +497,9 @@ const (
 // left running (autoReplyOnce).
 func (m *autoReplyModule) autoReplyThread(ctx context.Context, cfg AutoReplyConfig, replier autoReplier, th module.Turn, runs *sync.WaitGroup) error {
 	// How this turn runs is decided on every turn from the lists as they are now (LEC GT-1): a peer
-	// taken off the trust list stops reaching the agent unconfined at the next turn. th.Trusted was read
-	// when the kernel handed the turn over.
-	gate := gateFor(cfg, th.Trusted)
+	// taken off the trust list stops reaching the agent unconfined at the next turn. th.Trusted and
+	// th.Admitted were read when the kernel handed the turn over.
+	gate := gateFor(cfg, th.Trusted, th.Admitted)
 	if gate.mode == "" {
 		return nil // untrusted=off: left in the inbox for the operator
 	}
@@ -838,11 +838,13 @@ type execGate struct {
 }
 
 // gateFor decides how a turn runs (LEC GT-1, GT-4, BU-1). The exec backend runs a trusted peer's turn
-// as auto_reply.trusted says (direct by default) and an untrusted peer's in the sandbox when
-// auto_reply.untrusted=sandbox, else not at all; a turn decided for the sandbox never falls back to a
-// direct run (GT-2). The openai backend starts no local process and answers every peer the lists let
-// through, but an untrusted peer's turn counts against the budget like a sandboxed run.
-func gateFor(cfg AutoReplyConfig, trusted bool) execGate {
+// as auto_reply.trusted says (direct by default); an admitted peer's (inbound.admit, design v0.3.9 §A)
+// as auto_reply.admitted says, direct or in the sandbox within the budget, or with admitted=off as any
+// untrusted peer's; and an untrusted peer's in the sandbox when auto_reply.untrusted=sandbox, else not
+// at all. A turn decided for the sandbox never falls back to a direct run (GT-2). The openai backend
+// starts no local process and answers every peer the lists let through, but a turn of a peer that is
+// not trusted counts against the budget like a sandboxed run.
+func gateFor(cfg AutoReplyConfig, trusted, admitted bool) execGate {
 	if cfg.Backend != "exec" {
 		return execGate{trusted: trusted, mode: modeOpenAI, counted: !trusted}
 	}
@@ -852,6 +854,10 @@ func gateFor(cfg AutoReplyConfig, trusted bool) execGate {
 		g.mode = modeSandbox
 	case trusted:
 		g.mode = modeDirect
+	case admitted && cfg.AdmittedMode() == AdmittedDirect:
+		g.mode = modeDirect
+	case admitted && cfg.AdmittedMode() == AdmittedSandbox:
+		g.mode, g.counted = modeSandbox, true
 	case cfg.UntrustedMode() == UntrustedSandbox:
 		g.mode, g.counted = modeSandbox, true
 	}

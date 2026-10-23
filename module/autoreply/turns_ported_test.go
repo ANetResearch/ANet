@@ -474,10 +474,10 @@ func TestDarwinPendingFailsClosed(t *testing.T) {
 		t.Fatalf("gate = %v", err)
 	}
 	// The openai backend and a direct run are not affected by the switch.
-	if g := gateFor(AutoReplyConfig{Backend: "exec", Agent: "claude"}, true); g.mode != modeDirect {
+	if g := gateFor(AutoReplyConfig{Backend: "exec", Agent: "claude"}, true, false); g.mode != modeDirect {
 		t.Errorf("a trusted peer's turn: %+v", g)
 	}
-	if g := gateFor(AutoReplyConfig{Model: "m", APIBase: "http://x"}, false); g.mode != modeOpenAI {
+	if g := gateFor(AutoReplyConfig{Model: "m", APIBase: "http://x"}, false, false); g.mode != modeOpenAI {
 		t.Errorf("openai turn: %+v", g)
 	}
 }

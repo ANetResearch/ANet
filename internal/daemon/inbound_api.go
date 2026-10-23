@@ -16,7 +16,9 @@ package daemon
 // item 13.
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -103,13 +105,15 @@ func (d *Daemon) hPeersRemove(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, res)
 }
 
-// hInboundPolicy reports the inbound state, and sets the policy and the
-// public capabilities when the request names them. A write that conflicts
-// with the auto-reply or backend configuration is refused with 409.
+// hInboundPolicy reports the inbound state, and sets the policy, the
+// public capabilities and inbound.admit when the request names them
+// ("admit": null removes inbound.admit). A write that conflicts with the
+// auto-reply or backend configuration is refused with 409.
 func (d *Daemon) hInboundPolicy(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Policy             string              `json:"policy"`
 		PublicCapabilities *[]PublicCapability `json:"public_capabilities"`
+		Admit              json.RawMessage     `json:"admit"`
 	}
 	if err := readJSON(r, &req); err != nil && !errors.Is(err, io.EOF) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "bad request"})
@@ -127,7 +131,35 @@ func (d *Daemon) hInboundPolicy(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if len(req.Admit) > 0 {
+		admit, ref := readInboundAdmit(req.Admit)
+		if ref != nil {
+			writeRefusal(w, http.StatusConflict, ref)
+			return
+		}
+		if err := d.SetInboundAdmit(admit); err != nil {
+			writePolicyError(w, err)
+			return
+		}
+	}
 	writeJSON(w, http.StatusOK, d.InboundStatus())
+}
+
+// readInboundAdmit reads the admit member of a write: null for none, else an
+// object of exactly capability and cache_seconds.
+func readInboundAdmit(raw json.RawMessage) (*InboundAdmit, *a2ashape.Refusal) {
+	if strings.TrimSpace(string(raw)) == "null" {
+		return nil, nil
+	}
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.DisallowUnknownFields()
+	var a InboundAdmit
+	if err := dec.Decode(&a); err != nil {
+		return nil, configInvalid("inbound.admit", ruleText(
+			"须是 null，或只含 capability 与 cache_seconds 的对象",
+			"it is null, or an object with capability and cache_seconds only"))
+	}
+	return &a, nil
 }
 
 // writePolicyError answers a refused inbound write: a value the daemon

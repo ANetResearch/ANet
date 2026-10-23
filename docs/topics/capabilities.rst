@@ -178,6 +178,28 @@ Fields of a service capability
    the service. Both can also be set once for the whole module. The default time
    limit is two minutes.
 
+``internal``
+   ``true`` marks a capability that only this node calls (since 0.3.9). It is not
+   offered: it appears on no card and in no registration, and a call from the
+   network is answered as for a capability that the node does not have, without
+   any request to the service. The node uses such a capability for
+   ``inbound.admit`` (see :doc:`delegation`). An internal capability has no
+   price and is not an agent tool.
+
+``agent_tool``, ``input_schema``
+   ``agent_tool: true`` marks a capability that an agent which runs for a peer
+   may call as that peer (since 0.3.9). The node sends the call to the same
+   backend, with the same token and time limit, as a call from the network, and
+   sets ``X-ANet-Caller`` to the AID of the peer and ``X-ANet-Via`` to the origin
+   of the call, for example ``agent``. The service therefore applies the rights
+   and rate limits of that peer. A call to a capability without the flag is
+   refused with ``not_agent_tool`` before anything is sent, and a peer on the
+   ``deny`` list cannot make such a call. ``input_schema`` is an optional JSON
+   Schema object of at most 16 KiB that describes the arguments; the agent
+   receives it with ``description``. A refusal of the service keeps its code and
+   message; an unreachable or failing service is reported as ``unavailable``,
+   ``busy``, ``timeout``, ``connection_lost`` or ``backend_failed``.
+
 A capability call is a request from a remote peer to a program on the
 operator's machine. For this reason a service listens on a Unix domain socket
 whose owner the daemon verifies, and the daemon refuses a socket that another

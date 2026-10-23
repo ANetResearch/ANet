@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 	"time"
 
@@ -172,10 +173,12 @@ func trustedMode(c *client) string {
 }
 
 // runInbound is `anet inbound policy [closed|approve|open]`,
-// `anet inbound list` (alias pending) and `anet inbound approve|reject <id>`.
+// `anet inbound list` (alias pending), `anet inbound approve|reject <id>` and
+// `anet inbound admit set <capability> [--cache-seconds N]|off`.
 func runInbound(c *client, rest []string) error {
-	const use = "anet inbound policy [closed|approve|open] | list | approve <id> | reject <id>"
-	pos, _ := splitFlags(rest)
+	const use = "anet inbound policy [closed|approve|open] | list | approve <id> | reject <id> | " +
+		"admit set <capability> [--cache-seconds N] | admit off"
+	pos, flags := splitFlags(rest)
 	sub := ""
 	if len(pos) > 0 {
 		sub = pos[0]
@@ -214,6 +217,39 @@ func runInbound(c *client, rest []string) error {
 			return usageError{"anet inbound reject <id>"}
 		}
 		return c.do("/inbound/reject", map[string]any{"interaction_id": arg})
+	case "admit":
+		return inboundAdmit(c, pos[1:], flags)
+	}
+	return usageError{use}
+}
+
+// inboundAdmit is `anet inbound admit set <capability> [--cache-seconds N]`
+// and `anet inbound admit off` (design v0.3.9 §A): which internal capability
+// of the service module decides whether a peer on no list may send text
+// tasks. The daemon checks that the capability is one; the answer is the
+// inbound state, admit included.
+func inboundAdmit(c *client, pos []string, flags map[string]string) error {
+	const use = "anet inbound admit set <capability> [--cache-seconds N] | anet inbound admit off"
+	sub := ""
+	if len(pos) > 0 {
+		sub = pos[0]
+	}
+	switch {
+	case sub == "off" && len(pos) == 1:
+		if _, ok := flags["cache-seconds"]; ok {
+			return usageError{use}
+		}
+		return c.do("/inbound/policy", map[string]any{"admit": nil})
+	case sub == "set" && len(pos) == 2 && strings.TrimSpace(pos[1]) != "":
+		admit := map[string]any{"capability": strings.TrimSpace(pos[1])}
+		if v, ok := flags["cache-seconds"]; ok {
+			n, err := strconv.Atoi(strings.TrimSpace(v))
+			if err != nil || n < 1 || n > 300 {
+				return usageError{"--cache-seconds takes a whole number from 1 to 300"}
+			}
+			admit["cache_seconds"] = n
+		}
+		return c.do("/inbound/policy", map[string]any{"admit": admit})
 	}
 	return usageError{use}
 }

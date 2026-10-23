@@ -29,6 +29,7 @@ func runAutoReply(c *client, rest []string) error {
 		"  common: [--max-history N] [--api-timeout SEC]\n" +
 		"  set --untrusted off|sandbox   # run untrusted peers' tasks in the sandbox, or not at all (default off)\n" +
 		"  set --trusted direct|sandbox  # run trusted peers' tasks directly (default), or also in the sandbox\n" +
+		"  set --admitted off|direct|sandbox  # how tasks of peers that inbound.admit admits run (default off: as untrusted peers')\n" +
 		"  show [--json]\n" +
 		"  set --egress-allow host[,host…]   # hosts the sandbox may reach on 443 (\"\" clears; adding asks on the terminal)\n" +
 		"  test [\"question\"]    # run the configured backend once on this machine (no hub, no identity)\n" +
@@ -90,6 +91,11 @@ func runAutoReply(c *client, rest []string) error {
 				return err
 			}
 		}
+		if v, ok := flags["admitted"]; ok && v == "direct" {
+			if err := confirmAdmittedDirect(c); err != nil {
+				return err
+			}
+		}
 		if v, ok := flags["egress-allow"]; ok {
 			sandbox, err := egressAllowRequest(c, v, flags["api-base"], flags["backend"] != "" || flags["agent"] != "")
 			if err != nil {
@@ -108,6 +114,7 @@ func runAutoReply(c *client, rest []string) error {
 			"agent": "agent", "work-dir": "work_dir", "command": "command",
 			"openclaw-agent": "openclaw_agent", "model": "model", "api-base": "api_base",
 			"system-prompt": "system_prompt", "untrusted": "untrusted", "trusted": "trusted",
+			"admitted": "admitted",
 		}
 		for cliKey, jsonKey := range strFlags {
 			if v, ok := flags[cliKey]; ok && v != "true" {

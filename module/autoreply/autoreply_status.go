@@ -31,7 +31,7 @@ func (m *autoReplyModule) autoReplyView(ar *AutoReplyConfig) map[string]any {
 		backend = "openai"
 	}
 	entry := map[string]any{"backend": backend, "untrusted": ar.UntrustedMode(), "trusted": ar.TrustedMode(),
-		"api_key_set": ar.APIKey != ""}
+		"admitted": ar.AdmittedMode(), "api_key_set": ar.APIKey != ""}
 	switch backend {
 	case "exec":
 		entry["agent"] = ar.Agent
@@ -58,7 +58,7 @@ func (m *autoReplyModule) sandboxView(ar *AutoReplyConfig) map[string]any {
 	v := map[string]any{"egress_allow": egressAllowOf(ar), "kind": "", "limits": "", "budget": m.SandboxBudget()}
 	key, state := "sandbox.off", sandboxStateOff
 	var args a2ashape.Args
-	untrusted := ar.UntrustedMode() == UntrustedSandbox && !ar.BudgetOff()
+	untrusted := (ar.UntrustedMode() == UntrustedSandbox || ar.AdmittedMode() == AdmittedSandbox) && !ar.BudgetOff()
 	if ar.Backend == "exec" && (untrusted || ar.TrustedMode() == TrustedSandbox) {
 		v["kind"], v["limits"] = sandboxKind, sandboxLimits()
 		key, state, args = m.sandboxProblem(ar)

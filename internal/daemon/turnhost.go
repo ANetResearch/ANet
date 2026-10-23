@@ -101,6 +101,11 @@ func (d *Daemon) owedTurn(th Thread, ps peerSets) (module.Turn, bool) {
 	if len(t.Messages) == 0 || t.Messages[len(t.Messages)-1].From != "them" {
 		return module.Turn{}, false // the last word is ours, or there is no content yet
 	}
+	if th.Role == string(interactions.RoleInbound) {
+		// Decided at every owed turn (design v0.3.9 §A): a member the
+		// admission service removed is not admitted at the next one.
+		t.Admitted = d.admittedFor(th.Peer, th.IsCapability, ps)
+	}
 	return t, true
 }
 

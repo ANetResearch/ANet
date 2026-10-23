@@ -1070,7 +1070,7 @@ var knownFlags = map[string][]string{
 	"hub-register": {"name", "caps", "recovery-file", "new-recovery", "passphrase-later"}, // --token, --token-file, --accept-delegations: cli_removed (removed.go)
 	"hub-leave":    {},
 	"peers":        {"json"},
-	"inbound":      {},
+	"inbound":      {"cache-seconds"},
 	"pay":          {"option", "reject"},
 	"payments":     {}, // --payees-file: cli_removed (removed.go)
 	"payees":       {},
@@ -1078,12 +1078,12 @@ var knownFlags = map[string][]string{
 	"autoreply": {
 		"backend", "agent", "api-base", "api-key-stdin", "model", "system-prompt", "work-dir", "untrusted",
 		"openclaw-agent", "command",
-		"max-history", "api-timeout", "egress-allow", "trusted", "json",
+		"max-history", "api-timeout", "egress-allow", "trusted", "admitted", "json",
 	},
 	"auto-reply": {
 		"backend", "agent", "api-base", "api-key-stdin", "model", "system-prompt", "work-dir", "untrusted",
 		"openclaw-agent", "command",
-		"max-history", "api-timeout", "egress-allow", "trusted", "json",
+		"max-history", "api-timeout", "egress-allow", "trusted", "admitted", "json",
 	},
 	"profile": {"summary", "readme"},
 	"console": {"url", "print"},

@@ -49,6 +49,24 @@ func confirmTrustedDirect(c *client) error {
 	return err
 }
 
+// confirmAdmittedDirect asks, on the terminal, before the turns of peers that inbound.admit admits run
+// directly, without the sandbox (autoreply.confirm_admitted_direct, design v0.3.9 §A). Nothing is asked
+// when the daemon already runs them direct.
+func confirmAdmittedDirect(c *client) error {
+	cur, err := autoReplyNow(c)
+	if err != nil {
+		return err
+	}
+	if cur != nil && cur["admitted"] == "direct" {
+		return nil
+	}
+	err = confirmOnTTY("trust", a2ashape.Sentence("autoreply.confirm_admitted_direct", a2ashape.Lang(), nil))
+	if err == errNoTTY || err == errDeclined {
+		return errExit1 // said already (tty.go)
+	}
+	return err
+}
+
 // needBackendFirst says, for --egress-allow on a node with no auto-reply, that the backend comes first:
 // a list of hosts for a sandbox that does not exist yet would only be refused by the daemon with a rule
 // about the backend.
@@ -111,6 +129,14 @@ func printAutoReplyShow(w io.Writer, view map[string]any, lang a2ashape.Language
 			trusted = "sandbox.trusted_sandbox"
 		}
 		rows = append(rows, row{"autoreply.trusted", a2ashape.Sentence(trusted, lang, nil), ""})
+		// auto_reply.admitted (design v0.3.9 §A): said only when it is not off, where an admitted peer's
+		// turn is an untrusted peer's and the untrusted row says it.
+		switch str(view, "admitted") {
+		case "direct":
+			rows = append(rows, row{"autoreply.admitted", a2ashape.Sentence("sandbox.admitted_direct", lang, nil), ""})
+		case "sandbox":
+			rows = append(rows, row{"autoreply.admitted", a2ashape.Sentence("sandbox.admitted_sandbox", lang, nil), ""})
+		}
 		// A missing key is the API key row's sentence; saying it on this row too would repeat it.
 		if str(sb, "reason") != "no_api_key" {
 			rows = append(rows, row{"autoreply.untrusted", oneLine(str(sb, "message"), maxLineRunes), oneLine(str(sb, "next"), maxLineRunes)})
