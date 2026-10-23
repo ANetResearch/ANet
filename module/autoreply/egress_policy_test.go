@@ -527,7 +527,7 @@ func TestInjectPolicyGolden(t *testing.T) {
 	}
 	compareGolden(t, filepath.Join("testdata", "inject", "refusals.json"), all)
 	for _, row := range a2ashape.Rows() {
-		if row.Class&a2ashape.ClassModel != 0 && !row.NoSentence {
+		if row.Class&a2ashape.ClassModel != 0 && !row.NoSentence && !turnToolCodes[row.Code] {
 			if _, ok := all[row.Code]; !ok {
 				t.Errorf("refusals.json lacks %s", row.Code)
 			}
@@ -584,8 +584,16 @@ func egressRefusalSamples(up *egressUpstream) []egressRefusal {
 		{400, "policy_encoding", nil},
 		{429, "run_budget_requests", a2ashape.Args{"n": egressMaxRequests}},
 		{429, "run_budget_upload", a2ashape.Args{"n": egressMaxInjectUpload >> 20}},
+		// The model proxy's own (model_proxy.go), in the same formats.
+		{401, "model_proxy_unauthorized", nil},
+		{429, "model_budget_spent", nil},
 	}
 }
+
+// turnToolCodes are the ClassModel rows of the turn tools (turn_tools.go, anet turn-mcp): the agent reads
+// them as a tool's error, in the turn tools' own format, never as a model service's.
+var turnToolCodes = map[string]bool{"turn_unauthorized": true, "turn_tool_unknown": true, "turn_call_invalid": true,
+	"turn_calls_spent": true, "turn_service_failed": true, "turn_tools_none": true}
 
 // compareGolden compares v, encoded as indented JSON, with the file at p (or writes it under
 // -update-inject).

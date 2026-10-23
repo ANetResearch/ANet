@@ -293,6 +293,10 @@ func (r *execReplier) baseOpts(rc replyContext) (execInvokeOpts, error) {
 	if r.cfg.APITimeoutSeconds > 0 {
 		timeout = time.Duration(r.cfg.APITimeoutSeconds) * time.Second
 	}
+	env := execEnv(r.cfg, r.sandbox, rc.Outbox)
+	if r.sandbox == nil {
+		env = withRunEnv(env, rc.RunEnv) // the run's ANET_TURN_* and ANET_MODEL_* (direct_run.go)
+	}
 	return execInvokeOpts{
 		AgentID:       r.cfg.Agent,
 		WorkDir:       workDir,
@@ -300,7 +304,7 @@ func (r *execReplier) baseOpts(rc replyContext) (execInvokeOpts, error) {
 		OpenClawAgent: r.cfg.OpenClawAgent,
 		Command:       r.cfg.Command,
 		ExtraArgs:     r.cfg.ExtraArgs,
-		Env:           execEnv(r.cfg, r.sandbox, rc.Outbox),
+		Env:           env,
 		Timeout:       timeout,
 		Sandbox:       r.sandbox,
 	}, nil

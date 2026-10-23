@@ -379,8 +379,9 @@ func TestTheBudgetAndTheSpendingLimitsShareTheLocalDay(t *testing.T) {
 		}
 		return out
 	}
-	got := calls("sandbox_budget.go", "reserve", "today", "loadLocked")
-	for _, fn := range []string{"reserve", "today", "loadLocked"} {
+	// reserve is reserveAtOnce with the bounds of untrusted runs in flight; reserveAtOnce counts the day.
+	got := calls("sandbox_budget.go", "reserveAtOnce", "today", "loadLocked")
+	for _, fn := range []string{"reserveAtOnce", "today", "loadLocked"} {
 		if !got[fn] {
 			t.Errorf("sandbox_budget.go %s does not take today from localday.Bounds", fn)
 		}

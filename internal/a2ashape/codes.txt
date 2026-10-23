@@ -112,6 +112,8 @@ local_state_lost	0.3.0	active
 local_write_failed	0.3.0	active
 mailbox_full	0.3.0	active
 message_id_reused	0.3.0	active
+model_budget_spent	0.3.9	active
+model_proxy_unauthorized	0.3.9	active
 module_absent	0.3.0	active
 needs_operator_approval	0.3.0	active
 netns_failed	0.3.0	active
@@ -192,6 +194,9 @@ rotation_emergency_done	0.3.0	active
 rotation_pending	0.3.0	active
 run_budget_requests	0.3.0	active
 run_budget_upload	0.3.0	active
+runner_agent_not_allowed	0.3.9	active
+runner_job_invalid	0.3.9	active
+runner_unsupported	0.3.9	active
 sandbox_start_failed	0.3.0	active
 sandbox_unavailable	0.3.0	active
 seccomp_failed	0.3.0	active
@@ -205,6 +210,12 @@ too_large	0.3.0	active
 too_large_for_stranger	0.3.0	active
 trusted_direct_confirm	0.3.0	active
 tty_required	0.3.0	active
+turn_call_invalid	0.3.9	active
+turn_calls_spent	0.3.9	active
+turn_service_failed	0.3.9	active
+turn_tool_unknown	0.3.9	active
+turn_tools_none	0.3.9	active
+turn_unauthorized	0.3.9	active
 unavailable	0.3.0	active
 undeliverable	0.3.0	active
 unknown_code	0.3.0	active

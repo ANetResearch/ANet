@@ -47,6 +47,7 @@ func (m *autoReplyModule) autoReplyView(ar *AutoReplyConfig) map[string]any {
 		entry["api_base"] = ar.APIBase
 	}
 	entry["sandbox"] = m.sandboxView(ar)
+	m.runnerView(ar, entry)
 	return entry
 }
 

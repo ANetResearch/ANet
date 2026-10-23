@@ -249,6 +249,12 @@ func (b *runBudget) pruneLocked(today time.Time) {
 // reserve asks for a run for peer under the budgets: granted with its ticket, busy, off (a budget of 0),
 // or spent with the time until the local day ends. runs is the evidence chain's (BU-2), read on first use.
 func (b *runBudget) reserve(peer string, daily, perPeer int, runs budgetSource) (*budgetTicket, budgetVerdict, time.Duration) {
+	return b.reserveAtOnce(peer, daily, perPeer, untrustedRunsAtOnce, untrustedRunsPerPeerAtOnce, runs)
+}
+
+// reserveAtOnce is reserve with the bounds of runs in flight, in all and per peer; 0 for no bound (the
+// admitted budget's runs, which the runner's --max-jobs bounds, model_proxy.go).
+func (b *runBudget) reserveAtOnce(peer string, daily, perPeer, atOnce, perPeerAtOnce int, runs budgetSource) (*budgetTicket, budgetVerdict, time.Duration) {
 	if daily <= 0 || perPeer <= 0 {
 		return nil, budgetOff, 0
 	}
@@ -265,7 +271,7 @@ func (b *runBudget) reserve(peer string, daily, perPeer int, runs budgetSource) 
 	if day.total >= daily || day.peer[peer] >= perPeer {
 		return nil, budgetSpent, end.Sub(now)
 	}
-	if b.running >= untrustedRunsAtOnce || b.runningPeer[peer] >= untrustedRunsPerPeerAtOnce {
+	if (atOnce > 0 && b.running >= atOnce) || (perPeerAtOnce > 0 && b.runningPeer[peer] >= perPeerAtOnce) {
 		return nil, budgetBusy, 0
 	}
 	day.add(peer, 1)

@@ -152,6 +152,40 @@
       }
     }
   },
+  "model_budget_spent": {
+    "status": 429,
+    "anthropic": {
+      "error": {
+        "message": "anet: this node's model budget for such runs is used up for today; say in your reply that the task cannot be done today.",
+        "type": "permission_error"
+      },
+      "type": "error"
+    },
+    "openai": {
+      "error": {
+        "code": "model_budget_spent",
+        "message": "anet: this node's model budget for such runs is used up for today; say in your reply that the task cannot be done today.",
+        "type": "invalid_request_error"
+      }
+    }
+  },
+  "model_proxy_unauthorized": {
+    "status": 401,
+    "anthropic": {
+      "error": {
+        "message": "anet: this request carries no key of a run that is under way.",
+        "type": "permission_error"
+      },
+      "type": "error"
+    },
+    "openai": {
+      "error": {
+        "code": "model_proxy_unauthorized",
+        "message": "anet: this request carries no key of a run that is under way.",
+        "type": "invalid_request_error"
+      }
+    }
+  },
   "policy_encoding": {
     "status": 400,
     "anthropic": {
