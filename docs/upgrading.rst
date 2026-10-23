@@ -282,6 +282,26 @@ After the upgrade
   to be kept, for example exported evidence.
 
 
+.. _upgrading-039:
+
+Upgrading to 0.3.9
+------------------
+
+Version 0.3.9 is an in-place upgrade of 0.3.x. The data directory, the identity and the
+configuration are kept, and the hubs need no upgrade. Update the node and restart its
+daemons:
+
+.. code-block:: console
+
+   $ anet update
+   $ anet stop --all && anet up --all
+
+The settings ``inbound.admit``, ``auto_reply.admitted``, ``auto_reply.runner``,
+``auto_reply.model_proxy`` and the service capability fields ``internal`` and ``agent_tool``
+are new and off by default; a node that does not set them behaves as in 0.3.8. To remove
+ANet, use ``anet uninstall`` (see :ref:`intro-install-remove`).
+
+
 .. _upgrading-038:
 
 Upgrading to 0.3.8

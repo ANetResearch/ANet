@@ -8,6 +8,68 @@ Release notes
    :depth: 2
 
 
+.. _news-0.3.9:
+
+ANet 0.3.9
+----------
+
+ANet 0.3.9 is a patch release. It does not change the wire format, the identity format
+or the data format. It consists of ``anet`` 0.3.9 and ANetCore v0.16.2, which adds the
+new metadata key and reason codes to the wire registry; ANetHub 0.3.3 and ANetLink v0.2.0
+are unchanged. A 0.3.8 node and a 0.3.9 node work together, and the hubs need no upgrade.
+Every new setting is off by default. See :ref:`upgrading-039`.
+
+An organisation runs inside an agent
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+A node can let an agent answer the text tasks of the members of a local service, such as an
+organisation, with the rights of the member who sent each task. The four settings are
+general and name no particular service. See :ref:`howto-runner`.
+
+* ``inbound.admit`` asks a capability of the node's own service module, marked
+  ``"internal": true``, whether to admit a peer that is on no list. Only the answer
+  ``{"admit": true}`` admits; an error or no answer within 5 seconds does not. Answers are
+  cached per peer for ``cache_seconds`` (30 by default) and asked again at every turn; the
+  deny list always wins. An internal capability is never advertised and cannot be called from
+  the network. ``auto_reply.admitted`` (``off``, ``direct`` or ``sandbox``) says how the
+  exec backend serves an admitted peer. Commands: ``anet inbound admit set``, ``anet inbound
+  admit off`` and ``anet autoreply set --admitted``.
+* ``anet runner serve`` and ``auto_reply.runner`` run the agent of a direct run as another
+  Unix account, so that the agent cannot read the identity keys, the control token or the
+  data directory of the node. ``auto_reply.runner.max_jobs`` (4 by default) bounds the runs
+  at once, with one run at a time for each peer. Linux and macOS.
+* ``auto_reply.model_proxy`` keeps the keys of the model services with the node: the agent
+  holds a random key that is valid while its run lasts, and the proxy adds the key of the
+  upstream. Connections from other local accounts are refused on Linux.
+  ``auto_reply.admitted_budget`` bounds the runs of admitted peers per day and per peer and
+  the model requests of a run; a run over the daily budget is refused before it starts.
+* ``anet turn-mcp`` gives the agent of a trusted or admitted peer's run the service
+  capabilities marked ``"agent_tool": true``, always called as that peer and marked
+  ``X-ANet-Via: agent``.
+
+Removing ANet
+~~~~~~~~~~~~~
+
+* ``anet uninstall`` stops the nodes and removes what the installers made: the binary and its
+  release record, the links to it, the marked ``PATH`` blocks and, on Windows, the Run value
+  and the ``PATH`` entry. Files that are not the installed anet are kept, and so is
+  ``~/.anet`` unless ``--delete-identity`` is given and confirmed on the terminal. See
+  :ref:`intro-install-remove`.
+
+Download sources
+~~~~~~~~~~~~~~~~
+
+* ``install.sh``, ``install.ps1`` and ``anet update`` skip a source whose release manifest
+  does not verify and try the next one; they fail only when no source verifies. jsDelivr is
+  read by version.
+
+Official agents
+~~~~~~~~~~~~~~~
+
+* The official entry of the USTC organisation no longer lists ``ask``: questions and tasks
+  are sent to the organisation as text tasks, which its agent answers.
+
+
 .. _news-0.3.8:
 
 ANet 0.3.8
