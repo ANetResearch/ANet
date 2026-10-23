@@ -6,7 +6,7 @@ on:
   # The joint job below runs only when asked; see there.
   workflow_dispatch:
 
-# The Go jobs build exactly what go.mod names: the published ANetCore v0.16.1.
+# The Go jobs build exactly what go.mod names: the published ANetCore v0.16.2.
 #
 # Jobs that build the hub check ANetHub out at its release tag, v0.3.3, the
 # hub of hub wire 3 that is released with this version. A hub of another
