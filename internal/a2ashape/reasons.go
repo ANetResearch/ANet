@@ -3278,8 +3278,7 @@ var reasonTable = []Row{
 		En:       "The local A2A interface is down because another process holds its recorded port {host} (see {path}), and writing the token now would hand it to that process; have the holder release the port, run anet stop and anet up, then run this command again.",
 		NextKind: NextChangeInput},
 
-	// v0.3.9: the runner (anet runner serve), the model proxy (auto_reply.model_proxy) and the turn tools
-	// (anet turn-mcp). The ClassModel rows are read by the agent, as the egress refusals of ux §1.4 I are.
+	// ux §1.4 J (v0.3.9): the runner of direct runs (anet runner serve, auto_reply.runner).
 	{Code: "runner_unsupported", Class: ClassC,
 		Zh:       "本平台不能运行 anet runner：它要读取 Unix 套接字对端的用户身份，只有 Linux 与 macOS 提供；请改在 Linux 或 macOS 上运行，或删掉 auto_reply.runner。",
 		En:       "anet runner cannot work on this platform: it reads who is on the other end of a Unix socket, which only Linux and macOS report; use Linux or macOS, or remove auto_reply.runner.",
@@ -3290,6 +3289,8 @@ var reasonTable = []Row{
 	{Code: "runner_job_invalid", Class: ClassS, Level: LevelFail,
 		Zh: "运行器不接受本节点发来的任务格式；请把 anet 与运行器升级到同一发布。",
 		En: "The runner does not accept the form of this node's job; upgrade anet and the runner to the same release."},
+	// ux §1.4 I (v0.3.9): the model proxy (auto_reply.model_proxy) and the turn tools (anet turn-mcp), read
+	// by the agent of a direct run as the egress refusals are by a sandboxed one.
 	{Code: "model_proxy_unauthorized", Class: ClassModel,
 		Zh: "anet: 这个请求没有带正在进行的运行的密钥。",
 		En: "anet: this request carries no key of a run that is under way."},

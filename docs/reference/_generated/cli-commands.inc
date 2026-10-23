@@ -134,6 +134,8 @@ Taking tasks
      - the hosts the sandbox may reach; adding one asks on the terminal
    * - ``anet autoreply show|off|test ["q"]``
      - show, turn off, or try the auto-reply on this machine
+   * - ``anet runner serve --socket PATH --allow-user NAME|UID [--agent ID[=PATH]]…``
+     - run the auto-reply agent as another local account (Linux and macOS; with auto_reply.runner)
    * - ``anet preview [off|on|with_reasoning]``
      - let requesters that ask see your reply as you write it (off unless you turn it on); with_reasoning also gives the reasoning and is confirmed in your own terminal
 
@@ -199,13 +201,15 @@ Tools
    * - Invocation
      - Description
    * - ``anet agents wire [--all|<tool>…] [--refresh] [--a2a <aid>…]``
-     - give your coding agents anet's MCP tools and guide (claude\|codex\|cursor\|opencode\|hermes\|workbuddy; every file it edits is backed up)
+     - give your coding agents anet's MCP tools and guide (claude\|codex\|cursor\|opencode\|hermes\|workbuddy\|trae\|zcode; every file it edits is backed up)
    * - ``anet agents unwire [--all|<tool>…] [--a2a <aid>…]``
      - remove what wire added
    * - ``anet agents``
      - which coding agents are wired
    * - ``anet mcp``
      - serve MCP over stdio (``anet agents`` wire registers it)
+   * - ``anet turn-mcp``
+     - serve the turn tools of one run over stdio (started by an agent this node runs)
    * - ``anet guide [<topic>] [--list]``
      - the guide for coding agents, of this release (topics overview, setup, status)
    * - ``anet console [--url]``

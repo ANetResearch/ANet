@@ -76,6 +76,7 @@ Getting help
    howto/coding-agents
    howto/mcp
    howto/local-a2a
+   howto/runner
    howto/troubleshooting
    faq
 

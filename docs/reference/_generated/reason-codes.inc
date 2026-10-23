@@ -2087,6 +2087,94 @@ Sentences that the agent inside the sandbox reads. They are not shown to the ope
      - (connection closed, no sentence)
      - (connection closed, no sentence)
      - 
+   * - .. _reason-code-model-proxy-unauthorized:
+
+       ``model_proxy_unauthorized``
+     - 0.3.9
+     - Model
+     - ``anet``: this request carries no key of a run that is under way.
+     - ``anet``: 这个请求没有带正在进行的运行的密钥。
+     - 
+   * - .. _reason-code-model-budget-spent:
+
+       ``model_budget_spent``
+     - 0.3.9
+     - Model
+     - ``anet``: this node's model budget for such runs is used up for today; say in your reply that the task cannot be done today.
+     - ``anet``: 本节点今天为这类运行提供的模型额度已用完；请在回复里说明今天无法完成这项任务。
+     - 
+   * - ``policy_server_tool.proxy``
+     - 0.3.0
+     - Model
+     - ``anet``: this node's model proxy does not forward the server-side model tool {type}; use a local tool instead.
+     - ``anet``: 本节点的模型代理不转发模型服务端工具 {type}；请改用本机工具。
+     - 
+   * - ``policy_mcp_servers.proxy``
+     - 0.3.0
+     - Model
+     - ``anet``: this node's model proxy does not forward MCP connectors (mcp_servers).
+     - ``anet``: 本节点的模型代理不转发 MCP 连接器（mcp_servers）。
+     - 
+   * - ``policy_field.proxy``
+     - 0.3.0
+     - Model
+     - ``anet``: this node's model proxy does not forward the request field {field}.
+     - ``anet``: 本节点的模型代理不转发请求字段 {field}。
+     - 
+   * - ``policy_path.proxy``
+     - 0.3.0
+     - Model
+     - ``anet``: this node's model proxy forwards only {paths}.
+     - ``anet``: 本节点的模型代理只转发 {paths}。
+     - 
+   * - .. _reason-code-turn-unauthorized:
+
+       ``turn_unauthorized``
+     - 0.3.9
+     - Model
+     - ``anet``: this call carries no token of a run that is under way.
+     - ``anet``: 这次调用没有带正在进行的运行的令牌。
+     - 
+   * - .. _reason-code-turn-tool-unknown:
+
+       ``turn_tool_unknown``
+     - 0.3.9
+     - Model
+     - ``anet``: {name} is not a tool of this run; list the available tools first.
+     - ``anet``: {name} 不是本次运行的工具；请先列出可用的工具。
+     - 
+   * - .. _reason-code-turn-call-invalid:
+
+       ``turn_call_invalid``
+     - 0.3.9
+     - Model
+     - ``anet``: a call is a POST whose body is a JSON object with capability and args (an object), at most 1 MiB.
+     - ``anet``: 调用须为 POST，正文为 JSON 对象，含 capability 与 args（对象），不超过 1 MiB。
+     - 
+   * - .. _reason-code-turn-calls-spent:
+
+       ``turn_calls_spent``
+     - 0.3.9
+     - Model
+     - ``anet``: this run has used its {n} tool calls; answer with what you have.
+     - ``anet``: 本次运行的工具调用已达上限 {n} 次；请根据已有结果作答。
+     - 
+   * - .. _reason-code-turn-service-failed:
+
+       ``turn_service_failed``
+     - 0.3.9
+     - Model
+     - ``anet``: this node cannot reach the service of these tools right now; try again later, or answer with what you have.
+     - ``anet``: 本节点暂时连不上提供这些工具的服务；请稍后再试，或根据已有结果作答。
+     - 
+   * - .. _reason-code-turn-tools-none:
+
+       ``turn_tools_none``
+     - 0.3.9
+     - Model
+     - ``anet``: this session has no turn tools: they exist only while this node runs the agent for a peer (ANET_TURN_URL and ANET_TURN_TOKEN).
+     - ``anet``: 本会话没有任务工具：只有本节点为某个对端运行代理时才有（ANET_TURN_URL 与 ANET_TURN_TOKEN）。
+     - 
 
 .. _reason-codes-j:
 
@@ -2136,6 +2224,30 @@ State sentences of local service backends and of the C1 interface, for the node 
      - S info
      - Refused uid {n} on c1.sock (not in allow_users); to allow it, add the user to c1.allow_users in the ANetLink config.
      - 拒绝 uid {n} 连接 c1.sock（不在 allow_users 中）；如需允许，在 ANetLink 配置 c1.allow_users 加入该用户。
+     - 
+   * - .. _reason-code-runner-unsupported:
+
+       ``runner_unsupported``
+     - 0.3.9
+     - C
+     - ``anet`` runner cannot work on this platform: it reads who is on the other end of a Unix socket, which only Linux and macOS report; use Linux or macOS, or remove auto_reply.runner.
+     - 本平台不能运行 ``anet`` runner：它要读取 Unix 套接字对端的用户身份，只有 Linux 与 macOS 提供；请改在 Linux 或 macOS 上运行，或删掉 auto_reply.runner。
+     - change input
+   * - .. _reason-code-runner-agent-not-allowed:
+
+       ``runner_agent_not_allowed``
+     - 0.3.9
+     - S fail
+     - The runner does not run the agent {name}; restart it with ``anet`` runner serve ``--agent`` {name}.
+     - 运行器不运行代理 {name}；请用 ``anet`` runner serve ``--agent`` {name} 重新启动运行器。
+     - 
+   * - .. _reason-code-runner-job-invalid:
+
+       ``runner_job_invalid``
+     - 0.3.9
+     - S fail
+     - The runner does not accept the form of this node's job; upgrade ``anet`` and the runner to the same release.
+     - 运行器不接受本节点发来的任务格式；请把 ``anet`` 与运行器升级到同一发布。
      - 
 
 .. _reason-codes-k:

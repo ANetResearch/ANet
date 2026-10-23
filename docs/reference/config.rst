@@ -246,6 +246,10 @@ The block is absent by default, which means that the auto-reply is off.
    * - ``sandbox.runs_per_peer_per_day``
      - 5
      - The same limit for one peer.
+   * - ``runner``, ``model_proxy``, ``admitted_budget``
+     - absent
+     - Direct runs as another local account, the model proxy and the budget of
+       admitted peers. See :ref:`reference-config-runner`.
 
 The interval at which the daemon looks for tasks (5 seconds) and the cap of 30
 automatic messages per interaction are constants.
@@ -261,6 +265,76 @@ is rejected is answered with the sentence of the module (``config_invalid``,
 ``egress_allow_*``) and status 400, and a conflict with the inbound policy with 409.
 A daemon that finds an ``auto_reply`` block while the auto-reply module is not
 available refuses to start (``module_absent.configured``).
+
+.. _reference-config-runner:
+
+``auto_reply.runner``, ``auto_reply.model_proxy``, ``auto_reply.admitted_budget``
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+These blocks apply to the ``exec`` backend only and are absent by default. The
+procedure is described in :doc:`../howto/runner`.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 34 16 50
+
+   * - Key
+     - Default
+     - Description
+   * - ``runner.socket``
+     -
+     - Absolute path of the Unix socket of ``anet runner serve``. When the block
+       is set, every direct run (trusted or admitted peer) is sent to the runner
+       as a job. Not available on Windows (``runner_unsupported``).
+   * - ``runner.expected_user``
+     - the owner of the socket
+     - The account the runner runs as, by name or uid. The listener on the
+       socket must be this account; otherwise nothing is sent
+       (``peer_uid_mismatch``).
+   * - ``runner.socket_group``
+     -
+     - A group whose members may write a directory on the path of the socket.
+       The path rules are those of the service backends (see the backend
+       policy below).
+   * - ``model_proxy.listen``
+     -
+     - Loopback address and port of the listener, for example
+       ``127.0.0.1:47811``. Port 0 selects a free port.
+   * - ``model_proxy.upstreams[].name``
+     -
+     - Name of the upstream in the route ``/anet-upstream/<name>/``: lower-case
+       letters, digits, ``-`` and ``_``, at most 32 characters, unique, and not
+       ``anthropic``, ``openai`` or ``custom``. At most 8 upstreams.
+   * - ``model_proxy.upstreams[].api_base``
+     -
+     - Address of an OpenAI-compatible chat completions service: ``https``, or
+       ``http`` on the loopback interface (``api_base_insecure`` otherwise).
+   * - ``model_proxy.upstreams[].api_key_file``
+     - none
+     - Absolute path of a file whose first line is the key of the service. It is
+       read by the node when the proxy starts; the key never reaches a run.
+   * - ``model_proxy.upstreams[].model``
+     - none
+     - When set, every request is pinned to this model.
+   * - ``admitted_budget.runs_per_day``
+     - 50
+     - Runs of admitted peers per local calendar day whose model requests are
+       forwarded. Later runs receive ``model_budget_spent`` for each model
+       request.
+   * - ``admitted_budget.runs_per_peer_per_day``
+     - 10
+     - The same limit for one peer. It may not exceed ``runs_per_day``
+       (``budget_invalid``).
+   * - ``admitted_budget.requests_per_run``
+     - 100
+     - Model requests of one run of an admitted peer. A run of a trusted peer may
+       make up to 1000.
+
+A run that the node starts directly, or sends to the runner, receives the
+variables ``ANET_MODEL_BASE``, ``ANET_MODEL_KEY``, ``ANET_TURN_URL`` and
+``ANET_TURN_TOKEN`` (see :ref:`reference-config-run-env`). A sandboxed run
+receives none of them.
+
 
 ``payments``
 ------------
@@ -443,6 +517,35 @@ Environment variables
        ``LC_ALL``, ``LC_MESSAGES`` and ``LANG`` are not consulted.
    * - ``ADMIN_TOKEN``
      - The credential of ``anet-hub-admin``.
+
+.. _reference-config-run-env:
+
+Variables of an agent run
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The environment of a direct run of the ``exec`` backend holds no ``ANET_*``
+variable of the daemon. The node adds only the variables of the run itself:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 24 76
+
+   * - Variable
+     - Value
+   * - ``ANET_OUTBOX``
+     - The directory whose files are sent with the reply.
+   * - ``ANET_MODEL_BASE``
+     - ``http://<model_proxy listener>/anet-upstream``, when the model proxy has
+       an upstream.
+   * - ``ANET_MODEL_KEY``
+     - The key of the run for the model proxy, valid while the run is under way.
+   * - ``ANET_TURN_URL``
+     - ``http://<model_proxy listener>/anet-turn/v1``, for an inbound task of a
+       trusted or admitted peer when the service module has ``agent_tool``
+       capabilities.
+   * - ``ANET_TURN_TOKEN``
+     - The turn token of the run, bound to the peer, the interaction and the
+       run.
 
 A variable ``ANET_INVITE`` from earlier releases is ignored. ``anet doctor`` reports it
 under ``config.removed`` with level ``warn``, and the daemon does not refuse to

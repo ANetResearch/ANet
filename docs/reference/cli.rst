@@ -504,6 +504,60 @@ OpenAI-compatible API. Settings are merged into the existing configuration.
 auto-reply off, and ``anet autoreply test ["question"]`` runs the configured
 answer once on the local machine, in every mode that is configured.
 
+.. _reference-cli-runner:
+
+``anet runner serve``
+~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: console
+
+   $ anet runner serve --socket /run/anet-runner/hermes.sock --allow-user anet-org \
+       --socket-group anet-runner --agent hermes=/home/anet-hermes/.local/bin/hermes
+
+Runs the direct runs of a node's auto-reply as the account that starts the
+command (``auto_reply.runner``). It uses no data directory and no identity, and
+ends on ``SIGINT`` or ``SIGTERM``. Linux and macOS only; elsewhere it is refused
+with ``runner_unsupported``. See :doc:`../howto/runner`.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 34 66
+
+   * - Option
+     - Description
+   * - ``--socket PATH``
+     - Required. Absolute path of the socket. A lock file ``PATH.lock`` keeps a
+       second runner from taking the socket of a running one.
+   * - ``--allow-user NAME|UID``
+     - Required. The account of the node. Connections of every other account are
+       closed before anything is read.
+   * - ``--socket-group NAME|GID``
+     - Gives the socket this group. The socket has mode ``0660``.
+   * - ``--agent ID[=PATH]``
+     - An agent the runner runs, with the absolute path of its program, or found
+       on ``PATH`` without one. Repeat for several agents. Without the option,
+       every supported agent is run, found on ``PATH``. A job for another agent
+       is refused with ``runner_agent_not_allowed``.
+   * - ``--max-jobs N``
+     - Jobs that run at once; further jobs wait. Default 4, at most 64.
+   * - ``--workspace per-peer|per-run``
+     - ``per-peer`` (default) works in ``<cache>/anet/runner/<peer>/`` and keeps
+       it; ``per-run`` uses a new directory per job and removes it.
+   * - ``--keep-days N``
+     - Days a per-peer directory is kept after its last job. Default 14; 0 keeps
+       it until it is removed by hand.
+
+``anet turn-mcp``
+~~~~~~~~~~~~~~~~~
+
+Serves the turn tools of one run as an MCP server over standard input and
+output. An agent that the node runs starts it; it reads ``ANET_TURN_URL`` and
+``ANET_TURN_TOKEN`` from its environment and needs no data directory. Without
+the two variables, or with values that are empty or still read ``${...}``, it
+serves no tools, and its instructions state that none are available
+(``turn_tools_none``). It sends the token only to an ``http`` address on the
+loopback interface. See :ref:`howto-runner`.
+
 Payments
 --------
 
