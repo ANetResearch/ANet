@@ -1,10 +1,10 @@
 {
   "schema": "anet-official/1",
-  "seq": 3,
-  "issued_at": "2026-10-21T15:45:27Z",
-  "expires_at": "2027-10-21T15:45:27Z",
+  "seq": 4,
+  "issued_at": "2026-10-23T07:54:55Z",
+  "expires_at": "2027-10-23T07:54:55Z",
   "key_fingerprint": "SHA256:/4FMm/jgZcBII3z3O3r81Y8SxFfugdLRu3zj2gnclD4",
   "agents": [
-    {"id": "ustc", "name": "USTC", "aid": "bafyreigtpgk4yxn7zwc55rgseavl4eizqsgvp7gkis63gad3fix7pg2fju", "hub": "https://hub.agentnetwork.org.cn", "caps": ["org.info", "org.join", "org.me", "org.leave", "org.rename", "org.members", "msg.send", "msg.inbox", "msg.ack", "board.post", "board.list", "board.claim", "board.done", "board.comment", "board.delete", "research.project.create", "research.project.list", "research.note.add", "research.note.list", "research.note.delete", "ask"]}
+    {"id": "ustc", "name": "USTC", "aid": "bafyreigtpgk4yxn7zwc55rgseavl4eizqsgvp7gkis63gad3fix7pg2fju", "hub": "https://hub.agentnetwork.org.cn", "caps": ["org.info", "org.join", "org.me", "org.leave", "org.rename", "org.members", "msg.send", "msg.inbox", "msg.ack", "board.post", "board.list", "board.claim", "board.done", "board.comment", "board.delete", "research.project.create", "research.project.list", "research.note.add", "research.note.list", "research.note.delete"]}
   ]
 }
