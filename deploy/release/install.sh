@@ -2064,6 +2064,8 @@ wire_agents() {
 # grant_controller: --controller AID, through `anet init --shell-controller
 # AID --yes`, which writes only while no node runs: a running node is
 # stopped first (start_node starts it again). GRANT is granted, failed or "".
+# `anet help --all` does not list the flags of init, so it is not asked: a
+# binary without the flag refuses it, and the grant is reported as failed.
 grant_controller() {
   GRANT=""
   [ -n "$CONTROLLER" ] || return 0
@@ -2071,11 +2073,6 @@ grant_controller() {
   if [ "$DATA_HELD" = 1 ] || [ "${INIT_FAILED:-0}" = 1 ]; then
     GRANT=failed
     note manual "$(m "--controller was not applied; once anet init has run: $_gc" "--controller 未生效；anet init 完成后请运行：$_gc")"
-    return 0
-  fi
-  if ! "$DEST" help --all 2>/dev/null | grep -q -- '--shell-controller'; then
-    GRANT=failed
-    note manual "$(m "anet $VERSION has no anet init --shell-controller; --controller was not applied" "anet $VERSION 没有 anet init --shell-controller；--controller 未生效")"
     return 0
   fi
   if status_json "$TMP/status.json"; then

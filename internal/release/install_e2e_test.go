@@ -56,11 +56,12 @@ func fakeAnetScript(ver string) string { return fakeAnetScriptVariant(ver, "defa
 
 // fakeAnetScriptVariant is fakeAnetScript for the build variant: the shell
 // build reports the shell module and has `anet init --shell-controller`,
-// which, as anet's own, refuses while a node runs.
+// which, as anet's own, refuses while a node runs. Like anet's, its
+// `help --all` lists init without that flag.
 func fakeAnetScriptVariant(ver, variant string) string {
-	mods, initHelp := "cas,mcp,x402", "anet init"
+	mods, initHelp := "cas,mcp,x402", "anet init [--json]"
 	if variant == "shell" {
-		mods, initHelp = "cas,mcp,shell,x402", "anet init [--shell-controller <aid> [--yes]]"
+		mods = "cas,mcp,shell,x402"
 	}
 	return `#!/bin/sh
 d=${ANET_DATA_DIR:-${ANET_HOME:-$HOME/.anet}}
