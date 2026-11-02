@@ -37,13 +37,31 @@ func attachmentFromPath(path string) (delegation.Attachment, error) {
 	if info.IsDir() {
 		return zero, fmt.Errorf("attachment %q is a directory — compress it first (e.g. `zip -r out.zip .`)", path)
 	}
+	// Only a regular file has a size the cap can be checked against: a device such as /dev/zero reports
+	// 0 and never ends, and a named pipe blocks the open until a writer comes.
+	if !info.Mode().IsRegular() {
+		return zero, fmt.Errorf("attachment %q is not a regular file (%s)", path, info.Mode().Type())
+	}
 	if info.Size() > pathsafe.MaxAttachmentBytes {
 		return zero, fmt.Errorf("attachment %q is %d bytes, over the %d MiB limit — compress or split it",
 			path, info.Size(), pathsafe.MaxAttachmentBytes>>20)
 	}
-	data, err := os.ReadFile(path)
+	f, err := os.Open(path)
 	if err != nil {
 		return zero, fmt.Errorf("attachment %q: %w", path, err)
+	}
+	defer f.Close()
+	if fi, err := f.Stat(); err != nil || !fi.Mode().IsRegular() || !os.SameFile(info, fi) {
+		return zero, fmt.Errorf("attachment %q changed while it was being opened", path)
+	}
+	// The cap also holds for the bytes read, not only for the size stat reported: the file can grow.
+	data, err := io.ReadAll(io.LimitReader(f, pathsafe.MaxAttachmentBytes+1))
+	if err != nil {
+		return zero, fmt.Errorf("attachment %q: %w", path, err)
+	}
+	if int64(len(data)) > pathsafe.MaxAttachmentBytes {
+		return zero, fmt.Errorf("attachment %q grew past the %d MiB limit while it was read — compress or split it",
+			path, pathsafe.MaxAttachmentBytes>>20)
 	}
 	cid, err := anetcid.SumRaw(data)
 	if err != nil {
