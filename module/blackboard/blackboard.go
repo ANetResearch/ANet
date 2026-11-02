@@ -65,16 +65,20 @@ func (b *Blackboard) Add(u *CogUnit, resolve KELResolver, msgTime int64) (added 
 	// stored copy, which is safe only because it verified; skipping the
 	// verification while keeping the overwrite would let a forged envelope
 	// replace a checked one. Returning early does neither.
+	//
+	// The check comes before the phase gate: a unit that is already on the board is not a new
+	// contribution to a frozen task, so a member replaying its contributions after the task concluded
+	// gets (false, nil) as for any other re-add, and Merge does not stop the rest of its batch there.
 	b.mu.Lock()
+	if _, exists := b.store[id]; exists {
+		b.mu.Unlock()
+		return false, nil
+	}
 	if u.TaskID != "" {
 		if ph := b.phases[u.TaskID]; ph != "" && ph != PhaseActive {
 			b.mu.Unlock()
 			return false, ErrTaskNotActive
 		}
-	}
-	if _, exists := b.store[id]; exists {
-		b.mu.Unlock()
-		return false, nil
 	}
 	b.mu.Unlock()
 
